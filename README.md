@@ -39,6 +39,10 @@ targets: [
 
 Runtime dependency: [swift-markdown](https://github.com/swiftlang/swift-markdown) (Markdown semantics).
 
+## Renderer surface
+
+The default SwiftUI renderer includes native structured blocks for paragraphs, headings, quotes, lists, task lists, code blocks, math/HTML policy paths, and Markdown tables. Tables are first-class renderer output: cells are prepared from the AST, column widths are derived from prepared inline measurements, wide tables stay horizontally contained, and visual treatment is controlled through `MarkdownTheme` table tokens rather than demo-only styling.
+
 ## Products
 
 - **`SiriusMarkdown`**: umbrella library (`SiriusMarkdownCore` + `SiriusMarkdownSwiftUI`).

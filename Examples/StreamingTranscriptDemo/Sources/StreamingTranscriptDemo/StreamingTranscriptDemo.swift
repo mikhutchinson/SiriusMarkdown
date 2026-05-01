@@ -24,7 +24,7 @@ private final class StreamingTranscriptModel: ObservableObject {
 
     @Published var isPaused = false
     @Published private(set) var preparedSnapshot: MarkdownPreparedSnapshot
-    @Published private(set) var configuration: MarkdownRendererConfiguration
+    private(set) var configuration: MarkdownRendererConfiguration
     @Published private(set) var streamCounters: MarkdownDiagnosticsCounters
     @Published private(set) var renderCounters: MarkdownDiagnosticsCounters
     @Published private(set) var emittedStepCount = 0

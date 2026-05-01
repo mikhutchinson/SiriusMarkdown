@@ -8,6 +8,14 @@ public struct MarkdownTheme: Sendable, Hashable {
     public var secondaryTextColor: Color
     public var codeBackground: Color
     public var quoteAccent: Color
+    public var tableBackground: Color
+    public var tableHeaderBackground: Color
+    public var tableAlternateRowBackground: Color
+    public var tableBorderColor: Color
+    public var tableAccentColor: Color
+    public var tableCornerRadius: CGFloat
+    public var tableHorizontalCellPadding: CGFloat
+    public var tableVerticalCellPadding: CGFloat
     public var blockSpacing: CGFloat
     public var paragraphFontSize: Double
     public var paragraphLineHeight: Double
@@ -24,6 +32,14 @@ public struct MarkdownTheme: Sendable, Hashable {
         secondaryTextColor: Color = .secondary,
         codeBackground: Color = Color.gray.opacity(0.12),
         quoteAccent: Color = Color.accentColor.opacity(0.65),
+        tableBackground: Color = Color.primary.opacity(0.018),
+        tableHeaderBackground: Color = Color.accentColor.opacity(0.095),
+        tableAlternateRowBackground: Color = Color.primary.opacity(0.032),
+        tableBorderColor: Color = Color.primary.opacity(0.13),
+        tableAccentColor: Color = Color.accentColor.opacity(0.85),
+        tableCornerRadius: CGFloat = 8,
+        tableHorizontalCellPadding: CGFloat = 12,
+        tableVerticalCellPadding: CGFloat = 9,
         blockSpacing: CGFloat = 8,
         paragraphFontSize: Double = 16,
         paragraphLineHeight: Double = 22,
@@ -39,6 +55,14 @@ public struct MarkdownTheme: Sendable, Hashable {
         self.secondaryTextColor = secondaryTextColor
         self.codeBackground = codeBackground
         self.quoteAccent = quoteAccent
+        self.tableBackground = tableBackground
+        self.tableHeaderBackground = tableHeaderBackground
+        self.tableAlternateRowBackground = tableAlternateRowBackground
+        self.tableBorderColor = tableBorderColor
+        self.tableAccentColor = tableAccentColor
+        self.tableCornerRadius = tableCornerRadius
+        self.tableHorizontalCellPadding = tableHorizontalCellPadding
+        self.tableVerticalCellPadding = tableVerticalCellPadding
         self.blockSpacing = blockSpacing
         self.paragraphFontSize = paragraphFontSize
         self.paragraphLineHeight = paragraphLineHeight

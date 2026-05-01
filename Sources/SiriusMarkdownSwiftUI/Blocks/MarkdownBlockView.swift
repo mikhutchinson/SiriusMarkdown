@@ -153,33 +153,70 @@ public struct MarkdownBlockView: View {
     @ViewBuilder
     private var tableContent: some View {
         if let table = preparedContent.table {
+            let columnWidths = tableColumnWidths(for: table)
+
             ScrollView(.horizontal) {
-                Grid(alignment: .leading, horizontalSpacing: 0, verticalSpacing: 0) {
+                VStack(alignment: .leading, spacing: 0) {
                     if !table.header.isEmpty {
-                        GridRow {
-                            ForEach(Array(table.header.enumerated()), id: \.element.id) { column, cell in
-                                tableCell(cell, column: column, isHeader: true)
-                            }
-                        }
+                        tableRow(
+                            cells: table.header,
+                            rowIndex: -1,
+                            isHeader: true,
+                            columnWidths: columnWidths
+                        )
                     }
 
-                    ForEach(table.rows) { row in
-                        GridRow {
-                            ForEach(Array(row.cells.enumerated()), id: \.element.id) { column, cell in
-                                tableCell(cell, column: column, isHeader: false)
-                            }
-                        }
+                    ForEach(Array(table.rows.enumerated()), id: \.element.id) { rowIndex, row in
+                        tableRow(
+                            cells: row.cells,
+                            rowIndex: rowIndex,
+                            isHeader: false,
+                            columnWidths: columnWidths
+                        )
                     }
                 }
-                .clipShape(RoundedRectangle(cornerRadius: 7))
+                .background(theme.tableBackground)
+                .clipShape(RoundedRectangle(cornerRadius: theme.tableCornerRadius))
                 .overlay {
-                    RoundedRectangle(cornerRadius: 7)
-                        .stroke(theme.secondaryTextColor.opacity(0.18))
+                    RoundedRectangle(cornerRadius: theme.tableCornerRadius)
+                        .stroke(theme.tableBorderColor)
                 }
                 .padding(.vertical, 4)
             }
         } else {
             inlineContent(baseFont: theme.codeFont, fallbackText: block.text)
+        }
+    }
+
+    private func tableRow(
+        cells: [MarkdownPreparedTableCell],
+        rowIndex: Int,
+        isHeader: Bool,
+        columnWidths: [CGFloat]
+    ) -> some View {
+        HStack(alignment: .top, spacing: 0) {
+            ForEach(columnWidths.indices, id: \.self) { column in
+                tableCell(
+                    cells[safe: column],
+                    column: column,
+                    isHeader: isHeader,
+                    isLastColumn: column == columnWidths.count - 1,
+                    width: columnWidths[column]
+                )
+            }
+        }
+        .background(tableRowBackground(rowIndex: rowIndex, isHeader: isHeader))
+        .overlay(alignment: .top) {
+            if isHeader {
+                Rectangle()
+                    .fill(theme.tableAccentColor)
+                    .frame(height: 2)
+            }
+        }
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(theme.tableBorderColor)
+                .frame(height: 1)
         }
     }
 
@@ -217,9 +254,15 @@ public struct MarkdownBlockView: View {
     }
 
     @ViewBuilder
-    private func tableCell(_ cell: MarkdownPreparedTableCell, column: Int, isHeader: Bool) -> some View {
+    private func tableCell(
+        _ cell: MarkdownPreparedTableCell?,
+        column: Int,
+        isHeader: Bool,
+        isLastColumn: Bool,
+        width: CGFloat
+    ) -> some View {
         Group {
-            if let inlineLayout = cell.inlineLayout {
+            if let inlineLayout = cell?.inlineLayout {
                 InlineRunsView(
                     prepared: inlineLayout,
                     theme: theme,
@@ -228,7 +271,7 @@ public struct MarkdownBlockView: View {
                 )
             } else {
                 InlineRunsView(
-                    attributed: cell.inline ?? AttributedString(""),
+                    attributed: cell?.inline ?? AttributedString(""),
                     theme: theme,
                     baseFont: isHeader ? theme.paragraphFont.bold() : theme.paragraphFont,
                     linkAction: configuration.linkAction
@@ -236,38 +279,59 @@ public struct MarkdownBlockView: View {
             }
         }
         .font(isHeader ? theme.paragraphFont.bold() : theme.paragraphFont)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 9)
-        .frame(width: tableColumnWidth(column), alignment: tableAlignment(column))
+        .foregroundStyle(theme.textColor)
+        .padding(.horizontal, theme.tableHorizontalCellPadding)
+        .padding(.vertical, theme.tableVerticalCellPadding)
+        .frame(width: width, alignment: tableAlignment(column))
         .frame(minHeight: 38)
-        .background(isHeader ? theme.codeBackground.opacity(0.75) : Color.primary.opacity(0.025))
         .overlay(alignment: .trailing) {
-            Rectangle()
-                .fill(theme.secondaryTextColor.opacity(0.14))
-                .frame(width: 1)
-        }
-        .overlay(alignment: .bottom) {
-            Rectangle()
-                .fill(theme.secondaryTextColor.opacity(0.14))
-                .frame(height: 1)
+            if !isLastColumn {
+                Rectangle()
+                    .fill(theme.tableBorderColor.opacity(0.72))
+                    .frame(width: 1)
+            }
         }
         .textSelection(.enabled)
     }
 
-    private func tableColumnWidth(_ column: Int) -> CGFloat {
-        let columnCount = preparedContent.table?.header.count ?? 0
-        if columnCount <= 2 {
-            return column == 0 ? 150 : 460
+    private func tableRowBackground(rowIndex: Int, isHeader: Bool) -> Color {
+        if isHeader {
+            return theme.tableHeaderBackground
         }
 
-        switch column {
-        case 0:
-            return 120
-        case 1:
-            return 220
-        default:
-            return 280
+        return rowIndex.isMultiple(of: 2) ? Color.clear : theme.tableAlternateRowBackground
+    }
+
+    private func tableColumnWidths(for table: MarkdownPreparedTableBlock) -> [CGFloat] {
+        let columnCount = max(
+            table.header.count,
+            table.rows.map { $0.cells.count }.max() ?? 0
+        )
+        guard columnCount > 0 else {
+            return []
         }
+
+        return (0..<columnCount).map { column in
+            let naturalWidth = tableNaturalWidth(table: table, column: column)
+            let paddedWidth = naturalWidth + (theme.tableHorizontalCellPadding * 2) + 18
+            let minimum = columnCount > 3 ? CGFloat(112) : CGFloat(132)
+            let maximum = columnCount <= 2 ? CGFloat(520) : CGFloat(360)
+            return min(max(CGFloat(paddedWidth), minimum), maximum)
+        }
+    }
+
+    private func tableNaturalWidth(table: MarkdownPreparedTableBlock, column: Int) -> Double {
+        var cells: [MarkdownPreparedTableCell] = []
+        if let header = table.header[safe: column] {
+            cells.append(header)
+        }
+        cells.append(contentsOf: table.rows.compactMap { $0.cells[safe: column] })
+
+        let measuredWidths = cells.map { cell in
+            cell.inlineLayout?.measured.naturalWidth ??
+                Double(cell.inline?.characters.count ?? 0) * theme.paragraphFontSize * 0.56
+        }
+        return measuredWidths.max() ?? 0
     }
 
     private func tableAlignment(_ column: Int) -> Alignment {

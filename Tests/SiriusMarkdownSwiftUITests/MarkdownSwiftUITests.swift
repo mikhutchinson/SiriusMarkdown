@@ -122,6 +122,71 @@ func preparedTablesExposeStableRowAndCellIDs() throws {
 }
 
 @Test
+@MainActor
+func tableRendererAcceptsCustomThemeTokens() throws {
+    let table = try firstBlock("| Region | Text | Evidence |\n| - | - | - |\n| CJK | 日本語 | measured |")
+    let theme = MarkdownTheme(
+        tableCornerRadius: 5,
+        tableHorizontalCellPadding: 14,
+        tableVerticalCellPadding: 7
+    )
+    let configuration = MarkdownRendererConfiguration(theme: theme)
+    let prepared = configuration.prepare(block: table)
+
+    _ = MarkdownBlockView(
+        block: table,
+        configuration: configuration,
+        preparedContent: prepared
+    )
+
+    #expect(configuration.theme.tableCornerRadius == 5)
+    #expect(configuration.theme.tableHorizontalCellPadding == 14)
+    #expect(configuration.theme.tableVerticalCellPadding == 7)
+    #expect(prepared.table?.header.count == 3)
+}
+
+@Test
+@MainActor
+func tableRendererAcceptsRaggedPreparedRows() {
+    let sourceRange = MarkdownSourceRange(byteRange: 0..<1, lineRange: 1..<2)
+    let block = MarkdownBlock(
+        id: MarkdownBlockID("table"),
+        kind: .table,
+        sourceRange: sourceRange,
+        text: "| A | B | C |",
+        isSealed: true
+    )
+    let prepared = MarkdownPreparedBlockContent(
+        blockID: block.id,
+        table: MarkdownPreparedTableBlock(
+            columnAlignments: [.left, .left, .left],
+            header: [
+                MarkdownPreparedTableCell(id: "h1", sourceRange: sourceRange, inline: AttributedString("A")),
+                MarkdownPreparedTableCell(id: "h2", sourceRange: sourceRange, inline: AttributedString("B")),
+                MarkdownPreparedTableCell(id: "h3", sourceRange: sourceRange, inline: AttributedString("C"))
+            ],
+            rows: [
+                MarkdownPreparedTableRow(
+                    id: "row-1",
+                    cells: [
+                        MarkdownPreparedTableCell(id: "r1c1", sourceRange: sourceRange, inline: AttributedString("Only one cell"))
+                    ]
+                )
+            ]
+        )
+    )
+
+    _ = MarkdownBlockView(
+        block: block,
+        configuration: MarkdownRendererConfiguration(),
+        preparedContent: prepared
+    )
+
+    #expect(prepared.table?.header.count == 3)
+    #expect(prepared.table?.rows.first?.cells.count == 1)
+}
+
+@Test
 func preparedSnapshotPreservesHostBoundaryItems() {
     let block = MarkdownBlock(
         id: MarkdownBlockID("block"),

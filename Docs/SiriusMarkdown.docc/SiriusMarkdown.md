@@ -28,6 +28,8 @@ For live updates, append to the stream (or rebuild snapshots from your pipeline)
 
 In production paths, keep **`MarkdownRendererConfiguration`** alive in your model layer and call **`prepare(snapshot:)`** before SwiftUI evaluates renderer bodies. Prepared snapshots carry policy-gated inline text, measured inline content, highlighted code, rendered math, HTML policy decisions, table cells, list items, and host-boundary ordering. The compatibility `snapshot:` view initializers are deprecated because they hide this work at the view boundary.
 
+Markdown tables are rendered as native SwiftUI structure, not as raw pipe text. Prepared table cells keep stable source-range identities and measured inline layout, while **`MarkdownTheme`** exposes table background, header, alternate-row, border, accent, corner-radius, and padding tokens so host apps can make tables visually distinct without replacing the parser or renderer.
+
 ```swift
 @MainActor
 final class TranscriptModel: ObservableObject {
