@@ -8,6 +8,7 @@ struct SiriusMarkdownRenderProbe {
     @MainActor
     static func main() {
         let result = renderRepresentativeDocument()
+        let widthResult = renderInlineWidthProbe()
         if result.nonWhitePixels < result.minimumNonWhitePixels {
             fputs(
                 "error: MarkdownDocumentView rendered only \(result.nonWhitePixels) non-white pixels; expected at least \(result.minimumNonWhitePixels)\n",
@@ -24,35 +25,64 @@ struct SiriusMarkdownRenderProbe {
             exit(EXIT_FAILURE)
         }
 
+        if widthResult.darkRightmostX < widthResult.minimumDarkRightmostX {
+            fputs(
+                "error: prepared inline text only reached x=\(widthResult.darkRightmostX); expected at least \(widthResult.minimumDarkRightmostX). This usually means the view measured its wrapped intrinsic width instead of the offered document width.\n",
+                stderr
+            )
+            exit(EXIT_FAILURE)
+        }
+
         print("MarkdownDocumentView render probe: \(result.nonWhitePixels) non-white pixels, \(result.distinctColorBuckets) color buckets")
+        print("Prepared inline width probe: dark text reached x=\(widthResult.darkRightmostX)")
     }
 
     @MainActor
     private static func renderRepresentativeDocument() -> RenderResult {
+        renderDocument(
+            markdown:
+                """
+                # Render Check
+
+                Paragraph with **strong** text, `code`, and [link](https://example.com).
+
+                > Block quote with stable native layout.
+
+                - [ ] task
+                - [x] done
+
+                | A | B |
+                | - | - |
+                | 1 | 2 |
+
+                ```swift
+                print("native")
+                ```
+                """,
+            outputPath: ProcessInfo.processInfo.environment["SIRIUS_MARKDOWN_RENDER_PROBE_OUTPUT"]
+        )
+    }
+
+    @MainActor
+    private static func renderInlineWidthProbe() -> RenderResult {
+        renderDocument(
+            markdown:
+                """
+                # Width Probe
+
+                This paragraph is intentionally long enough to reach deep into a 640 point document surface when prepared inline content measures the offered parent width instead of repeatedly measuring the intrinsic width of already wrapped text.
+                """,
+            outputPath: nil
+        )
+    }
+
+    @MainActor
+    private static func renderDocument(markdown: String, outputPath: String?) -> RenderResult {
         let app = NSApplication.shared
         app.setActivationPolicy(.prohibited)
 
         var stream = MarkdownStream()
-        stream.append(
-            """
-            # Render Check
-
-            Paragraph with **strong** text, `code`, and [link](https://example.com).
-
-            > Block quote with stable native layout.
-
-            - [ ] task
-            - [x] done
-
-            | A | B |
-            | - | - |
-            | 1 | 2 |
-
-            ```swift
-            print("native")
-            ```
-            """
-        )
+        stream.append(markdown)
         stream.finish()
 
         let configuration = MarkdownRendererConfiguration.document
@@ -87,18 +117,20 @@ struct SiriusMarkdownRenderProbe {
             exit(EXIT_FAILURE)
         }
         hostingView.cacheDisplay(in: hostingView.bounds, to: bitmap)
-        writeBitmapIfRequested(bitmap)
+        writeBitmapIfRequested(bitmap, outputPath: outputPath)
 
         let sample = sampleRenderedPixels(bitmap)
         return RenderResult(
             nonWhitePixels: sample.nonWhitePixels,
-            distinctColorBuckets: sample.distinctColorBuckets
+            distinctColorBuckets: sample.distinctColorBuckets,
+            darkRightmostX: sample.darkRightmostX
         )
     }
 
     private static func sampleRenderedPixels(_ bitmap: NSBitmapImageRep) -> PixelSample {
         var nonWhitePixels = 0
         var colorBuckets = Set<Int>()
+        var darkRightmostX = 0
 
         for y in 0..<bitmap.pixelsHigh {
             for x in 0..<bitmap.pixelsWide {
@@ -116,19 +148,24 @@ struct SiriusMarkdownRenderProbe {
                         (Int(green * 15) << 4) |
                         Int(blue * 15)
                     colorBuckets.insert(bucket)
+
+                    if red < 0.35, green < 0.35, blue < 0.35 {
+                        darkRightmostX = max(darkRightmostX, x)
+                    }
                 }
             }
         }
 
         return PixelSample(
             nonWhitePixels: nonWhitePixels,
-            distinctColorBuckets: colorBuckets.count
+            distinctColorBuckets: colorBuckets.count,
+            darkRightmostX: darkRightmostX
         )
     }
 
-    private static func writeBitmapIfRequested(_ bitmap: NSBitmapImageRep) {
+    private static func writeBitmapIfRequested(_ bitmap: NSBitmapImageRep, outputPath: String?) {
         guard
-            let outputPath = ProcessInfo.processInfo.environment["SIRIUS_MARKDOWN_RENDER_PROBE_OUTPUT"],
+            let outputPath,
             !outputPath.isEmpty,
             let data = bitmap.representation(using: .png, properties: [:])
         else {
@@ -146,12 +183,15 @@ struct SiriusMarkdownRenderProbe {
 private struct RenderResult {
     var nonWhitePixels: Int
     var distinctColorBuckets: Int
+    var darkRightmostX: Int
 
     let minimumNonWhitePixels = 2_000
     let minimumDistinctColorBuckets = 3
+    let minimumDarkRightmostX = 360
 }
 
 private struct PixelSample {
     var nonWhitePixels: Int
     var distinctColorBuckets: Int
+    var darkRightmostX: Int
 }

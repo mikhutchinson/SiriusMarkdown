@@ -230,8 +230,12 @@ public struct MarkdownBlockView: View {
                 )
             }
         }
-        .frame(minWidth: 48, alignment: tableAlignment(column))
+        .frame(width: tableColumnWidth(column), alignment: tableAlignment(column))
         .textSelection(.enabled)
+    }
+
+    private func tableColumnWidth(_ column: Int) -> CGFloat {
+        column == 0 ? 96 : 180
     }
 
     private func tableAlignment(_ column: Int) -> Alignment {

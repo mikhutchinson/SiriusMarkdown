@@ -268,6 +268,7 @@ private struct PreparedInlineTextView: View {
         .font(baseFont)
         .foregroundStyle(theme.textColor)
         .environment(\.openURL, openURLAction)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             GeometryReader { proxy in
                 Color.clear.preference(

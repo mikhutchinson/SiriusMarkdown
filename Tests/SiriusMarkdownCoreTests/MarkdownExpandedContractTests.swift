@@ -242,6 +242,8 @@ private func parserConvertsNestedListItemsFromAST() {
     stream.finish()
 
     let item = stream.snapshot().blocks.first?.listItems.first
+    #expect(item?.text == "parent")
+    #expect(item?.inlines.map(\.text).joined() == "parent")
     #expect(item?.childItems.count == 1)
     #expect(item?.childItems.first?.text.contains("child") == true)
 }
