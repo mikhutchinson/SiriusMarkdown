@@ -1,0 +1,10 @@
+{
+  "name": "smoke",
+  "markdown": "Hello SiriusMarkdown",
+  "containerWidth": 320,
+  "expected": {
+    "lineCount": 1,
+    "naturalWidth": 154.72,
+    "height": 18
+  }
+}

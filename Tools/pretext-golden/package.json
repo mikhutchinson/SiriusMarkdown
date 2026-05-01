@@ -1,0 +1,12 @@
+{
+  "name": "siriusmarkdown-pretext-golden",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node src/index.js --check"
+  },
+  "dependencies": {
+    "@napi-rs/canvas": "^0.1.100",
+    "@chenglou/pretext": "^0.0.6"
+  }
+}
