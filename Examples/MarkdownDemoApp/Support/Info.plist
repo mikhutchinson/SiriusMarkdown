@@ -6,6 +6,8 @@
 	<string>MarkdownDemoApp</string>
 	<key>CFBundleIdentifier</key>
 	<string>dev.siriusmarkdown.examples.markdownDemo</string>
+	<key>CFBundleIconFile</key>
+	<string>MarkdownDemoApp</string>
 	<key>CFBundleName</key>
 	<string>MarkdownDemoApp</string>
 	<key>CFBundlePackageType</key>

@@ -6,6 +6,8 @@
 	<string>StreamingTranscriptDemo</string>
 	<key>CFBundleIdentifier</key>
 	<string>dev.siriusmarkdown.examples.streamingTranscript</string>
+	<key>CFBundleIconFile</key>
+	<string>StreamingTranscriptDemo</string>
 	<key>CFBundleName</key>
 	<string>StreamingTranscriptDemo</string>
 	<key>CFBundlePackageType</key>

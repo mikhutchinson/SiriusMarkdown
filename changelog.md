@@ -33,3 +33,4 @@
 - Restored native pixel coverage for representative structured documents through `Tools/RenderProbe`, which renders `MarkdownDocumentView` through AppKit in its own release-gated process.
 - Added `Tools/release-check.sh` and made CI call the same release gate used locally.
 - Made CI's Pretext golden step clean-checkout safe with `npm ci`.
+- Expanded `DocumentReaderDemo` with richer renderer examples for inline styling, safe and unsafe links, denied image loading, quotes, hard breaks, nested and ordered lists, multilingual text, wide code, wider tables, math blocks, and raw-HTML policy behavior.

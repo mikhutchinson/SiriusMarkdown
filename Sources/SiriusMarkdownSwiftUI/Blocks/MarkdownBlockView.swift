@@ -154,7 +154,7 @@ public struct MarkdownBlockView: View {
     private var tableContent: some View {
         if let table = preparedContent.table {
             ScrollView(.horizontal) {
-                Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 6) {
+                Grid(alignment: .leading, horizontalSpacing: 0, verticalSpacing: 0) {
                     if !table.header.isEmpty {
                         GridRow {
                             ForEach(Array(table.header.enumerated()), id: \.element.id) { column, cell in
@@ -170,6 +170,11 @@ public struct MarkdownBlockView: View {
                             }
                         }
                     }
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 7))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 7)
+                        .stroke(theme.secondaryTextColor.opacity(0.18))
                 }
                 .padding(.vertical, 4)
             }
@@ -230,12 +235,39 @@ public struct MarkdownBlockView: View {
                 )
             }
         }
+        .font(isHeader ? theme.paragraphFont.bold() : theme.paragraphFont)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
         .frame(width: tableColumnWidth(column), alignment: tableAlignment(column))
+        .frame(minHeight: 38)
+        .background(isHeader ? theme.codeBackground.opacity(0.75) : Color.primary.opacity(0.025))
+        .overlay(alignment: .trailing) {
+            Rectangle()
+                .fill(theme.secondaryTextColor.opacity(0.14))
+                .frame(width: 1)
+        }
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(theme.secondaryTextColor.opacity(0.14))
+                .frame(height: 1)
+        }
         .textSelection(.enabled)
     }
 
     private func tableColumnWidth(_ column: Int) -> CGFloat {
-        column == 0 ? 96 : 180
+        let columnCount = preparedContent.table?.header.count ?? 0
+        if columnCount <= 2 {
+            return column == 0 ? 150 : 460
+        }
+
+        switch column {
+        case 0:
+            return 120
+        case 1:
+            return 220
+        default:
+            return 280
+        }
     }
 
     private func tableAlignment(_ column: Int) -> Alignment {
@@ -427,9 +459,7 @@ private struct MarkdownListItemRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text(marker)
-                    .font(theme.codeFont)
-                    .foregroundStyle(theme.secondaryTextColor)
+                markerView
                     .frame(width: markerWidth, alignment: .trailing)
                 listItemInlineView
                 .textSelection(.enabled)
@@ -469,15 +499,24 @@ private struct MarkdownListItemRow: View {
     }
 
     private var marker: String {
-        if let taskState = item.taskState {
-            return taskState == .checked ? "[x]" : "[ ]"
-        }
-
         switch kind {
         case .orderedList:
             return "\(Int(orderedStart ?? 1) + index)."
         default:
-            return "-"
+            return "•"
+        }
+    }
+
+    @ViewBuilder
+    private var markerView: some View {
+        if let taskState = item.taskState {
+            Image(systemName: taskState == .checked ? "checkmark.square.fill" : "square")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(taskState == .checked ? Color.accentColor : theme.secondaryTextColor)
+        } else {
+            Text(marker)
+                .font(theme.codeFont)
+                .foregroundStyle(theme.secondaryTextColor)
         }
     }
 

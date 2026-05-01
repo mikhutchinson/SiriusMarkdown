@@ -30,10 +30,17 @@ bundle_one() {
   local app="${ARTIFACTS}/${name}.app"
   local contents="${app}/Contents"
   local macos="${contents}/MacOS"
+  local resources="${contents}/Resources"
   local exe="${macos}/${name}"
+  local icon="${pkg}/Support/${name}.icns"
 
   [[ -f "${plist}" ]] || {
     printf 'error: missing %s\n' "${plist}" >&2
+    return 1
+  }
+
+  [[ -f "${icon}" ]] || {
+    printf 'error: missing %s\n' "${icon}" >&2
     return 1
   }
 
@@ -49,12 +56,13 @@ bundle_one() {
   }
 
   rm -rf "${app}"
-  mkdir -p "${macos}"
+  mkdir -p "${macos}" "${resources}"
 
   cp "${built}" "${exe}"
   chmod +x "${exe}"
 
   cp "${plist}" "${contents}/Info.plist"
+  cp "${icon}" "${resources}/${name}.icns"
 
   printf 'bundled %s -> %s\n' "${name}" "${app}"
 }

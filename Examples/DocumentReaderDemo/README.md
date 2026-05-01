@@ -15,4 +15,4 @@ Debug-run from the repo:
 swift run --package-path Examples/DocumentReaderDemo
 ```
 
-The demo stresses static documents, wide code blocks, tables, links, and document-theme rendering.
+The demo stresses static documents, inline styling, safe and unsafe links, denied image loading, quotes, hard breaks, nested and ordered lists, multilingual text, wide code blocks, tables, math blocks, raw HTML policy behavior, and document-theme rendering.

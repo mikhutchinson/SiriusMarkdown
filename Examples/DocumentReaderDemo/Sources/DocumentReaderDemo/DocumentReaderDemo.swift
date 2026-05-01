@@ -248,8 +248,14 @@ private struct DocumentSection: Identifiable, Hashable {
             return "doc.richtext"
         case "Long Paragraph":
             return "text.alignleft"
+        case "Inline Styles":
+            return "textformat"
+        case "Quotes And Breaks":
+            return "quote.opening"
         case "Lists And Inline Runs":
             return "list.bullet"
+        case "Multilingual Layout":
+            return "character.book.closed"
         case "Wide Code":
             return "chevron.left.forwardslash.chevron.right"
         case "Table":
@@ -327,6 +333,20 @@ private enum DemoDocument {
 
     > Width changes are layout work. They are not parser work, highlighter work, or AST conversion work.
 
+    ## Inline Styles
+
+    This paragraph mixes **strong emphasis**, *emphasis*, ~~strikethrough~~, `inline code`, [safe links](https://example.com/safe), and [unsafe links](javascript:alert('blocked')) in one run. The safe link should be interactive, while the unsafe JavaScript destination should stay inert under the default link policy.
+
+    A denied network image should not download anything by default: ![Remote architecture diagram](https://example.com/architecture.png)
+
+    ## Quotes And Breaks
+
+    > Block quotes should keep a stable accent edge, support multiple wrapped lines, and avoid becoming a nested card.
+    > The second quote line remains part of the same semantic quote block.
+
+    Hard line breaks should stay visible in prepared layout: first line  
+    second line after a Markdown hard break.
+
     ## Lists And Inline Runs
 
     - [x] Parse Markdown semantics with `swift-markdown`
@@ -334,6 +354,17 @@ private enum DemoDocument {
     - [ ] Continue expanding golden fixtures
       - CJK, emoji, RTL, hard breaks, and atomic inline items stay in the layout test matrix
       - Links such as [the package README](https://example.com/readme) remain policy-controlled
+
+    3. Ordered lists preserve their start value.
+    4. They should render with stable markers.
+       1. Nested ordered children keep their own counter.
+       2. Nested children should not leak into the parent row.
+
+    ## Multilingual Layout
+
+    English, 日本語, 한국어, العربية, עברית, emoji 😀😎, and CJK punctuation should all remain in one prepared document without falling back to parser-time special cases.
+
+    Mixed direction text should still wrap as a normal paragraph: Start with English, continue with العربية داخل الجملة, then return to English with `inline code` and a safe [reference](https://example.com/i18n).
 
     ## Wide Code
 
@@ -343,18 +374,27 @@ private enum DemoDocument {
     print(longLine, renderer.items.count)
     ```
 
+    ```json
+    {"renderer":"SiriusMarkdown","mode":"document","features":["streaming","prepared-inline-layout","policy-gated-links","bounded-caches"]}
+    ```
+
     ## Table
 
-    | Area | Behavior | Evidence | Failure Mode Avoided |
-    | :--- | :--- | :--- | :--- |
-    | Streaming | Mutable tail reparses while sealed regions stay cacheable | Parse and tail counters | Full transcript reparses |
-    | Layout | Prepare once and relayout cheaply for new widths | Pretext fixtures and render probe | Intrinsic-width feedback collapse |
-    | Safety | Links, images, HTML, code, and math go through policies | Default policy hooks | App-private behavior leaking into a public package |
+    | Area | Example Input | Expected Behavior | Evidence | Failure Mode Avoided |
+    | :--- | :--- | :--- | :--- | :--- |
+    | Streaming | many small chunks plus one active tail | Mutable tail reparses while sealed regions stay cacheable | Parse and tail counters | Full transcript reparses |
+    | Layout | resize compact to readable to wide | Prepare once and relayout cheaply for new widths | Pretext fixtures and render probe | Intrinsic-width feedback collapse |
+    | Safety | safe link, unsafe link, raw HTML, remote image | Policies decide rendering without app-private routing | Default policy hooks | Policy bypasses in a public package |
+    | Copy | per-block context menu | Copy exact Markdown source slices | Source range tests | Copying rendered text instead of source Markdown |
 
     ## Math And Policy
 
     $$
     widthChange -> layout(preparedSegments, width)
+    $$
+
+    $$
+    parseCount(document) = 1 + sealedRegions
     $$
 
     <aside>Raw HTML remains inert by default.</aside>

@@ -6,6 +6,8 @@
 	<string>DocumentReaderDemo</string>
 	<key>CFBundleIdentifier</key>
 	<string>dev.siriusmarkdown.examples.documentReader</string>
+	<key>CFBundleIconFile</key>
+	<string>DocumentReaderDemo</string>
 	<key>CFBundleName</key>
 	<string>DocumentReaderDemo</string>
 	<key>CFBundlePackageType</key>
