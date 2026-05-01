@@ -4,7 +4,7 @@ Native, streaming-first Markdown rendering for Apple platforms—designed for lo
 
 ## Overview
 
-> Beta status: this checkout is not v0.1 beta-ready. Strict Swift-vs-Pretext fixture comparison currently fails for emoji/CJK, multilingual, and RTL layout drift; the failure is intentional until the native layout path matches the oracle.
+> Beta status: do not treat construction-only smoke tests as beta evidence. Strict Swift-vs-Pretext fixture comparison and an AppKit `MarkdownDocumentView` render probe are part of the release gate. The prior emoji/CJK, multilingual, and RTL Pretext drift is fixed and must remain covered without allowlists.
 
 - **`swift-markdown`** (`Markdown` product) provides parsing semantics; SiriusMarkdown converts the AST to **`MarkdownBlock`** and **`MarkdownInlineRun`** value types.
 - **`MarkdownStream`** stores append-only UTF-8, incrementally scans safe seal points, reparses only the **mutable tail**, and exposes **`MarkdownSnapshot`** plus source-backed copy slices.
@@ -47,7 +47,7 @@ final class TranscriptModel: ObservableObject {
 }
 ```
 
-SiriusMarkdown's default tests assert this contract through renderer preparation, diagnostics, native SwiftUI pixel checks, an AppKit `MarkdownDocumentView` render probe, and strict Pretext comparison: large streaming transcripts must keep stable prepared item IDs, repeated preparation must hit inline/code/math caches, width changes must reuse measured inline content, and Pretext drift must fail instead of being hidden as a passing known issue.
+SiriusMarkdown's default tests assert this contract through renderer preparation, diagnostics, an AppKit `MarkdownDocumentView` render probe, and strict Pretext comparison: large streaming transcripts must keep stable prepared item IDs, repeated preparation must hit inline/code/math caches, width changes must reuse measured inline content, and Pretext drift must fail instead of being hidden as a passing known issue.
 
 ### Products
 

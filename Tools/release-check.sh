@@ -8,9 +8,7 @@ swift run --package-path Tools/RenderProbe SiriusMarkdownRenderProbe
 swift test
 swift test list | wc -l
 swift build
-swift build --package-path Examples/MarkdownDemoApp
-swift build --package-path Examples/StreamingTranscriptDemo
-swift build --package-path Examples/DocumentReaderDemo
+bash Examples/scripts/bundle-macos-demos.sh
 npm --prefix Tools/pretext-golden ci
 npm --prefix Tools/pretext-golden test
 swift package dump-symbol-graph

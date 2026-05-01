@@ -33,13 +33,13 @@ public struct BoundedMarkdownCache<Value: Sendable>: Sendable {
                 insert(newValue, forKey: key)
             } else {
                 storage.removeValue(forKey: key)
-                order.removeAll { $0 == key }
+                removeKeyFromOrder(key)
             }
         }
     }
 
     public mutating func insert(_ value: Value, forKey key: MarkdownCacheKey) {
-        order.removeAll { $0 == key }
+        removeKeyFromOrder(key)
         order.append(key)
         storage[key] = value
 
@@ -54,7 +54,7 @@ public struct BoundedMarkdownCache<Value: Sendable>: Sendable {
             return nil
         }
 
-        order.removeAll { $0 == key }
+        removeKeyFromOrder(key)
         order.append(key)
         return value
     }
@@ -62,6 +62,19 @@ public struct BoundedMarkdownCache<Value: Sendable>: Sendable {
     public mutating func removeAll() {
         storage.removeAll(keepingCapacity: true)
         order.removeAll(keepingCapacity: true)
+    }
+
+    private mutating func removeKeyFromOrder(_ key: MarkdownCacheKey) {
+        guard !order.isEmpty else {
+            return
+        }
+
+        var compacted: [MarkdownCacheKey] = []
+        compacted.reserveCapacity(order.count)
+        for existing in order where existing != key {
+            compacted.append(existing)
+        }
+        order = compacted
     }
 }
 

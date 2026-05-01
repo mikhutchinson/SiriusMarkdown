@@ -2,5 +2,6 @@
 .build/
 .swiftpm/
 DerivedData/
+Examples/MacOSArtifacts/
 node_modules/
 npm-debug.log*

@@ -440,6 +440,17 @@ private func layoutWalkerProducesDeterministicLineCounts(layoutCase: LayoutCase)
 }
 
 @Test
+private func coreTextMeasurerMatchesPretextBaseFontProfileForMissingGlyphs() {
+    #if canImport(CoreText)
+    let measurer = CoreTextInlineMeasurer()
+
+    #expect(abs(measurer.width(of: "Hello SiriusMarkdown", fontSize: 16) - 154.72) < 0.5)
+    #expect(abs(measurer.width(of: "🚀🚀 春天 emoji wrap", fontSize: 16) - 126.82) < 0.5)
+    #expect(abs(measurer.width(of: "بدأت الرحلة ثم اكتملت", fontSize: 16) - 195.87) < 0.5)
+    #endif
+}
+
+@Test
 private func measuredInlineContentReusesWidthsAcrossLayoutPasses() {
     let prepared = PreparedInlineContent(runs: [.init(kind: .text, text: "abcdef ghij")])
     let measurer = CountingWidthMeasurer()

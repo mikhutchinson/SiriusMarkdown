@@ -34,7 +34,7 @@ The suite includes headless renderer-performance contract tests:
 - renderer preparation must not eagerly generate per-character unit measurements for every segment;
 - explicit overwide fallback layout can use prepared unit measurements, while SwiftUI view-time line breaking refuses measurement fallback and uses already prepared segment widths only.
 
-Strict Pretext fixture drift is a beta blocker. The Swift fixture comparison currently fails for emoji/CJK, multilingual, and RTL metrics instead of whitelisting those failures as a passing known issue.
+Strict Pretext fixture drift is a beta blocker. The Swift fixture comparison now passes for emoji/CJK, multilingual, RTL, long-word, hard-break, code-span, and soft-wrap fixtures without a known-drift whitelist.
 
 ## Accelerate and Metal
 

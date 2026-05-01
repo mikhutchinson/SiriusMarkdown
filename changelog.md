@@ -7,7 +7,7 @@
 - Added `AGENTS.md` as repo-local agent guidance so future work treats `plan.md` as binding project architecture.
 - Added initial core source-buffer, streaming, parser, model, policy, cache, diagnostics, inline-layout, SwiftUI-renderer, and Pretext-support surfaces.
 - Added a working Pretext golden smoke harness backed by `@chenglou/pretext` and a Node canvas shim.
-- Expanded Swift coverage to 148 runner-counted tests plus parameterized edge cases for streaming equivalence, stable block IDs, source byte/line maps, conservative and incremental boundary scanning, block and inline classification, structured AST conversion, policy handling, cache eviction, diagnostics, renderer behavior, prepared snapshots, native render pixels, large-transcript prepared item identity, repeated preparation cache reuse, source-backed copy, umbrella import ergonomics, strict Pretext fixture drift, and deterministic inline layout.
+- Expanded Swift coverage to 148 runner-counted tests plus parameterized edge cases for streaming equivalence, stable block IDs, source byte/line maps, conservative and incremental boundary scanning, block and inline classification, structured AST conversion, policy handling, cache eviction, diagnostics, renderer behavior, prepared snapshots, large-transcript prepared item identity, repeated preparation cache reuse, source-backed copy, umbrella import ergonomics, strict Pretext fixture drift, CoreText-vs-Pretext font-profile measurement, and deterministic inline layout.
 - Fixed stable block identity so active-tail block IDs survive sealing.
 - Fixed conservative boundary scanning so a single trailing newline does not seal a block or split multi-line blockquotes during streaming.
 - Reworked parsing so `swift-markdown` owns Markdown semantics and the package converts the AST into the public render model.
@@ -26,9 +26,10 @@
 - Count highlighted-code and rendered-math cache hits/misses in `MarkdownDiagnosticsRecorder` so repeated preparation proves cache reuse through counters, not only through highlighter/renderer call counts.
 - Updated README, DocC, architecture, streaming, performance, and runbook documentation to make prepared snapshots the primary integration path and to describe the renderer/performance verification contract.
 - Tightened the Pretext Swift fixture comparison so emoji/CJK, multilingual, and RTL drift now fails the test suite instead of being treated as a passing known issue.
+- Fixed the native inline measurer so strict Pretext fixtures for emoji/CJK, multilingual, RTL, and long overwide words pass without fixture allowlists.
 - Stopped renderer preparation from eagerly populating per-character inline unit measurements, added a view-time layout mode that refuses overwide measurement fallback, and added tests for both paths.
 - Fixed boundary scanning for incomplete active-tail lines so repeated appends without a newline do not rescan the same unfinished line.
 - Made `BoundedMarkdownCache` update recency on cache hits and added a real least-recently-used eviction assertion.
-- Restored native SwiftUI pixel smoke coverage for representative structured documents and added `Tools/RenderProbe` so `MarkdownDocumentView` is rendered through AppKit in its own release-gated process.
+- Restored native pixel coverage for representative structured documents through `Tools/RenderProbe`, which renders `MarkdownDocumentView` through AppKit in its own release-gated process.
 - Added `Tools/release-check.sh` and made CI call the same release gate used locally.
 - Made CI's Pretext golden step clean-checkout safe with `npm ci`.

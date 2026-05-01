@@ -10,7 +10,7 @@ The package is built around three principles:
 
 ## Status
 
-This checkout is not v0.1 beta-ready. The Swift test suite now treats strict Pretext drift as a release blocker instead of tolerating it. Until the emoji/CJK, multilingual, and RTL fixture failures are fixed, `swift test` and `Tools/release-check.sh` are expected to fail rather than falsely certify beta readiness.
+This checkout should not be called v0.1 beta-ready from narrow smoke tests or construction-only assertions. The release gate now includes strict Swift-vs-Pretext layout comparison and an AppKit `MarkdownDocumentView` render probe. The prior emoji/CJK, multilingual, and RTL Pretext drift is fixed; future fixture drift must fail the gate instead of being whitelisted.
 
 ## Requirements
 
@@ -88,7 +88,7 @@ The default test suite covers more than construction smoke tests:
 - repeated preparation reuses inline/code/math caches and records diagnostics;
 - large transcripts keep stable prepared item IDs for hundreds of sealed blocks plus one active tail;
 - `Tools/RenderProbe` renders `MarkdownDocumentView` through AppKit in its own process and rejects blank or trivial pixel output;
-- strict Pretext golden fixtures compare Swift layout metrics against the JavaScript oracle and currently block beta on known drift.
+- strict Pretext golden fixtures compare Swift layout metrics against the JavaScript oracle with no known-drift whitelist.
 
 ## Documentation
 
@@ -114,10 +114,23 @@ See `runbook.md` for the AppKit render probe, Pretext golden checks (`Tools/pret
 
 ## Examples
 
+SwiftPM examples are SwiftUI `@main` apps, but plain `swift build` / `swift run` produces a bare Mach-O executable. For double-clickable macOS apps (not tied to the launching terminal), bundle them:
+
 ```sh
-swift build --package-path Examples/MarkdownDemoApp
-swift build --package-path Examples/StreamingTranscriptDemo
-swift build --package-path Examples/DocumentReaderDemo
+Examples/scripts/bundle-macos-demos.sh
+open Examples/MacOSArtifacts/MarkdownDemoApp.app
+```
+
+Build a single demo as an app by name:
+
+```sh
+Examples/scripts/bundle-macos-demos.sh StreamingTranscriptDemo
+```
+
+For a quick command-line launch (debug build, process bound to that shell session unless disowned):
+
+```sh
+swift run --package-path Examples/MarkdownDemoApp
 ```
 
 Run the full local release gate with:

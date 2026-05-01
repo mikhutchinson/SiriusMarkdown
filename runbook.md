@@ -14,7 +14,7 @@ swift build
 swift test
 ```
 
-Current status: `swift test` is expected to fail until strict Swift-vs-Pretext drift is fixed. The known beta blockers are `emoji-cjk`, `multilingual`, and `rtl` in `bundledPretextFixturesCompareAgainstSwiftLayout`; do not call this package v0.1 beta-ready while those failures remain.
+Current status: `swift test` must pass with strict Swift-vs-Pretext comparison enabled. The former `emoji-cjk`, `multilingual`, and `rtl` drift in `bundledPretextFixturesCompareAgainstSwiftLayout` is fixed; do not reintroduce known-drift allowlists or call construction-only smoke tests renderer coverage.
 
 Count the Swift test functions reported by the runner:
 
@@ -38,7 +38,7 @@ Layout and renderer acceptance for the current slice:
 - Use `MarkdownRendererConfiguration.prepare(snapshot:)` in model/controller code and pass `MarkdownPreparedSnapshot` into `MarkdownDocumentView` or `StreamingMarkdownView`. Deprecated direct `snapshot:` view initializers are compatibility shims, not the streaming/document path.
 - Renderer configuration must be protocol-driven for link, image, HTML, code, math, code highlighting, and math rendering hooks.
 - Lists, task lists, tables, code blocks, math blocks, and HTML blocks must keep structured render paths. Do not collapse them back to `Text(block.text)` except as an explicit policy-denied or missing-structure fallback.
-- Renderer tests must assert behavior through render plans, prepared snapshots, inline payload helpers, diagnostics counters, large-transcript prepared item identity, and native SwiftUI/AppKit pixel checks. `Tools/RenderProbe` owns the `MarkdownDocumentView` AppKit host check so Swift Testing helper crashes do not excuse dropping document-render coverage.
+- Renderer tests must assert behavior through render plans, prepared snapshots, inline payload helpers, diagnostics counters, and large-transcript prepared item identity. `Tools/RenderProbe` owns the `MarkdownDocumentView` AppKit pixel check so Swift Testing helper crashes do not excuse dropping document-render coverage.
 - Repeated preparation of the same snapshot should reuse inline/code/math caches and record cache hits without incrementing prepare, highlighting, or math-render counters.
 
 ## Pretext Golden Tool
@@ -59,5 +59,5 @@ The Swift fixture comparison must not whitelist known drift. A failing Pretext f
 bash Tools/release-check.sh
 ```
 
-The script first runs `Tools/RenderProbe`, which renders a representative `MarkdownDocumentView` through AppKit and rejects blank or trivial output. It then runs Swift tests, test count, root build, all demo builds, Pretext install/test, symbol graph generation, and warning-clean DocC conversion. Before cutting a release, update `changelog.md` and confirm `bugfix.md` records any defects found during the slice.
-Because Swift tests intentionally fail on the current Pretext drift, this release check is also expected to fail until the beta blockers are closed.
+The script first runs `Tools/RenderProbe`, which renders a representative `MarkdownDocumentView` through AppKit and rejects blank or trivial output. It then runs Swift tests, test count, root build, macOS demo app bundling (`Examples/scripts/bundle-macos-demos.sh`), Pretext install/test, symbol graph generation, and warning-clean DocC conversion. Before cutting a release, update `changelog.md` and confirm `bugfix.md` records any defects found during the slice.
+If this script fails, treat it as a real release blocker. Do not bypass the Pretext fixture comparison or the AppKit render probe to make a release check look green.

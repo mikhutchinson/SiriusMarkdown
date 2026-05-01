@@ -201,7 +201,11 @@ public protocol InlineMeasuring: Sendable {
 public typealias TextMeasurer = InlineMeasuring
 
 public struct CoreTextInlineMeasurer: InlineMeasuring {
-    public init() {}
+    public var fontName: String
+
+    public init(fontName: String = "Helvetica") {
+        self.fontName = fontName
+    }
 
     public func width(of text: String, fontSize: Double) -> Double {
         guard !text.isEmpty else {
@@ -209,7 +213,19 @@ public struct CoreTextInlineMeasurer: InlineMeasuring {
         }
 
         #if canImport(CoreText)
-        let font = CTFontCreateWithName("Helvetica" as CFString, fontSize, nil)
+        let font = CTFontCreateWithName(fontName as CFString, fontSize, nil)
+        if selectedFontCoversEveryScalar(in: text, font: font) {
+            return shapedWidth(of: text, font: font)
+        }
+
+        return baseFontAdvanceWidth(of: text, font: font)
+        #else
+        return Double(text.count) * fontSize * 0.5
+        #endif
+    }
+
+    #if canImport(CoreText)
+    private func shapedWidth(of text: String, font: CTFont) -> Double {
         let attributed = CFAttributedStringCreate(
             nil,
             text as CFString,
@@ -217,10 +233,56 @@ public struct CoreTextInlineMeasurer: InlineMeasuring {
         )
         let line = CTLineCreateWithAttributedString(attributed!)
         return CTLineGetTypographicBounds(line, nil, nil, nil)
-        #else
-        return Double(text.count) * fontSize * 0.5
-        #endif
     }
+
+    private func baseFontAdvanceWidth(of text: String, font: CTFont) -> Double {
+        var width = 0.0
+        var coveredRun = ""
+        let missingAdvance = missingGlyphAdvance(font: font)
+
+        func flushCoveredRun() {
+            guard !coveredRun.isEmpty else {
+                return
+            }
+
+            width += shapedWidth(of: coveredRun, font: font)
+            coveredRun.removeAll(keepingCapacity: true)
+        }
+
+        for scalar in text.unicodeScalars {
+            if selectedFontCovers(scalar, font: font) {
+                coveredRun.unicodeScalars.append(scalar)
+            } else {
+                flushCoveredRun()
+                width += missingAdvance
+            }
+        }
+
+        flushCoveredRun()
+        return width
+    }
+
+    private func selectedFontCoversEveryScalar(in text: String, font: CTFont) -> Bool {
+        text.unicodeScalars.allSatisfy { selectedFontCovers($0, font: font) }
+    }
+
+    private func selectedFontCovers(_ scalar: Unicode.Scalar, font: CTFont) -> Bool {
+        guard scalar.value <= UInt16.max else {
+            return false
+        }
+
+        var character = UniChar(scalar.value)
+        var glyph = CGGlyph()
+        return CTFontGetGlyphsForCharacters(font, &character, &glyph, 1)
+    }
+
+    private func missingGlyphAdvance(font: CTFont) -> Double {
+        var glyph = CGGlyph()
+        var advance = CGSize.zero
+        CTFontGetAdvancesForGlyphs(font, .horizontal, &glyph, &advance, 1)
+        return advance.width
+    }
+    #endif
 }
 
 public struct VariableWidthLineWalker<Measurer: InlineMeasuring>: Sendable {
@@ -396,7 +458,7 @@ public struct InlineLayoutEngine<Measurer: InlineMeasuring>: Sendable {
     private var preparedCache: BoundedMarkdownCache<PreparedInlineContent>
     private var measuredCache: BoundedMarkdownCache<MeasuredInlineContent>
     private var layoutCache: BoundedMarkdownCache<InlineLayoutResult>
-    private var overwideUnitCache: BoundedMarkdownCache<[MeasuredInlineUnit]>
+    private let overwideUnitCache: OverwideUnitCache
 
     public init(
         measurer: Measurer,
@@ -408,7 +470,7 @@ public struct InlineLayoutEngine<Measurer: InlineMeasuring>: Sendable {
         self.preparedCache = BoundedMarkdownCache(capacity: cacheCapacity)
         self.measuredCache = BoundedMarkdownCache(capacity: cacheCapacity)
         self.layoutCache = BoundedMarkdownCache(capacity: cacheCapacity)
-        self.overwideUnitCache = BoundedMarkdownCache(capacity: cacheCapacity)
+        self.overwideUnitCache = OverwideUnitCache(capacity: cacheCapacity)
     }
 
     public var diagnosticsCounters: MarkdownDiagnosticsCounters {
@@ -535,7 +597,7 @@ public struct InlineLayoutEngine<Measurer: InlineMeasuring>: Sendable {
             diagnosticsRecorder.recordCacheMiss()
             diagnosticsRecorder.recordOverwideUnitFallback()
             let units = measuredUnits(for: measuredSegment.segment, fontSize: measured.fontSize)
-            overwideUnitCache[key] = units
+            overwideUnitCache.insert(units, forKey: key)
             updated.segments[index].units = units
         }
         return updated
@@ -664,6 +726,56 @@ public struct InlineLayoutEngine<Measurer: InlineMeasuring>: Sendable {
             hash &*= 0x100000001b3
         }
         return hash
+    }
+}
+
+private final class OverwideUnitCache: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage: [MarkdownCacheKey: [MeasuredInlineUnit]] = [:]
+    private var order: [MarkdownCacheKey] = []
+    private let capacity: Int
+
+    init(capacity: Int) {
+        precondition(capacity > 0)
+        self.capacity = capacity
+    }
+
+    func value(forKey key: MarkdownCacheKey) -> [MeasuredInlineUnit]? {
+        lock.withLock {
+            guard let value = storage[key] else {
+                return nil
+            }
+
+            removeKeyFromOrder(key)
+            order.append(key)
+            return value
+        }
+    }
+
+    func insert(_ value: [MeasuredInlineUnit], forKey key: MarkdownCacheKey) {
+        lock.withLock {
+            removeKeyFromOrder(key)
+            order.append(key)
+            storage[key] = value
+
+            while order.count > capacity, let oldest = order.first {
+                order.removeFirst()
+                storage.removeValue(forKey: oldest)
+            }
+        }
+    }
+
+    private func removeKeyFromOrder(_ key: MarkdownCacheKey) {
+        guard !order.isEmpty else {
+            return
+        }
+
+        var compacted: [MarkdownCacheKey] = []
+        compacted.reserveCapacity(order.count)
+        for existing in order where existing != key {
+            compacted.append(existing)
+        }
+        order = compacted
     }
 }
 
