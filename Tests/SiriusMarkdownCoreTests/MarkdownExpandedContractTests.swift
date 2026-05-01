@@ -412,7 +412,7 @@ private func measuredInlineContentReusesWidthsAcrossLayoutPasses() {
 
     let narrow = walker.layout(
         measured,
-        options: InlineLayoutOptions(containerWidth: 3, fontSize: 1, lineHeight: 2)
+        options: InlineLayoutOptions(containerWidth: 7, fontSize: 1, lineHeight: 2)
     )
     let wide = walker.layout(
         measured,
@@ -475,6 +475,63 @@ private func sealedRegionParseMissIsRecordedWhenNoTailCacheExists() {
 }
 
 @Test
+private func boundaryScannerScansLongOpenTailLinearly() {
+    var stream = MarkdownStream()
+    stream.append("```swift\n")
+    for index in 0..<1_000 {
+        stream.append("let value\(index) = \(index)\n")
+    }
+
+    let counters = stream.diagnosticsCounters
+    #expect(counters.boundaryScannedLineCount == 1_001)
+    #expect(counters.boundaryScannedByteCount <= stream.sourceLength)
+    #expect(counters.sealedRegionParseCount == 0)
+}
+
+@Test
+private func boundaryScannerScansLooseListTailLinearly() {
+    var stream = MarkdownStream()
+    stream.append("1. item\n")
+    for _ in 0..<1_000 {
+        stream.append("continuation\n")
+    }
+
+    let counters = stream.diagnosticsCounters
+    #expect(counters.boundaryScannedLineCount == 1_001)
+    #expect(counters.boundaryScannedByteCount <= stream.sourceLength)
+}
+
+@Test
+private func boundaryScannerScansOpenHTMLAndMathTailsLinearly() {
+    var htmlStream = MarkdownStream()
+    htmlStream.append("<div>\n")
+    for _ in 0..<500 {
+        htmlStream.append("content\n")
+    }
+
+    var mathStream = MarkdownStream()
+    mathStream.append("$$\n")
+    for _ in 0..<500 {
+        mathStream.append("x^2\n")
+    }
+
+    #expect(htmlStream.diagnosticsCounters.boundaryScannedByteCount <= htmlStream.sourceLength)
+    #expect(mathStream.diagnosticsCounters.boundaryScannedByteCount <= mathStream.sourceLength)
+    #expect(htmlStream.diagnosticsCounters.sealedRegionParseCount == 0)
+    #expect(mathStream.diagnosticsCounters.sealedRegionParseCount == 0)
+}
+
+@Test
+private func sourceBackedCopyReturnsBoundedMarkdownSlice() throws {
+    var stream = MarkdownStream()
+    stream.append("# Title\n\nParagraph\n\n")
+    stream.finish()
+
+    let paragraph = try #require(stream.snapshot().blocks.last)
+    #expect(stream.markdown(in: paragraph.sourceRange) == "Paragraph")
+}
+
+@Test
 private func inlineLayoutEngineCachesMeasuredContentAndLayoutResults() {
     let runs = [MarkdownInlineRun(kind: .text, text: "abcdef ghij")]
     let range = MarkdownSourceRange(byteRange: 0..<11, lineRange: 1..<2)
@@ -498,6 +555,9 @@ private func inlineLayoutEngineCachesMeasuredContentAndLayoutResults() {
         options: InlineLayoutOptions(containerWidth: 3, fontSize: 1, lineHeight: 2)
     )
     let afterFirstLayout = engine.diagnosticsCounters
+    let afterNarrowMeasurementCount = measurer.count
+    #expect(afterFirstLayout.overwideUnitFallbackCount == 2)
+    #expect(afterNarrowMeasurementCount > measurementCount)
 
     let cachedNarrow = engine.layout(
         measured,
@@ -506,13 +566,14 @@ private func inlineLayoutEngineCachesMeasuredContentAndLayoutResults() {
     let afterCachedLayout = engine.diagnosticsCounters
     #expect(cachedNarrow == narrow)
     #expect(afterCachedLayout.layoutCount == afterFirstLayout.layoutCount)
+    #expect(measurer.count == afterNarrowMeasurementCount)
 
     let wide = engine.layout(
         measured,
         options: InlineLayoutOptions(containerWidth: 20, fontSize: 1, lineHeight: 2)
     )
     #expect(engine.diagnosticsCounters.layoutCount == afterFirstLayout.layoutCount + 1)
-    #expect(measurer.count == measurementCount)
+    #expect(measurer.count == afterNarrowMeasurementCount)
     #expect(narrow.lines.count > wide.lines.count)
 }
 

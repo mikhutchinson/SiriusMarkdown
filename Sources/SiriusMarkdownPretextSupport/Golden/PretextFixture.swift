@@ -20,6 +20,16 @@ public struct PretextFixture: Codable, Sendable, Hashable {
     }
 }
 
+public extension PretextFixture {
+    static func bundledFixtures() throws -> [PretextFixture] {
+        let urls = Bundle.module.urls(forResourcesWithExtension: "json", subdirectory: nil) ?? []
+        return try urls.sorted { $0.lastPathComponent < $1.lastPathComponent }.map { url in
+            let data = try Data(contentsOf: url)
+            return try JSONDecoder().decode(PretextFixture.self, from: data)
+        }
+    }
+}
+
 public struct PretextExpectedLayout: Codable, Sendable, Hashable {
     public var lineCount: Int
     public var naturalWidth: Double

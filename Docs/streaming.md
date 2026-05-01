@@ -23,11 +23,12 @@ let final = stream.snapshot()
 ```
 
 - **`sourceLength`** — current byte length of buffered source.
-- **`diagnosticsCounters`** — parse/cache counters from the stream’s diagnostics recorder.
+- **`diagnosticsCounters`** — parse/cache/boundary-scan counters from the stream’s diagnostics recorder.
+- **`markdown(in:)`** — returns a bounded source slice for a `MarkdownSourceRange`, used by copy-as-Markdown flows without materializing unrelated source.
 
 ## Sealing
 
-After each **`append`**, **`sealBoundaryIfPossible()`** runs. It asks **`MarkdownBoundaryScanner.safeSealUpperBound(in:after:)`** for a byte offset strictly greater than the current seal point. If present, Core parses **`[sealedUpperBound, upperBound)`**, appends blocks to **`sealedBlocks`**, and advances **`sealedUpperBound`**.
+After each **`append`**, **`sealBoundaryIfPossible()`** runs. `MarkdownStream` keeps **`MarkdownBoundaryScanState`** for the active tail, so newly appended complete lines are scanned once instead of rescanning the whole unsealed suffix. If the scanner returns a byte offset strictly greater than the current seal point, Core parses **`[sealedUpperBound, upperBound)`**, appends blocks to **`sealedBlocks`**, resets scanner state to the new seal point, and advances **`sealedUpperBound`**.
 
 The scanner is **conservative**: it must not seal inside constructs that later bytes could extend or invalidate.
 
@@ -48,7 +49,7 @@ If any fence/HTML/math remains open at EOF-of-scan, **no** seal is returned for 
 - If there is buffered tail past **`sealedUpperBound`**, it **seals up to `source.byteCount`** first.
 - Then a **`MarkdownHostBoundary`** is recorded at the current source offset (optional stable **`id`**).
 
-**`snapshot()`** builds **`MarkdownSnapshot.items`**: blocks and **`hostBoundary`** entries ordered by source offsets so hosts can render native chrome between Markdown regions. Default **`MarkdownSnapshot`** initialization can derive **`items`** from **`blocks`** alone when you omit custom ordering.
+**`snapshot()`** builds **`MarkdownSnapshot.items`**: blocks and **`hostBoundary`** entries ordered by source offsets so hosts can render native chrome between Markdown regions. Default **`MarkdownSnapshot`** initialization can derive **`items`** from **`blocks`** alone when you omit custom ordering. `MarkdownDocumentView` and `StreamingMarkdownView` can render prepared snapshot items with a host-boundary closure; their default host-boundary renderer is empty.
 
 ## Snapshots
 

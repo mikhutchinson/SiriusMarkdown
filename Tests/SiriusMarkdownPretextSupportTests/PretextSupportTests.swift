@@ -18,3 +18,36 @@ func goldenComparatorReportsNoDifferencesInsideTolerance() {
 
     #expect(PretextGoldenComparator.compare(fixture: fixture, actual: actual, tolerance: 0.5).isEmpty)
 }
+
+@Test
+func bundledPretextFixturesCompareAgainstSwiftLayout() throws {
+    let fixtures = try PretextFixture.bundledFixtures()
+    #expect(fixtures.count >= 9)
+
+    var engine = InlineLayoutEngine()
+    let knownFontDriftFixtures: Set<String> = ["emoji-cjk", "rtl"]
+    for fixture in fixtures {
+        let prepared = PreparedInlineContent(
+            runs: [.init(kind: .text, text: fixture.markdown)]
+        )
+        let measured = engine.prepareMeasuredContent(prepared, fontSize: 16)
+        let result = engine.layout(
+            measured,
+            options: InlineLayoutOptions(
+                containerWidth: fixture.containerWidth,
+                fontSize: 16,
+                lineHeight: 18
+            )
+        )
+        let differences = PretextGoldenComparator.compare(
+            fixture: fixture,
+            actual: result,
+            tolerance: 8
+        )
+        if knownFontDriftFixtures.contains(fixture.name) {
+            #expect(!differences.isEmpty, "Expected tracked drift for \(fixture.name).")
+        } else {
+            #expect(differences.isEmpty, "Pretext drift for \(fixture.name): \(differences)")
+        }
+    }
+}

@@ -1,0 +1,10 @@
+{
+  "name": "soft-wraps",
+  "markdown": "alpha beta gamma delta epsilon zeta",
+  "containerWidth": 120,
+  "expected": {
+    "lineCount": 3,
+    "naturalWidth": 261.53,
+    "height": 54
+  }
+}

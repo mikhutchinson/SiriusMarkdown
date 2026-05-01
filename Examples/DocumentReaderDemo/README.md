@@ -1,6 +1,9 @@
 # DocumentReaderDemo
 
-Document-reader demo target placeholder.
+Document-reader SwiftUI demo packaged as a local SwiftPM executable.
 
-The demo should stress long static documents, wide code blocks, tables, and dark/light theme switching.
+```sh
+swift build --package-path Examples/DocumentReaderDemo
+```
 
+The demo stresses static documents, wide code blocks, tables, links, and document-theme rendering.

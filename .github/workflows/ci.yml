@@ -10,9 +10,5 @@ jobs:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
-      - name: Swift test
-        run: swift test
-      - name: Install Pretext golden dependencies
-        run: npm --prefix Tools/pretext-golden ci
-      - name: Pretext golden smoke
-        run: npm --prefix Tools/pretext-golden test
+      - name: Release check
+        run: bash Tools/release-check.sh

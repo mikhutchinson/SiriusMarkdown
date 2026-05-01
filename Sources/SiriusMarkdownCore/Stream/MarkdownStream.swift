@@ -9,6 +9,7 @@ public struct MarkdownStream: Sendable {
     private var finished: Bool
     private let parser: SwiftMarkdownParser
     private let boundaryScanner: MarkdownBoundaryScanner
+    private var boundaryScanState: MarkdownBoundaryScanState
     private let parserCache: MarkdownParserCache
     private let diagnosticsRecorder: MarkdownDiagnosticsRecorder
 
@@ -31,6 +32,7 @@ public struct MarkdownStream: Sendable {
         self.finished = false
         self.parser = SwiftMarkdownParser()
         self.boundaryScanner = MarkdownBoundaryScanner()
+        self.boundaryScanState = MarkdownBoundaryScanState()
         self.parserCache = MarkdownParserCache(capacity: parserCacheCapacity)
         self.diagnosticsRecorder = diagnosticsRecorder
     }
@@ -55,7 +57,19 @@ public struct MarkdownStream: Sendable {
     }
 
     public mutating func sealBoundaryIfPossible() {
-        guard let upperBound = boundaryScanner.safeSealUpperBound(in: source, after: sealedUpperBound),
+        if boundaryScanState.lowerBound != sealedUpperBound {
+            boundaryScanState.reset(lowerBound: sealedUpperBound)
+        }
+
+        let result = MarkdownDiagnostics().signpost("BoundaryScan", category: "Stream") {
+            boundaryScanner.scan(in: source, state: &boundaryScanState)
+        }
+        diagnosticsRecorder.recordBoundaryScan(
+            bytes: result.scannedByteCount,
+            lines: result.scannedLineCount
+        )
+
+        guard let upperBound = result.safeUpperBound,
               upperBound > sealedUpperBound
         else {
             return
@@ -68,6 +82,7 @@ public struct MarkdownStream: Sendable {
         guard sealedUpperBound < source.byteCount else {
             let boundaryID = id ?? MarkdownHostBoundaryID("host:\(hostBoundaries.count):\(source.byteCount)")
             hostBoundaries.append(MarkdownHostBoundary(id: boundaryID, sourceOffset: source.byteCount))
+            boundaryScanState.reset(lowerBound: sealedUpperBound)
             generation += 1
             return
         }
@@ -76,6 +91,10 @@ public struct MarkdownStream: Sendable {
         let boundaryID = id ?? MarkdownHostBoundaryID("host:\(hostBoundaries.count):\(source.byteCount)")
         hostBoundaries.append(MarkdownHostBoundary(id: boundaryID, sourceOffset: source.byteCount))
         generation += 1
+    }
+
+    public func markdown(in sourceRange: MarkdownSourceRange) -> String {
+        source.slice(sourceRange.byteRange).text
     }
 
     public mutating func finish() {
@@ -128,6 +147,7 @@ public struct MarkdownStream: Sendable {
         )
         sealedBlocks.append(contentsOf: blocks)
         sealedUpperBound = upperBound
+        boundaryScanState.reset(lowerBound: upperBound)
     }
 
     private func parse(
@@ -150,12 +170,14 @@ public struct MarkdownStream: Sendable {
 
         diagnosticsRecorder.recordCacheMiss(isSealedRegion: isSealedRegion)
         diagnosticsRecorder.recordParse(isSealedRegion: isSealedRegion)
-        let blocks = parser.parse(
-            slice,
-            lineMap: lineMap,
-            idNamespace: idNamespace,
-            isSealed: isSealed
-        )
+        let blocks = MarkdownDiagnostics().signpost("Parse", category: "Parser") {
+            parser.parse(
+                slice,
+                lineMap: lineMap,
+                idNamespace: idNamespace,
+                isSealed: isSealed
+            )
+        }
         parserCache.insert(blocks, forKey: key)
         return blocks
     }

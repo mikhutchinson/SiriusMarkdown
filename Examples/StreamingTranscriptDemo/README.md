@@ -1,6 +1,9 @@
 # StreamingTranscriptDemo
 
-Streaming demo target placeholder.
+Streaming SwiftUI demo packaged as a local SwiftPM executable.
 
-The demo should append timed chunks into `MarkdownStream` and render snapshots with `StreamingMarkdownView`.
+```sh
+swift build --package-path Examples/StreamingTranscriptDemo
+```
 
+The demo appends timed chunks into `MarkdownStream` and renders snapshots with `StreamingMarkdownView`.

@@ -1,0 +1,10 @@
+{
+  "name": "code-span",
+  "markdown": "Use `let value = 1` inside text",
+  "containerWidth": 160,
+  "expected": {
+    "lineCount": 2,
+    "naturalWidth": 206.79,
+    "height": 36
+  }
+}

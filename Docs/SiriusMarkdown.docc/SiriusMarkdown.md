@@ -5,9 +5,9 @@ Native, streaming-first Markdown rendering for Apple platforms—designed for lo
 ## Overview
 
 - **`swift-markdown`** (`Markdown` product) provides parsing semantics; SiriusMarkdown converts the AST to **`MarkdownBlock`** and **`MarkdownInlineRun`** value types.
-- **`MarkdownStream`** stores append-only UTF-8, seals safe prefixes, reparses only the **mutable tail**, and exposes **`MarkdownSnapshot`** for views.
+- **`MarkdownStream`** stores append-only UTF-8, incrementally scans safe seal points, reparses only the **mutable tail**, and exposes **`MarkdownSnapshot`** plus source-backed copy slices.
 - **`SiriusMarkdown`** is the app-facing umbrella module. Import **`SiriusMarkdownCore`** or **`SiriusMarkdownSwiftUI`** directly only when you need a narrower dependency.
-- **`SiriusMarkdownSwiftUI`** renders snapshots with **`MarkdownDocumentView`** and **`StreamingMarkdownView`**, **`MarkdownTheme`**, and **`MarkdownRendererConfiguration`** (policies, optional link actions, pluggable code highlighting and math rendering).
+- **`SiriusMarkdownSwiftUI`** renders prepared snapshots with **`MarkdownDocumentView`** and **`StreamingMarkdownView`**, **`MarkdownTheme`**, and **`MarkdownRendererConfiguration`** (policies, optional link/copy actions, pluggable code highlighting and math rendering).
 
 ```swift
 import SiriusMarkdown
@@ -17,7 +17,9 @@ stream.append("# Hello\n\nStreaming Markdown.")
 stream.finish()
 
 let snapshot = stream.snapshot()
-MarkdownDocumentView(snapshot: snapshot)
+let configuration = MarkdownRendererConfiguration.document
+let prepared = configuration.prepare(snapshot: snapshot)
+MarkdownDocumentView(preparedSnapshot: prepared, configuration: configuration)
 ```
 
 For live updates, append to the stream (or rebuild snapshots from your pipeline) and pass the latest snapshot into **`StreamingMarkdownView`** or **`MarkdownDocumentView`**.
@@ -56,6 +58,8 @@ The binding renderer plan and contributor rules live in **`plan.md`** and **`AGE
 - ``SiriusMarkdownSwiftUI/MarkdownDocumentView``
 - ``SiriusMarkdownSwiftUI/StreamingMarkdownView``
 - ``SiriusMarkdownSwiftUI/MarkdownRendererConfiguration``
+- ``SiriusMarkdownSwiftUI/MarkdownPreparedSnapshot``
+- ``SiriusMarkdownSwiftUI/MarkdownPreparedBlockContent``
 - ``SiriusMarkdownSwiftUI/MarkdownTheme``
 
 ### Layout and measurement
@@ -75,3 +79,4 @@ The binding renderer plan and contributor rules live in **`plan.md`** and **`AGE
 - ``SiriusMarkdownCore/MarkdownCodePolicy``
 - ``SiriusMarkdownCore/MarkdownMathPolicy``
 - ``SiriusMarkdownCore/DefaultMarkdownPolicy``
+- ``SiriusMarkdownSwiftUI/MarkdownCopyProvider``

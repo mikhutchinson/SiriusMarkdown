@@ -25,3 +25,6 @@
 - Wired parser and inline layout caches into executable code paths with diagnostics counters for tail reparses, sealed-region cache hits/misses, inline prepare, and layout.
 - Moved code highlighting, math rendering, and HTML policy evaluation out of `MarkdownBlockView.body` into `MarkdownPreparedBlockContent`, with highlighted-code and rendered-math cache reuse.
 - Fixed the public `SiriusMarkdown` product so it now builds an importable umbrella module instead of only composing Core and SwiftUI targets, and added a test that exercises the consumer import surface.
+- Fixed active-tail boundary scanning to retain scanner state and scan newly appended complete lines once, preventing long open tails from accumulating O(n²) scan work.
+- Fixed inline measurement so per-character unit measurement is a cached overwide fallback instead of eager work during normal prepare.
+- Fixed the built-in SwiftUI document/streaming views to consume `MarkdownPreparedSnapshot` items, preserve host boundaries, and keep inline policy decisions out of block body evaluation.

@@ -7,6 +7,14 @@ public struct MarkdownDiagnosticsCounters: Sendable, Hashable {
     public var tailReparseCount: Int
     public var prepareCount: Int
     public var layoutCount: Int
+    public var renderPreparationCount: Int
+    public var codeHighlightCount: Int
+    public var mathRenderCount: Int
+    public var widthRelayoutCount: Int
+    public var boundaryScanCount: Int
+    public var boundaryScannedByteCount: Int
+    public var boundaryScannedLineCount: Int
+    public var overwideUnitFallbackCount: Int
     public var cacheHitCount: Int
     public var cacheMissCount: Int
     public var sealedRegionCacheHitCount: Int
@@ -18,6 +26,14 @@ public struct MarkdownDiagnosticsCounters: Sendable, Hashable {
         tailReparseCount: Int = 0,
         prepareCount: Int = 0,
         layoutCount: Int = 0,
+        renderPreparationCount: Int = 0,
+        codeHighlightCount: Int = 0,
+        mathRenderCount: Int = 0,
+        widthRelayoutCount: Int = 0,
+        boundaryScanCount: Int = 0,
+        boundaryScannedByteCount: Int = 0,
+        boundaryScannedLineCount: Int = 0,
+        overwideUnitFallbackCount: Int = 0,
         cacheHitCount: Int = 0,
         cacheMissCount: Int = 0,
         sealedRegionCacheHitCount: Int = 0,
@@ -28,6 +44,14 @@ public struct MarkdownDiagnosticsCounters: Sendable, Hashable {
         self.tailReparseCount = tailReparseCount
         self.prepareCount = prepareCount
         self.layoutCount = layoutCount
+        self.renderPreparationCount = renderPreparationCount
+        self.codeHighlightCount = codeHighlightCount
+        self.mathRenderCount = mathRenderCount
+        self.widthRelayoutCount = widthRelayoutCount
+        self.boundaryScanCount = boundaryScanCount
+        self.boundaryScannedByteCount = boundaryScannedByteCount
+        self.boundaryScannedLineCount = boundaryScannedLineCount
+        self.overwideUnitFallbackCount = overwideUnitFallbackCount
         self.cacheHitCount = cacheHitCount
         self.cacheMissCount = cacheMissCount
         self.sealedRegionCacheHitCount = sealedRegionCacheHitCount
@@ -70,6 +94,44 @@ public final class MarkdownDiagnosticsRecorder: @unchecked Sendable {
         }
     }
 
+    public func recordRenderPreparation() {
+        lock.withLock {
+            counters.renderPreparationCount += 1
+        }
+    }
+
+    public func recordCodeHighlight() {
+        lock.withLock {
+            counters.codeHighlightCount += 1
+        }
+    }
+
+    public func recordMathRender() {
+        lock.withLock {
+            counters.mathRenderCount += 1
+        }
+    }
+
+    public func recordWidthRelayout() {
+        lock.withLock {
+            counters.widthRelayoutCount += 1
+        }
+    }
+
+    public func recordBoundaryScan(bytes: Int, lines: Int) {
+        lock.withLock {
+            counters.boundaryScanCount += 1
+            counters.boundaryScannedByteCount += bytes
+            counters.boundaryScannedLineCount += lines
+        }
+    }
+
+    public func recordOverwideUnitFallback() {
+        lock.withLock {
+            counters.overwideUnitFallbackCount += 1
+        }
+    }
+
     public func recordCacheHit(isSealedRegion: Bool = false) {
         lock.withLock {
             counters.cacheHitCount += 1
@@ -96,6 +158,24 @@ public struct MarkdownDiagnostics: Sendable {
 
     public func makeLog(category: String) -> OSLog {
         OSLog(subsystem: Self.subsystem, category: category)
+    }
+
+    public func signpost<T>(
+        _ name: StaticString,
+        category: String,
+        _ body: () throws -> T
+    ) rethrows -> T {
+        let log = makeLog(category: category)
+        let signpostID = OSSignpostID(log: log)
+        os_signpost(.begin, log: log, name: name, signpostID: signpostID)
+        defer {
+            os_signpost(.end, log: log, name: name, signpostID: signpostID)
+        }
+        return try body()
+    }
+
+    public func signpostEvent(_ name: StaticString, category: String) {
+        os_signpost(.event, log: makeLog(category: category), name: name)
     }
 
     public func debugDump(_ snapshot: MarkdownSnapshot) -> String {

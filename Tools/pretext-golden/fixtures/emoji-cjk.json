@@ -1,0 +1,10 @@
+{
+  "name": "emoji-cjk",
+  "markdown": "🚀🚀 春天 emoji wrap",
+  "containerWidth": 90,
+  "expected": {
+    "lineCount": 2,
+    "naturalWidth": 126.82,
+    "height": 36
+  }
+}

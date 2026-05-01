@@ -1,0 +1,10 @@
+{
+  "name": "atomic-image-placeholder",
+  "markdown": "before [image] after",
+  "containerWidth": 110,
+  "expected": {
+    "lineCount": 2,
+    "naturalWidth": 138.76,
+    "height": 36
+  }
+}

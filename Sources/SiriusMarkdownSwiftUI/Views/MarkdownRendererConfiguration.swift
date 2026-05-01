@@ -32,6 +32,7 @@ public struct PlainMarkdownMathRenderer: MarkdownMathRenderer {
 public struct MarkdownRendererConfiguration: Sendable {
     public var theme: MarkdownTheme
     public var linkAction: MarkdownLinkAction?
+    public var copyProvider: MarkdownCopyProvider?
     public var linkPolicy: any MarkdownLinkPolicy
     public var imagePolicy: any MarkdownImagePolicy
     public var htmlPolicy: any MarkdownHTMLPolicy
@@ -40,10 +41,12 @@ public struct MarkdownRendererConfiguration: Sendable {
     public var codeHighlighter: any MarkdownCodeHighlighter
     public var mathRenderer: any MarkdownMathRenderer
     public var preparationCache: MarkdownRenderPreparationCache
+    public var diagnosticsRecorder: MarkdownDiagnosticsRecorder
 
     public init(
         theme: MarkdownTheme = .compactChat,
         linkAction: MarkdownLinkAction? = nil,
+        copyProvider: MarkdownCopyProvider? = nil,
         linkPolicy: any MarkdownLinkPolicy = DefaultMarkdownPolicy(),
         imagePolicy: any MarkdownImagePolicy = DefaultMarkdownPolicy(),
         htmlPolicy: any MarkdownHTMLPolicy = DefaultMarkdownPolicy(),
@@ -51,10 +54,12 @@ public struct MarkdownRendererConfiguration: Sendable {
         mathPolicy: any MarkdownMathPolicy = DefaultMarkdownPolicy(),
         codeHighlighter: any MarkdownCodeHighlighter = PlainMarkdownCodeHighlighter(),
         mathRenderer: any MarkdownMathRenderer = PlainMarkdownMathRenderer(),
-        preparationCache: MarkdownRenderPreparationCache = MarkdownRenderPreparationCache()
+        preparationCache: MarkdownRenderPreparationCache = MarkdownRenderPreparationCache(),
+        diagnosticsRecorder: MarkdownDiagnosticsRecorder = MarkdownDiagnosticsRecorder()
     ) {
         self.theme = theme
         self.linkAction = linkAction
+        self.copyProvider = copyProvider
         self.linkPolicy = linkPolicy
         self.imagePolicy = imagePolicy
         self.htmlPolicy = htmlPolicy
@@ -63,12 +68,15 @@ public struct MarkdownRendererConfiguration: Sendable {
         self.codeHighlighter = codeHighlighter
         self.mathRenderer = mathRenderer
         self.preparationCache = preparationCache
+        self.diagnosticsRecorder = diagnosticsRecorder
     }
 
     public static let compactChat = MarkdownRendererConfiguration(theme: .compactChat)
     public static let document = MarkdownRendererConfiguration(theme: .document)
 
     public func prepare(block: MarkdownBlock) -> MarkdownPreparedBlockContent {
+        diagnosticsRecorder.recordRenderPreparation()
+
         switch block.kind {
         case .codeBlock:
             let code = Self.codeText(for: block)
@@ -79,7 +87,10 @@ public struct MarkdownRendererConfiguration: Sendable {
                     return MarkdownPreparedBlockContent(blockID: block.id, code: cached)
                 }
 
-                let highlighted = codeHighlighter.highlightedCode(code, infoString: block.infoString)
+                diagnosticsRecorder.recordCodeHighlight()
+                let highlighted = MarkdownDiagnostics().signpost("CodeHighlight", category: "RenderPreparation") {
+                    codeHighlighter.highlightedCode(code, infoString: block.infoString)
+                }
                 preparationCache.insertCode(highlighted, forKey: key)
                 return MarkdownPreparedBlockContent(
                     blockID: block.id,
@@ -97,7 +108,10 @@ public struct MarkdownRendererConfiguration: Sendable {
                     return MarkdownPreparedBlockContent(blockID: block.id, math: cached)
                 }
 
-                let rendered = mathRenderer.renderedMath(math, isBlock: true)
+                diagnosticsRecorder.recordMathRender()
+                let rendered = MarkdownDiagnostics().signpost("MathRender", category: "RenderPreparation") {
+                    mathRenderer.renderedMath(math, isBlock: true)
+                }
                 preparationCache.insertMath(rendered, forKey: key)
                 return MarkdownPreparedBlockContent(
                     blockID: block.id,
@@ -117,15 +131,46 @@ public struct MarkdownRendererConfiguration: Sendable {
                     policyDenialReason: reason
                 )
             }
+        case .unorderedList, .orderedList, .taskList:
+            return MarkdownPreparedBlockContent(
+                blockID: block.id,
+                inline: preparedInline(for: block.inlines, sourceRange: block.sourceRange),
+                listItems: preparedListItems(block.listItems)
+            )
+        case .table:
+            return MarkdownPreparedBlockContent(
+                blockID: block.id,
+                inline: preparedInline(for: block.inlines, sourceRange: block.sourceRange),
+                table: block.table.map(preparedTable)
+            )
         default:
-            return MarkdownPreparedBlockContent(blockID: block.id)
+            return MarkdownPreparedBlockContent(
+                blockID: block.id,
+                inline: preparedInline(for: block.inlines, sourceRange: block.sourceRange)
+            )
         }
     }
 
-    public func prepare(snapshot: MarkdownSnapshot) -> [MarkdownBlockID: MarkdownPreparedBlockContent] {
-        Dictionary(uniqueKeysWithValues: snapshot.blocks.map { block in
-            (block.id, prepare(block: block))
-        })
+    public func prepare(snapshot: MarkdownSnapshot) -> MarkdownPreparedSnapshot {
+        var preparedContentByBlockID: [MarkdownBlockID: MarkdownPreparedBlockContent] = [:]
+        var preparedItems: [MarkdownPreparedSnapshotItem] = []
+
+        for item in snapshot.items {
+            switch item {
+            case let .block(block):
+                let prepared = prepare(block: block)
+                preparedContentByBlockID[block.id] = prepared
+                preparedItems.append(.block(block, prepared))
+            case let .hostBoundary(boundary):
+                preparedItems.append(.hostBoundary(boundary))
+            }
+        }
+
+        return MarkdownPreparedSnapshot(
+            snapshot: snapshot,
+            items: preparedItems,
+            preparedContentByBlockID: preparedContentByBlockID
+        )
     }
 
     public nonisolated static func codeText(for block: MarkdownBlock) -> String {
@@ -155,8 +200,81 @@ public struct MarkdownRendererConfiguration: Sendable {
         )
     }
 
-    private nonisolated static func stableHash(_ text: String) -> UInt64 {
+    private func preparedInline(
+        for runs: [MarkdownInlineRun],
+        sourceRange: MarkdownSourceRange
+    ) -> AttributedString? {
+        guard !runs.isEmpty else {
+            return nil
+        }
+
+        let key = MarkdownCacheKey(
+            sourceRange: sourceRange,
+            contentHash: Self.inlineHash(runs),
+            namespace: "inline-attributed"
+        )
+        if let cached = preparationCache.inline(forKey: key) {
+            diagnosticsRecorder.recordCacheHit()
+            return cached
+        }
+
+        diagnosticsRecorder.recordCacheMiss()
+        let attributed = InlineRunsView.attributedString(
+            for: runs,
+            linkPolicy: linkPolicy,
+            imagePolicy: imagePolicy
+        )
+        preparationCache.insertInline(attributed, forKey: key)
+        return attributed
+    }
+
+    private func preparedListItems(_ items: [MarkdownListItem]) -> [MarkdownPreparedListItem] {
+        items.map { item in
+            MarkdownPreparedListItem(
+                sourceRange: item.sourceRange,
+                taskState: item.taskState,
+                inline: preparedInline(for: item.inlines, sourceRange: item.sourceRange),
+                childItems: preparedListItems(item.childItems)
+            )
+        }
+    }
+
+    private func preparedTable(_ table: MarkdownTableBlock) -> MarkdownPreparedTableBlock {
+        MarkdownPreparedTableBlock(
+            columnAlignments: table.columnAlignments,
+            header: table.header.map(preparedTableCell),
+            rows: table.rows.map { row in
+                row.map(preparedTableCell)
+            }
+        )
+    }
+
+    private func preparedTableCell(_ cell: MarkdownTableCell) -> MarkdownPreparedTableCell {
+        MarkdownPreparedTableCell(
+            sourceRange: cell.sourceRange,
+            inline: preparedInline(for: cell.inlines, sourceRange: cell.sourceRange),
+            colspan: cell.colspan,
+            rowspan: cell.rowspan
+        )
+    }
+
+    private nonisolated static func inlineHash(_ runs: [MarkdownInlineRun]) -> UInt64 {
         var hash: UInt64 = 0xcbf29ce484222325
+        for run in runs {
+            hash = append(run.kind.rawValue, to: hash)
+            hash = append(run.text, to: hash)
+            hash = append(run.destination ?? "", to: hash)
+        }
+        return hash
+    }
+
+    private nonisolated static func stableHash(_ text: String) -> UInt64 {
+        append(text, to: 0xcbf29ce484222325)
+    }
+
+    private nonisolated static func append(_ text: String, to initialHash: UInt64) -> UInt64 {
+        var hash: UInt64 = 0xcbf29ce484222325
+        hash = initialHash
         for byte in text.utf8 {
             hash ^= UInt64(byte)
             hash &*= 0x100000001b3
@@ -167,12 +285,26 @@ public struct MarkdownRendererConfiguration: Sendable {
 
 public final class MarkdownRenderPreparationCache: @unchecked Sendable {
     private let lock = NSLock()
+    private var inlineCache: BoundedMarkdownCache<AttributedString>
     private var codeCache: BoundedMarkdownCache<AttributedString>
     private var mathCache: BoundedMarkdownCache<AttributedString>
 
     public init(capacity: Int = 256) {
+        self.inlineCache = BoundedMarkdownCache(capacity: capacity)
         self.codeCache = BoundedMarkdownCache(capacity: capacity)
         self.mathCache = BoundedMarkdownCache(capacity: capacity)
+    }
+
+    public func inline(forKey key: MarkdownCacheKey) -> AttributedString? {
+        lock.withLock {
+            inlineCache[key]
+        }
+    }
+
+    public func insertInline(_ inline: AttributedString, forKey key: MarkdownCacheKey) {
+        lock.withLock {
+            inlineCache[key] = inline
+        }
     }
 
     public func code(forKey key: MarkdownCacheKey) -> AttributedString? {
@@ -201,14 +333,52 @@ public final class MarkdownRenderPreparationCache: @unchecked Sendable {
 
     public func removeAll() {
         lock.withLock {
+            inlineCache.removeAll()
             codeCache.removeAll()
             mathCache.removeAll()
         }
     }
 }
 
+public struct MarkdownPreparedSnapshot: Sendable {
+    public var snapshot: MarkdownSnapshot
+    public var items: [MarkdownPreparedSnapshotItem]
+    public var preparedContentByBlockID: [MarkdownBlockID: MarkdownPreparedBlockContent]
+
+    public init(
+        snapshot: MarkdownSnapshot,
+        items: [MarkdownPreparedSnapshotItem],
+        preparedContentByBlockID: [MarkdownBlockID: MarkdownPreparedBlockContent]
+    ) {
+        self.snapshot = snapshot
+        self.items = items
+        self.preparedContentByBlockID = preparedContentByBlockID
+    }
+
+    public subscript(blockID: MarkdownBlockID) -> MarkdownPreparedBlockContent? {
+        preparedContentByBlockID[blockID]
+    }
+}
+
+public enum MarkdownPreparedSnapshotItem: Identifiable, Sendable {
+    case block(MarkdownBlock, MarkdownPreparedBlockContent)
+    case hostBoundary(MarkdownHostBoundary)
+
+    public var id: String {
+        switch self {
+        case let .block(block, _):
+            return "block:\(block.id.rawValue)"
+        case let .hostBoundary(boundary):
+            return "host:\(boundary.id.rawValue)"
+        }
+    }
+}
+
 public struct MarkdownPreparedBlockContent: Sendable {
     public var blockID: MarkdownBlockID
+    public var inline: AttributedString?
+    public var listItems: [MarkdownPreparedListItem]
+    public var table: MarkdownPreparedTableBlock?
     public var code: AttributedString?
     public var math: AttributedString?
     public var htmlAllowed: Bool?
@@ -216,16 +386,76 @@ public struct MarkdownPreparedBlockContent: Sendable {
 
     public init(
         blockID: MarkdownBlockID,
+        inline: AttributedString? = nil,
+        listItems: [MarkdownPreparedListItem] = [],
+        table: MarkdownPreparedTableBlock? = nil,
         code: AttributedString? = nil,
         math: AttributedString? = nil,
         htmlAllowed: Bool? = nil,
         policyDenialReason: String? = nil
     ) {
         self.blockID = blockID
+        self.inline = inline
+        self.listItems = listItems
+        self.table = table
         self.code = code
         self.math = math
         self.htmlAllowed = htmlAllowed
         self.policyDenialReason = policyDenialReason
+    }
+}
+
+public struct MarkdownPreparedListItem: Sendable {
+    public var sourceRange: MarkdownSourceRange
+    public var taskState: MarkdownTaskState?
+    public var inline: AttributedString?
+    public var childItems: [MarkdownPreparedListItem]
+
+    public init(
+        sourceRange: MarkdownSourceRange,
+        taskState: MarkdownTaskState? = nil,
+        inline: AttributedString? = nil,
+        childItems: [MarkdownPreparedListItem] = []
+    ) {
+        self.sourceRange = sourceRange
+        self.taskState = taskState
+        self.inline = inline
+        self.childItems = childItems
+    }
+}
+
+public struct MarkdownPreparedTableCell: Sendable {
+    public var sourceRange: MarkdownSourceRange
+    public var inline: AttributedString?
+    public var colspan: UInt
+    public var rowspan: UInt
+
+    public init(
+        sourceRange: MarkdownSourceRange,
+        inline: AttributedString? = nil,
+        colspan: UInt = 1,
+        rowspan: UInt = 1
+    ) {
+        self.sourceRange = sourceRange
+        self.inline = inline
+        self.colspan = colspan
+        self.rowspan = rowspan
+    }
+}
+
+public struct MarkdownPreparedTableBlock: Sendable {
+    public var columnAlignments: [MarkdownTableColumnAlignment?]
+    public var header: [MarkdownPreparedTableCell]
+    public var rows: [[MarkdownPreparedTableCell]]
+
+    public init(
+        columnAlignments: [MarkdownTableColumnAlignment?],
+        header: [MarkdownPreparedTableCell],
+        rows: [[MarkdownPreparedTableCell]]
+    ) {
+        self.columnAlignments = columnAlignments
+        self.header = header
+        self.rows = rows
     }
 }
 

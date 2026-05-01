@@ -1,0 +1,10 @@
+{
+  "name": "hard-breaks",
+  "markdown": "first\nsecond\nthird",
+  "containerWidth": 220,
+  "expected": {
+    "lineCount": 3,
+    "naturalWidth": 51.59,
+    "height": 54
+  }
+}

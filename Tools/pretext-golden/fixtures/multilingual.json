@@ -1,0 +1,10 @@
+{
+  "name": "multilingual",
+  "markdown": "Hello 春天 مرحبا 🚀",
+  "containerWidth": 180,
+  "expected": {
+    "lineCount": 1,
+    "naturalWidth": 130.93,
+    "height": 18
+  }
+}

@@ -57,6 +57,14 @@ MarkdownDocumentView(snapshot: snapshot)
 
 For live tail updates, update the stream and drive a view such as `StreamingMarkdownView` with the latest `snapshot()`.
 
+For heavier render paths, prepare once outside SwiftUI body evaluation:
+
+```swift
+let configuration = MarkdownRendererConfiguration.document
+let prepared = configuration.prepare(snapshot: snapshot)
+MarkdownDocumentView(preparedSnapshot: prepared, configuration: configuration)
+```
+
 ## Documentation
 
 - DocC catalog: `Docs/SiriusMarkdown.docc`
@@ -78,3 +86,17 @@ swift test
 ```
 
 See `runbook.md` for Pretext golden checks (`Tools/pretext-golden`) and release expectations.
+
+## Examples
+
+```sh
+swift build --package-path Examples/MarkdownDemoApp
+swift build --package-path Examples/StreamingTranscriptDemo
+swift build --package-path Examples/DocumentReaderDemo
+```
+
+Run the full local release gate with:
+
+```sh
+bash Tools/release-check.sh
+```

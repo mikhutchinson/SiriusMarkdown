@@ -65,11 +65,31 @@ public struct MarkdownBlockView: View {
             }
         }
         .id(block.id)
+        .accessibilityLabel(Self.accessibilityLabel(for: block))
+        .contextMenu {
+            if configuration.copyProvider != nil {
+                Button("Copy Markdown") {
+                    copyBlockMarkdown()
+                }
+            }
+        }
+        .onAppear {
+            MarkdownDiagnostics().signpostEvent("BlockRender", category: "SwiftUI")
+        }
     }
 
     @ViewBuilder
     private func inlineContent(baseFont: Font, fallbackText: String) -> some View {
-        if block.inlines.isEmpty {
+        if let inline = preparedContent.inline {
+            InlineRunsView(
+                attributed: inline,
+                theme: theme,
+                baseFont: baseFont,
+                linkAction: configuration.linkAction
+            )
+            .textSelection(.enabled)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        } else if block.inlines.isEmpty {
             Text(fallbackText)
                 .font(baseFont)
                 .foregroundStyle(theme.textColor)
@@ -112,7 +132,7 @@ public struct MarkdownBlockView: View {
 
     private var listContent: some View {
         MarkdownListItemsView(
-            items: block.listItems,
+            items: preparedContent.listItems,
             kind: block.kind,
             orderedStart: block.orderedListStart,
             configuration: configuration,
@@ -123,7 +143,7 @@ public struct MarkdownBlockView: View {
 
     @ViewBuilder
     private var tableContent: some View {
-        if let table = block.table {
+        if let table = preparedContent.table {
             ScrollView(.horizontal) {
                 Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 6) {
                     if !table.header.isEmpty {
@@ -182,21 +202,19 @@ public struct MarkdownBlockView: View {
         }
     }
 
-    private func tableCell(_ cell: MarkdownTableCell, column: Int, isHeader: Bool) -> some View {
+    private func tableCell(_ cell: MarkdownPreparedTableCell, column: Int, isHeader: Bool) -> some View {
         InlineRunsView(
-            runs: cell.inlines,
+            attributed: cell.inline ?? AttributedString(""),
             theme: theme,
             baseFont: isHeader ? theme.paragraphFont.bold() : theme.paragraphFont,
-            linkAction: configuration.linkAction,
-            linkPolicy: configuration.linkPolicy,
-            imagePolicy: configuration.imagePolicy
+            linkAction: configuration.linkAction
         )
         .frame(minWidth: 48, alignment: tableAlignment(column))
         .textSelection(.enabled)
     }
 
     private func tableAlignment(_ column: Int) -> Alignment {
-        guard let alignment = block.table?.columnAlignments[safe: column] ?? nil else {
+        guard let alignment = preparedContent.table?.columnAlignments[safe: column] ?? nil else {
             return .leading
         }
 
@@ -218,6 +236,16 @@ public struct MarkdownBlockView: View {
             .padding(8)
             .background(theme.codeBackground)
             .clipShape(RoundedRectangle(cornerRadius: 6))
+    }
+
+    private func copyBlockMarkdown() {
+        guard let markdown = configuration.copyProvider?.markdown(block.sourceRange) else {
+            return
+        }
+
+        Task { @MainActor in
+            MarkdownPasteboard.copy(markdown)
+        }
     }
 
     public nonisolated static func renderPlan(
@@ -276,6 +304,33 @@ public struct MarkdownBlockView: View {
         }
     }
 
+    public nonisolated static func accessibilityLabel(for block: MarkdownBlock) -> String {
+        switch block.kind {
+        case .heading:
+            return "Heading \(block.headingLevel ?? 0): \(block.inlines.map(\.text).joined())"
+        case .codeBlock:
+            return "Code block"
+        case .table:
+            let columns = block.table?.header.count ?? 0
+            let rows = block.table?.rows.count ?? 0
+            return "Table with \(columns) columns and \(rows) rows"
+        case .unorderedList, .orderedList, .taskList:
+            return "List with \(block.listItems.count) items"
+        case .blockQuote:
+            return "Quote: \(block.inlines.map(\.text).joined())"
+        case .mathBlock:
+            return "Math block"
+        case .htmlBlock:
+            return "HTML block"
+        case .thematicBreak:
+            return "Thematic break"
+        case .blank:
+            return ""
+        case .paragraph:
+            return block.inlines.map(\.text).joined()
+        }
+    }
+
     private nonisolated static func policyAllowed(_ decision: MarkdownPolicyDecision) -> Bool {
         switch decision {
         case .allow:
@@ -314,7 +369,7 @@ public struct MarkdownBlockView: View {
 }
 
 private struct MarkdownListItemsView: View {
-    var items: [MarkdownListItem]
+    var items: [MarkdownPreparedListItem]
     var kind: MarkdownBlockKind
     var orderedStart: UInt?
     var configuration: MarkdownRendererConfiguration
@@ -337,7 +392,7 @@ private struct MarkdownListItemsView: View {
 }
 
 private struct MarkdownListItemRow: View {
-    var item: MarkdownListItem
+    var item: MarkdownPreparedListItem
     var index: Int
     var kind: MarkdownBlockKind
     var orderedStart: UInt?
@@ -352,12 +407,10 @@ private struct MarkdownListItemRow: View {
                     .foregroundStyle(theme.secondaryTextColor)
                     .frame(width: markerWidth, alignment: .trailing)
                 InlineRunsView(
-                    runs: item.inlines,
+                    attributed: item.inline ?? AttributedString(""),
                     theme: theme,
                     baseFont: theme.paragraphFont,
-                    linkAction: configuration.linkAction,
-                    linkPolicy: configuration.linkPolicy,
-                    imagePolicy: configuration.imagePolicy
+                    linkAction: configuration.linkAction
                 )
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)

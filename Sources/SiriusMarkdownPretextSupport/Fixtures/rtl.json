@@ -1,0 +1,10 @@
+{
+  "name": "rtl",
+  "markdown": "بدأت الرحلة ثم اكتملت",
+  "containerWidth": 140,
+  "expected": {
+    "lineCount": 2,
+    "naturalWidth": 195.87,
+    "height": 36
+  }
+}

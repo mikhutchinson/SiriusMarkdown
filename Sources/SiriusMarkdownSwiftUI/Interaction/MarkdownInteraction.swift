@@ -18,3 +18,11 @@ public struct MarkdownLinkAction: Sendable {
         self.open = open
     }
 }
+
+public struct MarkdownCopyProvider: Sendable {
+    public var markdown: @Sendable (MarkdownSourceRange) -> String?
+
+    public init(markdown: @escaping @Sendable (MarkdownSourceRange) -> String?) {
+        self.markdown = markdown
+    }
+}

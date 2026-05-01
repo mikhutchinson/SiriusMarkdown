@@ -9,7 +9,7 @@ Sources/SiriusMarkdownCore/
   Source/MarkdownSourceBuffer.swift      — append-only UTF-8, slices, line map
   Stream/MarkdownStream.swift             — append, seal, host boundaries, snapshot
   Parser/SwiftMarkdownParser.swift        — Document parsing → render model
-  Parser/MarkdownBoundaryScanner.swift   — conservative seal upper bounds
+  Parser/MarkdownBoundaryScanner.swift   — incremental conservative seal scanning
   Model/MarkdownModel.swift               — MarkdownSnapshot, MarkdownBlock, IDs, ranges
   InlineLayout/InlineLayout.swift         — prepare/measure/layout, InlineLayoutEngine, caches
   Policy/MarkdownPolicies.swift           — link/image/HTML/code/math policy protocols
@@ -38,20 +38,20 @@ Products (see `Package.swift`): **`SiriusMarkdown`** (app-facing umbrella module
 ### Core
 
 - **Source**: `MarkdownSourceBuffer` holds append-only chunks; `MarkdownSourceSlice` bridges to `String` at parse boundaries for `swift-markdown`.
-- **Stream**: `MarkdownStream.append`, automatic `sealBoundaryIfPossible()`, `appendHostBoundary(id:)`, `finish()`, `snapshot()`. Sealed ranges are parsed once and stored; the tail is reparsed while streaming. `MarkdownParserCache` keys sealed parses by source range and content hash.
+- **Stream**: `MarkdownStream.append`, automatic `sealBoundaryIfPossible()`, `appendHostBoundary(id:)`, `finish()`, `snapshot()`, and source-backed `markdown(in:)`. Sealed ranges are parsed once and stored; the tail is reparsed while streaming. `MarkdownBoundaryScanState` prevents cumulative rescans of long active tails, and `MarkdownParserCache` keys sealed parses by source range and content hash.
 - **Parser**: `SwiftMarkdownParser` drives `Document(parsing:)` and converts the AST to `MarkdownBlock` / `MarkdownInlineRun` with block kinds (paragraph, heading, lists, task lists, quotes, code, tables, thematic breaks, math, HTML, blank).
 - **Model**: `MarkdownSnapshot` exposes `blocks`, ordered `items` (blocks interleaved with `MarkdownHostBoundary`), `generation`, `sourceLength`, `isFinished`. Identity for rendering uses `MarkdownBlock.id`, not array position.
 - **Inline layout**: `PreparedInlineContent`, `VariableWidthLineWalker`, `InlineLayoutEngine` with bounded caches for prepared, measured, and laid-out inline results; `CoreTextInlineMeasurer` where CoreText is available. This is the Pretext-style **prepare** vs **layout** split for measurements that must not live in SwiftUI `body`.
 - **Policy**: protocols (`MarkdownLinkPolicy`, `MarkdownImagePolicy`, etc.) and `DefaultMarkdownPolicy` (safe schemes for links; images and raw HTML denied by default).
-- **Diagnostics**: `MarkdownDiagnosticsRecorder` / `MarkdownDiagnosticsCounters` (parse, tail vs sealed parse, prepare, layout, cache hits/misses). `MarkdownStream` can share recorder semantics via injected recorder where APIs allow.
+- **Diagnostics**: `MarkdownDiagnosticsRecorder` / `MarkdownDiagnosticsCounters` (parse, tail vs sealed parse, boundary scan work, render preparation, highlighting/math, prepare, layout, width relayout, cache hits/misses) plus signpost helpers.
 
 ### SwiftUI
 
-- **`MarkdownDocumentView`** (default theme `.document`) and **`StreamingMarkdownView`** (default `.compactChat`) take a `MarkdownSnapshot` and `MarkdownRendererConfiguration` (or theme only).
-- **`MarkdownRendererConfiguration`** wires `MarkdownTheme`, policies, optional `MarkdownLinkAction`, `MarkdownCodeHighlighter`, and `MarkdownMathRenderer` (`PlainMarkdownCodeHighlighter` / `PlainMarkdownMathRenderer` ship as defaults). Its `prepare(block:)` / `prepare(snapshot:)` methods move code highlighting, math rendering, and HTML policy decisions out of block `body` evaluation, with `MarkdownRenderPreparationCache` bounding highlighted-code and rendered-math reuse.
-- **`MarkdownBlockView`** branches on `MarkdownBlockKind` for structured blocks; inline text uses `InlineRunsView` over AST inline runs (not raw Markdown strings), while code/math/HTML blocks consume `MarkdownPreparedBlockContent`.
+- **`MarkdownDocumentView`** (default theme `.document`) and **`StreamingMarkdownView`** (default `.compactChat`) take snapshots directly or precomputed `MarkdownPreparedSnapshot` values.
+- **`MarkdownRendererConfiguration`** wires `MarkdownTheme`, policies, optional `MarkdownLinkAction`, `MarkdownCopyProvider`, `MarkdownCodeHighlighter`, and `MarkdownMathRenderer` (`PlainMarkdownCodeHighlighter` / `PlainMarkdownMathRenderer` ship as defaults). Its `prepare(block:)` / `prepare(snapshot:)` methods move inline attributed text, link/image policy decisions, code highlighting, math rendering, and HTML policy decisions out of block `body` evaluation, with `MarkdownRenderPreparationCache` bounding inline/highlighted-code/rendered-math reuse.
+- **`MarkdownBlockView`** branches on `MarkdownBlockKind` for structured blocks and consumes `MarkdownPreparedBlockContent` for inline text, lists, tables, code, math, and HTML.
 
-Host-native content between Markdown segments is modeled in Core via **`MarkdownSnapshot.items`** and **`appendHostBoundary`**; built-in document views currently iterate **`snapshot.blocks`**—use **`items`** when you need to splice native UI at recorded boundaries.
+Host-native content between Markdown segments is modeled in Core via **`MarkdownSnapshot.items`** and **`appendHostBoundary`**; built-in document views now render prepared items and expose a host-boundary closure with an empty default.
 
 ### Pretext support
 

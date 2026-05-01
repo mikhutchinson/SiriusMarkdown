@@ -3,12 +3,10 @@ import Foundation
 import SwiftUI
 
 public struct InlineRunsView: View {
-    private var runs: [MarkdownInlineRun]
+    private var attributed: AttributedString
     private var theme: MarkdownTheme
     private var baseFont: Font
     private var linkAction: MarkdownLinkAction?
-    private var linkPolicy: any MarkdownLinkPolicy
-    private var imagePolicy: any MarkdownImagePolicy
 
     public init(
         runs: [MarkdownInlineRun],
@@ -18,16 +16,30 @@ public struct InlineRunsView: View {
         linkPolicy: any MarkdownLinkPolicy = DefaultMarkdownPolicy(),
         imagePolicy: any MarkdownImagePolicy = DefaultMarkdownPolicy()
     ) {
-        self.runs = runs
+        self.attributed = Self.attributedString(
+            for: runs,
+            linkPolicy: linkPolicy,
+            imagePolicy: imagePolicy
+        )
         self.theme = theme
         self.baseFont = baseFont ?? theme.paragraphFont
         self.linkAction = linkAction
-        self.linkPolicy = linkPolicy
-        self.imagePolicy = imagePolicy
+    }
+
+    public init(
+        attributed: AttributedString,
+        theme: MarkdownTheme = .compactChat,
+        baseFont: Font? = nil,
+        linkAction: MarkdownLinkAction? = nil
+    ) {
+        self.attributed = attributed
+        self.theme = theme
+        self.baseFont = baseFont ?? theme.paragraphFont
+        self.linkAction = linkAction
     }
 
     public var body: some View {
-        Text(Self.attributedString(for: runs, linkPolicy: linkPolicy, imagePolicy: imagePolicy))
+        Text(attributed)
         .font(baseFont)
         .foregroundStyle(theme.textColor)
         .environment(\.openURL, OpenURLAction { url in

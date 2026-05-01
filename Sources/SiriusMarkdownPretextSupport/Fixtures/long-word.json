@@ -1,0 +1,10 @@
+{
+  "name": "long-word",
+  "markdown": "abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz",
+  "containerWidth": 100,
+  "expected": {
+    "lineCount": 5,
+    "naturalWidth": 407.3,
+    "height": 90
+  }
+}

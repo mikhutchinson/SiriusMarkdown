@@ -246,8 +246,7 @@ public struct VariableWidthLineWalker<Measurer: InlineMeasuring>: Sendable {
             let width = measurer.width(of: segment.text, fontSize: fontSize)
             let measured = MeasuredInlineSegment(
                 segment: segment,
-                width: width,
-                units: measuredUnits(for: segment, fontSize: fontSize)
+                width: width
             )
             measuredSegments.append(measured)
             currentLineWidth += width
@@ -293,7 +292,8 @@ public struct VariableWidthLineWalker<Measurer: InlineMeasuring>: Sendable {
                     measuredSegment,
                     containerWidth: containerWidth,
                     currentStart: currentStart,
-                    currentWidth: currentWidth
+                    currentWidth: currentWidth,
+                    fontSize: measured.fontSize
                 )
                 lines.append(contentsOf: split.closedLines)
                 currentStart = split.currentStart
@@ -323,13 +323,17 @@ public struct VariableWidthLineWalker<Measurer: InlineMeasuring>: Sendable {
         _ measuredSegment: MeasuredInlineSegment,
         containerWidth: Double,
         currentStart: Int,
-        currentWidth: Double
+        currentWidth: Double,
+        fontSize: Double
     ) -> (closedLines: [InlineLineRange], currentStart: Int, currentWidth: Double) {
         var lines: [InlineLineRange] = []
         var lineStart = currentStart
         var width = currentWidth
+        let units = measuredSegment.units.isEmpty
+            ? measuredUnits(for: measuredSegment.segment, fontSize: fontSize)
+            : measuredSegment.units
 
-        for unit in measuredSegment.units {
+        for unit in units {
             if width > 0, width + unit.width > containerWidth {
                 lines.append(InlineLineRange(byteRange: lineStart..<unit.byteRange.lowerBound, width: width))
                 lineStart = unit.byteRange.lowerBound
@@ -379,6 +383,7 @@ public struct InlineLayoutEngine<Measurer: InlineMeasuring>: Sendable {
     private var preparedCache: BoundedMarkdownCache<PreparedInlineContent>
     private var measuredCache: BoundedMarkdownCache<MeasuredInlineContent>
     private var layoutCache: BoundedMarkdownCache<InlineLayoutResult>
+    private var overwideUnitCache: BoundedMarkdownCache<[MeasuredInlineUnit]>
 
     public init(
         measurer: Measurer,
@@ -390,6 +395,7 @@ public struct InlineLayoutEngine<Measurer: InlineMeasuring>: Sendable {
         self.preparedCache = BoundedMarkdownCache(capacity: cacheCapacity)
         self.measuredCache = BoundedMarkdownCache(capacity: cacheCapacity)
         self.layoutCache = BoundedMarkdownCache(capacity: cacheCapacity)
+        self.overwideUnitCache = BoundedMarkdownCache(capacity: cacheCapacity)
     }
 
     public var diagnosticsCounters: MarkdownDiagnosticsCounters {
@@ -439,7 +445,9 @@ public struct InlineLayoutEngine<Measurer: InlineMeasuring>: Sendable {
 
         diagnosticsRecorder.recordCacheMiss()
         diagnosticsRecorder.recordPrepare()
-        let measured = walker.prepare(prepared, fontSize: fontSize)
+        let measured = MarkdownDiagnostics().signpost("InlinePrepare", category: "InlineLayout") {
+            walker.prepare(prepared, fontSize: fontSize)
+        }
         measuredCache[key] = measured
         return measured
     }
@@ -477,10 +485,47 @@ public struct InlineLayoutEngine<Measurer: InlineMeasuring>: Sendable {
         }
 
         diagnosticsRecorder.recordCacheMiss()
+        diagnosticsRecorder.recordWidthRelayout()
         diagnosticsRecorder.recordLayout()
-        let result = walker.layout(measured, options: options)
+        let measuredForLayout = measuredWithCachedOverwideUnits(
+            measured,
+            containerWidth: options.containerWidth
+        )
+        let result = MarkdownDiagnostics().signpost("InlineLayout", category: "InlineLayout") {
+            walker.layout(measuredForLayout, options: options)
+        }
         layoutCache[key] = result
         return result
+    }
+
+    private mutating func measuredWithCachedOverwideUnits(
+        _ measured: MeasuredInlineContent,
+        containerWidth: Double
+    ) -> MeasuredInlineContent {
+        var updated = measured
+        for index in updated.segments.indices {
+            let measuredSegment = updated.segments[index]
+            guard measuredSegment.units.isEmpty,
+                  !measuredSegment.segment.isBreakOpportunity,
+                  measuredSegment.width > containerWidth
+            else {
+                continue
+            }
+
+            let key = overwideUnitCacheKey(for: measuredSegment, fontSize: measured.fontSize)
+            if let cached = overwideUnitCache[key] {
+                diagnosticsRecorder.recordCacheHit()
+                updated.segments[index].units = cached
+                continue
+            }
+
+            diagnosticsRecorder.recordCacheMiss()
+            diagnosticsRecorder.recordOverwideUnitFallback()
+            let units = measuredUnits(for: measuredSegment.segment, fontSize: measured.fontSize)
+            overwideUnitCache[key] = units
+            updated.segments[index].units = units
+        }
+        return updated
     }
 
     private func inlineCacheKey(
@@ -528,6 +573,20 @@ public struct InlineLayoutEngine<Measurer: InlineMeasuring>: Sendable {
         )
     }
 
+    private func overwideUnitCacheKey(
+        for measuredSegment: MeasuredInlineSegment,
+        fontSize: Double
+    ) -> MarkdownCacheKey {
+        MarkdownCacheKey(
+            sourceRange: MarkdownSourceRange(
+                byteRange: measuredSegment.segment.byteRange,
+                lineRange: 1..<2
+            ),
+            contentHash: preparedSegmentHash(measuredSegment.segment, salt: "font:\(fontSize)"),
+            namespace: "overwide-inline-units"
+        )
+    }
+
     private func inlineContentHash(_ runs: [MarkdownInlineRun]) -> UInt64 {
         var hash: UInt64 = 0xcbf29ce484222325
         for run in runs {
@@ -543,13 +602,46 @@ public struct InlineLayoutEngine<Measurer: InlineMeasuring>: Sendable {
     private func preparedContentHash(_ prepared: PreparedInlineContent, salt: String) -> UInt64 {
         var hash = append(salt, to: 0xcbf29ce484222325)
         for segment in prepared.segments {
-            hash = append(segment.kind.rawValue, to: hash)
-            hash = append(segment.text, to: hash)
-            hash = append("\(segment.byteRange.lowerBound)..<\(segment.byteRange.upperBound)", to: hash)
-            hash = append(segment.isHardBreak ? "hard" : "soft", to: hash)
-            hash = append(segment.isBreakOpportunity ? "break" : "nobreak", to: hash)
+            hash = preparedSegmentHash(segment, initialHash: hash)
         }
         return hash
+    }
+
+    private func preparedSegmentHash(_ segment: PreparedInlineSegment, salt: String) -> UInt64 {
+        preparedSegmentHash(segment, initialHash: append(salt, to: 0xcbf29ce484222325))
+    }
+
+    private func preparedSegmentHash(_ segment: PreparedInlineSegment, initialHash: UInt64) -> UInt64 {
+        var hash = initialHash
+        hash = append(segment.kind.rawValue, to: hash)
+        hash = append(segment.text, to: hash)
+        hash = append("\(segment.byteRange.lowerBound)..<\(segment.byteRange.upperBound)", to: hash)
+        hash = append(segment.isHardBreak ? "hard" : "soft", to: hash)
+        hash = append(segment.isBreakOpportunity ? "break" : "nobreak", to: hash)
+        return hash
+    }
+
+    private func measuredUnits(for segment: PreparedInlineSegment, fontSize: Double) -> [MeasuredInlineUnit] {
+        guard !segment.isBreakOpportunity else {
+            return []
+        }
+
+        var units: [MeasuredInlineUnit] = []
+        var cursor = segment.byteRange.lowerBound
+
+        for character in segment.text {
+            let characterText = String(character)
+            let upper = cursor + characterText.utf8.count
+            units.append(
+                MeasuredInlineUnit(
+                    byteRange: cursor..<upper,
+                    width: walker.measurer.width(of: characterText, fontSize: fontSize)
+                )
+            )
+            cursor = upper
+        }
+
+        return units
     }
 
     private func append(_ text: String, to initialHash: UInt64) -> UInt64 {
