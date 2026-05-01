@@ -2,10 +2,10 @@ import Foundation
 
 public struct MarkdownCacheKey: Sendable, Hashable {
     public var sourceRange: MarkdownSourceRange
-    public var contentHash: Int
+    public var contentHash: UInt64
     public var namespace: String
 
-    public init(sourceRange: MarkdownSourceRange, contentHash: Int, namespace: String) {
+    public init(sourceRange: MarkdownSourceRange, contentHash: UInt64, namespace: String) {
         self.sourceRange = sourceRange
         self.contentHash = contentHash
         self.namespace = namespace
@@ -54,5 +54,42 @@ public struct BoundedMarkdownCache<Value: Sendable>: Sendable {
     public mutating func removeAll() {
         storage.removeAll(keepingCapacity: true)
         order.removeAll(keepingCapacity: true)
+    }
+}
+
+public final class MarkdownParserCache: @unchecked Sendable {
+    private let lock = NSLock()
+    private var cache: BoundedMarkdownCache<[MarkdownBlock]>
+
+    public init(capacity: Int = 256) {
+        self.cache = BoundedMarkdownCache(capacity: capacity)
+    }
+
+    public func blocks(forKey key: MarkdownCacheKey, isSealed: Bool) -> [MarkdownBlock]? {
+        lock.withLock {
+            cache[key]?.withSealedState(isSealed)
+        }
+    }
+
+    public func insert(_ blocks: [MarkdownBlock], forKey key: MarkdownCacheKey) {
+        lock.withLock {
+            cache[key] = blocks.withSealedState(false)
+        }
+    }
+
+    public func removeAll() {
+        lock.withLock {
+            cache.removeAll()
+        }
+    }
+}
+
+private extension Array where Element == MarkdownBlock {
+    func withSealedState(_ isSealed: Bool) -> [MarkdownBlock] {
+        map { block in
+            var copy = block
+            copy.isSealed = isSealed
+            return copy
+        }
     }
 }

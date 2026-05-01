@@ -1,6 +1,9 @@
 # MarkdownDemoApp
 
-Static-document demo target placeholder.
+Static-document SwiftUI demo packaged as a local SwiftPM executable.
 
-The demo should import `SiriusMarkdownCore` and `SiriusMarkdownSwiftUI`, parse a bundled Markdown document into a `MarkdownSnapshot`, and render it with `MarkdownDocumentView`.
+```sh
+swift build --package-path Examples/MarkdownDemoApp
+```
 
+The demo imports the public `SiriusMarkdown` umbrella module, parses sample Markdown into a `MarkdownSnapshot`, and renders it with `MarkdownDocumentView`.

@@ -52,8 +52,17 @@ Run `npm ci` and `npm test` sequentially; running them in parallel can race whil
 ```sh
 swift test
 swift test list | wc -l
+swift build
+swift build --package-path Examples/MarkdownDemoApp
 npm --prefix Tools/pretext-golden ci
 npm --prefix Tools/pretext-golden test
+swift package dump-symbol-graph
+xcrun docc convert Docs/SiriusMarkdown.docc \
+  --additional-symbol-graph-dir .build/arm64-apple-macosx/symbolgraph \
+  --fallback-display-name SiriusMarkdown \
+  --fallback-bundle-identifier com.sirius.markdown \
+  --fallback-bundle-version 0.1.0 \
+  --output-path /tmp/SiriusMarkdown.doccarchive
 ```
 
 Before cutting a release, update `changelog.md` and confirm `bugfix.md` records any defects found during the slice.

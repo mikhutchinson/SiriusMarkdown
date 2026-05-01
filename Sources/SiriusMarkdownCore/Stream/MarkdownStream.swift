@@ -9,8 +9,20 @@ public struct MarkdownStream: Sendable {
     private var finished: Bool
     private let parser: SwiftMarkdownParser
     private let boundaryScanner: MarkdownBoundaryScanner
+    private let parserCache: MarkdownParserCache
+    private let diagnosticsRecorder: MarkdownDiagnosticsRecorder
 
     public init() {
+        self.init(
+            parserCacheCapacity: 256,
+            diagnosticsRecorder: MarkdownDiagnosticsRecorder()
+        )
+    }
+
+    public init(
+        parserCacheCapacity: Int = 256,
+        diagnosticsRecorder: MarkdownDiagnosticsRecorder = MarkdownDiagnosticsRecorder()
+    ) {
         self.source = MarkdownSourceBuffer()
         self.sealedUpperBound = 0
         self.sealedBlocks = []
@@ -19,10 +31,16 @@ public struct MarkdownStream: Sendable {
         self.finished = false
         self.parser = SwiftMarkdownParser()
         self.boundaryScanner = MarkdownBoundaryScanner()
+        self.parserCache = MarkdownParserCache(capacity: parserCacheCapacity)
+        self.diagnosticsRecorder = diagnosticsRecorder
     }
 
     public var sourceLength: Int {
         source.byteCount
+    }
+
+    public var diagnosticsCounters: MarkdownDiagnosticsCounters {
+        diagnosticsRecorder.snapshot()
     }
 
     public mutating func append(_ text: String) {
@@ -78,11 +96,12 @@ public struct MarkdownStream: Sendable {
 
         if sealedUpperBound < source.byteCount, !finished {
             let tail = source.slice(sealedUpperBound..<source.byteCount)
-            tailBlocks = parser.parse(
+            tailBlocks = parse(
                 tail,
                 lineMap: source.lineMap,
                 idNamespace: "stream",
-                isSealed: false
+                isSealed: false,
+                isSealedRegion: false
             )
         } else {
             tailBlocks = []
@@ -100,14 +119,49 @@ public struct MarkdownStream: Sendable {
 
     private mutating func seal(upTo upperBound: Int) {
         let slice = source.slice(sealedUpperBound..<upperBound)
-        let blocks = parser.parse(
+        let blocks = parse(
             slice,
             lineMap: source.lineMap,
             idNamespace: "stream",
-            isSealed: true
+            isSealed: true,
+            isSealedRegion: true
         )
         sealedBlocks.append(contentsOf: blocks)
         sealedUpperBound = upperBound
+    }
+
+    private func parse(
+        _ slice: MarkdownSourceSlice,
+        lineMap: MarkdownLineMap,
+        idNamespace: String,
+        isSealed: Bool,
+        isSealedRegion: Bool
+    ) -> [MarkdownBlock] {
+        let key = MarkdownCacheKey(
+            sourceRange: lineMapSourceRange(for: slice),
+            contentHash: slice.contentHash,
+            namespace: idNamespace
+        )
+
+        if let cached = parserCache.blocks(forKey: key, isSealed: isSealed) {
+            diagnosticsRecorder.recordCacheHit(isSealedRegion: isSealedRegion)
+            return cached
+        }
+
+        diagnosticsRecorder.recordCacheMiss(isSealedRegion: isSealedRegion)
+        diagnosticsRecorder.recordParse(isSealedRegion: isSealedRegion)
+        let blocks = parser.parse(
+            slice,
+            lineMap: lineMap,
+            idNamespace: idNamespace,
+            isSealed: isSealed
+        )
+        parserCache.insert(blocks, forKey: key)
+        return blocks
+    }
+
+    private func lineMapSourceRange(for slice: MarkdownSourceSlice) -> MarkdownSourceRange {
+        source.sourceRange(for: slice.byteRange)
     }
 
     private func snapshotItems(blocks: [MarkdownBlock]) -> [MarkdownSnapshotItem] {

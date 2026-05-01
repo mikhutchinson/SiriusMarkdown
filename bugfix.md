@@ -22,3 +22,6 @@
 - Fixed `MarkdownBlockID` churn when a block moved from mutable tail to sealed storage by removing tail/sealed namespace from generated IDs.
 - Fixed `MarkdownBoundaryScanner` treating a single trailing newline as a blank-line seal boundary, which split streamed multi-line blockquotes and could seal too early.
 - Corrected source-buffer UTF-8 test expectations for Arabic and mixed Unicode byte offsets after expanding byte/line-map coverage.
+- Wired parser and inline layout caches into executable code paths with diagnostics counters for tail reparses, sealed-region cache hits/misses, inline prepare, and layout.
+- Moved code highlighting, math rendering, and HTML policy evaluation out of `MarkdownBlockView.body` into `MarkdownPreparedBlockContent`, with highlighted-code and rendered-math cache reuse.
+- Fixed the public `SiriusMarkdown` product so it now builds an importable umbrella module instead of only composing Core and SwiftUI targets, and added a test that exercises the consumer import surface.

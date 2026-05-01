@@ -7,7 +7,7 @@
 - Added `AGENTS.md` as repo-local agent guidance so future work treats `plan.md` as binding project architecture.
 - Added initial core source-buffer, streaming, parser, model, policy, cache, diagnostics, inline-layout, SwiftUI-renderer, and Pretext-support surfaces.
 - Added a working Pretext golden smoke harness backed by `@chenglou/pretext` and a Node canvas shim.
-- Expanded Swift coverage to 112 runner-counted tests plus parameterized edge cases for streaming equivalence, stable block IDs, source byte/line maps, conservative boundary scanning, block and inline classification, structured AST conversion, policy handling, cache eviction, diagnostics, renderer behavior, and deterministic inline layout.
+- Expanded Swift coverage to 118 runner-counted tests plus parameterized edge cases for streaming equivalence, stable block IDs, source byte/line maps, conservative boundary scanning, block and inline classification, structured AST conversion, policy handling, cache eviction, diagnostics, renderer behavior, prepared code/math content, umbrella import ergonomics, and deterministic inline layout.
 - Fixed stable block identity so active-tail block IDs survive sealing.
 - Fixed conservative boundary scanning so a single trailing newline does not seal a block or split multi-line blockquotes during streaming.
 - Reworked parsing so `swift-markdown` owns Markdown semantics and the package converts the AST into the public render model.
@@ -17,4 +17,8 @@
 - Removed SwiftUI-owned inline fragment measurement from `InlineRunsView`; inline rendering now consumes runs as one attributed payload with policy-gated links/images.
 - Added structured SwiftUI render paths for lists, task lists, tables, code blocks, math blocks, and HTML blocks.
 - Tightened default link/image policy and added a protocol-driven renderer configuration surface for links, images, HTML, code, math, code highlighting, and math rendering.
+- Integrated parser, prepared-inline, measured-inline, and layout caches with diagnostics counters instead of leaving cache/counter types as passive scaffolding.
+- Moved SwiftUI code highlighting and math rendering into explicit prepared block content with bounded reuse through `MarkdownRenderPreparationCache`, so `MarkdownBlockView.body` consumes prepared output.
+- Added a real `SiriusMarkdown` umbrella target that re-exports Core and SwiftUI, plus a consumer-facing import test and DocC links for the app-facing module.
+- Replaced the static-document demo placeholder with a buildable SwiftPM SwiftUI demo that imports the public `SiriusMarkdown` product.
 - Made CI's Pretext golden step clean-checkout safe with `npm ci`.

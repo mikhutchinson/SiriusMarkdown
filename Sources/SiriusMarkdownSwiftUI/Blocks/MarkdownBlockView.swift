@@ -4,6 +4,7 @@ import SwiftUI
 public struct MarkdownBlockView: View {
     private var block: MarkdownBlock
     private var configuration: MarkdownRendererConfiguration
+    private var preparedContent: MarkdownPreparedBlockContent
 
     private var theme: MarkdownTheme {
         configuration.theme
@@ -12,18 +13,30 @@ public struct MarkdownBlockView: View {
     public init(block: MarkdownBlock, theme: MarkdownTheme = .compactChat) {
         self.block = block
         self.configuration = MarkdownRendererConfiguration(theme: theme)
+        self.preparedContent = self.configuration.prepare(block: block)
     }
 
     public init(block: MarkdownBlock, configuration: MarkdownRendererConfiguration) {
         self.block = block
         self.configuration = configuration
+        self.preparedContent = configuration.prepare(block: block)
+    }
+
+    public init(
+        block: MarkdownBlock,
+        configuration: MarkdownRendererConfiguration,
+        preparedContent: MarkdownPreparedBlockContent?
+    ) {
+        self.block = block
+        self.configuration = configuration
+        self.preparedContent = preparedContent ?? configuration.prepare(block: block)
     }
 
     public var body: some View {
         Group {
             switch block.kind {
             case .heading:
-                inlineContent(baseFont: headingFont, fallbackText: headingText)
+                inlineContent(baseFont: headingFont, fallbackText: headingFallbackText)
             case .codeBlock:
                 codeBlockContent
             case .blockQuote:
@@ -78,10 +91,9 @@ public struct MarkdownBlockView: View {
 
     @ViewBuilder
     private var codeBlockContent: some View {
-        switch configuration.codePolicy.evaluateCodeBlock(infoString: block.infoString, code: Self.codeText(for: block)) {
-        case .allow:
+        if let code = preparedContent.code {
             ScrollView(.horizontal) {
-                Text(configuration.codeHighlighter.highlightedCode(Self.codeText(for: block), infoString: block.infoString))
+                Text(code)
                     .font(theme.codeFont)
                     .textSelection(.enabled)
                     .padding(10)
@@ -89,8 +101,12 @@ public struct MarkdownBlockView: View {
             }
             .background(theme.codeBackground)
             .clipShape(RoundedRectangle(cornerRadius: 6))
-        case let .deny(reason):
+        } else if let reason = preparedContent.policyDenialReason {
             policyDeniedView(reason: reason)
+        } else {
+            Text(MarkdownRendererConfiguration.codeText(for: block))
+                .font(theme.codeFont)
+                .textSelection(.enabled)
         }
     }
 
@@ -135,31 +151,34 @@ public struct MarkdownBlockView: View {
 
     @ViewBuilder
     private var mathBlockContent: some View {
-        let math = Self.mathText(for: block)
-        switch configuration.mathPolicy.evaluateMath(math, isBlock: true) {
-        case .allow:
-            Text(configuration.mathRenderer.renderedMath(math, isBlock: true))
+        if let math = preparedContent.math {
+            Text(math)
                 .font(theme.codeFont)
                 .foregroundStyle(theme.textColor)
                 .textSelection(.enabled)
                 .padding(8)
                 .background(theme.codeBackground)
                 .clipShape(RoundedRectangle(cornerRadius: 6))
-        case let .deny(reason):
+        } else if let reason = preparedContent.policyDenialReason {
             policyDeniedView(reason: reason)
+        } else {
+            Text(MarkdownRendererConfiguration.mathText(for: block))
+                .font(theme.codeFont)
+                .foregroundStyle(theme.textColor)
         }
     }
 
     @ViewBuilder
     private var htmlBlockContent: some View {
-        switch configuration.htmlPolicy.evaluateHTML(block.text) {
-        case .allow:
+        if preparedContent.htmlAllowed == true {
             Text(block.text)
                 .font(theme.codeFont)
                 .foregroundStyle(theme.secondaryTextColor)
                 .textSelection(.enabled)
-        case let .deny(reason):
+        } else if let reason = preparedContent.policyDenialReason {
             policyDeniedView(reason: reason)
+        } else {
+            EmptyView()
         }
     }
 
@@ -201,14 +220,6 @@ public struct MarkdownBlockView: View {
             .clipShape(RoundedRectangle(cornerRadius: 6))
     }
 
-    private var headingText: String {
-        block.text.replacingOccurrences(
-            of: #"^#{1,6}\s+"#,
-            with: "",
-            options: .regularExpression
-        )
-    }
-
     public nonisolated static func renderPlan(
         for block: MarkdownBlock,
         configuration: MarkdownRendererConfiguration = .compactChat
@@ -226,17 +237,33 @@ public struct MarkdownBlockView: View {
             return MarkdownBlockRenderPlan(
                 kind: block.kind,
                 codeAllowed: policyAllowed(
-                    configuration.codePolicy.evaluateCodeBlock(infoString: block.infoString, code: codeText(for: block))
+                    configuration.codePolicy.evaluateCodeBlock(
+                        infoString: block.infoString,
+                        code: MarkdownRendererConfiguration.codeText(for: block)
+                    )
                 ),
                 policyDenialReason: denialReason(
-                    configuration.codePolicy.evaluateCodeBlock(infoString: block.infoString, code: codeText(for: block))
+                    configuration.codePolicy.evaluateCodeBlock(
+                        infoString: block.infoString,
+                        code: MarkdownRendererConfiguration.codeText(for: block)
+                    )
                 )
             )
         case .mathBlock:
             return MarkdownBlockRenderPlan(
                 kind: block.kind,
-                mathAllowed: policyAllowed(configuration.mathPolicy.evaluateMath(mathText(for: block), isBlock: true)),
-                policyDenialReason: denialReason(configuration.mathPolicy.evaluateMath(mathText(for: block), isBlock: true))
+                mathAllowed: policyAllowed(
+                    configuration.mathPolicy.evaluateMath(
+                        MarkdownRendererConfiguration.mathText(for: block),
+                        isBlock: true
+                    )
+                ),
+                policyDenialReason: denialReason(
+                    configuration.mathPolicy.evaluateMath(
+                        MarkdownRendererConfiguration.mathText(for: block),
+                        isBlock: true
+                    )
+                )
             )
         case .htmlBlock:
             return MarkdownBlockRenderPlan(
@@ -267,30 +294,9 @@ public struct MarkdownBlockView: View {
         }
     }
 
-    private nonisolated static func codeText(for block: MarkdownBlock) -> String {
-        var lines = block.text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
-        if lines.first?.hasPrefix("```") == true || lines.first?.hasPrefix("~~~") == true {
-            lines.removeFirst()
-        }
-        if lines.last?.hasPrefix("```") == true || lines.last?.hasPrefix("~~~") == true {
-            lines.removeLast()
-        }
-        return lines.joined(separator: "\n")
-    }
-
-    private nonisolated static func mathText(for block: MarkdownBlock) -> String {
-        if let mathRun = block.inlines.first(where: { $0.kind == .math }) {
-            return mathRun.text
-        }
-
-        var lines = block.text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
-        if lines.first?.trimmingCharacters(in: .whitespaces) == "$$" {
-            lines.removeFirst()
-        }
-        if lines.last?.trimmingCharacters(in: .whitespaces) == "$$" {
-            lines.removeLast()
-        }
-        return lines.joined(separator: "\n")
+    private var headingFallbackText: String {
+        let inlineText = block.inlines.map(\.text).joined()
+        return inlineText.isEmpty ? block.text : inlineText
     }
 
     private var headingFont: Font {

@@ -98,6 +98,44 @@ func blockRenderPlanUsesProtocolPoliciesForCodeMathAndHTML() throws {
     #expect(allowedHTML.htmlAllowed == true)
 }
 
+@Test
+@MainActor
+func preparedBlockContentMovesCodeAndMathRenderingOutOfBlockBody() throws {
+    let code = try firstBlock("```swift\nlet x = 1\n```")
+    let highlighter = CountingCodeHighlighter()
+    let codeConfiguration = MarkdownRendererConfiguration(codeHighlighter: highlighter)
+
+    _ = MarkdownBlockView.renderPlan(for: code, configuration: codeConfiguration)
+    #expect(highlighter.count == 0)
+
+    let preparedCode = codeConfiguration.prepare(block: code)
+    #expect(highlighter.count == 1)
+    _ = codeConfiguration.prepare(block: code)
+    #expect(highlighter.count == 1)
+
+    _ = MarkdownBlockView(
+        block: code,
+        configuration: codeConfiguration,
+        preparedContent: preparedCode
+    )
+    #expect(highlighter.count == 1)
+
+    let math = try firstBlock("$$\nx^2\n$$")
+    let mathRenderer = CountingMathRenderer()
+    let mathConfiguration = MarkdownRendererConfiguration(mathRenderer: mathRenderer)
+    let preparedMath = mathConfiguration.prepare(block: math)
+    #expect(mathRenderer.count == 1)
+    _ = mathConfiguration.prepare(block: math)
+    #expect(mathRenderer.count == 1)
+
+    _ = MarkdownBlockView(
+        block: math,
+        configuration: mathConfiguration,
+        preparedContent: preparedMath
+    )
+    #expect(mathRenderer.count == 1)
+}
+
 private func firstBlock(_ markdown: String) throws -> MarkdownBlock {
     var stream = MarkdownStream()
     stream.append(markdown)
@@ -120,5 +158,41 @@ private struct DenyMathPolicy: MarkdownMathPolicy {
 private struct AllowHTMLPolicy: MarkdownHTMLPolicy {
     func evaluateHTML(_ html: String) -> MarkdownPolicyDecision {
         .allow
+    }
+}
+
+private final class CountingCodeHighlighter: MarkdownCodeHighlighter, @unchecked Sendable {
+    private let lock = NSLock()
+    private var callCount = 0
+
+    func highlightedCode(_ code: String, infoString: String?) -> AttributedString {
+        lock.withLock {
+            callCount += 1
+        }
+        return AttributedString(code)
+    }
+
+    var count: Int {
+        lock.withLock {
+            callCount
+        }
+    }
+}
+
+private final class CountingMathRenderer: MarkdownMathRenderer, @unchecked Sendable {
+    private let lock = NSLock()
+    private var callCount = 0
+
+    func renderedMath(_ source: String, isBlock: Bool) -> AttributedString {
+        lock.withLock {
+            callCount += 1
+        }
+        return AttributedString(source)
+    }
+
+    var count: Int {
+        lock.withLock {
+            callCount
+        }
     }
 }

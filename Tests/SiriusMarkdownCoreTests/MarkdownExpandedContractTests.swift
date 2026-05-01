@@ -425,6 +425,98 @@ private func measuredInlineContentReusesWidthsAcrossLayoutPasses() {
 }
 
 @Test
+private func streamDiagnosticsTrackTailReparseAndCacheReuse() {
+    var stream = MarkdownStream()
+    stream.append("Active tail")
+
+    _ = stream.snapshot()
+    let afterFirstSnapshot = stream.diagnosticsCounters
+    #expect(afterFirstSnapshot.parseCount == 1)
+    #expect(afterFirstSnapshot.tailReparseCount == 1)
+
+    _ = stream.snapshot()
+    let afterSecondSnapshot = stream.diagnosticsCounters
+    #expect(afterSecondSnapshot.parseCount == afterFirstSnapshot.parseCount)
+    #expect(afterSecondSnapshot.tailReparseCount == afterFirstSnapshot.tailReparseCount)
+    #expect(afterSecondSnapshot.cacheHitCount == afterFirstSnapshot.cacheHitCount + 1)
+
+    stream.append(" updated")
+    _ = stream.snapshot()
+    let afterAppendSnapshot = stream.diagnosticsCounters
+    #expect(afterAppendSnapshot.parseCount == afterFirstSnapshot.parseCount + 1)
+    #expect(afterAppendSnapshot.tailReparseCount == afterFirstSnapshot.tailReparseCount + 1)
+}
+
+@Test
+private func hostBoundarySealingReusesCachedTailParse() {
+    var stream = MarkdownStream()
+    stream.append("Native insertion boundary")
+    _ = stream.snapshot()
+    let beforeBoundary = stream.diagnosticsCounters
+
+    stream.appendHostBoundary(id: MarkdownHostBoundaryID("native-card"))
+    let snapshot = stream.snapshot()
+    let afterBoundary = stream.diagnosticsCounters
+
+    #expect(snapshot.blocks.first?.isSealed == true)
+    #expect(afterBoundary.parseCount == beforeBoundary.parseCount)
+    #expect(afterBoundary.sealedRegionCacheHitCount == beforeBoundary.sealedRegionCacheHitCount + 1)
+}
+
+@Test
+private func sealedRegionParseMissIsRecordedWhenNoTailCacheExists() {
+    var stream = MarkdownStream()
+    stream.append("Paragraph\n\n")
+
+    let counters = stream.diagnosticsCounters
+    #expect(counters.sealedRegionParseCount == 1)
+    #expect(counters.sealedRegionCacheMissCount == 1)
+    #expect(counters.tailReparseCount == 0)
+}
+
+@Test
+private func inlineLayoutEngineCachesMeasuredContentAndLayoutResults() {
+    let runs = [MarkdownInlineRun(kind: .text, text: "abcdef ghij")]
+    let range = MarkdownSourceRange(byteRange: 0..<11, lineRange: 1..<2)
+    let measurer = CountingWidthMeasurer()
+    var engine = InlineLayoutEngine(measurer: measurer, cacheCapacity: 8)
+
+    let measured = engine.prepareMeasuredContent(runs: runs, sourceRange: range, fontSize: 1)
+    let measurementCount = measurer.count
+    let afterPrepare = engine.diagnosticsCounters
+
+    let cachedMeasured = engine.prepareMeasuredContent(runs: runs, sourceRange: range, fontSize: 1)
+    let afterCachedPrepare = engine.diagnosticsCounters
+    #expect(cachedMeasured == measured)
+    #expect(measurer.count == measurementCount)
+    #expect(afterPrepare.prepareCount == 1)
+    #expect(afterCachedPrepare.prepareCount == afterPrepare.prepareCount)
+    #expect(afterCachedPrepare.cacheHitCount > afterPrepare.cacheHitCount)
+
+    let narrow = engine.layout(
+        measured,
+        options: InlineLayoutOptions(containerWidth: 3, fontSize: 1, lineHeight: 2)
+    )
+    let afterFirstLayout = engine.diagnosticsCounters
+
+    let cachedNarrow = engine.layout(
+        measured,
+        options: InlineLayoutOptions(containerWidth: 3, fontSize: 1, lineHeight: 2)
+    )
+    let afterCachedLayout = engine.diagnosticsCounters
+    #expect(cachedNarrow == narrow)
+    #expect(afterCachedLayout.layoutCount == afterFirstLayout.layoutCount)
+
+    let wide = engine.layout(
+        measured,
+        options: InlineLayoutOptions(containerWidth: 20, fontSize: 1, lineHeight: 2)
+    )
+    #expect(engine.diagnosticsCounters.layoutCount == afterFirstLayout.layoutCount + 1)
+    #expect(measurer.count == measurementCount)
+    #expect(narrow.lines.count > wide.lines.count)
+}
+
+@Test
 func tailIDSurvivesSealing() {
     var stream = MarkdownStream()
     stream.append("Paragraph")

@@ -15,7 +15,7 @@ let package = Package(
     products: [
         .library(
             name: "SiriusMarkdown",
-            targets: ["SiriusMarkdownCore", "SiriusMarkdownSwiftUI"]
+            targets: ["SiriusMarkdown"]
         ),
         .library(
             name: "SiriusMarkdownCore",
@@ -35,6 +35,13 @@ let package = Package(
     ],
     targets: [
         .target(
+            name: "SiriusMarkdown",
+            dependencies: [
+                "SiriusMarkdownCore",
+                "SiriusMarkdownSwiftUI"
+            ]
+        ),
+        .target(
             name: "SiriusMarkdownCore",
             dependencies: [
                 .product(name: "Markdown", package: "swift-markdown")
@@ -50,6 +57,10 @@ let package = Package(
             resources: [
                 .process("Fixtures")
             ]
+        ),
+        .testTarget(
+            name: "SiriusMarkdownTests",
+            dependencies: ["SiriusMarkdown"]
         ),
         .testTarget(
             name: "SiriusMarkdownCoreTests",

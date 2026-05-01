@@ -31,6 +31,17 @@ public struct MarkdownSourceSlice: Sendable, Hashable {
         }
         return result
     }
+
+    public var contentHash: UInt64 {
+        var hash: UInt64 = 0xcbf29ce484222325
+        for segment in segments {
+            for byte in segment {
+                hash ^= UInt64(byte)
+                hash &*= 0x100000001b3
+            }
+        }
+        return hash
+    }
 }
 
 public struct MarkdownSourceLine: Sendable, Hashable {

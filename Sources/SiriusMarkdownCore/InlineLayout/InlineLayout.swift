@@ -198,6 +198,8 @@ public protocol InlineMeasuring: Sendable {
     func width(of text: String, fontSize: Double) -> Double
 }
 
+public typealias TextMeasurer = InlineMeasuring
+
 public struct CoreTextInlineMeasurer: InlineMeasuring {
     public init() {}
 
@@ -367,5 +369,208 @@ public struct VariableWidthLineWalker<Measurer: InlineMeasuring>: Sendable {
 public extension VariableWidthLineWalker where Measurer == CoreTextInlineMeasurer {
     init() {
         self.measurer = CoreTextInlineMeasurer()
+    }
+}
+
+public struct InlineLayoutEngine<Measurer: InlineMeasuring>: Sendable {
+    public var walker: VariableWidthLineWalker<Measurer>
+    public let diagnosticsRecorder: MarkdownDiagnosticsRecorder
+
+    private var preparedCache: BoundedMarkdownCache<PreparedInlineContent>
+    private var measuredCache: BoundedMarkdownCache<MeasuredInlineContent>
+    private var layoutCache: BoundedMarkdownCache<InlineLayoutResult>
+
+    public init(
+        measurer: Measurer,
+        cacheCapacity: Int = 256,
+        diagnosticsRecorder: MarkdownDiagnosticsRecorder = MarkdownDiagnosticsRecorder()
+    ) {
+        self.walker = VariableWidthLineWalker(measurer: measurer)
+        self.diagnosticsRecorder = diagnosticsRecorder
+        self.preparedCache = BoundedMarkdownCache(capacity: cacheCapacity)
+        self.measuredCache = BoundedMarkdownCache(capacity: cacheCapacity)
+        self.layoutCache = BoundedMarkdownCache(capacity: cacheCapacity)
+    }
+
+    public var diagnosticsCounters: MarkdownDiagnosticsCounters {
+        diagnosticsRecorder.snapshot()
+    }
+
+    public mutating func prepare(
+        runs: [MarkdownInlineRun],
+        sourceRange: MarkdownSourceRange? = nil
+    ) -> PreparedInlineContent {
+        let key = inlineCacheKey(
+            runs: runs,
+            sourceRange: sourceRange,
+            namespace: "prepared-inline"
+        )
+
+        if let cached = preparedCache[key] {
+            diagnosticsRecorder.recordCacheHit()
+            return cached
+        }
+
+        diagnosticsRecorder.recordCacheMiss()
+        let prepared = PreparedInlineContent(runs: runs, sourceRange: sourceRange)
+        preparedCache[key] = prepared
+        return prepared
+    }
+
+    public mutating func prepareMeasuredContent(
+        runs: [MarkdownInlineRun],
+        sourceRange: MarkdownSourceRange? = nil,
+        fontSize: Double = 14
+    ) -> MeasuredInlineContent {
+        let prepared = prepare(runs: runs, sourceRange: sourceRange)
+        return prepareMeasuredContent(prepared, fontSize: fontSize)
+    }
+
+    public mutating func prepareMeasuredContent(
+        _ prepared: PreparedInlineContent,
+        fontSize: Double = 14
+    ) -> MeasuredInlineContent {
+        let key = measuredCacheKey(for: prepared, fontSize: fontSize)
+
+        if let cached = measuredCache[key] {
+            diagnosticsRecorder.recordCacheHit()
+            return cached
+        }
+
+        diagnosticsRecorder.recordCacheMiss()
+        diagnosticsRecorder.recordPrepare()
+        let measured = walker.prepare(prepared, fontSize: fontSize)
+        measuredCache[key] = measured
+        return measured
+    }
+
+    public mutating func layout(
+        runs: [MarkdownInlineRun],
+        sourceRange: MarkdownSourceRange? = nil,
+        options: InlineLayoutOptions
+    ) -> InlineLayoutResult {
+        let measured = prepareMeasuredContent(
+            runs: runs,
+            sourceRange: sourceRange,
+            fontSize: options.fontSize
+        )
+        return layout(measured, options: options)
+    }
+
+    public mutating func layout(
+        _ prepared: PreparedInlineContent,
+        options: InlineLayoutOptions
+    ) -> InlineLayoutResult {
+        let measured = prepareMeasuredContent(prepared, fontSize: options.fontSize)
+        return layout(measured, options: options)
+    }
+
+    public mutating func layout(
+        _ measured: MeasuredInlineContent,
+        options: InlineLayoutOptions
+    ) -> InlineLayoutResult {
+        let key = layoutCacheKey(for: measured, options: options)
+
+        if let cached = layoutCache[key] {
+            diagnosticsRecorder.recordCacheHit()
+            return cached
+        }
+
+        diagnosticsRecorder.recordCacheMiss()
+        diagnosticsRecorder.recordLayout()
+        let result = walker.layout(measured, options: options)
+        layoutCache[key] = result
+        return result
+    }
+
+    private func inlineCacheKey(
+        runs: [MarkdownInlineRun],
+        sourceRange: MarkdownSourceRange?,
+        namespace: String
+    ) -> MarkdownCacheKey {
+        let byteCount = runs.reduce(0) { $0 + $1.text.utf8.count + ($1.destination?.utf8.count ?? 0) }
+        let range = sourceRange ?? MarkdownSourceRange(byteRange: 0..<byteCount, lineRange: 1..<2)
+        return MarkdownCacheKey(
+            sourceRange: range,
+            contentHash: inlineContentHash(runs),
+            namespace: namespace
+        )
+    }
+
+    private func measuredCacheKey(
+        for prepared: PreparedInlineContent,
+        fontSize: Double
+    ) -> MarkdownCacheKey {
+        MarkdownCacheKey(
+            sourceRange: prepared.sourceRange ?? MarkdownSourceRange(
+                byteRange: 0..<prepared.naturalText.utf8.count,
+                lineRange: 1..<2
+            ),
+            contentHash: preparedContentHash(prepared, salt: "font:\(fontSize)"),
+            namespace: "measured-inline"
+        )
+    }
+
+    private func layoutCacheKey(
+        for measured: MeasuredInlineContent,
+        options: InlineLayoutOptions
+    ) -> MarkdownCacheKey {
+        MarkdownCacheKey(
+            sourceRange: measured.prepared.sourceRange ?? MarkdownSourceRange(
+                byteRange: 0..<measured.prepared.naturalText.utf8.count,
+                lineRange: 1..<2
+            ),
+            contentHash: preparedContentHash(
+                measured.prepared,
+                salt: "font:\(options.fontSize)|width:\(options.containerWidth)|line:\(options.lineHeight)"
+            ),
+            namespace: "inline-layout"
+        )
+    }
+
+    private func inlineContentHash(_ runs: [MarkdownInlineRun]) -> UInt64 {
+        var hash: UInt64 = 0xcbf29ce484222325
+        for run in runs {
+            hash = append(run.kind.rawValue, to: hash)
+            hash = append(run.text, to: hash)
+            if let destination = run.destination {
+                hash = append(destination, to: hash)
+            }
+        }
+        return hash
+    }
+
+    private func preparedContentHash(_ prepared: PreparedInlineContent, salt: String) -> UInt64 {
+        var hash = append(salt, to: 0xcbf29ce484222325)
+        for segment in prepared.segments {
+            hash = append(segment.kind.rawValue, to: hash)
+            hash = append(segment.text, to: hash)
+            hash = append("\(segment.byteRange.lowerBound)..<\(segment.byteRange.upperBound)", to: hash)
+            hash = append(segment.isHardBreak ? "hard" : "soft", to: hash)
+            hash = append(segment.isBreakOpportunity ? "break" : "nobreak", to: hash)
+        }
+        return hash
+    }
+
+    private func append(_ text: String, to initialHash: UInt64) -> UInt64 {
+        var hash = initialHash
+        for byte in text.utf8 {
+            hash ^= UInt64(byte)
+            hash &*= 0x100000001b3
+        }
+        return hash
+    }
+}
+
+public extension InlineLayoutEngine where Measurer == CoreTextInlineMeasurer {
+    init(
+        cacheCapacity: Int = 256,
+        diagnosticsRecorder: MarkdownDiagnosticsRecorder = MarkdownDiagnosticsRecorder()
+    ) {
+        self.init(
+            measurer: CoreTextInlineMeasurer(),
+            cacheCapacity: cacheCapacity,
+            diagnosticsRecorder: diagnosticsRecorder
+        )
     }
 }
