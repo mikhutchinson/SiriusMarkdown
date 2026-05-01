@@ -25,15 +25,7 @@ public struct MarkdownBlockView: View {
             case .heading:
                 inlineContent(baseFont: headingFont, fallbackText: headingText)
             case .codeBlock:
-                ScrollView(.horizontal) {
-                    Text(codeText)
-                        .font(theme.codeFont)
-                        .textSelection(.enabled)
-                        .padding(10)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .background(theme.codeBackground)
-                .clipShape(RoundedRectangle(cornerRadius: 6))
+                codeBlockContent
             case .blockQuote:
                 HStack(alignment: .top, spacing: 8) {
                     Rectangle()
@@ -46,25 +38,13 @@ public struct MarkdownBlockView: View {
             case .thematicBreak:
                 Divider()
             case .unorderedList, .orderedList, .taskList:
-                inlineContent(baseFont: theme.paragraphFont, fallbackText: block.text)
+                listContent
             case .table:
-                ScrollView(.horizontal) {
-                    inlineContent(baseFont: theme.codeFont, fallbackText: block.text)
-                        .padding(.vertical, 4)
-                }
+                tableContent
             case .mathBlock:
-                Text(block.text)
-                    .font(theme.codeFont)
-                    .foregroundStyle(theme.textColor)
-                    .textSelection(.enabled)
-                    .padding(8)
-                    .background(theme.codeBackground)
-                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                mathBlockContent
             case .htmlBlock:
-                Text(block.text)
-                    .font(theme.codeFont)
-                    .foregroundStyle(theme.secondaryTextColor)
-                    .textSelection(.enabled)
+                htmlBlockContent
             case .blank:
                 EmptyView()
             case .paragraph:
@@ -88,11 +68,137 @@ public struct MarkdownBlockView: View {
                 theme: theme,
                 baseFont: baseFont,
                 linkAction: configuration.linkAction,
-                policy: configuration.policy
+                linkPolicy: configuration.linkPolicy,
+                imagePolicy: configuration.imagePolicy
             )
             .textSelection(.enabled)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+    }
+
+    @ViewBuilder
+    private var codeBlockContent: some View {
+        switch configuration.codePolicy.evaluateCodeBlock(infoString: block.infoString, code: Self.codeText(for: block)) {
+        case .allow:
+            ScrollView(.horizontal) {
+                Text(configuration.codeHighlighter.highlightedCode(Self.codeText(for: block), infoString: block.infoString))
+                    .font(theme.codeFont)
+                    .textSelection(.enabled)
+                    .padding(10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .background(theme.codeBackground)
+            .clipShape(RoundedRectangle(cornerRadius: 6))
+        case let .deny(reason):
+            policyDeniedView(reason: reason)
+        }
+    }
+
+    private var listContent: some View {
+        MarkdownListItemsView(
+            items: block.listItems,
+            kind: block.kind,
+            orderedStart: block.orderedListStart,
+            configuration: configuration,
+            theme: theme
+        )
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    @ViewBuilder
+    private var tableContent: some View {
+        if let table = block.table {
+            ScrollView(.horizontal) {
+                Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 6) {
+                    if !table.header.isEmpty {
+                        GridRow {
+                            ForEach(Array(table.header.enumerated()), id: \.offset) { column, cell in
+                                tableCell(cell, column: column, isHeader: true)
+                            }
+                        }
+                    }
+
+                    ForEach(Array(table.rows.enumerated()), id: \.offset) { _, row in
+                        GridRow {
+                            ForEach(Array(row.enumerated()), id: \.offset) { column, cell in
+                                tableCell(cell, column: column, isHeader: false)
+                            }
+                        }
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+        } else {
+            inlineContent(baseFont: theme.codeFont, fallbackText: block.text)
+        }
+    }
+
+    @ViewBuilder
+    private var mathBlockContent: some View {
+        let math = Self.mathText(for: block)
+        switch configuration.mathPolicy.evaluateMath(math, isBlock: true) {
+        case .allow:
+            Text(configuration.mathRenderer.renderedMath(math, isBlock: true))
+                .font(theme.codeFont)
+                .foregroundStyle(theme.textColor)
+                .textSelection(.enabled)
+                .padding(8)
+                .background(theme.codeBackground)
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+        case let .deny(reason):
+            policyDeniedView(reason: reason)
+        }
+    }
+
+    @ViewBuilder
+    private var htmlBlockContent: some View {
+        switch configuration.htmlPolicy.evaluateHTML(block.text) {
+        case .allow:
+            Text(block.text)
+                .font(theme.codeFont)
+                .foregroundStyle(theme.secondaryTextColor)
+                .textSelection(.enabled)
+        case let .deny(reason):
+            policyDeniedView(reason: reason)
+        }
+    }
+
+    private func tableCell(_ cell: MarkdownTableCell, column: Int, isHeader: Bool) -> some View {
+        InlineRunsView(
+            runs: cell.inlines,
+            theme: theme,
+            baseFont: isHeader ? theme.paragraphFont.bold() : theme.paragraphFont,
+            linkAction: configuration.linkAction,
+            linkPolicy: configuration.linkPolicy,
+            imagePolicy: configuration.imagePolicy
+        )
+        .frame(minWidth: 48, alignment: tableAlignment(column))
+        .textSelection(.enabled)
+    }
+
+    private func tableAlignment(_ column: Int) -> Alignment {
+        guard let alignment = block.table?.columnAlignments[safe: column] ?? nil else {
+            return .leading
+        }
+
+        switch alignment {
+        case .left:
+            return .leading
+        case .center:
+            return .center
+        case .right:
+            return .trailing
+        }
+    }
+
+    private func policyDeniedView(reason: String) -> some View {
+        Text(reason)
+            .font(theme.codeFont)
+            .foregroundStyle(theme.secondaryTextColor)
+            .textSelection(.enabled)
+            .padding(8)
+            .background(theme.codeBackground)
+            .clipShape(RoundedRectangle(cornerRadius: 6))
     }
 
     private var headingText: String {
@@ -103,12 +209,85 @@ public struct MarkdownBlockView: View {
         )
     }
 
-    private var codeText: String {
+    public nonisolated static func renderPlan(
+        for block: MarkdownBlock,
+        configuration: MarkdownRendererConfiguration = .compactChat
+    ) -> MarkdownBlockRenderPlan {
+        switch block.kind {
+        case .unorderedList, .orderedList, .taskList:
+            return MarkdownBlockRenderPlan(kind: block.kind, listItemCount: block.listItems.count)
+        case .table:
+            return MarkdownBlockRenderPlan(
+                kind: block.kind,
+                tableColumnCount: block.table?.header.count ?? 0,
+                tableBodyRowCount: block.table?.rows.count ?? 0
+            )
+        case .codeBlock:
+            return MarkdownBlockRenderPlan(
+                kind: block.kind,
+                codeAllowed: policyAllowed(
+                    configuration.codePolicy.evaluateCodeBlock(infoString: block.infoString, code: codeText(for: block))
+                ),
+                policyDenialReason: denialReason(
+                    configuration.codePolicy.evaluateCodeBlock(infoString: block.infoString, code: codeText(for: block))
+                )
+            )
+        case .mathBlock:
+            return MarkdownBlockRenderPlan(
+                kind: block.kind,
+                mathAllowed: policyAllowed(configuration.mathPolicy.evaluateMath(mathText(for: block), isBlock: true)),
+                policyDenialReason: denialReason(configuration.mathPolicy.evaluateMath(mathText(for: block), isBlock: true))
+            )
+        case .htmlBlock:
+            return MarkdownBlockRenderPlan(
+                kind: block.kind,
+                htmlAllowed: policyAllowed(configuration.htmlPolicy.evaluateHTML(block.text)),
+                policyDenialReason: denialReason(configuration.htmlPolicy.evaluateHTML(block.text))
+            )
+        default:
+            return MarkdownBlockRenderPlan(kind: block.kind)
+        }
+    }
+
+    private nonisolated static func policyAllowed(_ decision: MarkdownPolicyDecision) -> Bool {
+        switch decision {
+        case .allow:
+            return true
+        case .deny:
+            return false
+        }
+    }
+
+    private nonisolated static func denialReason(_ decision: MarkdownPolicyDecision) -> String? {
+        switch decision {
+        case .allow:
+            return nil
+        case let .deny(reason):
+            return reason
+        }
+    }
+
+    private nonisolated static func codeText(for block: MarkdownBlock) -> String {
         var lines = block.text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
         if lines.first?.hasPrefix("```") == true || lines.first?.hasPrefix("~~~") == true {
             lines.removeFirst()
         }
         if lines.last?.hasPrefix("```") == true || lines.last?.hasPrefix("~~~") == true {
+            lines.removeLast()
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    private nonisolated static func mathText(for block: MarkdownBlock) -> String {
+        if let mathRun = block.inlines.first(where: { $0.kind == .math }) {
+            return mathRun.text
+        }
+
+        var lines = block.text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        if lines.first?.trimmingCharacters(in: .whitespaces) == "$$" {
+            lines.removeFirst()
+        }
+        if lines.last?.trimmingCharacters(in: .whitespaces) == "$$" {
             lines.removeLast()
         }
         return lines.joined(separator: "\n")
@@ -125,5 +304,92 @@ public struct MarkdownBlockView: View {
         default:
             return .headline
         }
+    }
+}
+
+private struct MarkdownListItemsView: View {
+    var items: [MarkdownListItem]
+    var kind: MarkdownBlockKind
+    var orderedStart: UInt?
+    var configuration: MarkdownRendererConfiguration
+    var theme: MarkdownTheme
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            ForEach(Array(items.enumerated()), id: \.offset) { index, item in
+                MarkdownListItemRow(
+                    item: item,
+                    index: index,
+                    kind: kind,
+                    orderedStart: orderedStart,
+                    configuration: configuration,
+                    theme: theme
+                )
+            }
+        }
+    }
+}
+
+private struct MarkdownListItemRow: View {
+    var item: MarkdownListItem
+    var index: Int
+    var kind: MarkdownBlockKind
+    var orderedStart: UInt?
+    var configuration: MarkdownRendererConfiguration
+    var theme: MarkdownTheme
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(marker)
+                    .font(theme.codeFont)
+                    .foregroundStyle(theme.secondaryTextColor)
+                    .frame(width: markerWidth, alignment: .trailing)
+                InlineRunsView(
+                    runs: item.inlines,
+                    theme: theme,
+                    baseFont: theme.paragraphFont,
+                    linkAction: configuration.linkAction,
+                    linkPolicy: configuration.linkPolicy,
+                    imagePolicy: configuration.imagePolicy
+                )
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            if !item.childItems.isEmpty {
+                MarkdownListItemsView(
+                    items: item.childItems,
+                    kind: .unorderedList,
+                    orderedStart: nil,
+                    configuration: configuration,
+                    theme: theme
+                )
+                .padding(.leading, markerWidth + 8)
+            }
+        }
+    }
+
+    private var marker: String {
+        if let taskState = item.taskState {
+            return taskState == .checked ? "[x]" : "[ ]"
+        }
+
+        switch kind {
+        case .orderedList:
+            return "\(Int(orderedStart ?? 1) + index)."
+        default:
+            return "-"
+        }
+    }
+
+    private var markerWidth: CGFloat {
+        kind == .orderedList ? 34 : 28
+    }
+}
+
+private extension Array {
+    subscript(safe index: Int) -> Element? {
+        indices.contains(index) ? self[index] : nil
     }
 }

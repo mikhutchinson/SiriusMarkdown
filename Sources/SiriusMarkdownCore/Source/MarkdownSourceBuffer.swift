@@ -34,7 +34,7 @@ public struct MarkdownSourceSlice: Sendable, Hashable {
 }
 
 public struct MarkdownSourceLine: Sendable, Hashable {
-    public var text: String
+    private var segments: [ArraySlice<UInt8>]
     public var byteRange: Range<Int>
     public var includesTerminatingNewline: Bool
 
@@ -43,9 +43,37 @@ public struct MarkdownSourceLine: Sendable, Hashable {
         byteRange: Range<Int>,
         includesTerminatingNewline: Bool
     ) {
-        self.text = text
+        let bytes = Array(text.utf8)
+        self.segments = [bytes[bytes.startIndex..<bytes.endIndex]]
         self.byteRange = byteRange
         self.includesTerminatingNewline = includesTerminatingNewline
+    }
+
+    init(
+        segments: [ArraySlice<UInt8>],
+        byteRange: Range<Int>,
+        includesTerminatingNewline: Bool
+    ) {
+        self.segments = segments
+        self.byteRange = byteRange
+        self.includesTerminatingNewline = includesTerminatingNewline
+    }
+
+    public var text: String {
+        guard !segments.isEmpty else {
+            return ""
+        }
+
+        if segments.count == 1, let segment = segments.first {
+            return String(decoding: segment, as: UTF8.self)
+        }
+
+        var result = ""
+        result.reserveCapacity(byteRange.count)
+        for segment in segments {
+            result += String(decoding: segment, as: UTF8.self)
+        }
+        return result
     }
 }
 
@@ -161,7 +189,8 @@ public struct MarkdownSourceBuffer: Sendable, Hashable {
         }
 
         var lines: [MarkdownSourceLine] = []
-        var lineBytes: [UInt8] = []
+        var lineSegments: [ArraySlice<UInt8>] = []
+        var segmentStart: Int?
         var lineStart = byteRange.lowerBound
         var cursor = 0
 
@@ -177,20 +206,31 @@ public struct MarkdownSourceBuffer: Sendable, Hashable {
                 for index in start..<end {
                     let byte = chunk[index]
                     let absoluteOffset = chunkRange.lowerBound + index
+                    if segmentStart == nil {
+                        segmentStart = index
+                    }
+
                     if byte == 10 {
+                        if let start = segmentStart, start < index {
+                            lineSegments.append(chunk[start..<index])
+                        }
                         lines.append(
                             MarkdownSourceLine(
-                                text: String(decoding: lineBytes, as: UTF8.self),
+                                segments: lineSegments,
                                 byteRange: lineStart..<absoluteOffset,
                                 includesTerminatingNewline: true
                             )
                         )
-                        lineBytes.removeAll(keepingCapacity: true)
+                        lineSegments.removeAll(keepingCapacity: true)
+                        segmentStart = nil
                         lineStart = absoluteOffset + 1
-                    } else {
-                        lineBytes.append(byte)
                     }
                 }
+
+                if let start = segmentStart, start < end {
+                    lineSegments.append(chunk[start..<end])
+                }
+                segmentStart = nil
             }
 
             cursor = chunkRange.upperBound
@@ -199,10 +239,10 @@ public struct MarkdownSourceBuffer: Sendable, Hashable {
             }
         }
 
-        if lineStart < byteRange.upperBound || !lineBytes.isEmpty {
+        if lineStart < byteRange.upperBound || !lineSegments.isEmpty {
             lines.append(
                 MarkdownSourceLine(
-                    text: String(decoding: lineBytes, as: UTF8.self),
+                    segments: lineSegments,
                     byteRange: lineStart..<byteRange.upperBound,
                     includesTerminatingNewline: false
                 )

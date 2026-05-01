@@ -5,18 +5,21 @@ public struct InlineRunView: View {
     private var run: MarkdownInlineRun
     private var theme: MarkdownTheme
     private var linkAction: MarkdownLinkAction?
-    private var policy: DefaultMarkdownPolicy
+    private var linkPolicy: any MarkdownLinkPolicy
+    private var imagePolicy: any MarkdownImagePolicy
 
     public init(
         run: MarkdownInlineRun,
         theme: MarkdownTheme = .compactChat,
         linkAction: MarkdownLinkAction? = nil,
-        policy: DefaultMarkdownPolicy = DefaultMarkdownPolicy()
+        linkPolicy: any MarkdownLinkPolicy = DefaultMarkdownPolicy(),
+        imagePolicy: any MarkdownImagePolicy = DefaultMarkdownPolicy()
     ) {
         self.run = run
         self.theme = theme
         self.linkAction = linkAction
-        self.policy = policy
+        self.linkPolicy = linkPolicy
+        self.imagePolicy = imagePolicy
     }
 
     public var body: some View {
@@ -50,7 +53,7 @@ public struct InlineRunView: View {
     @ViewBuilder
     private var linkView: some View {
         if let destination = run.destination,
-           policy.evaluateLink(destination: destination) == .allow {
+           linkPolicy.evaluateLink(destination: destination) == .allow {
             Button {
                 if let linkAction {
                     linkAction.open(destination)
@@ -74,7 +77,7 @@ public struct InlineRunView: View {
     @ViewBuilder
     private var imageView: some View {
         if let source = run.destination,
-           policy.evaluateImage(source: source, altText: run.text) == .allow {
+           imagePolicy.evaluateImage(source: source, altText: run.text) == .allow {
             Text(run.text.isEmpty ? source : run.text)
                 .foregroundStyle(theme.secondaryTextColor)
         } else {

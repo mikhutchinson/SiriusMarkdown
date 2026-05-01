@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import SiriusMarkdownCore
 
@@ -347,6 +348,25 @@ struct FixedWidthMeasurer: InlineMeasuring {
     }
 }
 
+final class CountingWidthMeasurer: InlineMeasuring, @unchecked Sendable {
+    private let lock = NSLock()
+    private var widthCallCount = 0
+    var widthPerByte: Double = 1
+
+    func width(of text: String, fontSize: Double) -> Double {
+        lock.withLock {
+            widthCallCount += 1
+        }
+        return Double(text.utf8.count) * widthPerByte
+    }
+
+    var count: Int {
+        lock.withLock {
+            widthCallCount
+        }
+    }
+}
+
 private struct LayoutCase: Sendable {
     var text: String
     var width: Double
@@ -379,6 +399,29 @@ private func layoutWalkerProducesDeterministicLineCounts(layoutCase: LayoutCase)
     #expect(result.lines.count == layoutCase.expectedLineCount)
     #expect(result.height == layoutCase.expectedHeight)
     #expect(result.lines.allSatisfy { !$0.byteRange.isEmpty })
+}
+
+@Test
+private func measuredInlineContentReusesWidthsAcrossLayoutPasses() {
+    let prepared = PreparedInlineContent(runs: [.init(kind: .text, text: "abcdef ghij")])
+    let measurer = CountingWidthMeasurer()
+    let walker = VariableWidthLineWalker(measurer: measurer)
+
+    let measured = walker.prepare(prepared, fontSize: 1)
+    let measurementCount = measurer.count
+
+    let narrow = walker.layout(
+        measured,
+        options: InlineLayoutOptions(containerWidth: 3, fontSize: 1, lineHeight: 2)
+    )
+    let wide = walker.layout(
+        measured,
+        options: InlineLayoutOptions(containerWidth: 20, fontSize: 1, lineHeight: 2)
+    )
+
+    #expect(measurementCount > 0)
+    #expect(measurer.count == measurementCount)
+    #expect(narrow.lines.count > wide.lines.count)
 }
 
 @Test

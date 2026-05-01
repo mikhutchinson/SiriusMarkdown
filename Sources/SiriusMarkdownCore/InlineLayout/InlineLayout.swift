@@ -125,6 +125,51 @@ public struct InlineLineRange: Sendable, Hashable {
     }
 }
 
+public struct MeasuredInlineSegment: Sendable, Hashable {
+    public var segment: PreparedInlineSegment
+    public var width: Double
+    public var units: [MeasuredInlineUnit]
+
+    public init(
+        segment: PreparedInlineSegment,
+        width: Double,
+        units: [MeasuredInlineUnit] = []
+    ) {
+        self.segment = segment
+        self.width = width
+        self.units = units
+    }
+}
+
+public struct MeasuredInlineUnit: Sendable, Hashable {
+    public var byteRange: Range<Int>
+    public var width: Double
+
+    public init(byteRange: Range<Int>, width: Double) {
+        self.byteRange = byteRange
+        self.width = width
+    }
+}
+
+public struct MeasuredInlineContent: Sendable, Hashable {
+    public var prepared: PreparedInlineContent
+    public var segments: [MeasuredInlineSegment]
+    public var naturalWidth: Double
+    public var fontSize: Double
+
+    public init(
+        prepared: PreparedInlineContent,
+        segments: [MeasuredInlineSegment],
+        naturalWidth: Double,
+        fontSize: Double
+    ) {
+        self.prepared = prepared
+        self.segments = segments
+        self.naturalWidth = naturalWidth
+        self.fontSize = fontSize
+    }
+}
+
 public struct InlineLayoutResult: Sendable, Hashable {
     public var lines: [InlineLineRange]
     public var naturalWidth: Double
@@ -183,8 +228,40 @@ public struct VariableWidthLineWalker<Measurer: InlineMeasuring>: Sendable {
         self.measurer = measurer
     }
 
-    public func layout(_ prepared: PreparedInlineContent, options: InlineLayoutOptions) -> InlineLayoutResult {
-        guard !prepared.segments.isEmpty else {
+    public func prepare(_ prepared: PreparedInlineContent, fontSize: Double = 14) -> MeasuredInlineContent {
+        var measuredSegments: [MeasuredInlineSegment] = []
+        var currentLineWidth = 0.0
+        var naturalWidth = 0.0
+
+        for segment in prepared.segments {
+            if segment.isHardBreak {
+                naturalWidth = max(naturalWidth, currentLineWidth)
+                currentLineWidth = 0
+                measuredSegments.append(MeasuredInlineSegment(segment: segment, width: 0))
+                continue
+            }
+
+            let width = measurer.width(of: segment.text, fontSize: fontSize)
+            let measured = MeasuredInlineSegment(
+                segment: segment,
+                width: width,
+                units: measuredUnits(for: segment, fontSize: fontSize)
+            )
+            measuredSegments.append(measured)
+            currentLineWidth += width
+        }
+
+        naturalWidth = max(naturalWidth, currentLineWidth)
+        return MeasuredInlineContent(
+            prepared: prepared,
+            segments: measuredSegments,
+            naturalWidth: naturalWidth,
+            fontSize: fontSize
+        )
+    }
+
+    public func layout(_ measured: MeasuredInlineContent, options: InlineLayoutOptions) -> InlineLayoutResult {
+        guard !measured.segments.isEmpty else {
             return InlineLayoutResult(lines: [], naturalWidth: 0, height: 0)
         }
 
@@ -192,30 +269,27 @@ public struct VariableWidthLineWalker<Measurer: InlineMeasuring>: Sendable {
         var lines: [InlineLineRange] = []
         var currentWidth = 0.0
         var currentStart = 0
-        var naturalWidth = 0.0
 
-        for segment in prepared.segments {
+        for measuredSegment in measured.segments {
+            let segment = measuredSegment.segment
+
             if segment.isHardBreak {
                 lines.append(InlineLineRange(byteRange: currentStart..<segment.byteRange.lowerBound, width: currentWidth))
-                naturalWidth = max(naturalWidth, currentWidth)
                 currentWidth = 0
                 currentStart = segment.byteRange.upperBound
                 continue
             }
 
-            let segmentWidth = measurer.width(of: segment.text, fontSize: options.fontSize)
-            naturalWidth = max(naturalWidth, currentWidth + segmentWidth)
-
-            if currentWidth > 0, currentWidth + segmentWidth > containerWidth {
+            if currentWidth > 0, currentWidth + measuredSegment.width > containerWidth {
                 lines.append(InlineLineRange(byteRange: currentStart..<segment.byteRange.lowerBound, width: currentWidth))
                 currentStart = segment.byteRange.lowerBound
                 currentWidth = 0
             }
 
-            if segmentWidth > containerWidth, !segment.isBreakOpportunity {
+            if measuredSegment.width > containerWidth, !segment.isBreakOpportunity {
                 let split = splitOverwideSegment(
-                    segment,
-                    options: options,
+                    measuredSegment,
+                    containerWidth: containerWidth,
                     currentStart: currentStart,
                     currentWidth: currentWidth
                 )
@@ -223,49 +297,70 @@ public struct VariableWidthLineWalker<Measurer: InlineMeasuring>: Sendable {
                 currentStart = split.currentStart
                 currentWidth = split.currentWidth
             } else {
-                currentWidth += segmentWidth
+                currentWidth += measuredSegment.width
             }
         }
 
-        let end = prepared.segments.last?.byteRange.upperBound ?? currentStart
+        let end = measured.segments.last?.segment.byteRange.upperBound ?? currentStart
         if currentStart <= end {
             lines.append(InlineLineRange(byteRange: currentStart..<end, width: currentWidth))
         }
 
         return InlineLayoutResult(
             lines: lines,
-            naturalWidth: naturalWidth,
+            naturalWidth: measured.naturalWidth,
             height: Double(lines.count) * options.lineHeight
         )
     }
 
+    public func layout(_ prepared: PreparedInlineContent, options: InlineLayoutOptions) -> InlineLayoutResult {
+        layout(prepare(prepared, fontSize: options.fontSize), options: options)
+    }
+
     private func splitOverwideSegment(
-        _ segment: PreparedInlineSegment,
-        options: InlineLayoutOptions,
+        _ measuredSegment: MeasuredInlineSegment,
+        containerWidth: Double,
         currentStart: Int,
         currentWidth: Double
     ) -> (closedLines: [InlineLineRange], currentStart: Int, currentWidth: Double) {
         var lines: [InlineLineRange] = []
         var lineStart = currentStart
         var width = currentWidth
-        var cursor = segment.byteRange.lowerBound
-        let containerWidth = max(0, options.containerWidth)
 
-        for character in segment.text {
-            let characterText = String(character)
-            let characterWidth = measurer.width(of: characterText, fontSize: options.fontSize)
-
-            if width > 0, width + characterWidth > containerWidth {
-                lines.append(InlineLineRange(byteRange: lineStart..<cursor, width: width))
-                lineStart = cursor
+        for unit in measuredSegment.units {
+            if width > 0, width + unit.width > containerWidth {
+                lines.append(InlineLineRange(byteRange: lineStart..<unit.byteRange.lowerBound, width: width))
+                lineStart = unit.byteRange.lowerBound
                 width = 0
             }
 
-            width += characterWidth
-            cursor += characterText.utf8.count
+            width += unit.width
         }
 
         return (lines, lineStart, width)
+    }
+
+    private func measuredUnits(for segment: PreparedInlineSegment, fontSize: Double) -> [MeasuredInlineUnit] {
+        guard !segment.isBreakOpportunity else {
+            return []
+        }
+
+        var units: [MeasuredInlineUnit] = []
+        var cursor = segment.byteRange.lowerBound
+
+        for character in segment.text {
+            let characterText = String(character)
+            let upper = cursor + characterText.utf8.count
+            units.append(
+                MeasuredInlineUnit(
+                    byteRange: cursor..<upper,
+                    width: measurer.width(of: characterText, fontSize: fontSize)
+                )
+            )
+            cursor = upper
+        }
+
+        return units
     }
 }
 

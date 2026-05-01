@@ -1,4 +1,5 @@
 import SiriusMarkdownCore
+import Foundation
 import SwiftUI
 
 public struct InlineRunsView: View {
@@ -6,102 +7,113 @@ public struct InlineRunsView: View {
     private var theme: MarkdownTheme
     private var baseFont: Font
     private var linkAction: MarkdownLinkAction?
-    private var policy: DefaultMarkdownPolicy
+    private var linkPolicy: any MarkdownLinkPolicy
+    private var imagePolicy: any MarkdownImagePolicy
 
     public init(
         runs: [MarkdownInlineRun],
         theme: MarkdownTheme = .compactChat,
         baseFont: Font? = nil,
         linkAction: MarkdownLinkAction? = nil,
-        policy: DefaultMarkdownPolicy = DefaultMarkdownPolicy()
+        linkPolicy: any MarkdownLinkPolicy = DefaultMarkdownPolicy(),
+        imagePolicy: any MarkdownImagePolicy = DefaultMarkdownPolicy()
     ) {
         self.runs = runs
         self.theme = theme
         self.baseFont = baseFont ?? theme.paragraphFont
         self.linkAction = linkAction
-        self.policy = policy
+        self.linkPolicy = linkPolicy
+        self.imagePolicy = imagePolicy
     }
 
     public var body: some View {
-        InlineFlowLayout(horizontalSpacing: 0, verticalSpacing: 2) {
-            ForEach(Array(runs.enumerated()), id: \.offset) { _, run in
-                InlineRunView(
-                    run: run,
-                    theme: theme,
-                    linkAction: linkAction,
-                    policy: policy
-                )
-            }
-        }
+        Text(Self.attributedString(for: runs, linkPolicy: linkPolicy, imagePolicy: imagePolicy))
         .font(baseFont)
         .foregroundStyle(theme.textColor)
-    }
-}
-
-private struct InlineFlowLayout: Layout {
-    var horizontalSpacing: CGFloat
-    var verticalSpacing: CGFloat
-
-    func sizeThatFits(
-        proposal: ProposedViewSize,
-        subviews: Subviews,
-        cache: inout ()
-    ) -> CGSize {
-        arrange(in: proposal.width ?? .infinity, subviews: subviews).size
-    }
-
-    func placeSubviews(
-        in bounds: CGRect,
-        proposal: ProposedViewSize,
-        subviews: Subviews,
-        cache: inout ()
-    ) {
-        let arrangement = arrange(in: bounds.width, subviews: subviews)
-        for item in arrangement.items {
-            subviews[item.index].place(
-                at: CGPoint(x: bounds.minX + item.origin.x, y: bounds.minY + item.origin.y),
-                proposal: ProposedViewSize(item.size)
-            )
-        }
-    }
-
-    private func arrange(
-        in maxWidth: CGFloat,
-        subviews: Subviews
-    ) -> (items: [LayoutItem], size: CGSize) {
-        var items: [LayoutItem] = []
-        var cursor = CGPoint.zero
-        var lineHeight: CGFloat = 0
-        var measuredWidth: CGFloat = 0
-        let effectiveMaxWidth = maxWidth.isFinite ? maxWidth : CGFloat.greatestFiniteMagnitude
-
-        for index in subviews.indices {
-            let size = subviews[index].sizeThatFits(.unspecified)
-            if cursor.x > 0, cursor.x + size.width > effectiveMaxWidth {
-                measuredWidth = max(measuredWidth, cursor.x - horizontalSpacing)
-                cursor.x = 0
-                cursor.y += lineHeight + verticalSpacing
-                lineHeight = 0
+        .environment(\.openURL, OpenURLAction { url in
+            if let linkAction {
+                linkAction.open(url.absoluteString)
+            } else {
+                Task { @MainActor in
+                    MarkdownURLOpener.open(url.absoluteString)
+                }
             }
-
-            items.append(LayoutItem(index: index, origin: cursor, size: size))
-            cursor.x += size.width + horizontalSpacing
-            lineHeight = max(lineHeight, size.height)
-        }
-
-        measuredWidth = max(measuredWidth, cursor.x > 0 ? cursor.x - horizontalSpacing : 0)
-        return (
-            items,
-            CGSize(
-                width: maxWidth.isFinite ? min(measuredWidth, maxWidth) : measuredWidth,
-                height: cursor.y + lineHeight
-            )
-        )
+            return .handled
+        })
     }
 
-    private struct LayoutItem {
-        var index: Int
-        var origin: CGPoint
-        var size: CGSize
+    public nonisolated static func plainText(
+        for runs: [MarkdownInlineRun],
+        imagePolicy: any MarkdownImagePolicy = DefaultMarkdownPolicy()
+    ) -> String {
+        runs.map { run in
+            switch run.kind {
+            case .image:
+                guard let source = run.destination else {
+                    return run.text.isEmpty ? "[image]" : run.text
+                }
+                switch imagePolicy.evaluateImage(source: source, altText: run.text) {
+                case .allow:
+                    return run.text.isEmpty ? source : run.text
+                case .deny:
+                    return run.text.isEmpty ? "[image]" : run.text
+                }
+            default:
+                return run.text
+            }
+        }.joined()
+    }
+
+    public nonisolated static func attributedString(
+        for runs: [MarkdownInlineRun],
+        linkPolicy: any MarkdownLinkPolicy = DefaultMarkdownPolicy(),
+        imagePolicy: any MarkdownImagePolicy = DefaultMarkdownPolicy()
+    ) -> AttributedString {
+        var attributed = AttributedString()
+
+        for run in runs {
+            var piece = AttributedString(visibleText(for: run, imagePolicy: imagePolicy))
+            switch run.kind {
+            case .emphasis:
+                piece.inlinePresentationIntent = .emphasized
+            case .strong:
+                piece.inlinePresentationIntent = .stronglyEmphasized
+            case .strikethrough:
+                piece.inlinePresentationIntent = .strikethrough
+            case .code, .math:
+                piece.inlinePresentationIntent = .code
+            case .link:
+                if let destination = run.destination,
+                   case .allow = linkPolicy.evaluateLink(destination: destination),
+                   let url = URL(string: destination) {
+                    piece.link = url
+                }
+            default:
+                break
+            }
+            attributed.append(piece)
+        }
+
+        return attributed
+    }
+
+    private nonisolated static func visibleText(
+        for run: MarkdownInlineRun,
+        imagePolicy: any MarkdownImagePolicy
+    ) -> String {
+        guard run.kind == .image else {
+            return run.text
+        }
+
+        guard let source = run.destination else {
+            return run.text.isEmpty ? "[image]" : run.text
+        }
+
+        switch imagePolicy.evaluateImage(source: source, altText: run.text) {
+        case .allow:
+            return run.text.isEmpty ? source : run.text
+        case .deny:
+            return run.text.isEmpty ? "[image]" : run.text
+        }
     }
 }
