@@ -12,11 +12,15 @@ struct MarkdownDemoApp: App {
 }
 
 private struct DemoDocumentView: View {
-    private let snapshot = DemoDocument.makeSnapshot()
     private let configuration = MarkdownRendererConfiguration.document
+    private let preparedSnapshot: MarkdownPreparedSnapshot
+
+    init() {
+        self.preparedSnapshot = configuration.prepare(snapshot: DemoDocument.makeSnapshot())
+    }
 
     var body: some View {
-        MarkdownDocumentView(snapshot: snapshot, configuration: configuration)
+        MarkdownDocumentView(preparedSnapshot: preparedSnapshot, configuration: configuration)
     }
 }
 
@@ -48,7 +52,11 @@ private enum DemoDocument {
     stream.append("# Hello")
     stream.finish()
 
-    MarkdownDocumentView(snapshot: stream.snapshot())
+    let configuration = MarkdownRendererConfiguration.document
+    MarkdownDocumentView(
+        preparedSnapshot: configuration.prepare(snapshot: stream.snapshot()),
+        configuration: configuration
+    )
     ```
 
     | Area | Contract |

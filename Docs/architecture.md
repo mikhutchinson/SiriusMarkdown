@@ -47,9 +47,9 @@ Products (see `Package.swift`): **`SiriusMarkdown`** (app-facing umbrella module
 
 ### SwiftUI
 
-- **`MarkdownDocumentView`** (default theme `.document`) and **`StreamingMarkdownView`** (default `.compactChat`) take snapshots directly or precomputed `MarkdownPreparedSnapshot` values.
-- **`MarkdownRendererConfiguration`** wires `MarkdownTheme`, policies, optional `MarkdownLinkAction`, `MarkdownCopyProvider`, `MarkdownCodeHighlighter`, and `MarkdownMathRenderer` (`PlainMarkdownCodeHighlighter` / `PlainMarkdownMathRenderer` ship as defaults). Its `prepare(block:)` / `prepare(snapshot:)` methods move inline attributed text, link/image policy decisions, code highlighting, math rendering, and HTML policy decisions out of block `body` evaluation, with `MarkdownRenderPreparationCache` bounding inline/highlighted-code/rendered-math reuse.
-- **`MarkdownBlockView`** branches on `MarkdownBlockKind` for structured blocks and consumes `MarkdownPreparedBlockContent` for inline text, lists, tables, code, math, and HTML.
+- **`MarkdownDocumentView`** (default theme `.document`) and **`StreamingMarkdownView`** (default `.compactChat`) should be driven with precomputed `MarkdownPreparedSnapshot` values. Direct `snapshot:` initializers remain as deprecated compatibility shims only; long or streaming content should prepare in the host model layer.
+- **`MarkdownRendererConfiguration`** wires `MarkdownTheme`, policies, optional `MarkdownLinkAction`, `MarkdownCopyProvider`, `MarkdownCodeHighlighter`, and `MarkdownMathRenderer` (`PlainMarkdownCodeHighlighter` / `PlainMarkdownMathRenderer` ship as defaults). Its `prepare(block:)` / `prepare(snapshot:)` methods move inline attributed text, measured inline content, link/image policy decisions, code highlighting, math rendering, and HTML policy decisions out of block `body` evaluation, with `MarkdownRenderPreparationCache` bounding inline/highlighted-code/rendered-math reuse.
+- **`MarkdownBlockView`** branches on `MarkdownBlockKind` for structured blocks and consumes `MarkdownPreparedBlockContent` for inline text, lists, nested lists, tables, code, math, and HTML. List and table rendering uses prepared source-range IDs rather than array offsets.
 
 Host-native content between Markdown segments is modeled in Core via **`MarkdownSnapshot.items`** and **`appendHostBoundary`**; built-in document views now render prepared items and expose a host-boundary closure with an empty default.
 
@@ -64,6 +64,17 @@ Host-native content between Markdown segments is modeled in Core via **`Markdown
 - **`MarkdownBoundaryScanner`** only decides **when** a suffix may be sealed; it does not replace `swift-markdown` block classification.
 - No WebKit on the core path; no row-hosted WebViews; avoid unbounded overlay fragments for links or selection.
 - Public APIs stay general-purpose (no private transcript/tool/runtime concepts); prefer names like `MarkdownStream`, `MarkdownSnapshot`, `MarkdownTheme`, `MarkdownRendererConfiguration`, policies, `InlineLayoutEngine`, `TextMeasurer`, as in `AGENTS.md`.
+
+## Verification shape
+
+Renderer verification intentionally favors deterministic contracts over fragile UI-process snapshots:
+
+- representative documents must prepare structured renderer inputs for headings, paragraphs, task lists, quotes, code, tables, and math;
+- repeated preparation of the same snapshot must reuse inline, highlighted-code, and rendered-math caches and record diagnostics cache hits;
+- large streaming transcripts must produce unique prepared item IDs for hundreds of sealed blocks plus the active tail;
+- nested list metadata and table row/cell identities must come from the AST-backed render model, not SwiftUI offsets;
+- native SwiftUI rendering must produce nonblank pixels for representative structured documents, with `Tools/RenderProbe` exercising `MarkdownDocumentView` through an AppKit host outside Swift Testing's helper process;
+- Pretext fixtures remain the layout oracle for line count, natural width, height, CJK, RTL, emoji, hard breaks, soft wraps, code spans, and atomic inline items. Known drift is not whitelisted; current emoji/CJK, multilingual, and RTL failures block beta readiness.
 
 ## Related docs
 

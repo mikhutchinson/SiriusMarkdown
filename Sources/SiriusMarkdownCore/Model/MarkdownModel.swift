@@ -107,6 +107,8 @@ public struct MarkdownListItem: Sendable, Hashable {
     public var taskState: MarkdownTaskState?
     public var text: String
     public var inlines: [MarkdownInlineRun]
+    public var childListKind: MarkdownBlockKind?
+    public var childOrderedListStart: UInt?
     public var childItems: [MarkdownListItem]
 
     public init(
@@ -114,12 +116,16 @@ public struct MarkdownListItem: Sendable, Hashable {
         taskState: MarkdownTaskState? = nil,
         text: String,
         inlines: [MarkdownInlineRun] = [],
+        childListKind: MarkdownBlockKind? = nil,
+        childOrderedListStart: UInt? = nil,
         childItems: [MarkdownListItem] = []
     ) {
         self.sourceRange = sourceRange
         self.taskState = taskState
         self.text = text
         self.inlines = inlines
+        self.childListKind = childListKind
+        self.childOrderedListStart = childOrderedListStart
         self.childItems = childItems
     }
 }

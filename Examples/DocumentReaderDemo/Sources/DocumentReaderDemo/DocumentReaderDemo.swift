@@ -12,11 +12,15 @@ struct DocumentReaderDemo: App {
 }
 
 private struct DocumentReaderView: View {
-    private let snapshot = DemoDocument.snapshot()
     private let configuration = MarkdownRendererConfiguration.document
+    private let preparedSnapshot: MarkdownPreparedSnapshot
+
+    init() {
+        self.preparedSnapshot = configuration.prepare(snapshot: DemoDocument.snapshot())
+    }
 
     var body: some View {
-        MarkdownDocumentView(snapshot: snapshot, configuration: configuration)
+        MarkdownDocumentView(preparedSnapshot: preparedSnapshot, configuration: configuration)
     }
 }
 

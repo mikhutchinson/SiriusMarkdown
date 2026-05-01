@@ -13,24 +13,25 @@ struct StreamingTranscriptDemo: App {
 
 @MainActor
 private final class StreamingTranscriptModel: ObservableObject {
-    @Published var snapshot: MarkdownSnapshot
+    @Published var preparedSnapshot: MarkdownPreparedSnapshot
 
     private var stream = MarkdownStream()
+    private let configuration = MarkdownRendererConfiguration.compactChat
     private var chunks: IndexingIterator<[String]>
 
     init() {
         self.chunks = StreamingTranscriptModel.sampleChunks.makeIterator()
-        self.snapshot = stream.snapshot()
+        self.preparedSnapshot = configuration.prepare(snapshot: stream.snapshot())
         appendNextChunk()
     }
 
     func appendNextChunk() {
         if let chunk = chunks.next() {
             stream.append(chunk)
-            snapshot = stream.snapshot()
+            preparedSnapshot = configuration.prepare(snapshot: stream.snapshot())
         } else {
             stream.finish()
-            snapshot = stream.snapshot()
+            preparedSnapshot = configuration.prepare(snapshot: stream.snapshot())
         }
     }
 
@@ -53,7 +54,7 @@ private struct StreamingTranscriptView: View {
     private let timer = Timer.publish(every: 0.8, on: .main, in: .common).autoconnect()
 
     var body: some View {
-        StreamingMarkdownView(snapshot: model.snapshot, configuration: .compactChat)
+        StreamingMarkdownView(preparedSnapshot: model.preparedSnapshot, configuration: .compactChat)
             .padding()
             .onReceive(timer) { _ in
                 model.appendNextChunk()

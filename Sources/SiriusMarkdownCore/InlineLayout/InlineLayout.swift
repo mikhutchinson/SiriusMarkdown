@@ -230,7 +230,11 @@ public struct VariableWidthLineWalker<Measurer: InlineMeasuring>: Sendable {
         self.measurer = measurer
     }
 
-    public func prepare(_ prepared: PreparedInlineContent, fontSize: Double = 14) -> MeasuredInlineContent {
+    public func prepare(
+        _ prepared: PreparedInlineContent,
+        fontSize: Double = 14,
+        includesUnitMeasurements: Bool = false
+    ) -> MeasuredInlineContent {
         var measuredSegments: [MeasuredInlineSegment] = []
         var currentLineWidth = 0.0
         var naturalWidth = 0.0
@@ -246,7 +250,10 @@ public struct VariableWidthLineWalker<Measurer: InlineMeasuring>: Sendable {
             let width = measurer.width(of: segment.text, fontSize: fontSize)
             let measured = MeasuredInlineSegment(
                 segment: segment,
-                width: width
+                width: width,
+                units: includesUnitMeasurements && !segment.isBreakOpportunity
+                    ? measuredUnits(for: segment, fontSize: fontSize)
+                    : []
             )
             measuredSegments.append(measured)
             currentLineWidth += width
@@ -261,7 +268,11 @@ public struct VariableWidthLineWalker<Measurer: InlineMeasuring>: Sendable {
         )
     }
 
-    public func layout(_ measured: MeasuredInlineContent, options: InlineLayoutOptions) -> InlineLayoutResult {
+    public func layout(
+        _ measured: MeasuredInlineContent,
+        options: InlineLayoutOptions,
+        allowsOverwideFallback: Bool = true
+    ) -> InlineLayoutResult {
         guard !measured.segments.isEmpty else {
             return InlineLayoutResult(lines: [], naturalWidth: 0, height: 0)
         }
@@ -287,7 +298,9 @@ public struct VariableWidthLineWalker<Measurer: InlineMeasuring>: Sendable {
                 currentWidth = 0
             }
 
-            if measuredSegment.width > containerWidth, !segment.isBreakOpportunity {
+            if measuredSegment.width > containerWidth,
+               !segment.isBreakOpportunity,
+               (allowsOverwideFallback || !measuredSegment.units.isEmpty) {
                 let split = splitOverwideSegment(
                     measuredSegment,
                     containerWidth: containerWidth,
@@ -412,7 +425,7 @@ public struct InlineLayoutEngine<Measurer: InlineMeasuring>: Sendable {
             namespace: "prepared-inline"
         )
 
-        if let cached = preparedCache[key] {
+        if let cached = preparedCache.value(forKey: key) {
             diagnosticsRecorder.recordCacheHit()
             return cached
         }
@@ -438,7 +451,7 @@ public struct InlineLayoutEngine<Measurer: InlineMeasuring>: Sendable {
     ) -> MeasuredInlineContent {
         let key = measuredCacheKey(for: prepared, fontSize: fontSize)
 
-        if let cached = measuredCache[key] {
+        if let cached = measuredCache.value(forKey: key) {
             diagnosticsRecorder.recordCacheHit()
             return cached
         }
@@ -479,7 +492,7 @@ public struct InlineLayoutEngine<Measurer: InlineMeasuring>: Sendable {
     ) -> InlineLayoutResult {
         let key = layoutCacheKey(for: measured, options: options)
 
-        if let cached = layoutCache[key] {
+        if let cached = layoutCache.value(forKey: key) {
             diagnosticsRecorder.recordCacheHit()
             return cached
         }
@@ -513,7 +526,7 @@ public struct InlineLayoutEngine<Measurer: InlineMeasuring>: Sendable {
             }
 
             let key = overwideUnitCacheKey(for: measuredSegment, fontSize: measured.fontSize)
-            if let cached = overwideUnitCache[key] {
+            if let cached = overwideUnitCache.value(forKey: key) {
                 diagnosticsRecorder.recordCacheHit()
                 updated.segments[index].units = cached
                 continue

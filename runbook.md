@@ -14,6 +14,8 @@ swift build
 swift test
 ```
 
+Current status: `swift test` is expected to fail until strict Swift-vs-Pretext drift is fixed. The known beta blockers are `emoji-cjk`, `multilingual`, and `rtl` in `bundledPretextFixturesCompareAgainstSwiftLayout`; do not call this package v0.1 beta-ready while those failures remain.
+
 Count the Swift test functions reported by the runner:
 
 ```sh
@@ -31,10 +33,13 @@ Parser acceptance for the current slice:
 Layout and renderer acceptance for the current slice:
 
 - Inline layout must keep the Pretext-shaped contract: call `prepare` to tokenize and measure, then call cheap `layout` for width changes. Tests should prove `layout(MeasuredInlineContent, ...)` does not call the measurer again.
-- SwiftUI `body` must not parse Markdown, syntax highlight, or run custom per-inline measurement/wrapping. `InlineRunsView` should consume inline runs as an attributed payload instead of installing a custom SwiftUI `Layout`.
+- Renderer preparation must not eagerly populate per-character unit measurements. Unit fallback measurement is only allowed for explicit overwide fallback paths, and SwiftUI view-time layout must be able to refuse that fallback.
+- SwiftUI `body` must not parse Markdown, syntax highlight, or run custom per-inline measurement/wrapping. `InlineRunsView` should consume prepared inline content with measured segments instead of installing a custom SwiftUI `Layout`.
+- Use `MarkdownRendererConfiguration.prepare(snapshot:)` in model/controller code and pass `MarkdownPreparedSnapshot` into `MarkdownDocumentView` or `StreamingMarkdownView`. Deprecated direct `snapshot:` view initializers are compatibility shims, not the streaming/document path.
 - Renderer configuration must be protocol-driven for link, image, HTML, code, math, code highlighting, and math rendering hooks.
 - Lists, task lists, tables, code blocks, math blocks, and HTML blocks must keep structured render paths. Do not collapse them back to `Text(block.text)` except as an explicit policy-denied or missing-structure fallback.
-- Renderer tests must assert behavior through render plans and inline payload helpers, not only instantiate views.
+- Renderer tests must assert behavior through render plans, prepared snapshots, inline payload helpers, diagnostics counters, large-transcript prepared item identity, and native SwiftUI/AppKit pixel checks. `Tools/RenderProbe` owns the `MarkdownDocumentView` AppKit host check so Swift Testing helper crashes do not excuse dropping document-render coverage.
+- Repeated preparation of the same snapshot should reuse inline/code/math caches and record cache hits without incrementing prepare, highlighting, or math-render counters.
 
 ## Pretext Golden Tool
 
@@ -46,6 +51,7 @@ npm test
 
 The Pretext tool is the JavaScript golden oracle for layout drift. It uses real `@chenglou/pretext` with `@napi-rs/canvas` providing a Node measurement context. Swift fixtures live in `Sources/SiriusMarkdownPretextSupport/Fixtures`; JS fixtures live in `Tools/pretext-golden/fixtures`.
 Run `npm ci` and `npm test` sequentially; running them in parallel can race while `node_modules` is being replaced.
+The Swift fixture comparison must not whitelist known drift. A failing Pretext fixture is a release blocker until the native layout path or fixture contract is corrected.
 
 ## Release Checks
 
@@ -53,4 +59,5 @@ Run `npm ci` and `npm test` sequentially; running them in parallel can race whil
 bash Tools/release-check.sh
 ```
 
-The script runs Swift tests, test count, root build, all demo builds, Pretext install/test, symbol graph generation, and warning-clean DocC conversion. Before cutting a release, update `changelog.md` and confirm `bugfix.md` records any defects found during the slice.
+The script first runs `Tools/RenderProbe`, which renders a representative `MarkdownDocumentView` through AppKit and rejects blank or trivial output. It then runs Swift tests, test count, root build, all demo builds, Pretext install/test, symbol graph generation, and warning-clean DocC conversion. Before cutting a release, update `changelog.md` and confirm `bugfix.md` records any defects found during the slice.
+Because Swift tests intentionally fail on the current Pretext drift, this release check is also expected to fail until the beta blockers are closed.

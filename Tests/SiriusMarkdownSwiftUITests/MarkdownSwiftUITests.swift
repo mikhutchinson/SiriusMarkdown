@@ -3,9 +3,6 @@ import SwiftUI
 import Testing
 import SiriusMarkdownCore
 import SiriusMarkdownSwiftUI
-#if os(macOS)
-import AppKit
-#endif
 
 @Test
 @MainActor
@@ -18,9 +15,17 @@ func documentViewCanBeConstructedFromSnapshot() {
         isSealed: true
     )
     let snapshot = MarkdownSnapshot(blocks: [block], sourceLength: 5, generation: 1, isFinished: true)
+    let documentConfiguration = MarkdownRendererConfiguration.document
+    let chatConfiguration = MarkdownRendererConfiguration.compactChat
 
-    _ = MarkdownDocumentView(snapshot: snapshot)
-    _ = StreamingMarkdownView(snapshot: snapshot)
+    _ = MarkdownDocumentView(
+        preparedSnapshot: documentConfiguration.prepare(snapshot: snapshot),
+        configuration: documentConfiguration
+    )
+    _ = StreamingMarkdownView(
+        preparedSnapshot: chatConfiguration.prepare(snapshot: snapshot),
+        configuration: chatConfiguration
+    )
 }
 
 @Test
@@ -74,6 +79,49 @@ func blockRenderPlanCapturesStructuredListsAndTables() throws {
 }
 
 @Test
+func preparedNestedListsKeepTheirKindAndStableIDs() throws {
+    let list = try firstBlock("- parent\n  - child")
+    let prepared = MarkdownRendererConfiguration().prepare(block: list)
+    let parent = try #require(prepared.listItems.first)
+    let child = try #require(parent.childItems.first)
+
+    #expect(parent.id.hasPrefix("list-item:"))
+    #expect(parent.childListKind == .unorderedList)
+    #expect(parent.childOrderedListStart == nil)
+    #expect(child.id.hasPrefix("list-item:"))
+}
+
+@Test
+func preparedNestedOrderedAndTaskListsKeepASTMetadata() throws {
+    let ordered = try firstBlock("- parent\n  1. child")
+    let preparedOrdered = MarkdownRendererConfiguration().prepare(block: ordered)
+    let orderedParent = try #require(preparedOrdered.listItems.first)
+
+    #expect(ordered.kind == .unorderedList)
+    #expect(orderedParent.childListKind == .orderedList)
+    #expect(orderedParent.childOrderedListStart == 1)
+    #expect(orderedParent.childItems.first?.inlineLayout != nil)
+
+    let task = try firstBlock("- parent\n  - [x] child")
+    let preparedTask = MarkdownRendererConfiguration().prepare(block: task)
+    let taskParent = try #require(preparedTask.listItems.first)
+
+    #expect(taskParent.childListKind == .taskList)
+    #expect(taskParent.childItems.first?.taskState == .checked)
+    #expect(taskParent.childItems.first?.inlineLayout != nil)
+}
+
+@Test
+func preparedTablesExposeStableRowAndCellIDs() throws {
+    let table = try firstBlock("| A | B |\n| - | - |\n| 1 | 2 |")
+    let prepared = try #require(MarkdownRendererConfiguration().prepare(block: table).table)
+
+    #expect(prepared.header.allSatisfy { $0.id.hasPrefix("table-cell:") })
+    #expect(prepared.rows.first?.id.hasPrefix("table-cell:") == true)
+    #expect(prepared.rows.first?.cells.allSatisfy { $0.id.hasPrefix("table-cell:") } == true)
+}
+
+@Test
 func preparedSnapshotPreservesHostBoundaryItems() {
     let block = MarkdownBlock(
         id: MarkdownBlockID("block"),
@@ -101,6 +149,116 @@ func preparedSnapshotPreservesHostBoundaryItems() {
     } else {
         Issue.record("Expected host boundary item to be preserved.")
     }
+}
+
+@Test
+func preparedSnapshotCarriesMeasuredInlineLayout() throws {
+    var stream = MarkdownStream()
+    stream.append("alpha beta gamma delta epsilon")
+    stream.finish()
+    let snapshot = stream.snapshot()
+    let recorder = MarkdownDiagnosticsRecorder()
+    let configuration = MarkdownRendererConfiguration(diagnosticsRecorder: recorder)
+
+    let prepared = configuration.prepare(snapshot: snapshot)
+    let block = try #require(snapshot.blocks.first)
+    let inlineLayout = try #require(prepared.preparedContentByBlockID[block.id]?.inlineLayout)
+    let lines = InlineRunsView.attributedLines(for: inlineLayout, containerWidth: 64)
+
+    #expect(inlineLayout.measured.segments.isEmpty == false)
+    #expect(lines.count > 1)
+    #expect(recorder.snapshot().prepareCount == 1)
+}
+
+@Test
+func rendererPreparationDoesNotEagerlyPopulatePerCharacterUnits() throws {
+    var stream = MarkdownStream()
+    stream.append("abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz")
+    stream.finish()
+    let snapshot = stream.snapshot()
+    let configuration = MarkdownRendererConfiguration()
+
+    let prepared = configuration.prepare(snapshot: snapshot)
+    let block = try #require(snapshot.blocks.first)
+    let inlineLayout = try #require(prepared.preparedContentByBlockID[block.id]?.inlineLayout)
+    let beforeLayoutUnits = inlineLayout.measured.segments.flatMap(\.units)
+    let wrapped = InlineRunsView.lineBrokenAttributedString(for: inlineLayout, containerWidth: 32)
+    let afterLayoutUnits = inlineLayout.measured.segments.flatMap(\.units)
+
+    #expect(beforeLayoutUnits.isEmpty)
+    #expect(afterLayoutUnits.isEmpty)
+    #expect(String(wrapped.characters).contains("abcdefghijklmnopqrstuvwxyz"))
+}
+
+@Test
+func repeatedPreparationReusesInlineCodeAndMathCaches() throws {
+    var stream = MarkdownStream()
+    stream.append(
+        """
+        Paragraph with **strong** text and [safe link](https://example.com).
+
+        ```swift
+        let x = 1
+        ```
+
+        $$
+        x^2
+        $$
+        """
+    )
+    stream.finish()
+
+    let highlighter = CountingCodeHighlighter()
+    let mathRenderer = CountingMathRenderer()
+    let recorder = MarkdownDiagnosticsRecorder()
+    let configuration = MarkdownRendererConfiguration(
+        codeHighlighter: highlighter,
+        mathRenderer: mathRenderer,
+        diagnosticsRecorder: recorder
+    )
+
+    let first = configuration.prepare(snapshot: stream.snapshot())
+    let afterFirst = recorder.snapshot()
+    let second = configuration.prepare(snapshot: stream.snapshot())
+    let afterSecond = recorder.snapshot()
+
+    #expect(first.preparedContentByBlockID.keys == second.preparedContentByBlockID.keys)
+    #expect(afterFirst.prepareCount == 1)
+    #expect(afterSecond.prepareCount == afterFirst.prepareCount)
+    #expect(highlighter.count == 1)
+    #expect(mathRenderer.count == 1)
+    #expect(afterSecond.codeHighlightCount == afterFirst.codeHighlightCount)
+    #expect(afterSecond.mathRenderCount == afterFirst.mathRenderCount)
+    #expect(afterSecond.cacheHitCount >= afterFirst.cacheHitCount + 3)
+}
+
+@Test
+func largeStreamingTranscriptPreparesStableRendererInputs() throws {
+    var stream = MarkdownStream()
+    for index in 0..<150 {
+        stream.append("Paragraph \(index) with **strong text** and [link](https://example.com/\(index)).\n\n")
+    }
+    stream.append("Active tail with `code` and more text")
+
+    let snapshot = stream.snapshot()
+    let recorder = MarkdownDiagnosticsRecorder()
+    let configuration = MarkdownRendererConfiguration(diagnosticsRecorder: recorder)
+    let prepared = configuration.prepare(snapshot: snapshot)
+    let blockItems = prepared.items.compactMap { item -> (MarkdownBlock, MarkdownPreparedBlockContent)? in
+        guard case let .block(block, content) = item else {
+            return nil
+        }
+        return (block, content)
+    }
+
+    #expect(snapshot.blocks.count == 151)
+    #expect(snapshot.blocks.last?.isSealed == false)
+    #expect(blockItems.count == snapshot.blocks.count)
+    #expect(Set(prepared.items.map(\.id)).count == prepared.items.count)
+    #expect(Set(blockItems.map { $0.0.id }).count == blockItems.count)
+    #expect(blockItems.allSatisfy { $0.1.blockID == $0.0.id })
+    #expect(blockItems.allSatisfy { $0.1.inlineLayout != nil })
+    #expect(recorder.snapshot().prepareCount == snapshot.blocks.count)
 }
 
 @Test
@@ -195,10 +353,8 @@ func preparedBlockContentMovesCodeAndMathRenderingOutOfBlockBody() throws {
     #expect(mathRenderer.count == 1)
 }
 
-#if os(macOS)
 @Test
-@MainActor
-func swiftUISnapshotRendersRepresentativeDocument() throws {
+func representativeDocumentPreparesStructuredRendererInputs() throws {
     var stream = MarkdownStream()
     stream.append(
         """
@@ -228,57 +384,42 @@ func swiftUISnapshotRendersRepresentativeDocument() throws {
     let snapshot = stream.snapshot()
     let configuration = MarkdownRendererConfiguration(theme: .document)
     let prepared = configuration.prepare(snapshot: snapshot)
-    let image = renderedBitmap(
-        MarkdownDocumentView(preparedSnapshot: prepared, configuration: configuration),
-        size: CGSize(width: 720, height: 720)
-    )
-
-    #expect(bitmapHasInk(image))
-}
-
-@MainActor
-private func renderedBitmap<V: View>(_ view: V, size: CGSize) -> NSBitmapImageRep {
-    let hostingView = NSHostingView(
-        rootView: view
-            .frame(width: size.width, height: size.height)
-            .background(Color.white)
-    )
-    hostingView.setFrameSize(size)
-    hostingView.layoutSubtreeIfNeeded()
-    let representation = hostingView.bitmapImageRepForCachingDisplay(in: hostingView.bounds)
-        ?? NSBitmapImageRep(
-            bitmapDataPlanes: nil,
-            pixelsWide: Int(size.width),
-            pixelsHigh: Int(size.height),
-            bitsPerSample: 8,
-            samplesPerPixel: 4,
-            hasAlpha: true,
-            isPlanar: false,
-            colorSpaceName: .deviceRGB,
-            bytesPerRow: 0,
-            bitsPerPixel: 0
-        )!
-    hostingView.cacheDisplay(in: hostingView.bounds, to: representation)
-    return representation
-}
-
-private func bitmapHasInk(_ representation: NSBitmapImageRep) -> Bool {
-    guard let data = representation.bitmapData else {
-        return false
-    }
-
-    let byteCount = representation.bytesPerRow * representation.pixelsHigh
-    for index in stride(from: 0, to: byteCount, by: max(1, representation.samplesPerPixel)) {
-        let red = data[index]
-        let green = index + 1 < byteCount ? data[index + 1] : red
-        let blue = index + 2 < byteCount ? data[index + 2] : red
-        if red < 245 || green < 245 || blue < 245 {
-            return true
+    let preparedBlocks = prepared.items.compactMap { item -> (MarkdownBlock, MarkdownPreparedBlockContent)? in
+        guard case let .block(block, content) = item else {
+            return nil
         }
+        return (block, content)
     }
-    return false
+
+    #expect(preparedBlocks.count == snapshot.blocks.count)
+    #expect(Set(prepared.items.map(\.id)).count == prepared.items.count)
+    #expect(preparedBlocks.allSatisfy { $0.1.blockID == $0.0.id })
+
+    let kinds = Set(preparedBlocks.map { $0.0.kind })
+    #expect(kinds.isSuperset(of: [.heading, .paragraph, .taskList, .blockQuote, .codeBlock, .table, .mathBlock]))
+
+    let paragraph = try #require(preparedBlocks.first { $0.0.kind == .paragraph })
+    let inlineLayout = try #require(paragraph.1.inlineLayout)
+    let wrapped = InlineRunsView.lineBrokenAttributedString(for: inlineLayout, containerWidth: 160)
+    #expect(String(wrapped.characters).contains("\n"))
+
+    let taskList = try #require(preparedBlocks.first { $0.0.kind == .taskList })
+    #expect(taskList.1.listItems.count == 2)
+    #expect(taskList.1.listItems.allSatisfy { $0.inlineLayout != nil })
+
+    let table = try #require(preparedBlocks.first { $0.0.kind == .table })
+    let preparedTable = try #require(table.1.table)
+    #expect(preparedTable.header.count == 2)
+    #expect(preparedTable.rows.count == 1)
+    #expect(preparedTable.header.allSatisfy { $0.inlineLayout != nil })
+    #expect(preparedTable.rows.flatMap(\.cells).allSatisfy { $0.inlineLayout != nil })
+
+    let code = try #require(preparedBlocks.first { $0.0.kind == .codeBlock })
+    #expect(code.1.code != nil)
+
+    let math = try #require(preparedBlocks.first { $0.0.kind == .mathBlock })
+    #expect(math.1.math != nil)
 }
-#endif
 
 private func firstBlock(_ markdown: String) throws -> MarkdownBlock {
     var stream = MarkdownStream()

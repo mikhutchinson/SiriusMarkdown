@@ -10,12 +10,14 @@ public struct MarkdownDocumentView: View {
         configuration.theme
     }
 
+    @available(*, deprecated, message: "Prepare snapshots outside SwiftUI update paths and use init(preparedSnapshot:configuration:) for streaming or large documents.")
     public init(snapshot: MarkdownSnapshot, theme: MarkdownTheme = .document) {
         self.configuration = MarkdownRendererConfiguration(theme: theme)
         self.preparedSnapshot = self.configuration.prepare(snapshot: snapshot)
         self.hostBoundaryView = { _ in AnyView(EmptyView()) }
     }
 
+    @available(*, deprecated, message: "Prepare snapshots outside SwiftUI update paths and use init(preparedSnapshot:configuration:) for streaming or large documents.")
     public init(snapshot: MarkdownSnapshot, configuration: MarkdownRendererConfiguration) {
         self.configuration = configuration
         self.preparedSnapshot = configuration.prepare(snapshot: snapshot)
@@ -74,12 +76,14 @@ public struct StreamingMarkdownView: View {
         configuration.theme
     }
 
+    @available(*, deprecated, message: "Prepare snapshots outside SwiftUI update paths and use init(preparedSnapshot:configuration:) for streaming or large documents.")
     public init(snapshot: MarkdownSnapshot, theme: MarkdownTheme = .compactChat) {
         self.configuration = MarkdownRendererConfiguration(theme: theme)
         self.preparedSnapshot = self.configuration.prepare(snapshot: snapshot)
         self.hostBoundaryView = { _ in AnyView(EmptyView()) }
     }
 
+    @available(*, deprecated, message: "Prepare snapshots outside SwiftUI update paths and use init(preparedSnapshot:configuration:) for streaming or large documents.")
     public init(snapshot: MarkdownSnapshot, configuration: MarkdownRendererConfiguration) {
         self.configuration = configuration
         self.preparedSnapshot = configuration.prepare(snapshot: snapshot)

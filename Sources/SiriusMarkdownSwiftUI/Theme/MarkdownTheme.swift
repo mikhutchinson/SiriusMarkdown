@@ -9,6 +9,12 @@ public struct MarkdownTheme: Sendable, Hashable {
     public var codeBackground: Color
     public var quoteAccent: Color
     public var blockSpacing: CGFloat
+    public var paragraphFontSize: Double
+    public var paragraphLineHeight: Double
+    public var headingFontSize: Double
+    public var headingLineHeight: Double
+    public var codeFontSize: Double
+    public var codeLineHeight: Double
 
     public init(
         paragraphFont: Font = .body,
@@ -18,7 +24,13 @@ public struct MarkdownTheme: Sendable, Hashable {
         secondaryTextColor: Color = .secondary,
         codeBackground: Color = Color.gray.opacity(0.12),
         quoteAccent: Color = Color.accentColor.opacity(0.65),
-        blockSpacing: CGFloat = 8
+        blockSpacing: CGFloat = 8,
+        paragraphFontSize: Double = 16,
+        paragraphLineHeight: Double = 22,
+        headingFontSize: Double = 20,
+        headingLineHeight: Double = 28,
+        codeFontSize: Double = 14,
+        codeLineHeight: Double = 20
     ) {
         self.paragraphFont = paragraphFont
         self.codeFont = codeFont
@@ -28,6 +40,12 @@ public struct MarkdownTheme: Sendable, Hashable {
         self.codeBackground = codeBackground
         self.quoteAccent = quoteAccent
         self.blockSpacing = blockSpacing
+        self.paragraphFontSize = paragraphFontSize
+        self.paragraphLineHeight = paragraphLineHeight
+        self.headingFontSize = headingFontSize
+        self.headingLineHeight = headingLineHeight
+        self.codeFontSize = codeFontSize
+        self.codeLineHeight = codeLineHeight
     }
 
     public static let compactChat = MarkdownTheme(blockSpacing: 6)

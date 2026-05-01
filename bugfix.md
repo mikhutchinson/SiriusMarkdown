@@ -2,7 +2,7 @@
 
 ## Open
 
-- No parser-slice defects recorded after the AST-conversion repair.
+- `bundledPretextFixturesCompareAgainstSwiftLayout` now fails for `emoji-cjk`, `multilingual`, and `rtl`. This is an intentional beta blocker: the native layout path must match the Pretext oracle instead of whitelisting known drift.
 
 ## Fixed
 
@@ -26,5 +26,12 @@
 - Moved code highlighting, math rendering, and HTML policy evaluation out of `MarkdownBlockView.body` into `MarkdownPreparedBlockContent`, with highlighted-code and rendered-math cache reuse.
 - Fixed the public `SiriusMarkdown` product so it now builds an importable umbrella module instead of only composing Core and SwiftUI targets, and added a test that exercises the consumer import surface.
 - Fixed active-tail boundary scanning to retain scanner state and scan newly appended complete lines once, preventing long open tails from accumulating O(n²) scan work.
+- Fixed active-tail boundary scanning again so incomplete lines already inspected during prior appends are not rescanned until a newline arrives.
 - Fixed inline measurement so per-character unit measurement is a cached overwide fallback instead of eager work during normal prepare.
+- Fixed renderer preparation so it no longer eagerly stores per-character fallback units for every inline segment.
+- Fixed SwiftUI width-dependent inline layout so it can refuse view-time overwide fallback measurement and consume only prepared segment measurements.
+- Fixed `BoundedMarkdownCache` to update recency on cache hits instead of behaving like FIFO while claiming LRU-style behavior.
 - Fixed the built-in SwiftUI document/streaming views to consume `MarkdownPreparedSnapshot` items, preserve host boundaries, and keep inline policy decisions out of block body evaluation.
+- Fixed the default test suite instability caused by AppKit bitmap snapshot rendering under Swift Testing by keeping deterministic headless renderer contract tests in Swift Testing and moving the `MarkdownDocumentView` AppKit pixel check into `Tools/RenderProbe`, a separate release-gated process.
+- Fixed diagnostics coverage for render-preparation caches so highlighted-code and rendered-math cache hits/misses are recorded alongside inline cache reuse.
+- Fixed the weak Pretext assertion that treated emoji/CJK and RTL drift as an expected passing condition; strict drift now fails the suite.

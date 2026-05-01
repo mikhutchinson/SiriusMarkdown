@@ -125,11 +125,13 @@ public struct MarkdownLineMap: Sendable, Hashable {
 
 public struct MarkdownSourceBuffer: Sendable, Hashable {
     private var chunks: [[UInt8]]
+    private var chunkStartOffsets: [Int]
     private var newlineByteOffsets: [Int]
     public private(set) var byteCount: Int
 
     public init() {
         self.chunks = []
+        self.chunkStartOffsets = []
         self.newlineByteOffsets = []
         self.byteCount = 0
     }
@@ -151,6 +153,7 @@ public struct MarkdownSourceBuffer: Sendable, Hashable {
             newlineByteOffsets.append(lowerBound + index)
         }
 
+        chunkStartOffsets.append(lowerBound)
         chunks.append(bytes)
         byteCount += bytes.count
 
@@ -168,11 +171,12 @@ public struct MarkdownSourceBuffer: Sendable, Hashable {
             return MarkdownSourceSlice(byteRange: byteRange, text: "")
         }
 
-        var cursor = 0
         var segments: [ArraySlice<UInt8>] = []
 
-        for chunk in chunks {
-            let chunkRange = cursor..<(cursor + chunk.count)
+        for index in firstChunkIndex(intersecting: byteRange)..<chunks.count {
+            let chunk = chunks[index]
+            let chunkStart = chunkStartOffsets[index]
+            let chunkRange = chunkStart..<(chunkStart + chunk.count)
             let lower = max(byteRange.lowerBound, chunkRange.lowerBound)
             let upper = min(byteRange.upperBound, chunkRange.upperBound)
 
@@ -182,8 +186,7 @@ public struct MarkdownSourceBuffer: Sendable, Hashable {
                 segments.append(chunk[start..<end])
             }
 
-            cursor = chunkRange.upperBound
-            if cursor >= byteRange.upperBound {
+            if chunkRange.upperBound >= byteRange.upperBound {
                 break
             }
         }
@@ -203,10 +206,11 @@ public struct MarkdownSourceBuffer: Sendable, Hashable {
         var lineSegments: [ArraySlice<UInt8>] = []
         var segmentStart: Int?
         var lineStart = byteRange.lowerBound
-        var cursor = 0
 
-        for chunk in chunks {
-            let chunkRange = cursor..<(cursor + chunk.count)
+        for chunkIndex in firstChunkIndex(intersecting: byteRange)..<chunks.count {
+            let chunk = chunks[chunkIndex]
+            let chunkStart = chunkStartOffsets[chunkIndex]
+            let chunkRange = chunkStart..<(chunkStart + chunk.count)
             let lower = max(byteRange.lowerBound, chunkRange.lowerBound)
             let upper = min(byteRange.upperBound, chunkRange.upperBound)
 
@@ -244,8 +248,7 @@ public struct MarkdownSourceBuffer: Sendable, Hashable {
                 segmentStart = nil
             }
 
-            cursor = chunkRange.upperBound
-            if cursor >= byteRange.upperBound {
+            if chunkRange.upperBound >= byteRange.upperBound {
                 break
             }
         }
@@ -263,6 +266,37 @@ public struct MarkdownSourceBuffer: Sendable, Hashable {
         return lines
     }
 
+    public func containsByte(_ target: UInt8, in byteRange: Range<Int>) -> Bool {
+        precondition(byteRange.lowerBound >= 0)
+        precondition(byteRange.upperBound <= byteCount)
+
+        guard !byteRange.isEmpty else {
+            return false
+        }
+
+        for index in firstChunkIndex(intersecting: byteRange)..<chunks.count {
+            let chunk = chunks[index]
+            let chunkStart = chunkStartOffsets[index]
+            let chunkRange = chunkStart..<(chunkStart + chunk.count)
+            let lower = max(byteRange.lowerBound, chunkRange.lowerBound)
+            let upper = min(byteRange.upperBound, chunkRange.upperBound)
+
+            if lower < upper {
+                let start = lower - chunkRange.lowerBound
+                let end = upper - chunkRange.lowerBound
+                if chunk[start..<end].contains(target) {
+                    return true
+                }
+            }
+
+            if chunkRange.upperBound >= byteRange.upperBound {
+                break
+            }
+        }
+
+        return false
+    }
+
     public func fullText() -> String {
         var bytes: [UInt8] = []
         bytes.reserveCapacity(byteCount)
@@ -277,5 +311,24 @@ public struct MarkdownSourceBuffer: Sendable, Hashable {
             byteRange: byteRange,
             lineRange: lineMap.lineRange(for: byteRange)
         )
+    }
+
+    private func firstChunkIndex(intersecting byteRange: Range<Int>) -> Int {
+        guard !chunks.isEmpty else {
+            return 0
+        }
+
+        var low = 0
+        var high = chunkStartOffsets.count
+        while low < high {
+            let mid = (low + high) / 2
+            let chunkUpperBound = chunkStartOffsets[mid] + chunks[mid].count
+            if chunkUpperBound <= byteRange.lowerBound {
+                low = mid + 1
+            } else {
+                high = mid
+            }
+        }
+        return low
     }
 }

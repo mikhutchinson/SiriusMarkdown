@@ -84,9 +84,11 @@ public struct MarkdownRendererConfiguration: Sendable {
             case .allow:
                 let key = Self.cacheKey(for: block, namespace: "highlighted-code:\(block.infoString ?? "")")
                 if let cached = preparationCache.code(forKey: key) {
+                    diagnosticsRecorder.recordCacheHit()
                     return MarkdownPreparedBlockContent(blockID: block.id, code: cached)
                 }
 
+                diagnosticsRecorder.recordCacheMiss()
                 diagnosticsRecorder.recordCodeHighlight()
                 let highlighted = MarkdownDiagnostics().signpost("CodeHighlight", category: "RenderPreparation") {
                     codeHighlighter.highlightedCode(code, infoString: block.infoString)
@@ -105,9 +107,11 @@ public struct MarkdownRendererConfiguration: Sendable {
             case .allow:
                 let key = Self.cacheKey(for: block, namespace: "rendered-math:block")
                 if let cached = preparationCache.math(forKey: key) {
+                    diagnosticsRecorder.recordCacheHit()
                     return MarkdownPreparedBlockContent(blockID: block.id, math: cached)
                 }
 
+                diagnosticsRecorder.recordCacheMiss()
                 diagnosticsRecorder.recordMathRender()
                 let rendered = MarkdownDiagnostics().signpost("MathRender", category: "RenderPreparation") {
                     mathRenderer.renderedMath(math, isBlock: true)
@@ -132,21 +136,27 @@ public struct MarkdownRendererConfiguration: Sendable {
                 )
             }
         case .unorderedList, .orderedList, .taskList:
+            let inline = preparedInline(for: block.inlines, sourceRange: block.sourceRange, block: block)
             return MarkdownPreparedBlockContent(
                 blockID: block.id,
-                inline: preparedInline(for: block.inlines, sourceRange: block.sourceRange),
+                inline: inline?.attributed,
+                inlineLayout: inline,
                 listItems: preparedListItems(block.listItems)
             )
         case .table:
+            let inline = preparedInline(for: block.inlines, sourceRange: block.sourceRange, block: block)
             return MarkdownPreparedBlockContent(
                 blockID: block.id,
-                inline: preparedInline(for: block.inlines, sourceRange: block.sourceRange),
+                inline: inline?.attributed,
+                inlineLayout: inline,
                 table: block.table.map(preparedTable)
             )
         default:
+            let inline = preparedInline(for: block.inlines, sourceRange: block.sourceRange, block: block)
             return MarkdownPreparedBlockContent(
                 blockID: block.id,
-                inline: preparedInline(for: block.inlines, sourceRange: block.sourceRange)
+                inline: inline?.attributed,
+                inlineLayout: inline
             )
         }
     }
@@ -202,16 +212,18 @@ public struct MarkdownRendererConfiguration: Sendable {
 
     private func preparedInline(
         for runs: [MarkdownInlineRun],
-        sourceRange: MarkdownSourceRange
-    ) -> AttributedString? {
+        sourceRange: MarkdownSourceRange,
+        block: MarkdownBlock? = nil
+    ) -> MarkdownPreparedInlineContent? {
         guard !runs.isEmpty else {
             return nil
         }
 
+        let metrics = inlineMetrics(for: block)
         let key = MarkdownCacheKey(
             sourceRange: sourceRange,
             contentHash: Self.inlineHash(runs),
-            namespace: "inline-attributed"
+            namespace: "inline-prepared:\(metrics.fontSize):\(metrics.lineHeight)"
         )
         if let cached = preparationCache.inline(forKey: key) {
             diagnosticsRecorder.recordCacheHit()
@@ -224,16 +236,34 @@ public struct MarkdownRendererConfiguration: Sendable {
             linkPolicy: linkPolicy,
             imagePolicy: imagePolicy
         )
-        preparationCache.insertInline(attributed, forKey: key)
-        return attributed
+        let prepared = PreparedInlineContent(runs: runs, sourceRange: sourceRange)
+        diagnosticsRecorder.recordPrepare()
+        let measured = VariableWidthLineWalker().prepare(
+            prepared,
+            fontSize: metrics.fontSize
+        )
+        let inline = MarkdownPreparedInlineContent(
+            attributed: attributed,
+            prepared: prepared,
+            measured: measured,
+            fontSize: metrics.fontSize,
+            lineHeight: metrics.lineHeight
+        )
+        preparationCache.insertInline(inline, forKey: key)
+        return inline
     }
 
     private func preparedListItems(_ items: [MarkdownListItem]) -> [MarkdownPreparedListItem] {
         items.map { item in
-            MarkdownPreparedListItem(
+            let inline = preparedInline(for: item.inlines, sourceRange: item.sourceRange)
+            return MarkdownPreparedListItem(
+                id: "list-item:\(item.sourceRange.byteRange.lowerBound):\(item.sourceRange.byteRange.upperBound)",
                 sourceRange: item.sourceRange,
                 taskState: item.taskState,
-                inline: preparedInline(for: item.inlines, sourceRange: item.sourceRange),
+                inline: inline?.attributed,
+                inlineLayout: inline,
+                childListKind: item.childListKind,
+                childOrderedListStart: item.childOrderedListStart,
                 childItems: preparedListItems(item.childItems)
             )
         }
@@ -243,19 +273,48 @@ public struct MarkdownRendererConfiguration: Sendable {
         MarkdownPreparedTableBlock(
             columnAlignments: table.columnAlignments,
             header: table.header.map(preparedTableCell),
-            rows: table.rows.map { row in
-                row.map(preparedTableCell)
+            rows: table.rows.enumerated().map { index, row in
+                let cells = row.map(preparedTableCell)
+                return MarkdownPreparedTableRow(
+                    id: cells.first?.id ?? "table-row:\(index)",
+                    cells: cells
+                )
             }
         )
     }
 
     private func preparedTableCell(_ cell: MarkdownTableCell) -> MarkdownPreparedTableCell {
-        MarkdownPreparedTableCell(
+        let inline = preparedInline(for: cell.inlines, sourceRange: cell.sourceRange)
+        return MarkdownPreparedTableCell(
+            id: "table-cell:\(cell.sourceRange.byteRange.lowerBound):\(cell.sourceRange.byteRange.upperBound)",
             sourceRange: cell.sourceRange,
-            inline: preparedInline(for: cell.inlines, sourceRange: cell.sourceRange),
+            inline: inline?.attributed,
+            inlineLayout: inline,
             colspan: cell.colspan,
             rowspan: cell.rowspan
         )
+    }
+
+    private func inlineMetrics(for block: MarkdownBlock?) -> (fontSize: Double, lineHeight: Double) {
+        guard let block else {
+            return (theme.paragraphFontSize, theme.paragraphLineHeight)
+        }
+
+        switch block.kind {
+        case .heading:
+            switch block.headingLevel ?? 3 {
+            case 1:
+                return (34, 42)
+            case 2:
+                return (28, 36)
+            default:
+                return (theme.headingFontSize, theme.headingLineHeight)
+            }
+        case .codeBlock, .htmlBlock, .mathBlock:
+            return (theme.codeFontSize, theme.codeLineHeight)
+        default:
+            return (theme.paragraphFontSize, theme.paragraphLineHeight)
+        }
     }
 
     private nonisolated static func inlineHash(_ runs: [MarkdownInlineRun]) -> UInt64 {
@@ -283,9 +342,31 @@ public struct MarkdownRendererConfiguration: Sendable {
     }
 }
 
+public struct MarkdownPreparedInlineContent: Sendable {
+    public var attributed: AttributedString
+    public var prepared: PreparedInlineContent
+    public var measured: MeasuredInlineContent
+    public var fontSize: Double
+    public var lineHeight: Double
+
+    public init(
+        attributed: AttributedString,
+        prepared: PreparedInlineContent,
+        measured: MeasuredInlineContent,
+        fontSize: Double,
+        lineHeight: Double
+    ) {
+        self.attributed = attributed
+        self.prepared = prepared
+        self.measured = measured
+        self.fontSize = fontSize
+        self.lineHeight = lineHeight
+    }
+}
+
 public final class MarkdownRenderPreparationCache: @unchecked Sendable {
     private let lock = NSLock()
-    private var inlineCache: BoundedMarkdownCache<AttributedString>
+    private var inlineCache: BoundedMarkdownCache<MarkdownPreparedInlineContent>
     private var codeCache: BoundedMarkdownCache<AttributedString>
     private var mathCache: BoundedMarkdownCache<AttributedString>
 
@@ -295,13 +376,13 @@ public final class MarkdownRenderPreparationCache: @unchecked Sendable {
         self.mathCache = BoundedMarkdownCache(capacity: capacity)
     }
 
-    public func inline(forKey key: MarkdownCacheKey) -> AttributedString? {
+    public func inline(forKey key: MarkdownCacheKey) -> MarkdownPreparedInlineContent? {
         lock.withLock {
-            inlineCache[key]
+            inlineCache.value(forKey: key)
         }
     }
 
-    public func insertInline(_ inline: AttributedString, forKey key: MarkdownCacheKey) {
+    public func insertInline(_ inline: MarkdownPreparedInlineContent, forKey key: MarkdownCacheKey) {
         lock.withLock {
             inlineCache[key] = inline
         }
@@ -309,7 +390,7 @@ public final class MarkdownRenderPreparationCache: @unchecked Sendable {
 
     public func code(forKey key: MarkdownCacheKey) -> AttributedString? {
         lock.withLock {
-            codeCache[key]
+            codeCache.value(forKey: key)
         }
     }
 
@@ -321,7 +402,7 @@ public final class MarkdownRenderPreparationCache: @unchecked Sendable {
 
     public func math(forKey key: MarkdownCacheKey) -> AttributedString? {
         lock.withLock {
-            mathCache[key]
+            mathCache.value(forKey: key)
         }
     }
 
@@ -377,6 +458,7 @@ public enum MarkdownPreparedSnapshotItem: Identifiable, Sendable {
 public struct MarkdownPreparedBlockContent: Sendable {
     public var blockID: MarkdownBlockID
     public var inline: AttributedString?
+    public var inlineLayout: MarkdownPreparedInlineContent?
     public var listItems: [MarkdownPreparedListItem]
     public var table: MarkdownPreparedTableBlock?
     public var code: AttributedString?
@@ -387,6 +469,7 @@ public struct MarkdownPreparedBlockContent: Sendable {
     public init(
         blockID: MarkdownBlockID,
         inline: AttributedString? = nil,
+        inlineLayout: MarkdownPreparedInlineContent? = nil,
         listItems: [MarkdownPreparedListItem] = [],
         table: MarkdownPreparedTableBlock? = nil,
         code: AttributedString? = nil,
@@ -396,6 +479,7 @@ public struct MarkdownPreparedBlockContent: Sendable {
     ) {
         self.blockID = blockID
         self.inline = inline
+        self.inlineLayout = inlineLayout
         self.listItems = listItems
         self.table = table
         self.code = code
@@ -405,53 +489,81 @@ public struct MarkdownPreparedBlockContent: Sendable {
     }
 }
 
-public struct MarkdownPreparedListItem: Sendable {
+public struct MarkdownPreparedListItem: Identifiable, Sendable {
+    public var id: String
     public var sourceRange: MarkdownSourceRange
     public var taskState: MarkdownTaskState?
     public var inline: AttributedString?
+    public var inlineLayout: MarkdownPreparedInlineContent?
+    public var childListKind: MarkdownBlockKind?
+    public var childOrderedListStart: UInt?
     public var childItems: [MarkdownPreparedListItem]
 
     public init(
+        id: String,
         sourceRange: MarkdownSourceRange,
         taskState: MarkdownTaskState? = nil,
         inline: AttributedString? = nil,
+        inlineLayout: MarkdownPreparedInlineContent? = nil,
+        childListKind: MarkdownBlockKind? = nil,
+        childOrderedListStart: UInt? = nil,
         childItems: [MarkdownPreparedListItem] = []
     ) {
+        self.id = id
         self.sourceRange = sourceRange
         self.taskState = taskState
         self.inline = inline
+        self.inlineLayout = inlineLayout
+        self.childListKind = childListKind
+        self.childOrderedListStart = childOrderedListStart
         self.childItems = childItems
     }
 }
 
-public struct MarkdownPreparedTableCell: Sendable {
+public struct MarkdownPreparedTableCell: Identifiable, Sendable {
+    public var id: String
     public var sourceRange: MarkdownSourceRange
     public var inline: AttributedString?
+    public var inlineLayout: MarkdownPreparedInlineContent?
     public var colspan: UInt
     public var rowspan: UInt
 
     public init(
+        id: String,
         sourceRange: MarkdownSourceRange,
         inline: AttributedString? = nil,
+        inlineLayout: MarkdownPreparedInlineContent? = nil,
         colspan: UInt = 1,
         rowspan: UInt = 1
     ) {
+        self.id = id
         self.sourceRange = sourceRange
         self.inline = inline
+        self.inlineLayout = inlineLayout
         self.colspan = colspan
         self.rowspan = rowspan
+    }
+}
+
+public struct MarkdownPreparedTableRow: Identifiable, Sendable {
+    public var id: String
+    public var cells: [MarkdownPreparedTableCell]
+
+    public init(id: String, cells: [MarkdownPreparedTableCell]) {
+        self.id = id
+        self.cells = cells
     }
 }
 
 public struct MarkdownPreparedTableBlock: Sendable {
     public var columnAlignments: [MarkdownTableColumnAlignment?]
     public var header: [MarkdownPreparedTableCell]
-    public var rows: [[MarkdownPreparedTableCell]]
+    public var rows: [MarkdownPreparedTableRow]
 
     public init(
         columnAlignments: [MarkdownTableColumnAlignment?],
         header: [MarkdownPreparedTableCell],
-        rows: [[MarkdownPreparedTableCell]]
+        rows: [MarkdownPreparedTableRow]
     ) {
         self.columnAlignments = columnAlignments
         self.header = header

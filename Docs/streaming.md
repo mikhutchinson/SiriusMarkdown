@@ -51,6 +51,16 @@ If any fence/HTML/math remains open at EOF-of-scan, **no** seal is returned for 
 
 **`snapshot()`** builds **`MarkdownSnapshot.items`**: blocks and **`hostBoundary`** entries ordered by source offsets so hosts can render native chrome between Markdown regions. Default **`MarkdownSnapshot`** initialization can derive **`items`** from **`blocks`** alone when you omit custom ordering. `MarkdownDocumentView` and `StreamingMarkdownView` can render prepared snapshot items with a host-boundary closure; their default host-boundary renderer is empty.
 
+Host applications should prepare snapshots before crossing into SwiftUI:
+
+```swift
+let configuration = MarkdownRendererConfiguration.compactChat
+let prepared = configuration.prepare(snapshot: stream.snapshot())
+StreamingMarkdownView(preparedSnapshot: prepared, configuration: configuration)
+```
+
+Keeping the configuration alive lets the render-preparation cache reuse inline, highlighted-code, and rendered-math work as the mutable tail changes.
+
 ## Snapshots
 
 **`MarkdownSnapshot`** includes:

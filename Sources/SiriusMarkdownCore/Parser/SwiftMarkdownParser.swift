@@ -163,13 +163,30 @@ private struct SwiftMarkdownRenderModelConverter {
 
     private func markdownListItem(_ item: ListItem) -> MarkdownListItem {
         let range = markdownSourceRange(for: item)
+        let nestedMetadata = nestedListMetadata(in: item)
         return MarkdownListItem(
             sourceRange: range,
             taskState: taskState(for: item.checkbox),
             text: sourceText(for: range.byteRange),
             inlines: inlineRunConverter(fallbackRange: range).runs(in: item.children),
+            childListKind: nestedMetadata.kind,
+            childOrderedListStart: nestedMetadata.orderedStart,
             childItems: nestedListItems(in: item)
         )
+    }
+
+    private func nestedListMetadata(in item: ListItem) -> (kind: MarkdownBlockKind?, orderedStart: UInt?) {
+        for child in item.children {
+            if let list = child as? UnorderedList {
+                return (listContainsTaskItems(list) ? .taskList : .unorderedList, nil)
+            }
+
+            if let list = child as? OrderedList {
+                return (.orderedList, list.startIndex)
+            }
+        }
+
+        return (nil, nil)
     }
 
     private func nestedListItems(in item: ListItem) -> [MarkdownListItem] {

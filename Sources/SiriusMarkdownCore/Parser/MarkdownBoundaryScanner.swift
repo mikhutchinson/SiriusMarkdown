@@ -12,6 +12,7 @@ struct MarkdownBoundaryHTMLBlock: Sendable, Hashable {
 public struct MarkdownBoundaryScanState: Sendable, Hashable {
     var lowerBound: Int
     var scannedUpperBound: Int
+    var observedUpperBound: Int
     var candidateUpperBound: Int?
     var openFence: MarkdownBoundaryFence?
     var openMathFence: Bool
@@ -22,6 +23,7 @@ public struct MarkdownBoundaryScanState: Sendable, Hashable {
     public init(lowerBound: Int = 0) {
         self.lowerBound = lowerBound
         self.scannedUpperBound = lowerBound
+        self.observedUpperBound = lowerBound
         self.candidateUpperBound = nil
         self.openFence = nil
         self.openMathFence = false
@@ -59,12 +61,26 @@ public struct MarkdownBoundaryScanner: Sendable, Hashable {
         in source: MarkdownSourceBuffer,
         state: inout MarkdownBoundaryScanState
     ) -> MarkdownBoundaryScanResult {
-        if state.scannedUpperBound < state.lowerBound || state.scannedUpperBound > source.byteCount {
+        if state.scannedUpperBound < state.lowerBound ||
+            state.scannedUpperBound > source.byteCount ||
+            state.observedUpperBound < state.scannedUpperBound ||
+            state.observedUpperBound > source.byteCount {
             state.reset(lowerBound: state.lowerBound)
+        }
+
+        if state.observedUpperBound < source.byteCount,
+           !source.containsByte(10, in: state.observedUpperBound..<source.byteCount) {
+            state.observedUpperBound = source.byteCount
+            return MarkdownBoundaryScanResult(
+                safeUpperBound: currentSafeUpperBound(in: state),
+                scannedByteCount: 0,
+                scannedLineCount: 0
+            )
         }
 
         let lines = source.lines(in: state.scannedUpperBound..<source.byteCount)
         guard !lines.isEmpty else {
+            state.observedUpperBound = source.byteCount
             return MarkdownBoundaryScanResult(
                 safeUpperBound: currentSafeUpperBound(in: state),
                 scannedByteCount: 0,
@@ -120,6 +136,7 @@ public struct MarkdownBoundaryScanner: Sendable, Hashable {
             scannedLineCount += 1
             state.scannedUpperBound = nextLineStart
         }
+        state.observedUpperBound = source.byteCount
 
         return MarkdownBoundaryScanResult(
             safeUpperBound: currentSafeUpperBound(in: state),

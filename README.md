@@ -8,6 +8,10 @@ The package is built around three principles:
 - Streaming input is represented as immutable sealed regions plus one mutable tail.
 - SwiftUI rendering consumes prepared snapshots; it does not parse Markdown from `body`.
 
+## Status
+
+This checkout is not v0.1 beta-ready. The Swift test suite now treats strict Pretext drift as a release blocker instead of tolerating it. Until the emoji/CJK, multilingual, and RTL fixture failures are fixed, `swift test` and `Tools/release-check.sh` are expected to fail rather than falsely certify beta readiness.
+
 ## Requirements
 
 - Swift 6.0 (`swift-tools-version: 6.0`)
@@ -44,6 +48,8 @@ Runtime dependency: [swift-markdown](https://github.com/swiftlang/swift-markdown
 
 ## Quick start
 
+Prepare snapshots outside SwiftUI body evaluation and pass prepared values into the renderer:
+
 ```swift
 import SiriusMarkdown
 
@@ -52,18 +58,37 @@ stream.append("# Hello\n\nStreaming Markdown.")
 stream.finish()
 
 let snapshot = stream.snapshot()
-MarkdownDocumentView(snapshot: snapshot)
-```
-
-For live tail updates, update the stream and drive a view such as `StreamingMarkdownView` with the latest `snapshot()`.
-
-For heavier render paths, prepare once outside SwiftUI body evaluation:
-
-```swift
 let configuration = MarkdownRendererConfiguration.document
 let prepared = configuration.prepare(snapshot: snapshot)
+
 MarkdownDocumentView(preparedSnapshot: prepared, configuration: configuration)
 ```
+
+For live tail updates, update the stream, build the latest `snapshot()`, prepare it with your long-lived `MarkdownRendererConfiguration`, and drive `StreamingMarkdownView` with the resulting `MarkdownPreparedSnapshot`:
+
+```swift
+stream.append(" More text")
+let snapshot = stream.snapshot()
+let prepared = configuration.prepare(snapshot: snapshot)
+
+StreamingMarkdownView(preparedSnapshot: prepared, configuration: configuration)
+```
+
+The direct `snapshot:` view initializers remain for small compatibility cases, but they are deprecated because they hide preparation at the view boundary. Applications that stream or resize long content should keep preparation in their model layer.
+
+## What the tests prove
+
+The default test suite covers more than construction smoke tests:
+
+- streamed parse output matches whole-document parse output across chunk sizes;
+- block identity survives active-tail appends and tail-to-sealed transitions;
+- conservative sealing avoids open fences, math, HTML, and loose-list ambiguity;
+- SwiftUI renderer inputs are prepared outside block bodies, including inline layout, code highlighting, math rendering, and policy decisions;
+- renderer preparation does not eagerly populate per-character fallback measurements;
+- repeated preparation reuses inline/code/math caches and records diagnostics;
+- large transcripts keep stable prepared item IDs for hundreds of sealed blocks plus one active tail;
+- `Tools/RenderProbe` renders `MarkdownDocumentView` through AppKit in its own process and rejects blank or trivial pixel output;
+- strict Pretext golden fixtures compare Swift layout metrics against the JavaScript oracle and currently block beta on known drift.
 
 ## Documentation
 
@@ -85,7 +110,7 @@ swift build
 swift test
 ```
 
-See `runbook.md` for Pretext golden checks (`Tools/pretext-golden`) and release expectations.
+See `runbook.md` for the AppKit render probe, Pretext golden checks (`Tools/pretext-golden`), and release expectations.
 
 ## Examples
 

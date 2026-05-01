@@ -25,7 +25,6 @@ func bundledPretextFixturesCompareAgainstSwiftLayout() throws {
     #expect(fixtures.count >= 9)
 
     var engine = InlineLayoutEngine()
-    let knownFontDriftFixtures: Set<String> = ["emoji-cjk", "rtl"]
     for fixture in fixtures {
         let prepared = PreparedInlineContent(
             runs: [.init(kind: .text, text: fixture.markdown)]
@@ -42,12 +41,8 @@ func bundledPretextFixturesCompareAgainstSwiftLayout() throws {
         let differences = PretextGoldenComparator.compare(
             fixture: fixture,
             actual: result,
-            tolerance: 8
+            tolerance: 2
         )
-        if knownFontDriftFixtures.contains(fixture.name) {
-            #expect(!differences.isEmpty, "Expected tracked drift for \(fixture.name).")
-        } else {
-            #expect(differences.isEmpty, "Pretext drift for \(fixture.name): \(differences)")
-        }
+        #expect(differences.isEmpty, "Pretext drift for \(fixture.name): \(differences)")
     }
 }

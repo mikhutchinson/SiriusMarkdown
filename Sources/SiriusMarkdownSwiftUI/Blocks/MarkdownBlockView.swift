@@ -80,7 +80,16 @@ public struct MarkdownBlockView: View {
 
     @ViewBuilder
     private func inlineContent(baseFont: Font, fallbackText: String) -> some View {
-        if let inline = preparedContent.inline {
+        if let inlineLayout = preparedContent.inlineLayout {
+            InlineRunsView(
+                prepared: inlineLayout,
+                theme: theme,
+                baseFont: baseFont,
+                linkAction: configuration.linkAction
+            )
+            .textSelection(.enabled)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        } else if let inline = preparedContent.inline {
             InlineRunsView(
                 attributed: inline,
                 theme: theme,
@@ -148,15 +157,15 @@ public struct MarkdownBlockView: View {
                 Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 6) {
                     if !table.header.isEmpty {
                         GridRow {
-                            ForEach(Array(table.header.enumerated()), id: \.offset) { column, cell in
+                            ForEach(Array(table.header.enumerated()), id: \.element.id) { column, cell in
                                 tableCell(cell, column: column, isHeader: true)
                             }
                         }
                     }
 
-                    ForEach(Array(table.rows.enumerated()), id: \.offset) { _, row in
+                    ForEach(table.rows) { row in
                         GridRow {
-                            ForEach(Array(row.enumerated()), id: \.offset) { column, cell in
+                            ForEach(Array(row.cells.enumerated()), id: \.element.id) { column, cell in
                                 tableCell(cell, column: column, isHeader: false)
                             }
                         }
@@ -202,13 +211,25 @@ public struct MarkdownBlockView: View {
         }
     }
 
+    @ViewBuilder
     private func tableCell(_ cell: MarkdownPreparedTableCell, column: Int, isHeader: Bool) -> some View {
-        InlineRunsView(
-            attributed: cell.inline ?? AttributedString(""),
-            theme: theme,
-            baseFont: isHeader ? theme.paragraphFont.bold() : theme.paragraphFont,
-            linkAction: configuration.linkAction
-        )
+        Group {
+            if let inlineLayout = cell.inlineLayout {
+                InlineRunsView(
+                    prepared: inlineLayout,
+                    theme: theme,
+                    baseFont: isHeader ? theme.paragraphFont.bold() : theme.paragraphFont,
+                    linkAction: configuration.linkAction
+                )
+            } else {
+                InlineRunsView(
+                    attributed: cell.inline ?? AttributedString(""),
+                    theme: theme,
+                    baseFont: isHeader ? theme.paragraphFont.bold() : theme.paragraphFont,
+                    linkAction: configuration.linkAction
+                )
+            }
+        }
         .frame(minWidth: 48, alignment: tableAlignment(column))
         .textSelection(.enabled)
     }
@@ -377,7 +398,7 @@ private struct MarkdownListItemsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            ForEach(Array(items.enumerated()), id: \.offset) { index, item in
+            ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
                 MarkdownListItemRow(
                     item: item,
                     index: index,
@@ -406,12 +427,7 @@ private struct MarkdownListItemRow: View {
                     .font(theme.codeFont)
                     .foregroundStyle(theme.secondaryTextColor)
                     .frame(width: markerWidth, alignment: .trailing)
-                InlineRunsView(
-                    attributed: item.inline ?? AttributedString(""),
-                    theme: theme,
-                    baseFont: theme.paragraphFont,
-                    linkAction: configuration.linkAction
-                )
+                listItemInlineView
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -419,13 +435,32 @@ private struct MarkdownListItemRow: View {
             if !item.childItems.isEmpty {
                 MarkdownListItemsView(
                     items: item.childItems,
-                    kind: .unorderedList,
-                    orderedStart: nil,
+                    kind: item.childListKind ?? .unorderedList,
+                    orderedStart: item.childOrderedListStart,
                     configuration: configuration,
                     theme: theme
                 )
                 .padding(.leading, markerWidth + 8)
             }
+        }
+    }
+
+    @ViewBuilder
+    private var listItemInlineView: some View {
+        if let inlineLayout = item.inlineLayout {
+            InlineRunsView(
+                prepared: inlineLayout,
+                theme: theme,
+                baseFont: theme.paragraphFont,
+                linkAction: configuration.linkAction
+            )
+        } else {
+            InlineRunsView(
+                attributed: item.inline ?? AttributedString(""),
+                theme: theme,
+                baseFont: theme.paragraphFont,
+                linkAction: configuration.linkAction
+            )
         }
     }
 

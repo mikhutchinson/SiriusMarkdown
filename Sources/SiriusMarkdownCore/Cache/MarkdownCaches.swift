@@ -39,16 +39,24 @@ public struct BoundedMarkdownCache<Value: Sendable>: Sendable {
     }
 
     public mutating func insert(_ value: Value, forKey key: MarkdownCacheKey) {
-        if storage[key] == nil {
-            order.append(key)
-        }
-
+        order.removeAll { $0 == key }
+        order.append(key)
         storage[key] = value
 
         while order.count > capacity, let oldest = order.first {
             order.removeFirst()
             storage.removeValue(forKey: oldest)
         }
+    }
+
+    public mutating func value(forKey key: MarkdownCacheKey) -> Value? {
+        guard let value = storage[key] else {
+            return nil
+        }
+
+        order.removeAll { $0 == key }
+        order.append(key)
+        return value
     }
 
     public mutating func removeAll() {
@@ -67,7 +75,7 @@ public final class MarkdownParserCache: @unchecked Sendable {
 
     public func blocks(forKey key: MarkdownCacheKey, isSealed: Bool) -> [MarkdownBlock]? {
         lock.withLock {
-            cache[key]?.withSealedState(isSealed)
+            cache.value(forKey: key)?.withSealedState(isSealed)
         }
     }
 

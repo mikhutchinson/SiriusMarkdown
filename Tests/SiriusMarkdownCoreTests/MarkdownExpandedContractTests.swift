@@ -277,26 +277,64 @@ private struct BoundaryCase: Sendable {
 }
 
 private let boundaryCases: [BoundaryCase] = [
+    // Blank line terminates a seal candidate unless inside a construct.
     BoundaryCase(markdown: "paragraph\n\n", shouldSeal: true),
     BoundaryCase(markdown: "paragraph\n", shouldSeal: false),
+    BoundaryCase(markdown: "first\n\nsecond\n\n", shouldSeal: true),
+    BoundaryCase(markdown: "first\nsecond\n\n", shouldSeal: true),
+
+    // Fenced code: depth is marker-run length; close line must prefix enough matching markers.
     BoundaryCase(markdown: "```\nopen\n\n", shouldSeal: false),
     BoundaryCase(markdown: "```\nclosed\n```\n\n", shouldSeal: true),
     BoundaryCase(markdown: "````\n``` inner\n````\n\n", shouldSeal: true),
     BoundaryCase(markdown: "````\n``` inner\n\n", shouldSeal: false),
+    BoundaryCase(markdown: "````\nbody\n```\n\n", shouldSeal: false),
+    BoundaryCase(markdown: "`````\nbody\n````\n\n", shouldSeal: false),
+    BoundaryCase(markdown: "`````\nbody\n`````\n\n", shouldSeal: true),
     BoundaryCase(markdown: "~~~\nopen\n\n", shouldSeal: false),
     BoundaryCase(markdown: "~~~\nclosed\n~~~\n\n", shouldSeal: true),
+    BoundaryCase(markdown: "~~~\nwrong close\n```\n\n", shouldSeal: false),
+    BoundaryCase(markdown: "```\na\n\nb\n```\n\n", shouldSeal: true),
+
+    // Math: trimmed line $$ toggles fence; stray lines leave it open.
     BoundaryCase(markdown: "$$\nopen\n\n", shouldSeal: false),
     BoundaryCase(markdown: "$$\nclosed\n$$\n\n", shouldSeal: true),
+    BoundaryCase(markdown: "$$\n$x + y$\n\n", shouldSeal: false),
+    BoundaryCase(markdown: "$$\n$f(x)$\n$$\n\n", shouldSeal: true),
+    BoundaryCase(markdown: "$$\n$$\n\n", shouldSeal: true),
+
+    // HTML blocks: heuristic open/close via closing token appearing on a completed line.
     BoundaryCase(markdown: "<div>\n\ninside\n", shouldSeal: false),
     BoundaryCase(markdown: "<div>\ninside\n</div>\n\n", shouldSeal: true),
+    BoundaryCase(markdown: "<DIV>\ndata\n</div>\n\n", shouldSeal: true),
+    BoundaryCase(markdown: "<script>\nvar x;\n</script>\n\n", shouldSeal: true),
+    BoundaryCase(markdown: "<style>\n\ninside\n", shouldSeal: false),
+    BoundaryCase(markdown: "<style>\n*{color:red}\n</style>\n\n", shouldSeal: true),
+    BoundaryCase(markdown: "<pre>\n\n<code>\n", shouldSeal: false),
+    BoundaryCase(markdown: "<pre>\nhi\n</pre>\n\n", shouldSeal: true),
+    BoundaryCase(markdown: "<table>\n<tr>\n", shouldSeal: false),
+    BoundaryCase(markdown: "<table>\n<td></td>\n</table>\n\n", shouldSeal: true),
+    BoundaryCase(markdown: "<section>\n</section>\n\n", shouldSeal: true),
+    BoundaryCase(markdown: "<article>\nopen\n", shouldSeal: false),
+    BoundaryCase(markdown: "<aside>\ntext\n</aside>\n\n", shouldSeal: true),
     BoundaryCase(markdown: "<!-- comment\n\n", shouldSeal: false),
     BoundaryCase(markdown: "<!-- comment -->\n\n", shouldSeal: true),
+    BoundaryCase(markdown: "<!-- multi\nline\n-->\n\n", shouldSeal: true),
+
+    // Blank line inside fences does not seal until the fence closes.
+    BoundaryCase(markdown: "```\n\n\n````\n\n", shouldSeal: true),
+
+    // Loose lists: one blank after list-like line defers seal; two consecutive blanks still allow.
     BoundaryCase(markdown: "- item\n\n", shouldSeal: false),
     BoundaryCase(markdown: "- item\n\n\n", shouldSeal: true),
     BoundaryCase(markdown: "1. item\n\n", shouldSeal: false),
     BoundaryCase(markdown: "1. item\n\n\n", shouldSeal: true),
+    BoundaryCase(markdown: "10. item\n\n", shouldSeal: false),
+    BoundaryCase(markdown: "* item\n\n", shouldSeal: false),
+    BoundaryCase(markdown: "+ item\n\n", shouldSeal: false),
     BoundaryCase(markdown: "- [ ] task\n\n", shouldSeal: false),
-    BoundaryCase(markdown: "- [ ] task\n\n\n", shouldSeal: true)
+    BoundaryCase(markdown: "- [ ] task\n\n\n", shouldSeal: true),
+    BoundaryCase(markdown: "- [x] task\n\n", shouldSeal: false)
 ]
 
 @Test(arguments: boundaryCases)
@@ -422,6 +460,49 @@ private func measuredInlineContentReusesWidthsAcrossLayoutPasses() {
     #expect(measurementCount > 0)
     #expect(measurer.count == measurementCount)
     #expect(narrow.lines.count > wide.lines.count)
+}
+
+@Test
+private func preparedUnitMeasurementsAvoidOverwideLayoutMeasurement() {
+    let prepared = PreparedInlineContent(runs: [.init(kind: .text, text: "abcdef")])
+    let measurer = CountingWidthMeasurer()
+    let walker = VariableWidthLineWalker(measurer: measurer)
+
+    let measured = walker.prepare(prepared, fontSize: 1, includesUnitMeasurements: true)
+    let countAfterPrepare = measurer.count
+    let narrow = walker.layout(
+        measured,
+        options: InlineLayoutOptions(containerWidth: 2, fontSize: 1, lineHeight: 2)
+    )
+    let wide = walker.layout(
+        measured,
+        options: InlineLayoutOptions(containerWidth: 20, fontSize: 1, lineHeight: 2)
+    )
+
+    #expect(measured.segments.first?.units.count == 6)
+    #expect(countAfterPrepare == 7)
+    #expect(measurer.count == countAfterPrepare)
+    #expect(narrow.lines.count > wide.lines.count)
+}
+
+@Test
+private func layoutCanRefuseViewTimeOverwideUnitMeasurement() {
+    let prepared = PreparedInlineContent(runs: [.init(kind: .text, text: "abcdef")])
+    let measurer = CountingWidthMeasurer()
+    let walker = VariableWidthLineWalker(measurer: measurer)
+
+    let measured = walker.prepare(prepared, fontSize: 1)
+    let countAfterPrepare = measurer.count
+    let result = walker.layout(
+        measured,
+        options: InlineLayoutOptions(containerWidth: 2, fontSize: 1, lineHeight: 2),
+        allowsOverwideFallback: false
+    )
+
+    #expect(measured.segments.first?.units.isEmpty == true)
+    #expect(measurer.count == countAfterPrepare)
+    #expect(result.lines.count == 1)
+    #expect(result.lines.first?.width == 6)
 }
 
 @Test
@@ -605,6 +686,25 @@ func cacheEvictsOldestEntryWhenCapacityIsExceeded() {
     #expect(cache[first] == nil)
     #expect(cache[second] == "second")
     #expect(cache[third] == "third")
+}
+
+@Test
+func cacheEvictsLeastRecentlyUsedEntryWhenCapacityIsExceeded() {
+    let range = MarkdownSourceRange(byteRange: 0..<1, lineRange: 1..<2)
+    var cache = BoundedMarkdownCache<String>(capacity: 2)
+    let first = MarkdownCacheKey(sourceRange: range, contentHash: 1, namespace: "test")
+    let second = MarkdownCacheKey(sourceRange: range, contentHash: 2, namespace: "test")
+    let third = MarkdownCacheKey(sourceRange: range, contentHash: 3, namespace: "test")
+
+    cache[first] = "first"
+    cache[second] = "second"
+    #expect(cache.value(forKey: first) == "first")
+
+    cache[third] = "third"
+
+    #expect(cache.value(forKey: first) == "first")
+    #expect(cache.value(forKey: second) == nil)
+    #expect(cache.value(forKey: third) == "third")
 }
 
 @Test

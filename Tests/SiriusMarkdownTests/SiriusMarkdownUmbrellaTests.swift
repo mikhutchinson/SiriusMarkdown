@@ -11,7 +11,7 @@ import Testing
     let snapshot = stream.snapshot()
     let configuration = MarkdownRendererConfiguration(theme: .document)
     let preparedSnapshot = configuration.prepare(snapshot: snapshot)
-    let documentView = MarkdownDocumentView(snapshot: snapshot, configuration: configuration)
+    let documentView = MarkdownDocumentView(preparedSnapshot: preparedSnapshot, configuration: configuration)
     let inlineEngine = InlineLayoutEngine()
     let policy = DefaultMarkdownPolicy()
 

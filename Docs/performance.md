@@ -19,13 +19,22 @@ The **v0.1 contract** (see `plan.md` and `AGENTS.md`) is architectural: SwiftUI 
 
 Bounded LRU-style caches (default capacity **256**) cover prepared, measured, layout, and overwide fallback unit results; **`MarkdownDiagnosticsRecorder`** records **prepareCount**, **layoutCount**, **widthRelayoutCount**, **overwideUnitFallbackCount**, and generic cache hit/miss counts. Per-character unit measurement is lazy and only runs for overwide segment splitting.
 
-SwiftUI block views consume **`MarkdownInlineRun`** arrays already produced by the parser; use **`InlineLayoutEngine`** when you need deterministic metrics (tests, golden comparison, future layout-driven UI).
+SwiftUI block views consume **prepared inline content** created by **`MarkdownRendererConfiguration.prepare(snapshot:)`**. The prepared inline payload stores both the attributed text and **`MeasuredInlineContent`** so view-time width changes can compute line breaks from cached segment/unit measurements. Use **`InlineLayoutEngine`** directly when you need deterministic metrics outside the SwiftUI renderer (tests, golden comparison, future layout-driven UI).
 
 ## Rendering path
 
-- **`MarkdownDocumentView`** / **`StreamingMarkdownView`** render **`MarkdownSnapshot`** and **`MarkdownRendererConfiguration`** only—they do not call **`MarkdownStream`** or parsers inside **`body`**.
-- **`MarkdownRendererConfiguration.prepare(snapshot:)`** returns **`MarkdownPreparedSnapshot`**, preparing inline attributed payloads, link/image policy decisions, code highlighting, math rendering, and HTML policy decisions before block bodies consume them. `MarkdownRenderPreparationCache` bounds inline/code/math reuse by source range, content hash, and preparation namespace.
+- **`MarkdownDocumentView`** / **`StreamingMarkdownView`** should receive **`MarkdownPreparedSnapshot`** values prepared outside SwiftUI body evaluation. Deprecated direct `snapshot:` initializers prepare at the view boundary and are kept only for small compatibility cases.
+- **`MarkdownRendererConfiguration.prepare(snapshot:)`** returns **`MarkdownPreparedSnapshot`**, preparing inline attributed payloads, measured inline content, link/image policy decisions, code highlighting, math rendering, and HTML policy decisions before block bodies consume them. `MarkdownRenderPreparationCache` bounds inline/code/math reuse by source range, content hash, and preparation namespace.
 - **`MarkdownBlockView`** consumes **`MarkdownPreparedBlockContent`** for paragraphs, headings, lists, tables, code, math, and HTML, and exposes copy/context hooks through **`MarkdownCopyProvider`**.
+
+The suite includes headless renderer-performance contract tests:
+
+- repeated preparation of the same snapshot must keep `prepareCount`, `codeHighlightCount`, and `mathRenderCount` stable while cache hits increase;
+- large streaming transcript preparation must create unique prepared item IDs for every block and keep an active tail prepared without forcing a full finish;
+- renderer preparation must not eagerly generate per-character unit measurements for every segment;
+- explicit overwide fallback layout can use prepared unit measurements, while SwiftUI view-time line breaking refuses measurement fallback and uses already prepared segment widths only.
+
+Strict Pretext fixture drift is a beta blocker. The Swift fixture comparison currently fails for emoji/CJK, multilingual, and RTL metrics instead of whitelisting those failures as a passing known issue.
 
 ## Accelerate and Metal
 
