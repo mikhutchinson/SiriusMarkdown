@@ -259,7 +259,7 @@ struct SiriusMarkdownRenderProbe {
                 inlineRenderingMode: .preparedNativeLines
             ),
             size: NSSize(width: 640, height: 120),
-            outputPath: nil
+            outputPath: ProcessInfo.processInfo.environment["SIRIUS_MARKDOWN_SPACING_PROBE_OUTPUT"]
         )
     }
 
@@ -374,21 +374,22 @@ struct SiriusMarkdownRenderProbe {
         hostingView.cacheDisplay(in: hostingView.bounds, to: bitmap)
         writeBitmapIfRequested(bitmap, outputPath: outputPath)
 
-        let sample = sampleRenderedPixels(bitmap)
+        let pixelScale = Double(bitmap.pixelsWide) / Double(size.width)
+        let sample = sampleRenderedPixels(bitmap, pixelScale: pixelScale)
         return RenderResult(
             nonWhitePixels: sample.nonWhitePixels,
             distinctColorBuckets: sample.distinctColorBuckets,
             darkRightmostX: sample.darkRightmostX,
             wideDarkColumnGaps: sample.wideDarkColumnGaps,
-            pixelScale: Double(bitmap.pixelsWide) / Double(size.width)
+            pixelScale: pixelScale
         )
     }
 
-    private static func sampleRenderedPixels(_ bitmap: NSBitmapImageRep) -> PixelSample {
+    private static func sampleRenderedPixels(_ bitmap: NSBitmapImageRep, pixelScale: Double) -> PixelSample {
         var nonWhitePixels = 0
         var colorBuckets = Set<Int>()
         var darkRightmostX = 0
-        var darkColumns = Array(repeating: false, count: bitmap.pixelsWide)
+        var darkColumnCounts = Array(repeating: 0, count: bitmap.pixelsWide)
 
         for y in 0..<bitmap.pixelsHigh {
             for x in 0..<bitmap.pixelsWide {
@@ -409,17 +410,22 @@ struct SiriusMarkdownRenderProbe {
 
                     if red < 0.35, green < 0.35, blue < 0.35 {
                         darkRightmostX = max(darkRightmostX, x)
-                        darkColumns[x] = true
+                        darkColumnCounts[x] += 1
                     }
                 }
             }
         }
 
+        // Gap detection ignores isolated antialiasing specks; darkRightmostX remains a per-pixel edge check above.
+        let columnDarkThreshold = max(2, bitmap.pixelsHigh / 200)
+        let darkColumns = darkColumnCounts.map { $0 >= columnDarkThreshold }
+        let minimumGapWidth = max(5, Int(round(4.5 * pixelScale)))
+
         return PixelSample(
             nonWhitePixels: nonWhitePixels,
             distinctColorBuckets: colorBuckets.count,
             darkRightmostX: darkRightmostX,
-            wideDarkColumnGaps: wideBlankRunCount(darkColumns, minimumWidth: 12)
+            wideDarkColumnGaps: wideBlankRunCount(darkColumns, minimumWidth: minimumGapWidth)
         )
     }
 
