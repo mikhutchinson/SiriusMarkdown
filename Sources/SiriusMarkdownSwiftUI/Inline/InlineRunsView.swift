@@ -140,13 +140,8 @@ public struct InlineRunsView: View {
         for prepared: MarkdownPreparedInlineContent,
         containerWidth: Double
     ) -> [AttributedString] {
-        let layout = VariableWidthLineWalker().layout(
-            prepared.measured,
-            options: InlineLayoutOptions(
-                containerWidth: containerWidth,
-                fontSize: prepared.fontSize,
-                lineHeight: prepared.lineHeight
-            ),
+        let layout = prepared.layout(
+            containerWidth: containerWidth,
             allowsOverwideFallback: false
         )
 

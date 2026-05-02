@@ -236,6 +236,36 @@ func preparedSnapshotCarriesMeasuredInlineLayout() throws {
 }
 
 @Test
+func preparedInlineRenderingUsesCachedBackendLayout() throws {
+    var stream = MarkdownStream()
+    stream.append("alpha beta gamma delta epsilon zeta eta theta")
+    stream.finish()
+    let snapshot = stream.snapshot()
+    let recorder = MarkdownDiagnosticsRecorder()
+    let configuration = MarkdownRendererConfiguration(diagnosticsRecorder: recorder)
+
+    let prepared = configuration.prepare(snapshot: snapshot)
+    let block = try #require(snapshot.blocks.first)
+    let inlineLayout = try #require(prepared.preparedContentByBlockID[block.id]?.inlineLayout)
+    let beforeLayout = recorder.snapshot()
+
+    _ = InlineRunsView.lineBrokenAttributedString(for: inlineLayout, containerWidth: 80)
+    let afterFirstLayout = recorder.snapshot()
+    _ = InlineRunsView.lineBrokenAttributedString(for: inlineLayout, containerWidth: 80)
+    let afterCachedLayout = recorder.snapshot()
+    _ = InlineRunsView.lineBrokenAttributedString(for: inlineLayout, containerWidth: 140)
+    let afterSecondWidth = recorder.snapshot()
+
+    #expect(afterFirstLayout.layoutCount == beforeLayout.layoutCount + 1)
+    #expect(afterFirstLayout.widthRelayoutCount == beforeLayout.widthRelayoutCount + 1)
+    #expect(afterCachedLayout.layoutCount == afterFirstLayout.layoutCount)
+    #expect(afterCachedLayout.widthRelayoutCount == afterFirstLayout.widthRelayoutCount)
+    #expect(afterCachedLayout.cacheHitCount == afterFirstLayout.cacheHitCount + 1)
+    #expect(afterSecondWidth.layoutCount == afterFirstLayout.layoutCount + 1)
+    #expect(afterSecondWidth.widthRelayoutCount == afterFirstLayout.widthRelayoutCount + 1)
+}
+
+@Test
 func rendererPreparationDoesNotEagerlyPopulatePerCharacterUnits() throws {
     var stream = MarkdownStream()
     stream.append("abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz")
@@ -338,6 +368,19 @@ func copyProviderReturnsExactSourceSlice() throws {
     }
 
     #expect(provider.markdown(block.sourceRange) == "- item\n- second\n")
+}
+
+@Test
+func sourceBackedCopyProviderReturnsUTF8SourceSlices() throws {
+    let markdown = "# Title\n\nEnglish, 日本語, العربية, emoji 😀\n\n"
+    var stream = MarkdownStream()
+    stream.append(markdown)
+    stream.finish()
+
+    let paragraph = try #require(stream.snapshot().blocks.last)
+    let provider = MarkdownCopyProvider(markdownSource: markdown)
+
+    #expect(provider.markdown(paragraph.sourceRange) == "English, 日本語, العربية, emoji 😀")
 }
 
 @Test

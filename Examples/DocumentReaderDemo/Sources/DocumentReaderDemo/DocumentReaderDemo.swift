@@ -17,8 +17,7 @@ private final class DocumentReaderModel: ObservableObject {
     let configuration: MarkdownRendererConfiguration
     let preparedSnapshot: MarkdownPreparedSnapshot
     let sections: [DocumentSection]
-    let streamCounters: MarkdownDiagnosticsCounters
-    let renderCounters: MarkdownDiagnosticsCounters
+    let document: ReaderDocument
 
     init() {
         let streamRecorder = MarkdownDiagnosticsRecorder()
@@ -27,10 +26,7 @@ private final class DocumentReaderModel: ObservableObject {
         stream.append(DemoDocument.markdown)
         stream.finish()
 
-        let finishedStream = stream
-        let copyProvider = MarkdownCopyProvider { range in
-            finishedStream.markdown(in: range)
-        }
+        let copyProvider = MarkdownCopyProvider(markdownSource: DemoDocument.markdown)
         let configuration = MarkdownRendererConfiguration(
             theme: .document,
             copyProvider: copyProvider,
@@ -39,10 +35,14 @@ private final class DocumentReaderModel: ObservableObject {
 
         self.configuration = configuration
         let snapshot = stream.snapshot()
+        let sections = DocumentSection.sections(in: snapshot)
         self.preparedSnapshot = configuration.prepare(snapshot: snapshot)
-        self.sections = DocumentSection.sections(in: snapshot)
-        self.streamCounters = streamRecorder.snapshot()
-        self.renderCounters = renderRecorder.snapshot()
+        self.sections = sections
+        self.document = ReaderDocument(
+            markdown: DemoDocument.markdown,
+            snapshot: snapshot,
+            sections: sections
+        )
     }
 }
 
@@ -50,6 +50,7 @@ private struct DocumentReaderView: View {
     @StateObject private var model: DocumentReaderModel
     @State private var measure = DocumentMeasure.readable
     @State private var selectedBlockID: MarkdownBlockID?
+    @State private var scrollToTopRequest = 0
 
     @MainActor
     init() {
@@ -60,17 +61,30 @@ private struct DocumentReaderView: View {
 
     var body: some View {
         NavigationSplitView {
-            DemoSidebar(
+            ReaderSidebar(
+                document: model.document,
                 sections: model.sections,
                 selectedBlockID: $selectedBlockID,
-                streamCounters: model.streamCounters,
-                renderCounters: model.renderCounters
+                measure: $measure
             )
         } detail: {
             readerSurface
-                .navigationTitle("Document Reader")
+                .navigationTitle(model.document.title)
                 .toolbar {
                     ToolbarItemGroup {
+                        Button {
+                            selectedBlockID = model.sections.first?.id
+                            scrollToTopRequest += 1
+                        } label: {
+                            Label("Back to Top", systemImage: "arrow.up.to.line")
+                        }
+
+                        Button {
+                            copyDocumentMarkdown()
+                        } label: {
+                            Label("Copy Document", systemImage: "doc.on.doc")
+                        }
+
                         Picker("Measure", selection: $measure) {
                             ForEach(DocumentMeasure.allCases) { measure in
                                 Text(measure.title).tag(measure)
@@ -89,9 +103,12 @@ private struct DocumentReaderView: View {
                 .ignoresSafeArea()
 
             PreparedDocumentScrollView(
+                document: model.document,
                 preparedSnapshot: model.preparedSnapshot,
                 configuration: model.configuration,
-                selectedBlockID: $selectedBlockID
+                selectedBlockID: $selectedBlockID,
+                scrollToTopRequest: scrollToTopRequest,
+                currentSectionTitle: currentSectionTitle
             )
             .frame(maxWidth: measure.width, maxHeight: .infinity)
             .background(DemoColors.documentBackground)
@@ -105,17 +122,35 @@ private struct DocumentReaderView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
     }
+
+    private var currentSectionTitle: String {
+        guard let selectedBlockID,
+              let section = model.sections.first(where: { $0.id == selectedBlockID })
+        else {
+            return model.sections.first?.title ?? "Overview"
+        }
+        return section.title
+    }
+
+    private func copyDocumentMarkdown() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(DemoDocument.markdown, forType: .string)
+    }
 }
 
-private struct DemoSidebar: View {
+private struct ReaderSidebar: View {
+    var document: ReaderDocument
     var sections: [DocumentSection]
     @Binding var selectedBlockID: MarkdownBlockID?
-    var streamCounters: MarkdownDiagnosticsCounters
-    var renderCounters: MarkdownDiagnosticsCounters
+    @Binding var measure: DocumentMeasure
 
     var body: some View {
         List {
-            Section("Document") {
+            Section("Current Document") {
+                ReaderDocumentSummary(document: document)
+            }
+
+            Section("Contents") {
                 ForEach(sections) { section in
                     SidebarSectionButton(
                         section: section,
@@ -126,18 +161,42 @@ private struct DemoSidebar: View {
                 }
             }
 
-            Section("Counters") {
-                MetricRow(title: "Parses", value: streamCounters.parseCount)
-                MetricRow(title: "Sealed parses", value: streamCounters.sealedRegionParseCount)
-                MetricRow(title: "Prepared blocks", value: renderCounters.renderPreparationCount)
-                MetricRow(title: "Inline prepares", value: renderCounters.prepareCount)
-                MetricRow(title: "Code highlights", value: renderCounters.codeHighlightCount)
-                MetricRow(title: "Math renders", value: renderCounters.mathRenderCount)
+            Section("Reader") {
+                MetricRow(title: "Reading time", value: "\(document.readingMinutes) min")
+                MetricRow(title: "Words", value: document.wordCount.formatted())
+                MetricRow(title: "Sections", value: document.sectionCount.formatted())
+                MetricRow(title: "Width", value: measure.title)
             }
         }
         .listStyle(.sidebar)
-        .navigationSplitViewColumnWidth(min: 220, ideal: 240, max: 300)
-        .navigationTitle("SiriusMarkdown")
+        .navigationSplitViewColumnWidth(min: 250, ideal: 280, max: 330)
+        .navigationTitle("Library")
+    }
+}
+
+private struct ReaderDocumentSummary: View {
+    var document: ReaderDocument
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label(document.title, systemImage: "book.closed")
+                .font(.headline)
+                .lineLimit(2)
+
+            Text(document.subtitle)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            HStack(spacing: 6) {
+                Label(document.updated, systemImage: "calendar")
+                Text("•")
+                Text(document.author)
+            }
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+        }
+        .padding(.vertical, 4)
     }
 }
 
@@ -156,6 +215,7 @@ private struct SidebarSectionButton: View {
         .foregroundStyle(isSelected ? Color.white : Color.primary)
         .padding(.vertical, 5)
         .padding(.horizontal, 8)
+        .padding(.leading, section.level > 2 ? 12 : 0)
         .background {
             RoundedRectangle(cornerRadius: 6)
                 .fill(isSelected ? Color.accentColor : Color.clear)
@@ -165,9 +225,12 @@ private struct SidebarSectionButton: View {
 }
 
 private struct PreparedDocumentScrollView: View {
+    var document: ReaderDocument
     var preparedSnapshot: MarkdownPreparedSnapshot
     var configuration: MarkdownRendererConfiguration
     @Binding var selectedBlockID: MarkdownBlockID?
+    var scrollToTopRequest: Int
+    var currentSectionTitle: String
 
     private var theme: MarkdownTheme {
         configuration.theme
@@ -177,11 +240,19 @@ private struct PreparedDocumentScrollView: View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: theme.blockSpacing) {
+                    ReaderDocumentHeader(
+                        document: document,
+                        currentSectionTitle: currentSectionTitle
+                    )
+                    .id(ReaderDocumentTopAnchor.id)
+                    .padding(.bottom, 10)
+
                     ForEach(preparedSnapshot.items) { item in
                         preparedItemView(item)
                     }
                 }
-                .padding()
+                .padding(.horizontal, 38)
+                .padding(.vertical, 34)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             .onChange(of: selectedBlockID) { blockID in
@@ -193,13 +264,9 @@ private struct PreparedDocumentScrollView: View {
                     proxy.scrollTo(blockID, anchor: .top)
                 }
             }
-            .onAppear {
-                guard let selectedBlockID else {
-                    return
-                }
-
-                Task { @MainActor in
-                    proxy.scrollTo(selectedBlockID, anchor: .top)
+            .onChange(of: scrollToTopRequest) { _ in
+                withAnimation(.easeInOut(duration: 0.18)) {
+                    proxy.scrollTo(ReaderDocumentTopAnchor.id, anchor: .top)
                 }
             }
         }
@@ -225,6 +292,7 @@ private struct DocumentSection: Identifiable, Hashable {
     var id: MarkdownBlockID
     var title: String
     var systemImage: String
+    var level: Int
 
     static func sections(in snapshot: MarkdownSnapshot) -> [DocumentSection] {
         snapshot.blocks.compactMap { block in
@@ -237,7 +305,8 @@ private struct DocumentSection: Identifiable, Hashable {
             return DocumentSection(
                 id: block.id,
                 title: title.isEmpty ? "Section" : title,
-                systemImage: systemImage(for: title)
+                systemImage: systemImage(for: title),
+                level: block.headingLevel ?? 2
             )
         }
     }
@@ -246,21 +315,17 @@ private struct DocumentSection: Identifiable, Hashable {
         switch title {
         case "Overview":
             return "doc.richtext"
-        case "Long Paragraph":
-            return "text.alignleft"
-        case "Inline Styles":
-            return "textformat"
-        case "Quotes And Breaks":
-            return "quote.opening"
-        case "Lists And Inline Runs":
-            return "list.bullet"
-        case "Multilingual Layout":
-            return "character.book.closed"
-        case "Wide Code":
-            return "chevron.left.forwardslash.chevron.right"
-        case "Table":
+        case "Reading Workflow":
+            return "eyeglasses"
+        case "Working Notes":
+            return "note.text"
+        case "International Sections":
+            return "globe"
+        case "Technical Appendix":
+            return "curlybraces"
+        case "Reference Table":
             return "tablecells"
-        case "Math And Policy":
+        case "Formula Notes":
             return "function"
         default:
             return "text.justify.leading"
@@ -268,18 +333,116 @@ private struct DocumentSection: Identifiable, Hashable {
     }
 }
 
+private enum ReaderDocumentTopAnchor {
+    static let id = "reader-document-top"
+}
+
 private struct MetricRow: View {
     var title: String
-    var value: Int
+    var value: String
 
     var body: some View {
         HStack {
             Text(title)
             Spacer()
-            Text(value, format: .number)
+            Text(value)
                 .foregroundStyle(.secondary)
                 .monospacedDigit()
         }
+    }
+}
+
+private struct ReaderDocument: Hashable {
+    var title: String
+    var subtitle: String
+    var author: String
+    var updated: String
+    var wordCount: Int
+    var readingMinutes: Int
+    var sectionCount: Int
+    var blockCount: Int
+    var sourceBytes: Int
+
+    init(markdown: String, snapshot: MarkdownSnapshot, sections: [DocumentSection]) {
+        self.title = "Native Reader Field Guide"
+        self.subtitle = "A compact technical brief with outline navigation, reading-width controls, source copy, and policy-safe rich content."
+        self.author = "SiriusMarkdown"
+        self.updated = "May 2026"
+        self.wordCount = Self.wordCount(in: markdown)
+        self.readingMinutes = max(1, Int(ceil(Double(wordCount) / 220.0)))
+        self.sectionCount = sections.count
+        self.blockCount = snapshot.blocks.count
+        self.sourceBytes = snapshot.sourceLength
+    }
+
+    private static func wordCount(in markdown: String) -> Int {
+        markdown.split { character in
+            !character.isLetter && !character.isNumber
+        }.count
+    }
+}
+
+private struct ReaderDocumentHeader: View {
+    var document: ReaderDocument
+    var currentSectionTitle: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text(document.title)
+                    .font(.largeTitle.weight(.semibold))
+                    .textSelection(.enabled)
+
+                Text(document.subtitle)
+                    .font(.title3)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
+            }
+
+            LazyVGrid(
+                columns: [
+                    GridItem(.adaptive(minimum: 142), alignment: .leading)
+                ],
+                alignment: .leading,
+                spacing: 12
+            ) {
+                ReaderMetadataLabel(title: "Author", value: document.author, systemImage: "person.text.rectangle")
+                ReaderMetadataLabel(title: "Updated", value: document.updated, systemImage: "calendar")
+                ReaderMetadataLabel(title: "Length", value: "\(document.readingMinutes) min", systemImage: "clock")
+                ReaderMetadataLabel(title: "Now Reading", value: currentSectionTitle, systemImage: "location")
+            }
+            .font(.caption)
+        }
+        .padding(.bottom, 10)
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(DemoColors.pageStroke)
+                .frame(height: 1)
+        }
+    }
+}
+
+private struct ReaderMetadataLabel: View {
+    var title: String
+    var value: String
+    var systemImage: String
+
+    var body: some View {
+        Label {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .textCase(.uppercase)
+                Text(value)
+                    .lineLimit(1)
+            }
+        } icon: {
+            Image(systemName: systemImage)
+                .foregroundStyle(Color.accentColor)
+        }
+        .labelStyle(.titleAndIcon)
     }
 }
 
@@ -321,82 +484,76 @@ private enum DemoColors {
 
 private enum DemoDocument {
     static let markdown = """
-    # SiriusMarkdown Renderer Contract
+    ## Overview
 
-    SiriusMarkdown renders long native documents from prepared snapshots. This demo keeps Markdown parsing, code highlighting, math rendering, and inline preparation outside SwiftUI view evaluation while the reader surface can be resized between compact, readable, and wide measures.
+    This field guide is written as a compact technical brief with a table of contents, reading-width controls, source-copy behavior, and rich content that belongs in a native reader.
 
-    The paragraph below is deliberately long enough to expose wrapping regressions. It should use the available document width instead of collapsing into a narrow word column, and resizing the window should relayout prepared inline segments without reparsing the source document.
+    The reader surface should feel calm and persistent. The sidebar is for document navigation and reading metadata, the toolbar is for document actions, and the page itself stays focused on long-form content.
 
-    ## Long Paragraph
+    ## Reading Workflow
 
-    Streaming assistants and document readers often receive dense technical prose mixed with links, code spans, tables, quotes, and host-native insertions. A renderer that measures text inside each SwiftUI row will become fragile under those workloads. A renderer that prepares inline content once and performs cheap width-specific layout can stay stable while users resize a transcript, split view, or document window.
+    Readers usually scan first, choose a section, then settle into a stable measure. The outline supports fast jumps, while the segmented width control lets the same prepared document move between compact, readable, and wide layouts without changing the document identity.
 
-    > Width changes are layout work. They are not parser work, highlighter work, or AST conversion work.
+    > The reader is not a benchmark panel. It is a product surface that proves a prepared Markdown document can behave like native reading material.
 
-    ## Inline Styles
+    A useful reader still needs Markdown fidelity. Inline runs such as **strong text**, *emphasis*, ~~revisions~~, `code spans`, safe [reference links](https://example.com/reference), and denied [script links](javascript:alert('blocked')) should all flow inside the same paragraph without stealing attention from the prose.
 
-    This paragraph mixes **strong emphasis**, *emphasis*, ~~strikethrough~~, `inline code`, [safe links](https://example.com/safe), and [unsafe links](javascript:alert('blocked')) in one run. The safe link should be interactive, while the unsafe JavaScript destination should stay inert under the default link policy.
+    ## Working Notes
 
-    A denied network image should not download anything by default: ![Remote architecture diagram](https://example.com/architecture.png)
+    A document reader benefits from predictable source operations. A context menu can copy the exact Markdown for a block, while the toolbar can copy the full source. Those operations should not depend on rendered text approximations.
 
-    ## Quotes And Breaks
+    - [x] Copy exact Markdown ranges for selected blocks
+    - [x] Keep links policy-controlled by default
+    - [x] Keep remote images inert unless a host app opts in
+    - [ ] Add annotation and bookmark APIs after renderer correctness is stable
 
-    > Block quotes should keep a stable accent edge, support multiple wrapped lines, and avoid becoming a nested card.
-    > The second quote line remains part of the same semantic quote block.
+    A denied network image should remain a readable placeholder rather than fetching anything by default: ![Remote architecture diagram](https://example.com/architecture.png)
+
+    ## International Sections
+
+    English, 日本語, 한국어, العربية, עברית, emoji 😀😎, and CJK punctuation should all remain part of the same document flow. Reading width should influence wrapping, not parser behavior.
+
+    Mixed direction text should still wrap as a normal paragraph: Start with English, continue with العربية داخل الجملة, then return to English with `inline code` and a safe [reference](https://example.com/i18n).
 
     Hard line breaks should stay visible in prepared layout: first line  
     second line after a Markdown hard break.
 
-    ## Lists And Inline Runs
-
-    - [x] Parse Markdown semantics with `swift-markdown`
-    - [x] Keep sealed streaming regions immutable
-    - [ ] Continue expanding golden fixtures
-      - CJK, emoji, RTL, hard breaks, and atomic inline items stay in the layout test matrix
-      - Links such as [the package README](https://example.com/readme) remain policy-controlled
-
-    3. Ordered lists preserve their start value.
-    4. They should render with stable markers.
-       1. Nested ordered children keep their own counter.
-       2. Nested children should not leak into the parent row.
-
-    ## Multilingual Layout
-
-    English, 日本語, 한국어, العربية, עברית, emoji 😀😎, and CJK punctuation should all remain in one prepared document without falling back to parser-time special cases.
-
-    Mixed direction text should still wrap as a normal paragraph: Start with English, continue with العربية داخل الجملة, then return to English with `inline code` and a safe [reference](https://example.com/i18n).
-
-    ## Wide Code
+    ## Technical Appendix
 
     ```swift
-    let longLine = "abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz"
-    let renderer = MarkdownRendererConfiguration.document.prepare(snapshot: snapshot)
-    print(longLine, renderer.items.count)
+    struct ReaderBookmark: Identifiable, Hashable {
+        var id: String
+        var title: String
+        var sourceRange: MarkdownSourceRange
+    }
+
+    let measure = DocumentMeasure.readable
+    let pageWidth = measure.width
     ```
 
     ```json
-    {"renderer":"SiriusMarkdown","mode":"document","features":["streaming","prepared-inline-layout","policy-gated-links","bounded-caches"]}
+    {"document":"Native Reader Field Guide","mode":"reader","features":["outline","copy-source","reading-width","policy-safe-content"]}
     ```
 
-    ## Table
+    ## Reference Table
 
-    | Area | Example Input | Expected Behavior | Evidence | Failure Mode Avoided |
+    | Reader Area | User Action | Expected Behavior | Native Surface | Failure Avoided |
     | :--- | :--- | :--- | :--- | :--- |
-    | Streaming | many small chunks plus one active tail | Mutable tail reparses while sealed regions stay cacheable | Parse and tail counters | Full transcript reparses |
-    | Layout | resize compact to readable to wide | Prepare once and relayout cheaply for new widths | Pretext fixtures and render probe | Intrinsic-width feedback collapse |
-    | Safety | safe link, unsafe link, raw HTML, remote image | Policies decide rendering without app-private routing | Default policy hooks | Policy bypasses in a public package |
-    | Copy | per-block context menu | Copy exact Markdown source slices | Source range tests | Copying rendered text instead of source Markdown |
+    | Outline | choose a heading | scroll directly to the section | sidebar list | losing place in a long document |
+    | Measure | switch compact/readable/wide | relayout prepared content for width | segmented toolbar control | cramped or over-wide prose |
+    | Copy | copy block or full document | preserve original Markdown source | context menu and toolbar | copying rendered approximations |
+    | Safety | open links or encounter images | obey explicit policy decisions | link action and image placeholder | accidental network or scheme access |
 
-    ## Math And Policy
-
-    $$
-    widthChange -> layout(preparedSegments, width)
-    $$
+    ## Formula Notes
 
     $$
-    parseCount(document) = 1 + sealedRegions
+    readableMeasure = preparedSegments + selectedWidth
     $$
 
-    <aside>Raw HTML remains inert by default.</aside>
+    $$
+    sourceCopy(block) = markdown[sourceRange]
+    $$
+
+    <aside>Raw HTML remains inert in the default public-reader policy.</aside>
     """
 }

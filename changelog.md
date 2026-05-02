@@ -33,6 +33,7 @@
 - Restored native pixel coverage for representative structured documents through `Tools/RenderProbe`, which renders `MarkdownDocumentView` through AppKit in its own release-gated process.
 - Added `Tools/release-check.sh` and made CI call the same release gate used locally.
 - Made CI's Pretext golden step clean-checkout safe with `npm ci`.
-- Expanded `DocumentReaderDemo` with richer renderer examples for inline styling, safe and unsafe links, denied image loading, quotes, hard breaks, nested and ordered lists, multilingual text, wide code, wider tables, math blocks, and raw-HTML policy behavior.
+- Differentiated `DocumentReaderDemo` from the renderer workbench by turning it into a reader product surface with document metadata, outline navigation, reading-width controls, full-source copy, reader-specific sample content, and no visible pipeline counters.
 - Added renderer-level table presentation tokens to `MarkdownTheme` and redesigned SwiftUI table rendering around prepared cell measurements, bounded adaptive columns, header/accent styling, row separators, and subtle banding.
 - Stopped `StreamingTranscriptDemo` from publishing renderer configuration changes, avoiding unnecessary Combine copies during macOS window startup while still refreshing prepared snapshots through the model.
+- Redesigned `MarkdownDemoApp` into a sidebar-driven static-document workbench with renderer coverage metrics, pipeline counters, and expanded examples for inline policy, tables, wide blocks, multilingual layout, math/HTML policy, and long-form documents.

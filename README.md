@@ -125,6 +125,12 @@ Examples/scripts/bundle-macos-demos.sh
 open Examples/MacOSArtifacts/MarkdownDemoApp.app
 ```
 
+The bundled demos have distinct jobs:
+
+- `MarkdownDemoApp` is the renderer workbench: example navigation, coverage summaries, cache/pipeline counters, and stress cases.
+- `DocumentReaderDemo` is the reader product surface: a single prepared document with library navigation, reading metadata, source-copy actions, and reading-width controls.
+- `StreamingTranscriptDemo` exercises the streaming append model.
+
 Build a single demo as an app by name:
 
 ```sh

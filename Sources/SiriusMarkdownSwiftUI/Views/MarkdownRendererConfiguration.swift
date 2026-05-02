@@ -242,12 +242,14 @@ public struct MarkdownRendererConfiguration: Sendable {
             prepared,
             fontSize: metrics.fontSize
         )
+        let layoutCache = MarkdownInlineLayoutCache(diagnosticsRecorder: diagnosticsRecorder)
         let inline = MarkdownPreparedInlineContent(
             attributed: attributed,
             prepared: prepared,
             measured: measured,
             fontSize: metrics.fontSize,
-            lineHeight: metrics.lineHeight
+            lineHeight: metrics.lineHeight,
+            layoutCache: layoutCache
         )
         preparationCache.insertInline(inline, forKey: key)
         return inline
@@ -348,19 +350,82 @@ public struct MarkdownPreparedInlineContent: Sendable {
     public var measured: MeasuredInlineContent
     public var fontSize: Double
     public var lineHeight: Double
+    public var layoutCache: MarkdownInlineLayoutCache
 
     public init(
         attributed: AttributedString,
         prepared: PreparedInlineContent,
         measured: MeasuredInlineContent,
         fontSize: Double,
-        lineHeight: Double
+        lineHeight: Double,
+        layoutCache: MarkdownInlineLayoutCache = MarkdownInlineLayoutCache()
     ) {
         self.attributed = attributed
         self.prepared = prepared
         self.measured = measured
         self.fontSize = fontSize
         self.lineHeight = lineHeight
+        self.layoutCache = layoutCache
+    }
+
+    public func layout(
+        containerWidth: Double,
+        allowsOverwideFallback: Bool = false
+    ) -> InlineLayoutResult {
+        layout(
+            options: InlineLayoutOptions(
+                containerWidth: containerWidth,
+                fontSize: fontSize,
+                lineHeight: lineHeight
+            ),
+            allowsOverwideFallback: allowsOverwideFallback
+        )
+    }
+
+    public func layout(
+        options: InlineLayoutOptions,
+        allowsOverwideFallback: Bool = false
+    ) -> InlineLayoutResult {
+        layoutCache.layout(
+            measured,
+            options: options,
+            allowsOverwideFallback: allowsOverwideFallback
+        )
+    }
+}
+
+public final class MarkdownInlineLayoutCache: @unchecked Sendable {
+    private let lock = NSLock()
+    private var engine: InlineLayoutEngine<CoreTextInlineMeasurer>
+
+    public init(
+        cacheCapacity: Int = 256,
+        diagnosticsRecorder: MarkdownDiagnosticsRecorder = MarkdownDiagnosticsRecorder()
+    ) {
+        self.engine = InlineLayoutEngine(
+            cacheCapacity: cacheCapacity,
+            diagnosticsRecorder: diagnosticsRecorder
+        )
+    }
+
+    public var diagnosticsCounters: MarkdownDiagnosticsCounters {
+        lock.withLock {
+            engine.diagnosticsCounters
+        }
+    }
+
+    public func layout(
+        _ measured: MeasuredInlineContent,
+        options: InlineLayoutOptions,
+        allowsOverwideFallback: Bool = false
+    ) -> InlineLayoutResult {
+        lock.withLock {
+            engine.layout(
+                measured,
+                options: options,
+                allowsOverwideFallback: allowsOverwideFallback
+            )
+        }
     }
 }
 

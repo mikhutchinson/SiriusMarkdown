@@ -37,3 +37,4 @@
 - Fixed the weak Pretext assertion that treated emoji/CJK and RTL drift as an expected passing condition; strict drift now fails the suite instead of being whitelisted.
 - Fixed Swift CoreText measurement to match Pretext's selected-font profile for unsupported glyphs by using the selected font's missing-glyph advance instead of silently measuring native fallback fonts.
 - Fixed the overwide inline unit fallback cache so Swift Testing no longer crashes while exercising long-word Pretext fixtures.
+- Fixed `DocumentReaderDemo` launch crashing in `initializeWithCopy for MarkdownRendererConfiguration` after backend copy-provider changes. Document-style demos now use a source-backed `MarkdownCopyProvider(markdownSource:)` that slices exact UTF-8 source ranges without capturing a full `MarkdownStream` inside renderer configuration; added Unicode slice coverage and verified `swift test`, `Examples/MarkdownDemoApp`, and bundled `DocumentReaderDemo.app` launch.

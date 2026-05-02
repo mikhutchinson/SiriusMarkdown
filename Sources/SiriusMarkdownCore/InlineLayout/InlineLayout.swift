@@ -532,27 +532,69 @@ public struct InlineLayoutEngine<Measurer: InlineMeasuring>: Sendable {
         sourceRange: MarkdownSourceRange? = nil,
         options: InlineLayoutOptions
     ) -> InlineLayoutResult {
+        layout(
+            runs: runs,
+            sourceRange: sourceRange,
+            options: options,
+            allowsOverwideFallback: true
+        )
+    }
+
+    public mutating func layout(
+        runs: [MarkdownInlineRun],
+        sourceRange: MarkdownSourceRange? = nil,
+        options: InlineLayoutOptions,
+        allowsOverwideFallback: Bool
+    ) -> InlineLayoutResult {
         let measured = prepareMeasuredContent(
             runs: runs,
             sourceRange: sourceRange,
             fontSize: options.fontSize
         )
-        return layout(measured, options: options)
+        return layout(measured, options: options, allowsOverwideFallback: allowsOverwideFallback)
     }
 
     public mutating func layout(
         _ prepared: PreparedInlineContent,
         options: InlineLayoutOptions
     ) -> InlineLayoutResult {
+        layout(
+            prepared,
+            options: options,
+            allowsOverwideFallback: true
+        )
+    }
+
+    public mutating func layout(
+        _ prepared: PreparedInlineContent,
+        options: InlineLayoutOptions,
+        allowsOverwideFallback: Bool
+    ) -> InlineLayoutResult {
         let measured = prepareMeasuredContent(prepared, fontSize: options.fontSize)
-        return layout(measured, options: options)
+        return layout(measured, options: options, allowsOverwideFallback: allowsOverwideFallback)
     }
 
     public mutating func layout(
         _ measured: MeasuredInlineContent,
         options: InlineLayoutOptions
     ) -> InlineLayoutResult {
-        let key = layoutCacheKey(for: measured, options: options)
+        layout(
+            measured,
+            options: options,
+            allowsOverwideFallback: true
+        )
+    }
+
+    public mutating func layout(
+        _ measured: MeasuredInlineContent,
+        options: InlineLayoutOptions,
+        allowsOverwideFallback: Bool
+    ) -> InlineLayoutResult {
+        let key = layoutCacheKey(
+            for: measured,
+            options: options,
+            allowsOverwideFallback: allowsOverwideFallback
+        )
 
         if let cached = layoutCache.value(forKey: key) {
             diagnosticsRecorder.recordCacheHit()
@@ -562,12 +604,15 @@ public struct InlineLayoutEngine<Measurer: InlineMeasuring>: Sendable {
         diagnosticsRecorder.recordCacheMiss()
         diagnosticsRecorder.recordWidthRelayout()
         diagnosticsRecorder.recordLayout()
-        let measuredForLayout = measuredWithCachedOverwideUnits(
-            measured,
-            containerWidth: options.containerWidth
-        )
+        let measuredForLayout = allowsOverwideFallback
+            ? measuredWithCachedOverwideUnits(measured, containerWidth: options.containerWidth)
+            : measured
         let result = MarkdownDiagnostics().signpost("InlineLayout", category: "InlineLayout") {
-            walker.layout(measuredForLayout, options: options)
+            walker.layout(
+                measuredForLayout,
+                options: options,
+                allowsOverwideFallback: allowsOverwideFallback
+            )
         }
         layoutCache[key] = result
         return result
@@ -633,7 +678,8 @@ public struct InlineLayoutEngine<Measurer: InlineMeasuring>: Sendable {
 
     private func layoutCacheKey(
         for measured: MeasuredInlineContent,
-        options: InlineLayoutOptions
+        options: InlineLayoutOptions,
+        allowsOverwideFallback: Bool
     ) -> MarkdownCacheKey {
         MarkdownCacheKey(
             sourceRange: measured.prepared.sourceRange ?? MarkdownSourceRange(
@@ -642,7 +688,7 @@ public struct InlineLayoutEngine<Measurer: InlineMeasuring>: Sendable {
             ),
             contentHash: preparedContentHash(
                 measured.prepared,
-                salt: "font:\(options.fontSize)|width:\(options.containerWidth)|line:\(options.lineHeight)"
+                salt: "font:\(options.fontSize)|width:\(options.containerWidth)|line:\(options.lineHeight)|overwide:\(allowsOverwideFallback)"
             ),
             namespace: "inline-layout"
         )
