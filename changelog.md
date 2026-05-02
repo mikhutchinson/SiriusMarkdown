@@ -4,6 +4,14 @@
 
 - No unreleased changes.
 
+## 0.3.1 - 2026-05-02
+
+- Semver: patch release on top of `v0.3.0`, adding public code-block affordance controls without changing the renderer architecture or SwiftPM platform floor.
+- Added `MarkdownCodeBlockAffordances` and `MarkdownTheme.codeBlockAffordances` so hosts can show or hide the generic code language label and copy-code button.
+- Added normalized code-language display names for common fence aliases such as `language-swift`, `py`, `js`, `ts`, `objective-c`, and `c++`, while preserving conservative plain rendering for plaintext, nohighlight, unlabeled, and unsupported fences.
+- Added native SwiftUI code-block chrome for language labels and copy-code actions above horizontally contained code blocks.
+- Expanded render-plan and SwiftUI tests to prove code-language labels, copy visibility, copy text extraction, disabled chrome, and policy-denied code paths.
+
 ## v0.3.0 - 2026-05-02
 
 - Semver: minor release, not `v0.2.1`, because this adds public renderer theme API (`MarkdownTextStyle`, `MarkdownHeadingStyles`, `MarkdownTheme.headings`) and deprecates the old singular H3-only compatibility fields.
