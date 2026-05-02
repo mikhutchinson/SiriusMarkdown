@@ -39,6 +39,7 @@
 - Redesigned `MarkdownDemoApp` into a sidebar-driven static-document workbench with renderer coverage metrics, pipeline counters, and expanded examples for inline policy, tables, wide blocks, multilingual layout, math/HTML policy, and long-form documents.
 - Added `MarkdownRenderSession` as the public streaming/document integration seam that owns stream state, long-lived renderer configuration, source-backed copy, prepared snapshots, caches, and diagnostics counters.
 - Replaced SwiftUI's newline-injected prepared-inline render path with native `Text(AttributedString)` rendering while still consuming prepared `InlineLayoutResult` records for width-change diagnostics and layout reuse.
+- Added opt-in `MarkdownInlineRenderingMode.preparedNativeLines`, which renders prepared attributed line slices through SwiftUI `Text(AttributedString)` and is guarded by a representative document render probe plus a word-spacing check. This is prepared-line rendering, not a fully custom glyph renderer.
 - Added bounded `MarkdownSelectionController` support for block-level selection, source-backed Markdown copy, plain-text copy, and selection rendering without per-fragment overlay growth.
 - Added source-preserving inline math detection outside code spans/fences, prepared image decisions with placeholder-safe defaults, a theme-aware default code highlighter, and an optional `SiriusMarkdownMath` product used by the demos.
-- Added `Docs/textual-replacement-scorecard.md` and `Tools/product-check.sh` to make Textual-replacement quality a product gate instead of a claim.
+- Added `Docs/native-renderer-scorecard.md` and `Tools/product-check.sh` to make native-renderer product quality a gate instead of a claim.

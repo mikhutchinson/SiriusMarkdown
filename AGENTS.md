@@ -10,7 +10,7 @@ The goal is not to make a small demo renderer. The goal is to build the best Mar
 
 This project exists because existing approaches failed core requirements:
 
-- “Textual selection overlays could spin the main thread while the transcript was streaming.”
+- “Unbounded selection overlays can spin the main thread while the transcript is streaming.”
 - “A renderer dependency can be too expensive even when parsing is cached.”
 - “Do not assume an opt-in modifier is the only activation point.”
 - “The current native parser should not be the final assistant Markdown renderer.”
@@ -92,7 +92,7 @@ Pretext is not just a smoke test. It is the reference model for the prepare/layo
 
 ## Renderer Quality Bar
 
-This package should exceed Textual for streaming SwiftUI workloads and exceed a raw Pretext integration for Apple apps by combining:
+This package should clear a higher bar for streaming SwiftUI workloads and exceed a raw Pretext integration for Apple apps by combining:
 
 - native SwiftUI block rendering
 - `swift-markdown` semantic correctness

@@ -59,6 +59,21 @@ public struct PreparedInlineSegment: Sendable, Hashable {
                 continue
             }
 
+            if run.kind == .code || run.kind == .image || run.kind == .math {
+                let upper = cursor + run.text.utf8.count
+                segments.append(
+                    PreparedInlineSegment(
+                        kind: run.kind,
+                        text: run.text,
+                        byteRange: cursor..<upper,
+                        isHardBreak: false,
+                        isBreakOpportunity: false
+                    )
+                )
+                cursor = upper
+                continue
+            }
+
             for token in tokenize(run.text) {
                 let upper = cursor + token.text.utf8.count
                 segments.append(
@@ -117,10 +132,16 @@ public struct PreparedInlineSegment: Sendable, Hashable {
 
 public struct InlineLineRange: Sendable, Hashable {
     public var byteRange: Range<Int>
+    public var consumedByteRange: Range<Int>
     public var width: Double
 
     public init(byteRange: Range<Int>, width: Double) {
+        self.init(byteRange: byteRange, consumedByteRange: nil, width: width)
+    }
+
+    public init(byteRange: Range<Int>, consumedByteRange: Range<Int>? = nil, width: Double) {
         self.byteRange = byteRange
+        self.consumedByteRange = consumedByteRange ?? byteRange
         self.width = width
     }
 }
@@ -348,13 +369,24 @@ public struct VariableWidthLineWalker<Measurer: InlineMeasuring>: Sendable {
             let segment = measuredSegment.segment
 
             if segment.isHardBreak {
-                lines.append(InlineLineRange(byteRange: currentStart..<segment.byteRange.lowerBound, width: currentWidth))
+                lines.append(
+                    InlineLineRange(
+                        byteRange: currentStart..<segment.byteRange.lowerBound,
+                        consumedByteRange: currentStart..<segment.byteRange.upperBound,
+                        width: currentWidth
+                    )
+                )
                 currentWidth = 0
                 currentStart = segment.byteRange.upperBound
                 continue
             }
 
             if currentWidth > 0, currentWidth + measuredSegment.width > containerWidth {
+                if segment.isBreakOpportunity {
+                    currentWidth += measuredSegment.width
+                    continue
+                }
+
                 lines.append(InlineLineRange(byteRange: currentStart..<segment.byteRange.lowerBound, width: currentWidth))
                 currentStart = segment.byteRange.lowerBound
                 currentWidth = 0

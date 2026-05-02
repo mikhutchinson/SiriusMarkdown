@@ -5,6 +5,123 @@
   "expected": {
     "lineCount": 2,
     "naturalWidth": 126.82,
-    "height": 36
+    "height": 36,
+    "segments": [
+      {
+        "text": "🚀",
+        "kind": "text",
+        "width": 10.14,
+        "byteRange": {
+          "lowerBound": 0,
+          "upperBound": 4
+        }
+      },
+      {
+        "text": "🚀",
+        "kind": "text",
+        "width": 10.14,
+        "byteRange": {
+          "lowerBound": 4,
+          "upperBound": 8
+        }
+      },
+      {
+        "text": " ",
+        "kind": "preserved-space",
+        "width": 4.45,
+        "byteRange": {
+          "lowerBound": 8,
+          "upperBound": 9
+        }
+      },
+      {
+        "text": "春",
+        "kind": "text",
+        "width": 10.14,
+        "byteRange": {
+          "lowerBound": 9,
+          "upperBound": 12
+        }
+      },
+      {
+        "text": "天",
+        "kind": "text",
+        "width": 10.14,
+        "byteRange": {
+          "lowerBound": 12,
+          "upperBound": 15
+        }
+      },
+      {
+        "text": " ",
+        "kind": "preserved-space",
+        "width": 4.45,
+        "byteRange": {
+          "lowerBound": 15,
+          "upperBound": 16
+        }
+      },
+      {
+        "text": "emoji",
+        "kind": "text",
+        "width": 38.23,
+        "byteRange": {
+          "lowerBound": 16,
+          "upperBound": 21
+        }
+      },
+      {
+        "text": " ",
+        "kind": "preserved-space",
+        "width": 4.45,
+        "byteRange": {
+          "lowerBound": 21,
+          "upperBound": 22
+        }
+      },
+      {
+        "text": "wrap",
+        "kind": "text",
+        "width": 34.68,
+        "byteRange": {
+          "lowerBound": 22,
+          "upperBound": 26
+        }
+      }
+    ],
+    "lines": [
+      {
+        "text": "🚀🚀 春天 emoji ",
+        "width": 92.14,
+        "byteRange": {
+          "lowerBound": 0,
+          "upperBound": 22
+        },
+        "start": {
+          "segmentIndex": 0,
+          "graphemeIndex": 0
+        },
+        "end": {
+          "segmentIndex": 8,
+          "graphemeIndex": 0
+        }
+      },
+      {
+        "text": "wrap",
+        "width": 34.68,
+        "byteRange": {
+          "lowerBound": 22,
+          "upperBound": 26
+        },
+        "start": {
+          "segmentIndex": 8,
+          "graphemeIndex": 0
+        },
+        "end": {
+          "segmentIndex": 9,
+          "graphemeIndex": 0
+        }
+      }
+    ]
   }
 }

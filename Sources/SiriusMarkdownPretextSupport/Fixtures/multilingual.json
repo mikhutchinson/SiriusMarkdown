@@ -5,6 +5,98 @@
   "expected": {
     "lineCount": 1,
     "naturalWidth": 130.93,
-    "height": 18
+    "height": 18,
+    "segments": [
+      {
+        "text": "Hello",
+        "kind": "text",
+        "width": 36.46,
+        "byteRange": {
+          "lowerBound": 0,
+          "upperBound": 5
+        }
+      },
+      {
+        "text": " ",
+        "kind": "preserved-space",
+        "width": 4.45,
+        "byteRange": {
+          "lowerBound": 5,
+          "upperBound": 6
+        }
+      },
+      {
+        "text": "春",
+        "kind": "text",
+        "width": 10.14,
+        "byteRange": {
+          "lowerBound": 6,
+          "upperBound": 9
+        }
+      },
+      {
+        "text": "天",
+        "kind": "text",
+        "width": 10.14,
+        "byteRange": {
+          "lowerBound": 9,
+          "upperBound": 12
+        }
+      },
+      {
+        "text": " ",
+        "kind": "preserved-space",
+        "width": 4.45,
+        "byteRange": {
+          "lowerBound": 12,
+          "upperBound": 13
+        }
+      },
+      {
+        "text": "مرحبا",
+        "kind": "text",
+        "width": 50.7,
+        "byteRange": {
+          "lowerBound": 13,
+          "upperBound": 23
+        }
+      },
+      {
+        "text": " ",
+        "kind": "preserved-space",
+        "width": 4.45,
+        "byteRange": {
+          "lowerBound": 23,
+          "upperBound": 24
+        }
+      },
+      {
+        "text": "🚀",
+        "kind": "text",
+        "width": 10.14,
+        "byteRange": {
+          "lowerBound": 24,
+          "upperBound": 28
+        }
+      }
+    ],
+    "lines": [
+      {
+        "text": "Hello 春天 مرحبا 🚀",
+        "width": 130.93,
+        "byteRange": {
+          "lowerBound": 0,
+          "upperBound": 28
+        },
+        "start": {
+          "segmentIndex": 0,
+          "graphemeIndex": 0
+        },
+        "end": {
+          "segmentIndex": 8,
+          "graphemeIndex": 0
+        }
+      }
+    ]
   }
 }

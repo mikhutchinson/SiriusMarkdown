@@ -43,6 +43,8 @@ Runtime dependency: [swift-markdown](https://github.com/swiftlang/swift-markdown
 
 The default SwiftUI renderer includes native structured blocks for paragraphs, headings, quotes, lists, task lists, code blocks, math/HTML policy paths, and Markdown tables. Tables are first-class renderer output: cells are prepared from the AST, column widths are derived from prepared inline measurements, wide tables stay horizontally contained, and visual treatment is controlled through `MarkdownTheme` table tokens rather than demo-only styling.
 
+Inline rendering has an explicit boundary. The default visible text path is `MarkdownInlineRenderingMode.systemText`, which renders the prepared attributed payload with SwiftUI `Text(AttributedString)`. The opt-in `MarkdownInlineRenderingMode.preparedNativeLines` mode uses cached prepared layout results to slice that attributed payload into prepared lines, then still renders those lines with SwiftUI `Text(AttributedString)`. It validates the prepare/layout split and avoids doing parse, policy, code/math prep, or inline measurement in SwiftUI body, but it is not a fully custom glyph renderer.
+
 ## Products
 
 - **`SiriusMarkdown`**: umbrella library (`SiriusMarkdownCore` + `SiriusMarkdownSwiftUI`).
@@ -120,7 +122,7 @@ The default test suite covers more than construction smoke tests:
 
 - DocC catalog: `Docs/SiriusMarkdown.docc`
 - Topic notes: `Docs/architecture.md`, `Docs/streaming.md`, `Docs/performance.md`
-- Textual-replacement gate: `Docs/textual-replacement-scorecard.md`
+- Native-renderer product gate: `Docs/native-renderer-scorecard.md`
 
 ## Project tracking
 
@@ -172,7 +174,7 @@ Run the full local release gate with:
 bash Tools/release-check.sh
 ```
 
-Run the product gate before claiming Textual-replacement quality:
+Run the product gate before claiming native-renderer product quality:
 
 ```sh
 bash Tools/product-check.sh

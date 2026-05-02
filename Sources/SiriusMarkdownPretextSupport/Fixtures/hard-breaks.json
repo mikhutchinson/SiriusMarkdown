@@ -5,6 +5,103 @@
   "expected": {
     "lineCount": 3,
     "naturalWidth": 51.59,
-    "height": 54
+    "height": 54,
+    "segments": [
+      {
+        "text": "first",
+        "kind": "text",
+        "width": 25.77,
+        "byteRange": {
+          "lowerBound": 0,
+          "upperBound": 5
+        }
+      },
+      {
+        "text": "\n",
+        "kind": "hard-break",
+        "width": 0,
+        "byteRange": {
+          "lowerBound": 5,
+          "upperBound": 6
+        }
+      },
+      {
+        "text": "second",
+        "kind": "text",
+        "width": 51.59,
+        "byteRange": {
+          "lowerBound": 6,
+          "upperBound": 12
+        }
+      },
+      {
+        "text": "\n",
+        "kind": "hard-break",
+        "width": 0,
+        "byteRange": {
+          "lowerBound": 12,
+          "upperBound": 13
+        }
+      },
+      {
+        "text": "third",
+        "kind": "text",
+        "width": 31.13,
+        "byteRange": {
+          "lowerBound": 13,
+          "upperBound": 18
+        }
+      }
+    ],
+    "lines": [
+      {
+        "text": "first",
+        "width": 25.77,
+        "byteRange": {
+          "lowerBound": 0,
+          "upperBound": 6
+        },
+        "start": {
+          "segmentIndex": 0,
+          "graphemeIndex": 0
+        },
+        "end": {
+          "segmentIndex": 2,
+          "graphemeIndex": 0
+        }
+      },
+      {
+        "text": "second",
+        "width": 51.59,
+        "byteRange": {
+          "lowerBound": 6,
+          "upperBound": 13
+        },
+        "start": {
+          "segmentIndex": 2,
+          "graphemeIndex": 0
+        },
+        "end": {
+          "segmentIndex": 4,
+          "graphemeIndex": 0
+        }
+      },
+      {
+        "text": "third",
+        "width": 31.13,
+        "byteRange": {
+          "lowerBound": 13,
+          "upperBound": 18
+        },
+        "start": {
+          "segmentIndex": 4,
+          "graphemeIndex": 0
+        },
+        "end": {
+          "segmentIndex": 5,
+          "graphemeIndex": 0
+        }
+      }
+    ]
   }
 }

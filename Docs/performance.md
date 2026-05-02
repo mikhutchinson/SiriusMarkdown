@@ -21,6 +21,8 @@ Bounded LRU-style caches (default capacity **256**) cover prepared, measured, la
 
 SwiftUI block views consume **prepared inline content** created by **`MarkdownRendererConfiguration.prepare(snapshot:)`**. The prepared inline payload stores both the attributed text and **`MeasuredInlineContent`** so view-time width changes can compute line breaks from cached segment/unit measurements. Use **`InlineLayoutEngine`** directly when you need deterministic metrics outside the SwiftUI renderer (tests, golden comparison, future layout-driven UI).
 
+Current caveat: prepared inline layout is the cacheable measurement, resize, diagnostics, and metadata layer. The default visible text path still goes through SwiftUI **`Text(AttributedString)`** via **`MarkdownInlineRenderingMode.systemText`**. **`MarkdownInlineRenderingMode.preparedNativeLines`** is opt-in; it consumes **`InlineLayoutResult`** line ranges, slices the prepared attributed inline payload into those lines, and renders each line with SwiftUI **`Text(AttributedString)`**. That is useful for validating prepared wrapping and avoiding the old newline-injection path, but it is not a fully custom glyph renderer and it does not prove every SwiftUI text or selection limitation is gone.
+
 ## Rendering path
 
 - **`MarkdownDocumentView`** / **`StreamingMarkdownView`** should receive **`MarkdownPreparedSnapshot`** values prepared outside SwiftUI body evaluation. Deprecated direct `snapshot:` initializers prepare at the view boundary and are kept only for small compatibility cases.

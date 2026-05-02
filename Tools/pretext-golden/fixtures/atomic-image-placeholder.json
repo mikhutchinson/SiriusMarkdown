@@ -1,10 +1,151 @@
 {
   "name": "atomic-image-placeholder",
-  "markdown": "before [image] after",
-  "containerWidth": 110,
+  "markdown": "before ![image placeholder](diagram.png) after",
+  "oracleText": "before image placeholder after",
+  "containerWidth": 320,
+  "expectedInlineKinds": [
+    "text",
+    "image",
+    "text"
+  ],
+  "expectedPreparedSegments": [
+    {
+      "kind": "text",
+      "text": "before",
+      "byteRange": {
+        "lowerBound": 0,
+        "upperBound": 6
+      },
+      "isHardBreak": false,
+      "isBreakOpportunity": false
+    },
+    {
+      "kind": "text",
+      "text": " ",
+      "byteRange": {
+        "lowerBound": 6,
+        "upperBound": 7
+      },
+      "isHardBreak": false,
+      "isBreakOpportunity": true
+    },
+    {
+      "kind": "image",
+      "text": "image placeholder",
+      "byteRange": {
+        "lowerBound": 7,
+        "upperBound": 24
+      },
+      "isHardBreak": false,
+      "isBreakOpportunity": false
+    },
+    {
+      "kind": "text",
+      "text": " ",
+      "byteRange": {
+        "lowerBound": 24,
+        "upperBound": 25
+      },
+      "isHardBreak": false,
+      "isBreakOpportunity": true
+    },
+    {
+      "kind": "text",
+      "text": "after",
+      "byteRange": {
+        "lowerBound": 25,
+        "upperBound": 30
+      },
+      "isHardBreak": false,
+      "isBreakOpportunity": false
+    }
+  ],
   "expected": {
-    "lineCount": 2,
-    "naturalWidth": 138.76,
-    "height": 36
+    "lineCount": 1,
+    "naturalWidth": 217.05,
+    "height": 18,
+    "segments": [
+      {
+        "text": "before",
+        "kind": "text",
+        "width": 45.37,
+        "byteRange": {
+          "lowerBound": 0,
+          "upperBound": 6
+        }
+      },
+      {
+        "text": " ",
+        "kind": "preserved-space",
+        "width": 4.45,
+        "byteRange": {
+          "lowerBound": 6,
+          "upperBound": 7
+        }
+      },
+      {
+        "text": "image",
+        "kind": "text",
+        "width": 43.58,
+        "byteRange": {
+          "lowerBound": 7,
+          "upperBound": 12
+        }
+      },
+      {
+        "text": " ",
+        "kind": "preserved-space",
+        "width": 4.45,
+        "byteRange": {
+          "lowerBound": 12,
+          "upperBound": 13
+        }
+      },
+      {
+        "text": "placeholder",
+        "kind": "text",
+        "width": 82.73,
+        "byteRange": {
+          "lowerBound": 13,
+          "upperBound": 24
+        }
+      },
+      {
+        "text": " ",
+        "kind": "preserved-space",
+        "width": 4.45,
+        "byteRange": {
+          "lowerBound": 24,
+          "upperBound": 25
+        }
+      },
+      {
+        "text": "after",
+        "kind": "text",
+        "width": 32.02,
+        "byteRange": {
+          "lowerBound": 25,
+          "upperBound": 30
+        }
+      }
+    ],
+    "lines": [
+      {
+        "text": "before image placeholder after",
+        "width": 217.05,
+        "byteRange": {
+          "lowerBound": 0,
+          "upperBound": 30
+        },
+        "start": {
+          "segmentIndex": 0,
+          "graphemeIndex": 0
+        },
+        "end": {
+          "segmentIndex": 7,
+          "graphemeIndex": 0
+        }
+      }
+    ]
   }
 }

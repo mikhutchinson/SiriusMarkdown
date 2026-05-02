@@ -2,18 +2,25 @@ import SiriusMarkdownCore
 import Foundation
 import SwiftUI
 
+public enum MarkdownInlineRenderingMode: Sendable, Hashable {
+    case systemText
+    case preparedNativeLines
+}
+
 public struct InlineRunsView: View {
     private var attributed: AttributedString
     private var prepared: MarkdownPreparedInlineContent?
     private var theme: MarkdownTheme
     private var baseFont: Font
     private var linkAction: MarkdownLinkAction?
+    private var inlineRenderingMode: MarkdownInlineRenderingMode
 
     public init(
         runs: [MarkdownInlineRun],
         theme: MarkdownTheme = .compactChat,
         baseFont: Font? = nil,
         linkAction: MarkdownLinkAction? = nil,
+        inlineRenderingMode: MarkdownInlineRenderingMode = .systemText,
         linkPolicy: any MarkdownLinkPolicy = DefaultMarkdownPolicy(),
         imagePolicy: any MarkdownImagePolicy = DefaultMarkdownPolicy()
     ) {
@@ -26,32 +33,37 @@ public struct InlineRunsView: View {
         self.theme = theme
         self.baseFont = baseFont ?? theme.paragraphFont
         self.linkAction = linkAction
+        self.inlineRenderingMode = inlineRenderingMode
     }
 
     public init(
         attributed: AttributedString,
         theme: MarkdownTheme = .compactChat,
         baseFont: Font? = nil,
-        linkAction: MarkdownLinkAction? = nil
+        linkAction: MarkdownLinkAction? = nil,
+        inlineRenderingMode: MarkdownInlineRenderingMode = .systemText
     ) {
         self.attributed = attributed
         self.prepared = nil
         self.theme = theme
         self.baseFont = baseFont ?? theme.paragraphFont
         self.linkAction = linkAction
+        self.inlineRenderingMode = inlineRenderingMode
     }
 
     public init(
         prepared: MarkdownPreparedInlineContent,
         theme: MarkdownTheme = .compactChat,
         baseFont: Font? = nil,
-        linkAction: MarkdownLinkAction? = nil
+        linkAction: MarkdownLinkAction? = nil,
+        inlineRenderingMode: MarkdownInlineRenderingMode = .systemText
     ) {
         self.attributed = prepared.attributed
         self.prepared = prepared
         self.theme = theme
         self.baseFont = baseFont ?? theme.paragraphFont
         self.linkAction = linkAction
+        self.inlineRenderingMode = inlineRenderingMode
     }
 
     @ViewBuilder
@@ -62,7 +74,8 @@ public struct InlineRunsView: View {
                 fallbackAttributed: attributed,
                 theme: theme,
                 baseFont: baseFont,
-                linkAction: linkAction
+                linkAction: linkAction,
+                inlineRenderingMode: inlineRenderingMode
             )
         } else {
             Text(attributed)
@@ -141,7 +154,13 @@ public struct InlineRunsView: View {
         containerWidth: Double
     ) -> [AttributedString] {
         let layout = lineLayout(for: prepared, containerWidth: containerWidth)
+        return attributedLines(for: prepared, layout: layout)
+    }
 
+    public nonisolated static func attributedLines(
+        for prepared: MarkdownPreparedInlineContent,
+        layout: InlineLayoutResult
+    ) -> [AttributedString] {
         return layout.lines.map {
             attributedSlice(prepared.attributed, text: prepared.prepared.naturalText, byteRange: $0.byteRange)
         }
@@ -256,33 +275,55 @@ private struct PreparedInlineTextView: View {
     var theme: MarkdownTheme
     var baseFont: Font
     var linkAction: MarkdownLinkAction?
+    var inlineRenderingMode: MarkdownInlineRenderingMode
 
     @State private var containerWidth: CGFloat = 0
     @State private var layoutResult = InlineLayoutResult(lines: [], naturalWidth: 0, height: 0)
 
+    @ViewBuilder
     var body: some View {
-        Text(fallbackAttributed)
-        .font(baseFont)
-        .foregroundStyle(theme.textColor)
-        .environment(\.openURL, openURLAction)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .accessibilityValue(layoutResult.lines.isEmpty ? "" : "\(layoutResult.lines.count) prepared lines")
-        .background(
-            GeometryReader { proxy in
-                Color.clear.preference(
-                    key: PreparedInlineWidthPreferenceKey.self,
-                    value: proxy.size.width
-                )
+        renderedText
+            .environment(\.openURL, openURLAction)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityValue(layoutResult.lines.isEmpty ? "" : "\(layoutResult.lines.count) prepared lines")
+            .background(widthReader)
+            .onPreferenceChange(PreparedInlineWidthPreferenceKey.self) { width in
+                if width > 0, abs(width - containerWidth) > 0.5 {
+                    containerWidth = width
+                    layoutResult = InlineRunsView.lineLayout(
+                        for: prepared,
+                        containerWidth: Double(width)
+                    )
+                }
             }
-        )
-        .onPreferenceChange(PreparedInlineWidthPreferenceKey.self) { width in
-            if width > 0, abs(width - containerWidth) > 0.5 {
-                containerWidth = width
-                layoutResult = InlineRunsView.lineLayout(
-                    for: prepared,
-                    containerWidth: Double(width)
-                )
-            }
+    }
+
+    @ViewBuilder
+    private var renderedText: some View {
+        if inlineRenderingMode == .preparedNativeLines,
+           containerWidth > 0,
+           !layoutResult.lines.isEmpty,
+           NativeInlineLineTextView.isSupported {
+            NativeInlineLineTextView(
+                prepared: prepared,
+                layoutResult: layoutResult,
+                fallbackAttributed: fallbackAttributed,
+                baseFont: baseFont,
+                theme: theme
+            )
+        } else {
+            Text(fallbackAttributed)
+                .font(baseFont)
+                .foregroundStyle(theme.textColor)
+        }
+    }
+
+    private var widthReader: some View {
+        GeometryReader { proxy in
+            Color.clear.preference(
+                key: PreparedInlineWidthPreferenceKey.self,
+                value: proxy.size.width
+            )
         }
     }
 

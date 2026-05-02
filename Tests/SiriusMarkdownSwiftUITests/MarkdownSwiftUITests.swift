@@ -236,6 +236,78 @@ func preparedSnapshotCarriesMeasuredInlineLayout() throws {
 }
 
 @Test
+func preparedNativeLinesModePreservesPreparedLineText() throws {
+    var stream = MarkdownStream()
+    stream.append("alpha beta gamma delta epsilon zeta")
+    stream.finish()
+    let snapshot = stream.snapshot()
+    let configuration = MarkdownRendererConfiguration(
+        inlineRenderingMode: .preparedNativeLines
+    )
+
+    let prepared = configuration.prepare(snapshot: snapshot)
+    let block = try #require(snapshot.blocks.first)
+    let inlineLayout = try #require(prepared.preparedContentByBlockID[block.id]?.inlineLayout)
+    let layout = InlineRunsView.lineLayout(for: inlineLayout, containerWidth: 92)
+    let lines = InlineRunsView.attributedLines(for: inlineLayout, layout: layout)
+    let renderedText = lines.map { String($0.characters) }.joined()
+
+    #expect(configuration.inlineRenderingMode == .preparedNativeLines)
+    #expect(lines.count > 1)
+    #expect(renderedText == inlineLayout.prepared.naturalText)
+    #expect(renderedText.contains("alpha beta"))
+}
+
+@Test
+func preparedNativeLinesPreserveInlineAttributesAcrossLineSlices() throws {
+    var stream = MarkdownStream()
+    stream.append("alpha [linked text](https://example.com) and `code value` after")
+    stream.finish()
+    let snapshot = stream.snapshot()
+    let configuration = MarkdownRendererConfiguration(
+        inlineRenderingMode: .preparedNativeLines
+    )
+
+    let prepared = configuration.prepare(snapshot: snapshot)
+    let block = try #require(snapshot.blocks.first)
+    let inlineLayout = try #require(prepared.preparedContentByBlockID[block.id]?.inlineLayout)
+    let layout = InlineRunsView.lineLayout(for: inlineLayout, containerWidth: 112)
+    let lines = InlineRunsView.attributedLines(for: inlineLayout, layout: layout)
+    let renderedText = lines.map { String($0.characters) }.joined()
+
+    #expect(lines.count > 1)
+    #expect(renderedText == inlineLayout.prepared.naturalText)
+    #expect(lines.contains { line in line.runs.contains { $0.link != nil } })
+    #expect(lines.contains { line in line.runs.contains { $0.inlinePresentationIntent?.contains(.code) == true } })
+}
+
+@Test
+func preparedNativeLinesPreserveUTF8BoundariesAcrossLineSlices() throws {
+    var stream = MarkdownStream()
+    stream.append("English 日本語 العربية emoji 😀 code `値` tail")
+    stream.finish()
+    let snapshot = stream.snapshot()
+    let configuration = MarkdownRendererConfiguration(
+        inlineRenderingMode: .preparedNativeLines
+    )
+
+    let prepared = configuration.prepare(snapshot: snapshot)
+    let block = try #require(snapshot.blocks.first)
+    let inlineLayout = try #require(prepared.preparedContentByBlockID[block.id]?.inlineLayout)
+    let layout = InlineRunsView.lineLayout(for: inlineLayout, containerWidth: 96)
+    let lines = InlineRunsView.attributedLines(for: inlineLayout, layout: layout)
+    let renderedText = lines.map { String($0.characters) }.joined()
+
+    #expect(lines.count > 1)
+    #expect(renderedText == inlineLayout.prepared.naturalText)
+    #expect(renderedText.contains("日本語"))
+    #expect(renderedText.contains("العربية"))
+    #expect(renderedText.contains("😀"))
+    #expect(renderedText.contains("値"))
+    #expect(renderedText.contains("�") == false)
+}
+
+@Test
 func preparedInlineRenderingUsesCachedBackendLayout() throws {
     var stream = MarkdownStream()
     stream.append("alpha beta gamma delta epsilon zeta eta theta")

@@ -4,9 +4,9 @@
 
 Build `SiriusMarkdown`: a public Swift Package for native, streaming-first Markdown rendering on Apple platforms.
 
-This project exists because current options fail at least one core requirement:
+This project exists because current renderer approaches fail at least one core requirement:
 
-- “Textual selection overlays could spin the main thread while the transcript was streaming.”
+- “Unbounded selection overlays can spin the main thread while the transcript is streaming.”
 - “A renderer dependency can be too expensive even when parsing is cached.”
 - “Do not assume an opt-in modifier is the only activation point.”
 - “The current native parser should not be the final assistant Markdown renderer.”

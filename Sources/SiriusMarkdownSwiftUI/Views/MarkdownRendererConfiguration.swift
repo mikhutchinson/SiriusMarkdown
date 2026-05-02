@@ -134,6 +134,7 @@ public struct DefaultMarkdownImageResolver: MarkdownImageResolver {
 
 public struct MarkdownRendererConfiguration: Sendable {
     public var theme: MarkdownTheme
+    public var inlineRenderingMode: MarkdownInlineRenderingMode
     public var linkAction: MarkdownLinkAction?
     public var copyProvider: MarkdownCopyProvider?
     public var linkPolicy: any MarkdownLinkPolicy
@@ -146,6 +147,38 @@ public struct MarkdownRendererConfiguration: Sendable {
     public var mathRenderer: any MarkdownMathRenderer
     public var preparationCache: MarkdownRenderPreparationCache
     public var diagnosticsRecorder: MarkdownDiagnosticsRecorder
+
+    public init(
+        theme: MarkdownTheme = .compactChat,
+        inlineRenderingMode: MarkdownInlineRenderingMode = .systemText,
+        linkAction: MarkdownLinkAction? = nil,
+        copyProvider: MarkdownCopyProvider? = nil,
+        linkPolicy: any MarkdownLinkPolicy = DefaultMarkdownPolicy(),
+        imagePolicy: any MarkdownImagePolicy = DefaultMarkdownPolicy(),
+        imageResolver: any MarkdownImageResolver = DefaultMarkdownImageResolver(),
+        htmlPolicy: any MarkdownHTMLPolicy = DefaultMarkdownPolicy(),
+        codePolicy: any MarkdownCodePolicy = DefaultMarkdownPolicy(),
+        mathPolicy: any MarkdownMathPolicy = DefaultMarkdownPolicy(),
+        codeHighlighter: any MarkdownCodeHighlighter = DefaultMarkdownCodeHighlighter(),
+        mathRenderer: any MarkdownMathRenderer = PlainMarkdownMathRenderer(),
+        preparationCache: MarkdownRenderPreparationCache = MarkdownRenderPreparationCache(),
+        diagnosticsRecorder: MarkdownDiagnosticsRecorder = MarkdownDiagnosticsRecorder()
+    ) {
+        self.theme = theme
+        self.inlineRenderingMode = inlineRenderingMode
+        self.linkAction = linkAction
+        self.copyProvider = copyProvider
+        self.linkPolicy = linkPolicy
+        self.imagePolicy = imagePolicy
+        self.imageResolver = imageResolver
+        self.htmlPolicy = htmlPolicy
+        self.codePolicy = codePolicy
+        self.mathPolicy = mathPolicy
+        self.codeHighlighter = codeHighlighter
+        self.mathRenderer = mathRenderer
+        self.preparationCache = preparationCache
+        self.diagnosticsRecorder = diagnosticsRecorder
+    }
 
     public init(
         theme: MarkdownTheme = .compactChat,
@@ -162,19 +195,22 @@ public struct MarkdownRendererConfiguration: Sendable {
         preparationCache: MarkdownRenderPreparationCache = MarkdownRenderPreparationCache(),
         diagnosticsRecorder: MarkdownDiagnosticsRecorder = MarkdownDiagnosticsRecorder()
     ) {
-        self.theme = theme
-        self.linkAction = linkAction
-        self.copyProvider = copyProvider
-        self.linkPolicy = linkPolicy
-        self.imagePolicy = imagePolicy
-        self.imageResolver = imageResolver
-        self.htmlPolicy = htmlPolicy
-        self.codePolicy = codePolicy
-        self.mathPolicy = mathPolicy
-        self.codeHighlighter = codeHighlighter
-        self.mathRenderer = mathRenderer
-        self.preparationCache = preparationCache
-        self.diagnosticsRecorder = diagnosticsRecorder
+        self.init(
+            theme: theme,
+            inlineRenderingMode: .systemText,
+            linkAction: linkAction,
+            copyProvider: copyProvider,
+            linkPolicy: linkPolicy,
+            imagePolicy: imagePolicy,
+            imageResolver: imageResolver,
+            htmlPolicy: htmlPolicy,
+            codePolicy: codePolicy,
+            mathPolicy: mathPolicy,
+            codeHighlighter: codeHighlighter,
+            mathRenderer: mathRenderer,
+            preparationCache: preparationCache,
+            diagnosticsRecorder: diagnosticsRecorder
+        )
     }
 
     public static var compactChat: MarkdownRendererConfiguration {

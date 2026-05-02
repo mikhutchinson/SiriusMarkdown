@@ -5,6 +5,99 @@
   "expected": {
     "lineCount": 5,
     "naturalWidth": 407.3,
-    "height": 90
+    "height": 90,
+    "segments": [
+      {
+        "text": "abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz",
+        "kind": "text",
+        "width": 407.3,
+        "byteRange": {
+          "lowerBound": 0,
+          "upperBound": 52
+        }
+      }
+    ],
+    "lines": [
+      {
+        "text": "abcdefghijklm",
+        "width": 97.83,
+        "byteRange": {
+          "lowerBound": 0,
+          "upperBound": 13
+        },
+        "start": {
+          "segmentIndex": 0,
+          "graphemeIndex": 0
+        },
+        "end": {
+          "segmentIndex": 0,
+          "graphemeIndex": 13
+        }
+      },
+      {
+        "text": "nopqrstuvwxy",
+        "width": 97.83,
+        "byteRange": {
+          "lowerBound": 13,
+          "upperBound": 25
+        },
+        "start": {
+          "segmentIndex": 0,
+          "graphemeIndex": 13
+        },
+        "end": {
+          "segmentIndex": 0,
+          "graphemeIndex": 25
+        }
+      },
+      {
+        "text": "zabcdefghijkl",
+        "width": 92.5,
+        "byteRange": {
+          "lowerBound": 25,
+          "upperBound": 38
+        },
+        "start": {
+          "segmentIndex": 0,
+          "graphemeIndex": 25
+        },
+        "end": {
+          "segmentIndex": 0,
+          "graphemeIndex": 38
+        }
+      },
+      {
+        "text": "mnopqrstuvw",
+        "width": 95.16,
+        "byteRange": {
+          "lowerBound": 38,
+          "upperBound": 49
+        },
+        "start": {
+          "segmentIndex": 0,
+          "graphemeIndex": 38
+        },
+        "end": {
+          "segmentIndex": 0,
+          "graphemeIndex": 49
+        }
+      },
+      {
+        "text": "xyz",
+        "width": 24,
+        "byteRange": {
+          "lowerBound": 49,
+          "upperBound": 52
+        },
+        "start": {
+          "segmentIndex": 0,
+          "graphemeIndex": 49
+        },
+        "end": {
+          "segmentIndex": 1,
+          "graphemeIndex": 0
+        }
+      }
+    ]
   }
 }

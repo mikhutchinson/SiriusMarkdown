@@ -30,6 +30,7 @@ private final class DocumentReaderModel: ObservableObject {
         let copyProvider = MarkdownCopyProvider(markdownSource: DemoDocument.markdown)
         let configuration = MarkdownRendererConfiguration(
             theme: .document,
+            inlineRenderingMode: .preparedNativeLines,
             copyProvider: copyProvider,
             mathRenderer: NativeMarkdownMathRenderer(),
             diagnosticsRecorder: renderRecorder

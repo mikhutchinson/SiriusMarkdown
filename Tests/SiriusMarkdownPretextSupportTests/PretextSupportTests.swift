@@ -8,7 +8,20 @@ func goldenComparatorReportsNoDifferencesInsideTolerance() {
         name: "simple",
         markdown: "Hello",
         containerWidth: 320,
-        expected: PretextExpectedLayout(lineCount: 1, naturalWidth: 42, height: 18)
+        expected: PretextExpectedLayout(
+            lineCount: 1,
+            naturalWidth: 42,
+            height: 18,
+            lines: [
+                PretextExpectedLine(
+                    text: "Hello",
+                    width: 42,
+                    byteRange: PretextByteRange(lowerBound: 0, upperBound: 5),
+                    start: PretextLayoutCursor(segmentIndex: 0, graphemeIndex: 0),
+                    end: PretextLayoutCursor(segmentIndex: 1, graphemeIndex: 0)
+                )
+            ]
+        )
     )
     let actual = InlineLayoutResult(
         lines: [InlineLineRange(byteRange: 0..<5, width: 42)],
@@ -16,7 +29,7 @@ func goldenComparatorReportsNoDifferencesInsideTolerance() {
         height: 18.2
     )
 
-    #expect(PretextGoldenComparator.compare(fixture: fixture, actual: actual, tolerance: 0.5).isEmpty)
+    #expect(PretextGoldenComparator.compare(fixture: fixture, actual: actual, naturalText: "Hello", tolerance: 0.5).isEmpty)
 }
 
 @Test
@@ -26,9 +39,17 @@ func bundledPretextFixturesCompareAgainstSwiftLayout() throws {
 
     var engine = InlineLayoutEngine()
     for fixture in fixtures {
-        let prepared = PreparedInlineContent(
-            runs: [.init(kind: .text, text: fixture.markdown)]
-        )
+        let runs = try parsedInlineRuns(for: fixture)
+        if let expectedInlineKinds = fixture.expectedInlineKinds {
+            #expect(runs.map(\.kind) == expectedInlineKinds, "\(fixture.name) inline kinds must come from swift-markdown")
+        }
+
+        let prepared = PreparedInlineContent(runs: runs)
+        #expect(prepared.naturalText == fixture.oracleText ?? fixture.markdown)
+        if let expectedPreparedSegments = fixture.expectedPreparedSegments {
+            #expect(prepared.segments.map(PretextExpectedPreparedSegment.init) == expectedPreparedSegments)
+        }
+
         let measured = engine.prepareMeasuredContent(prepared, fontSize: 16)
         let result = engine.layout(
             measured,
@@ -41,8 +62,32 @@ func bundledPretextFixturesCompareAgainstSwiftLayout() throws {
         let differences = PretextGoldenComparator.compare(
             fixture: fixture,
             actual: result,
+            naturalText: prepared.naturalText,
             tolerance: 2
         )
         #expect(differences.isEmpty, "Pretext drift for \(fixture.name): \(differences)")
+    }
+}
+
+private func parsedInlineRuns(for fixture: PretextFixture) throws -> [MarkdownInlineRun] {
+    var stream = MarkdownStream()
+    stream.append(fixture.markdown)
+    stream.finish()
+    let block = try #require(stream.snapshot().blocks.first)
+    return block.inlines
+}
+
+private extension PretextExpectedPreparedSegment {
+    init(_ segment: PreparedInlineSegment) {
+        self.init(
+            kind: segment.kind,
+            text: segment.text,
+            byteRange: PretextByteRange(
+                lowerBound: segment.byteRange.lowerBound,
+                upperBound: segment.byteRange.upperBound
+            ),
+            isHardBreak: segment.isHardBreak,
+            isBreakOpportunity: segment.isBreakOpportunity
+        )
     }
 }

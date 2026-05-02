@@ -442,6 +442,7 @@ private struct PreparedMarkdownExample: Identifiable {
         let copyProvider = MarkdownCopyProvider(markdownSource: example.markdown)
         let configuration = MarkdownRendererConfiguration(
             theme: .document,
+            inlineRenderingMode: .preparedNativeLines,
             copyProvider: copyProvider,
             mathRenderer: NativeMarkdownMathRenderer(),
             diagnosticsRecorder: renderRecorder

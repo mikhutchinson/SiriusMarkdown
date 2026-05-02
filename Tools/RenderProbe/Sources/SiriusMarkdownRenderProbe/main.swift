@@ -8,7 +8,9 @@ struct SiriusMarkdownRenderProbe {
     @MainActor
     static func main() {
         let result = renderRepresentativeDocument()
+        let nativeResult = renderRepresentativeNativeDocument()
         let widthResult = renderInlineWidthProbe()
+        let nativeSpacingResult = renderNativeInlineSpacingProbe()
         if result.nonWhitePixels < result.minimumNonWhitePixels {
             fputs(
                 "error: MarkdownDocumentView rendered only \(result.nonWhitePixels) non-white pixels; expected at least \(result.minimumNonWhitePixels)\n",
@@ -25,6 +27,22 @@ struct SiriusMarkdownRenderProbe {
             exit(EXIT_FAILURE)
         }
 
+        if nativeResult.nonWhitePixels < nativeResult.minimumNonWhitePixels {
+            fputs(
+                "error: prepared native MarkdownDocumentView rendered only \(nativeResult.nonWhitePixels) non-white pixels; expected at least \(nativeResult.minimumNonWhitePixels)\n",
+                stderr
+            )
+            exit(EXIT_FAILURE)
+        }
+
+        if nativeResult.distinctColorBuckets < nativeResult.minimumDistinctColorBuckets {
+            fputs(
+                "error: prepared native MarkdownDocumentView rendered only \(nativeResult.distinctColorBuckets) color buckets; expected at least \(nativeResult.minimumDistinctColorBuckets)\n",
+                stderr
+            )
+            exit(EXIT_FAILURE)
+        }
+
         if widthResult.darkRightmostX < widthResult.minimumDarkRightmostX {
             fputs(
                 "error: prepared inline text only reached x=\(widthResult.darkRightmostX); expected at least \(widthResult.minimumDarkRightmostX). This usually means the view measured its wrapped intrinsic width instead of the offered document width.\n",
@@ -33,8 +51,18 @@ struct SiriusMarkdownRenderProbe {
             exit(EXIT_FAILURE)
         }
 
+        if nativeSpacingResult.wideDarkColumnGaps < nativeSpacingResult.minimumWideDarkColumnGaps {
+            fputs(
+                "error: native prepared inline rendering produced only \(nativeSpacingResult.wideDarkColumnGaps) wide word gaps; expected at least \(nativeSpacingResult.minimumWideDarkColumnGaps). This usually means word spacing collapsed while rendering prepared lines.\n",
+                stderr
+            )
+            exit(EXIT_FAILURE)
+        }
+
         print("MarkdownDocumentView render probe: \(result.nonWhitePixels) non-white pixels, \(result.distinctColorBuckets) color buckets")
+        print("Prepared native document render probe: \(nativeResult.nonWhitePixels) non-white pixels, \(nativeResult.distinctColorBuckets) color buckets")
         print("Prepared inline width probe: dark text reached x=\(widthResult.darkRightmostX)")
+        print("Native inline spacing probe: \(nativeSpacingResult.wideDarkColumnGaps) wide word gaps")
     }
 
     @MainActor
@@ -64,6 +92,36 @@ struct SiriusMarkdownRenderProbe {
     }
 
     @MainActor
+    private static func renderRepresentativeNativeDocument() -> RenderResult {
+        renderDocument(
+            markdown:
+                """
+                # Native Render Check
+
+                Paragraph with **strong** text, `code`, and [link](https://example.com).
+
+                > Block quote with stable native layout.
+
+                - [ ] task
+                - [x] done
+
+                | A | B |
+                | - | - |
+                | 1 | 2 |
+
+                ```swift
+                print("native")
+                ```
+                """,
+            configuration: MarkdownRendererConfiguration(
+                theme: .document,
+                inlineRenderingMode: .preparedNativeLines
+            ),
+            outputPath: nil
+        )
+    }
+
+    @MainActor
     private static func renderInlineWidthProbe() -> RenderResult {
         renderDocument(
             markdown:
@@ -77,7 +135,29 @@ struct SiriusMarkdownRenderProbe {
     }
 
     @MainActor
-    private static func renderDocument(markdown: String, outputPath: String?) -> RenderResult {
+    private static func renderNativeInlineSpacingProbe() -> RenderResult {
+        renderDocument(
+            markdown: "MMMM MMMM MMMM MMMM",
+            configuration: MarkdownRendererConfiguration(
+                theme: MarkdownTheme(
+                    blockSpacing: 0,
+                    paragraphFontSize: 32,
+                    paragraphLineHeight: 44
+                ),
+                inlineRenderingMode: .preparedNativeLines
+            ),
+            size: NSSize(width: 640, height: 120),
+            outputPath: nil
+        )
+    }
+
+    @MainActor
+    private static func renderDocument(
+        markdown: String,
+        configuration: MarkdownRendererConfiguration = .document,
+        size: NSSize = NSSize(width: 640, height: 520),
+        outputPath: String?
+    ) -> RenderResult {
         let app = NSApplication.shared
         app.setActivationPolicy(.prohibited)
 
@@ -85,9 +165,7 @@ struct SiriusMarkdownRenderProbe {
         stream.append(markdown)
         stream.finish()
 
-        let configuration = MarkdownRendererConfiguration.document
         let prepared = configuration.prepare(snapshot: stream.snapshot())
-        let size = NSSize(width: 640, height: 520)
         let root = MarkdownDocumentView(preparedSnapshot: prepared, configuration: configuration)
             .frame(width: size.width, height: size.height)
             .background(Color.white)
@@ -124,7 +202,8 @@ struct SiriusMarkdownRenderProbe {
         return RenderResult(
             nonWhitePixels: sample.nonWhitePixels,
             distinctColorBuckets: sample.distinctColorBuckets,
-            darkRightmostX: sample.darkRightmostX
+            darkRightmostX: sample.darkRightmostX,
+            wideDarkColumnGaps: sample.wideDarkColumnGaps
         )
     }
 
@@ -132,6 +211,7 @@ struct SiriusMarkdownRenderProbe {
         var nonWhitePixels = 0
         var colorBuckets = Set<Int>()
         var darkRightmostX = 0
+        var darkColumns = Array(repeating: false, count: bitmap.pixelsWide)
 
         for y in 0..<bitmap.pixelsHigh {
             for x in 0..<bitmap.pixelsWide {
@@ -152,6 +232,7 @@ struct SiriusMarkdownRenderProbe {
 
                     if red < 0.35, green < 0.35, blue < 0.35 {
                         darkRightmostX = max(darkRightmostX, x)
+                        darkColumns[x] = true
                     }
                 }
             }
@@ -160,8 +241,34 @@ struct SiriusMarkdownRenderProbe {
         return PixelSample(
             nonWhitePixels: nonWhitePixels,
             distinctColorBuckets: colorBuckets.count,
-            darkRightmostX: darkRightmostX
+            darkRightmostX: darkRightmostX,
+            wideDarkColumnGaps: wideBlankRunCount(darkColumns, minimumWidth: 12)
         )
+    }
+
+    private static func wideBlankRunCount(_ darkColumns: [Bool], minimumWidth: Int) -> Int {
+        guard let firstDark = darkColumns.firstIndex(of: true),
+              let lastDark = darkColumns.lastIndex(of: true),
+              firstDark < lastDark
+        else {
+            return 0
+        }
+
+        var count = 0
+        var blankRun = 0
+
+        for isDark in darkColumns[firstDark...lastDark] {
+            if isDark {
+                if blankRun >= minimumWidth {
+                    count += 1
+                }
+                blankRun = 0
+            } else {
+                blankRun += 1
+            }
+        }
+
+        return count
     }
 
     private static func writeBitmapIfRequested(_ bitmap: NSBitmapImageRep, outputPath: String?) {
@@ -185,14 +292,17 @@ private struct RenderResult {
     var nonWhitePixels: Int
     var distinctColorBuckets: Int
     var darkRightmostX: Int
+    var wideDarkColumnGaps: Int
 
     let minimumNonWhitePixels = 2_000
     let minimumDistinctColorBuckets = 3
     let minimumDarkRightmostX = 360
+    let minimumWideDarkColumnGaps = 3
 }
 
 private struct PixelSample {
     var nonWhitePixels: Int
     var distinctColorBuckets: Int
     var darkRightmostX: Int
+    var wideDarkColumnGaps: Int
 }

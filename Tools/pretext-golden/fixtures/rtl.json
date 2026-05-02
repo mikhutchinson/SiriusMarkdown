@@ -5,6 +5,105 @@
   "expected": {
     "lineCount": 2,
     "naturalWidth": 195.87,
-    "height": 36
+    "height": 36,
+    "segments": [
+      {
+        "text": "بدأت",
+        "kind": "text",
+        "width": 40.56,
+        "byteRange": {
+          "lowerBound": 0,
+          "upperBound": 8
+        }
+      },
+      {
+        "text": " ",
+        "kind": "preserved-space",
+        "width": 4.45,
+        "byteRange": {
+          "lowerBound": 8,
+          "upperBound": 9
+        }
+      },
+      {
+        "text": "الرحلة",
+        "kind": "text",
+        "width": 60.84,
+        "byteRange": {
+          "lowerBound": 9,
+          "upperBound": 21
+        }
+      },
+      {
+        "text": " ",
+        "kind": "preserved-space",
+        "width": 4.45,
+        "byteRange": {
+          "lowerBound": 21,
+          "upperBound": 22
+        }
+      },
+      {
+        "text": "ثم",
+        "kind": "text",
+        "width": 20.28,
+        "byteRange": {
+          "lowerBound": 22,
+          "upperBound": 26
+        }
+      },
+      {
+        "text": " ",
+        "kind": "preserved-space",
+        "width": 4.45,
+        "byteRange": {
+          "lowerBound": 26,
+          "upperBound": 27
+        }
+      },
+      {
+        "text": "اكتملت",
+        "kind": "text",
+        "width": 60.84,
+        "byteRange": {
+          "lowerBound": 27,
+          "upperBound": 39
+        }
+      }
+    ],
+    "lines": [
+      {
+        "text": "بدأت الرحلة ثم ",
+        "width": 135.03,
+        "byteRange": {
+          "lowerBound": 0,
+          "upperBound": 27
+        },
+        "start": {
+          "segmentIndex": 0,
+          "graphemeIndex": 0
+        },
+        "end": {
+          "segmentIndex": 6,
+          "graphemeIndex": 0
+        }
+      },
+      {
+        "text": "اكتملت",
+        "width": 60.84,
+        "byteRange": {
+          "lowerBound": 27,
+          "upperBound": 39
+        },
+        "start": {
+          "segmentIndex": 6,
+          "graphemeIndex": 0
+        },
+        "end": {
+          "segmentIndex": 7,
+          "graphemeIndex": 0
+        }
+      }
+    ]
   }
 }

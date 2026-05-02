@@ -85,7 +85,8 @@ public struct MarkdownBlockView: View {
                 prepared: inlineLayout,
                 theme: theme,
                 baseFont: baseFont,
-                linkAction: configuration.linkAction
+                linkAction: configuration.linkAction,
+                inlineRenderingMode: configuration.inlineRenderingMode
             )
             .textSelection(.enabled)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -94,7 +95,8 @@ public struct MarkdownBlockView: View {
                 attributed: inline,
                 theme: theme,
                 baseFont: baseFont,
-                linkAction: configuration.linkAction
+                linkAction: configuration.linkAction,
+                inlineRenderingMode: configuration.inlineRenderingMode
             )
             .textSelection(.enabled)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -110,6 +112,7 @@ public struct MarkdownBlockView: View {
                 theme: theme,
                 baseFont: baseFont,
                 linkAction: configuration.linkAction,
+                inlineRenderingMode: configuration.inlineRenderingMode,
                 linkPolicy: configuration.linkPolicy,
                 imagePolicy: configuration.imagePolicy
             )
@@ -267,14 +270,16 @@ public struct MarkdownBlockView: View {
                     prepared: inlineLayout,
                     theme: theme,
                     baseFont: isHeader ? theme.paragraphFont.bold() : theme.paragraphFont,
-                    linkAction: configuration.linkAction
+                    linkAction: configuration.linkAction,
+                    inlineRenderingMode: configuration.inlineRenderingMode
                 )
             } else {
                 InlineRunsView(
                     attributed: cell?.inline ?? AttributedString(""),
                     theme: theme,
                     baseFont: isHeader ? theme.paragraphFont.bold() : theme.paragraphFont,
-                    linkAction: configuration.linkAction
+                    linkAction: configuration.linkAction,
+                    inlineRenderingMode: configuration.inlineRenderingMode
                 )
             }
         }
@@ -550,14 +555,16 @@ private struct MarkdownListItemRow: View {
                 prepared: inlineLayout,
                 theme: theme,
                 baseFont: theme.paragraphFont,
-                linkAction: configuration.linkAction
+                linkAction: configuration.linkAction,
+                inlineRenderingMode: configuration.inlineRenderingMode
             )
         } else {
             InlineRunsView(
                 attributed: item.inline ?? AttributedString(""),
                 theme: theme,
                 baseFont: theme.paragraphFont,
-                linkAction: configuration.linkAction
+                linkAction: configuration.linkAction,
+                inlineRenderingMode: configuration.inlineRenderingMode
             )
         }
     }

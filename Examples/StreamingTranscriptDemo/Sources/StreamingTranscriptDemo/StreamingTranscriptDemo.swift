@@ -40,6 +40,7 @@ private final class StreamingTranscriptModel: ObservableObject {
         let renderRecorder = MarkdownDiagnosticsRecorder()
         let configuration = MarkdownRendererConfiguration(
             theme: .compactChat,
+            inlineRenderingMode: .preparedNativeLines,
             mathRenderer: NativeMarkdownMathRenderer(),
             diagnosticsRecorder: renderRecorder
         )
@@ -121,6 +122,7 @@ private final class StreamingTranscriptModel: ObservableObject {
         let renderRecorder = MarkdownDiagnosticsRecorder()
         let configuration = MarkdownRendererConfiguration(
             theme: .compactChat,
+            inlineRenderingMode: .preparedNativeLines,
             mathRenderer: NativeMarkdownMathRenderer(),
             diagnosticsRecorder: renderRecorder
         )

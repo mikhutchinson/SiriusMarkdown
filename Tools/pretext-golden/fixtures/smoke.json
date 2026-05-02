@@ -5,6 +5,53 @@
   "expected": {
     "lineCount": 1,
     "naturalWidth": 154.72,
-    "height": 18
+    "height": 18,
+    "segments": [
+      {
+        "text": "Hello",
+        "kind": "text",
+        "width": 36.46,
+        "byteRange": {
+          "lowerBound": 0,
+          "upperBound": 5
+        }
+      },
+      {
+        "text": " ",
+        "kind": "preserved-space",
+        "width": 4.45,
+        "byteRange": {
+          "lowerBound": 5,
+          "upperBound": 6
+        }
+      },
+      {
+        "text": "SiriusMarkdown",
+        "kind": "text",
+        "width": 113.81,
+        "byteRange": {
+          "lowerBound": 6,
+          "upperBound": 20
+        }
+      }
+    ],
+    "lines": [
+      {
+        "text": "Hello SiriusMarkdown",
+        "width": 154.72,
+        "byteRange": {
+          "lowerBound": 0,
+          "upperBound": 20
+        },
+        "start": {
+          "segmentIndex": 0,
+          "graphemeIndex": 0
+        },
+        "end": {
+          "segmentIndex": 3,
+          "graphemeIndex": 0
+        }
+      }
+    ]
   }
 }

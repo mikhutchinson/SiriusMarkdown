@@ -71,4 +71,4 @@ If this script fails, treat it as a real release blocker. Do not bypass the Pret
 bash Tools/product-check.sh
 ```
 
-Run this before claiming Textual-replacement quality. It wraps the release gate and adds focused checks for `MarkdownRenderSession`, bounded selection, long-transcript resize behavior, and render-probe output. Textual is the product bar, not a dependency of the gate.
+Run this before claiming native-renderer product quality. It wraps the release gate and adds focused checks for `MarkdownRenderSession`, bounded selection, long-transcript resize behavior, and render-probe output. The gate proves SiriusMarkdown behavior directly; it has no competitor dependency.
