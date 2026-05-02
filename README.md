@@ -55,7 +55,7 @@ Inline rendering has an explicit boundary. The packaged chat and document preset
 
 Production CoreText measurement defaults to system-profile font measurement and caches include the measurement profile. Pretext golden fixtures still pin explicit named font profiles, usually Helvetica, so the oracle stays stable. Hosts that render custom fonts should pass matching `MarkdownInlineFontProfiles` through `MarkdownTheme`.
 
-Heading typography is a first-class theme contract, not a Sirius-specific override. Configure H1 through H6 with `MarkdownTheme.headings`, similar to CSS `h1`...`h6` rules. Each `MarkdownTextStyle` carries both the SwiftUI `Font` used for visible rendering and the CoreText measurement inputs used during prepared inline layout, so custom fonts must provide matching `fontProfiles`.
+Heading typography is a first-class theme contract. Configure H1 through H6 with `MarkdownTheme.headings`, similar to CSS `h1`...`h6` rules. Each `MarkdownTextStyle` carries both the SwiftUI `Font` used for visible rendering and the CoreText measurement inputs used during prepared inline layout, so custom fonts must provide matching `fontProfiles`.
 
 ```swift
 let compactHeading = MarkdownTextStyle(
