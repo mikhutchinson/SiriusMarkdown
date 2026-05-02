@@ -572,6 +572,8 @@ private struct DocumentSection: Identifiable, Hashable {
             return "function"
         case "Long Document":
             return "text.alignleft"
+        case "Big Cached Document":
+            return "externaldrive.badge.checkmark"
         default:
             return "text.justify.leading"
         }
@@ -873,8 +875,116 @@ private struct MarkdownExample: Identifiable, Hashable {
                 "Nested lists render through structured list models.",
                 "Warm cache hits are measured from the shared renderer path."
             ]
+        ),
+        MarkdownExample(
+            id: "big-cached-document",
+            title: "Big Cached Document",
+            summary: "A generated large document prepared cold, warmed, and layout-probed.",
+            detail: "This case stresses a large static document with repeated sections, tables, code, math, multilingual text, and warm-cache evidence from the same public renderer path.",
+            systemImage: "externaldrive.badge.checkmark",
+            badge: "Cache Stress",
+            markdown: MarkdownExample.bigCachedDocumentMarkdown(sectionCount: 96),
+            assertions: [
+                "The document is generated as one large source and prepared through MarkdownRenderPreparationCache.",
+                "A warm pass over the same snapshot records cache hits.",
+                "Repeated layout probes exercise prepared inline layout at multiple widths."
+            ]
         )
     ]
+
+    private static func bigCachedDocumentMarkdown(sectionCount: Int) -> String {
+        var parts: [String] = [
+            """
+            # Big Cached Document
+
+            This generated document exists to make cache behavior visible at product scale. It repeats enough structure to exercise parser identity, prepared inline caching, highlighted code reuse, math rendering, table cell preparation, and width-specific layout caches.
+
+            $$
+            cachedDocument = prepare(snapshot) + warmPrepare(snapshot) + layout(widths)
+            $$
+
+            | Surface | Stress Shape | Expected Behavior |
+            | :--- | :--- | :--- |
+            | Paragraphs | repeated long prose | prepared inline content is reused |
+            | Tables | recurring dense rows | cell layout stays bounded |
+            | Code | repeated fenced blocks | highlighted code cache records reuse |
+            | Math | repeated formula blocks | renderer cache records reuse |
+            """
+        ]
+
+        for index in 1...sectionCount {
+            parts.append(bigCachedSection(index))
+        }
+
+        parts.append(
+            """
+            ## Cache Summary
+
+            A large cached document should not feel like a special mode. It should use the same public configuration, policies, copy provider, theme, prepared snapshot, and native SwiftUI block renderers as every other document in this package.
+            """
+        )
+
+        return parts.joined(separator: "\n\n")
+    }
+
+    private static func bigCachedSection(_ index: Int) -> String {
+        var parts: [String] = [
+            """
+            ## Cached Section \(index)
+
+            Section \(index) repeats a realistic document rhythm: a long paragraph with **strong text**, *emphasis*, `inline code`, a safe [reference link](https://example.com/cache/\(index)), inline math $x_\(index)^2 + y_\(index)$, and mixed-script text with 日本語, العربية, עברית, and emoji 😀. The goal is not novel prose; it is stable renderer pressure across many prepared blocks.
+
+            - [x] Preserve block identity for generated section \(index)
+            - [x] Keep inline preparation outside SwiftUI body
+            - [x] Reuse prepared line layout when width changes
+            - [ ] Add host-specific product affordances outside the package
+            """
+        ]
+
+        if index.isMultiple(of: 4) {
+            parts.append(
+                """
+                | Metric | Section \(index) Value | Renderer Concern |
+                | :--- | :--- | :--- |
+                | Cache namespace | `section-\(index)` | stable keys |
+                | Paragraph width | compact/readable/wide | cheap relayout |
+                | Scripts | 日本語 / العربية / emoji 😀 | measured inline segments |
+                """
+            )
+        }
+
+        if index.isMultiple(of: 6) {
+            parts.append(
+                """
+                ```swift
+                let sectionIndex = \(index)
+                let cacheKey = "section-\\(sectionIndex)-prepared-inline"
+                let widthPasses = [320, 520, 760]
+                ```
+                """
+            )
+        }
+
+        if index.isMultiple(of: 9) {
+            parts.append(
+                """
+                $$
+                layout_\(index)(w) = preparedSegments_\(index) \\rightarrow lines(w)
+                $$
+                """
+            )
+        }
+
+        if index.isMultiple(of: 13) {
+            parts.append(
+                """
+                > Section \(index) also includes a quote so repeated blockquote styling and source-backed copy ranges stay in the stress path.
+                """
+            )
+        }
+
+        return parts.joined(separator: "\n\n")
+    }
 }
 
 private enum DemoColors {

@@ -117,6 +117,19 @@ private final class StreamingTranscriptModel: ObservableObject {
         refreshPreparedSnapshot()
     }
 
+    func appendNextSteps(_ count: Int) {
+        guard !isFinished else {
+            return
+        }
+
+        for _ in 0..<count {
+            guard emittedStepCount < selectedCase.steps.count else {
+                break
+            }
+            appendNextStep()
+        }
+    }
+
     func restart() {
         let streamRecorder = MarkdownDiagnosticsRecorder()
         let renderRecorder = MarkdownDiagnosticsRecorder()
@@ -181,6 +194,13 @@ private struct StreamingTranscriptView: View {
                             Label("Step", systemImage: "forward.end.fill")
                         }
                         .disabled(model.isFinished)
+
+                        Button {
+                            model.appendNextSteps(25)
+                        } label: {
+                            Label("Burst", systemImage: "forward.fill")
+                        }
+                        .disabled(model.isFinished)
                     }
                 }
         }
@@ -232,6 +252,13 @@ private struct StreamingSidebar: View {
                     model.appendNextStep()
                 } label: {
                     Label("Append Next Chunk", systemImage: "forward.end.fill")
+                }
+                .disabled(model.isFinished)
+
+                Button {
+                    model.appendNextSteps(25)
+                } label: {
+                    Label("Append 25 Chunks", systemImage: "forward.fill")
                 }
                 .disabled(model.isFinished)
             }
@@ -758,8 +785,85 @@ private struct StreamingCase: Identifiable, Hashable {
                 .append("| Resize path | cheap layout over prepared segments without parsing or highlighting |\n"),
                 .finish
             ]
+        ),
+        StreamingCase(
+            id: "very-long-document",
+            title: "Very Long Document Stream",
+            summary: "A generated multi-section document streams in many chunks.",
+            detail: "This case appends a long document as repeated sections with tables, code, math, multilingual text, and host checkpoints. Use Burst to drive the stream hard without waiting for the timer.",
+            systemImage: "text.line.first.and.arrowtriangle.forward",
+            steps: StreamingCase.veryLongDocumentSteps(sectionCount: 120)
         )
     ]
+
+    private static func veryLongDocumentSteps(sectionCount: Int) -> [StreamingStep] {
+        var steps: [StreamingStep] = [
+            .append("# Very Long Streaming Document\n\n"),
+            .append("This generated stream is intentionally long. It repeatedly seals Markdown regions, keeps one mutable tail active, and forces prepared snapshots to grow while counters remain visible.\n\n"),
+            .append("$$\nstreamedDocument = sealedRegions + mutableTail\n$$\n\n")
+        ]
+
+        for index in 1...sectionCount {
+            steps.append(.append(veryLongSection(index)))
+            if index.isMultiple(of: 30) {
+                steps.append(.hostBoundary("stream-checkpoint-\(index)"))
+            }
+        }
+
+        steps.append(.finish)
+        return steps
+    }
+
+    private static func veryLongSection(_ index: Int) -> String {
+        var parts: [String] = [
+            """
+            ## Streamed Section \(index)
+
+            Section \(index) is a document-like chunk with **strong text**, *emphasis*, `inline code`, inline math $x_\(index)^2 + y_\(index)$, and mixed-script text: 日本語, 한국어, العربية, עברית, and emoji 😀😎. It should append cleanly, preserve stable block IDs after sealing, and render through prepared native lines.
+
+            - [x] Append generated section \(index)
+            - [x] Keep sealed regions immutable
+            - [x] Reuse prepared renderer caches on refresh
+
+            """
+        ]
+
+        if index.isMultiple(of: 5) {
+            parts.append(
+                """
+                | Section | Content | Renderer Stress |
+                | :--- | :--- | :--- |
+                | \(index) | table cells with long prose | prepared table layout |
+                | \(index) | RTL العربية داخل الجدول | CoreText measurement |
+                | \(index) | emoji 😀😎🚀 | cached segment widths |
+                """
+            )
+        }
+
+        if index.isMultiple(of: 8) {
+            parts.append(
+                """
+                ```swift
+                let streamedSection = \(index)
+                stream.append(sectionMarkdown)
+                let snapshot = stream.snapshot()
+                ```
+                """
+            )
+        }
+
+        if index.isMultiple(of: 11) {
+            parts.append(
+                """
+                $$
+                tail_\(index) \\rightarrow sealWhenSafe + prepare(snapshot_\(index))
+                $$
+                """
+            )
+        }
+
+        return parts.joined(separator: "\n\n") + "\n\n"
+    }
 }
 
 private enum StreamingStep: Hashable {

@@ -330,6 +330,8 @@ private struct DocumentSection: Identifiable, Hashable {
             return "tablecells"
         case "Formula Notes":
             return "function"
+        case "Cached Stress Appendix":
+            return "externaldrive.badge.checkmark"
         default:
             return "text.justify.leading"
         }
@@ -486,7 +488,12 @@ private enum DemoColors {
 }
 
 private enum DemoDocument {
-    static let markdown = """
+    static let markdown = [
+        baseMarkdown,
+        cachedStressAppendix(sectionCount: 48)
+    ].joined(separator: "\n\n")
+
+    private static let baseMarkdown = """
     ## Overview
 
     This field guide is written as a compact technical brief with a table of contents, reading-width controls, source-copy behavior, inline math like $x^2 \\rightarrow y_1 + \\alpha$, and rich content that belongs in a native reader.
@@ -563,4 +570,76 @@ private enum DemoDocument {
 
     <aside>Raw HTML remains inert in the default public-reader policy.</aside>
     """
+
+    private static func cachedStressAppendix(sectionCount: Int) -> String {
+        var sections: [String] = [
+            """
+            ## Cached Stress Appendix
+
+            This generated appendix makes the reader demo open with a large prepared document rather than a short hand-authored sample. It keeps the product surface calm while source bytes, headings, tables, code, and prepared inline segments scale up.
+            """
+        ]
+
+        for index in 1...sectionCount {
+            sections.append(stressSection(index))
+        }
+
+        sections.append(
+            """
+            ## Appendix Close
+
+            The reader should still scroll smoothly, preserve source-backed copy, and relayout the same prepared document when the measure changes.
+            """
+        )
+
+        return sections.joined(separator: "\n\n")
+    }
+
+    private static func stressSection(_ index: Int) -> String {
+        var parts: [String] = [
+            """
+            ### Stress Section \(index)
+
+            Reader section \(index) repeats realistic long-form content with **strong emphasis**, `inline code`, safe [reference links](https://example.com/reader/\(index)), inline math $reader_\(index) + width$, and mixed scripts: 日本語, 한국어, العربية داخل الفقرة, עברית, and emoji 😀. Changing the segmented measure should relayout prepared content without rebuilding the document model.
+
+            - keep outline navigation responsive for section \(index)
+            - keep block copy source-backed
+            - keep table/code overflow contained
+            """
+        ]
+
+        if index.isMultiple(of: 6) {
+            parts.append(
+                """
+                | Reader Stress | Section \(index) | Expected Behavior |
+                | :--- | :--- | :--- |
+                | Width | compact/readable/wide | prepared relayout |
+                | Cache | repeated source shape | stable prepared content |
+                | Text | CJK, RTL, emoji | no parser churn |
+                """
+            )
+        }
+
+        if index.isMultiple(of: 10) {
+            parts.append(
+                """
+                ```json
+                {"readerSection":\(index),"surface":"DocumentReaderDemo","stress":"cached-large-document"}
+                ```
+                """
+            )
+        }
+
+        if index.isMultiple(of: 12) {
+            parts.append(
+                """
+                $$
+                readerMeasure_\(index) = preparedDocument + selectedWidth
+                $$
+                """
+            )
+        }
+
+        return parts.joined(separator: "\n\n")
+    }
 }
