@@ -1,6 +1,6 @@
 # Runbook
 
-This runbook is the local release authority for `SiriusMarkdown`. For the first public release, use `v0.1.0` as the tag and do not publish unless every release blocker below is clear.
+This runbook is the local release authority for `SiriusMarkdown`. For the current public package release, use `v0.2.0` as the tag and do not publish unless every release blocker below is clear.
 
 ## Build
 
@@ -39,6 +39,7 @@ Layout and renderer acceptance for the current slice:
 - SwiftUI `body` must not parse Markdown, syntax highlight, or run custom per-inline measurement/wrapping. `InlineRunsView` should consume prepared inline content with measured segments instead of installing a custom SwiftUI `Layout`.
 - Use `MarkdownRenderSession` or `MarkdownRendererConfiguration.prepare(snapshot:)` in model/controller code and pass `MarkdownPreparedSnapshot` into `MarkdownDocumentView` or `StreamingMarkdownView`. Deprecated direct `snapshot:` view initializers are compatibility shims, not the streaming/document path.
 - Renderer configuration must be protocol-driven for link, image, HTML, code, math, code highlighting, and math rendering hooks.
+- Default code highlighting must stay language-aware, pluggable, and conservative: explicit supported languages may be highlighted; plaintext, nohighlight, unlabeled, and unsupported fences should render plainly.
 - Inline math detection must remain source-preserving and must not rewrite code spans, fenced code, or Markdown source before `swift-markdown` parsing.
 - Image handling must produce prepared decisions and placeholders by default; no network image fetch is allowed without an explicit host resolver.
 - Selection/copy must stay block/range bounded and source-backed. Do not add per-fragment overlays for links, images, or selection.
@@ -65,7 +66,7 @@ Third-party credits for Pretext, the Node canvas shim, and `swift-markdown` are 
 bash Tools/release-check.sh
 ```
 
-The script first runs `Tools/RenderProbe`, which renders representative document, compact-chat, multilingual, inline-attribute, overflow, hard-break, and long-word cases through AppKit and rejects blank/trivial/collapsed/clipped output. It then runs Swift tests, test count, root build, macOS demo app bundling (`Examples/scripts/bundle-macos-demos.sh`), Pretext install/test, symbol graph generation, and warning-clean DocC conversion. Before cutting a release, update `changelog.md` and confirm `bugfix.md` records any defects found during the slice.
+The script first runs `Tools/RenderProbe`, which renders representative document, compact-chat, multilingual, inline-attribute, overflow, hard-break, long-word, and code-highlighting cases through AppKit and rejects blank/trivial/collapsed/clipped/misleading output. It then runs Swift tests, test count, root build, macOS demo app bundling (`Examples/scripts/bundle-macos-demos.sh`), Pretext install/test, symbol graph generation, and warning-clean DocC conversion. Before cutting a release, update `changelog.md` and confirm `bugfix.md` records any defects found during the slice.
 If this script fails, treat it as a real release blocker. Do not bypass the Pretext fixture comparison or the AppKit render probe to make a release check look green.
 
 ## Product Checks
@@ -76,9 +77,9 @@ bash Tools/product-check.sh
 
 Run this before claiming native-renderer product quality. It wraps the release gate and adds focused checks for `MarkdownRenderSession`, bounded selection, long-transcript resize behavior, and render-probe output. The gate proves SiriusMarkdown behavior directly; it has no competitor dependency.
 
-## First Public Release Checklist
+## Public Release Checklist
 
-Use this checklist for `v0.1.0`.
+Use this checklist for `v0.2.0`.
 
 1. Confirm public hygiene:
 
@@ -113,18 +114,18 @@ Use this checklist for `v0.1.0`.
 
    ```sh
    git add README.md runbook.md NOTICE.md changelog.md bugfix.md Docs Sources Tests Examples Tools Package.swift Package.resolved
-   git commit -m "Prepare SiriusMarkdown v0.1.0 release"
+   git commit -m "Prepare SiriusMarkdown v0.2.0 release"
    ```
 
 6. Tag and push:
 
    ```sh
-   git tag -a v0.1.0 -m "SiriusMarkdown v0.1.0"
+   git tag -a v0.2.0 -m "SiriusMarkdown v0.2.0"
    git push origin HEAD
-   git push origin v0.1.0
+   git push origin v0.2.0
    ```
 
-7. After pushing, create the public release notes from `changelog.md`. The release notes must keep the claim precise: native SwiftUI block rendering, prepared-line inline rendering, streaming snapshots, safe policies, Pretext-backed layout gate, and demo/product probes. Do not claim a custom glyph renderer.
+7. After pushing, create the public release notes from `changelog.md`. The release notes must keep the claim precise: native SwiftUI block rendering, prepared-line inline rendering, streaming snapshots, safe policies, language-aware default code highlighting, Pretext-backed layout gate, and demo/product probes. Do not claim a custom glyph renderer.
 
 ## Release Blockers
 

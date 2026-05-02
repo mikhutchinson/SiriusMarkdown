@@ -13,6 +13,7 @@ struct SiriusMarkdownRenderProbe {
         let multilingualResult = renderMultilingualNativeDocument()
         let attributeResult = renderInlineAttributeCrossingProbe()
         let overflowResult = renderOverflowContainmentProbe()
+        let codeHighlightResult = renderCodeHighlightingProbe()
         let breakResult = renderBreakAndLongWordProbe()
         let widthResult = renderInlineWidthProbe()
         let nativeSpacingResult = renderNativeInlineSpacingProbe()
@@ -23,6 +24,12 @@ struct SiriusMarkdownRenderProbe {
         assertRenderable("multilingual prepared native document", multilingualResult, minimumNonWhitePixels: 1_200)
         assertRenderable("inline attribute crossing prepared native document", attributeResult)
         assertRenderable("code and table overflow prepared native document", overflowResult)
+        assertRenderable(
+            "code highlighting prepared native document",
+            codeHighlightResult,
+            minimumNonWhitePixels: 9_000,
+            minimumDistinctColorBuckets: 12
+        )
         assertRenderable("hard-break and long-word prepared native document", breakResult, minimumNonWhitePixels: 1_200)
         assertRenderable("prepared native containment document", containmentResult, minimumNonWhitePixels: 1_400)
 
@@ -72,6 +79,7 @@ struct SiriusMarkdownRenderProbe {
         print("Multilingual render probe: \(multilingualResult.nonWhitePixels) non-white pixels, \(multilingualResult.distinctColorBuckets) color buckets")
         print("Inline attribute crossing probe: \(attributeResult.nonWhitePixels) non-white pixels, \(attributeResult.distinctColorBuckets) color buckets")
         print("Overflow containment probe: \(overflowResult.nonWhitePixels) non-white pixels, \(overflowResult.distinctColorBuckets) color buckets")
+        print("Code highlighting probe: \(codeHighlightResult.nonWhitePixels) non-white pixels, \(codeHighlightResult.distinctColorBuckets) color buckets")
         print("Break and long-word probe: \(breakResult.nonWhitePixels) non-white pixels, \(breakResult.distinctColorBuckets) color buckets")
         print("Prepared inline width probe: dark text reached x=\(widthResult.darkRightmostX)")
         print("Native inline spacing probe: \(nativeSpacingResult.wideDarkColumnGaps) wide word gaps")
@@ -217,6 +225,60 @@ struct SiriusMarkdownRenderProbe {
             configuration: .document,
             size: NSSize(width: 560, height: 300),
             outputPath: nil
+        )
+    }
+
+    @MainActor
+    private static func renderCodeHighlightingProbe() -> RenderResult {
+        renderDocument(
+            markdown:
+                """
+                # Code Highlighting
+
+                ```swift
+                struct Message {
+                    let id: UUID
+                    let body: String
+                }
+                ```
+
+                ```json
+                { "role": "assistant", "tokens": 128, "ok": true }
+                ```
+
+                ```bash
+                set -euo pipefail
+                swift test --filter Product
+                ```
+
+                ```yaml
+                renderer:
+                  code:
+                    languageAware: true
+                    autodetect: false
+                ```
+
+                ```diff
+                - lexical fallback colored every number
+                + language grammar colors meaningful tokens
+                ```
+
+                ```markdown
+                ## Heading
+                Paragraph with **strong** text and `inline code`.
+                ```
+
+                ```plaintext
+                2026-05-02 12:00:00 memory trace 7a0f-3b2d "not semantic code"
+                ```
+
+                ```memory-diagnostics
+                2026-05-02T12:00:00Z object=7a0f-3b2d quoted="plain diagnostic text"
+                ```
+                """,
+            configuration: .document,
+            size: NSSize(width: 760, height: 980),
+            outputPath: ProcessInfo.processInfo.environment["SIRIUS_MARKDOWN_CODE_HIGHLIGHT_PROBE_OUTPUT"]
         )
     }
 

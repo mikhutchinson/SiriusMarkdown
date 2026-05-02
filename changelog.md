@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- No unreleased changes.
+
+## v0.2.0 - 2026-05-02
+
+- Replaced the default generic lexical code tokenizer with `DefaultMarkdownCodeHighlighter`, a language-aware highlighter backed by a pinned embedded `highlight.js` 11.11.1 common bundle through a synchronous JavaScriptCore wrapper on supported Apple platforms.
+- Added `MarkdownCodeLanguage`, `MarkdownCodeHighlighterCacheIdentifying`, and `MarkdownSyntaxHighlightingPalette` so fence info strings are normalized, highlighter cache identities are stable, and syntax token colors belong to the theme.
+- Updated code-block preparation to cache highlighted output by source hash, normalized language, theme palette identity, and highlighter identity while keeping all highlighting in render preparation.
+- Made the default highlighter conservative: explicit supported languages are highlighted, while unsupported, plaintext, nohighlight, and unlabeled fences render as plain monospaced code instead of misleading lexical color.
+- Added tests and product fixtures for alias normalization, supported-language semantic attributes, unsupported/plain fallback behavior, cache invalidation, width relayout reuse, and Swift/JSON/shell/YAML/diff/Markdown/plaintext/unsupported fences.
+- Expanded the render probe and product gate with a code-highlighting document that verifies language-aware color variation and plain rendering for diagnostic/non-code fences.
+
+## v0.1.1 and earlier
+
 - Created the SiriusMarkdown package scaffold as a public MIT Swift package.
 - Added the verbatim renderer plan at `plan.md` for implementation tracking.
 - Added `AGENTS.md` as repo-local agent guidance so future work treats `plan.md` as binding project architecture.

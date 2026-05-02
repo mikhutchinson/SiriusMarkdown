@@ -99,6 +99,55 @@ func ProductDefaultCodeHighlighterAddsThemeAwareAttributes() {
 }
 
 @Test
+func ProductDefaultCodeHighlighterUsesLanguageAwareFixtures() {
+    let fixtures: [(language: String, code: String)] = [
+        ("swift", "struct Example { let value = 42 }\n"),
+        ("json", "{ \"name\": \"sirius\", \"count\": 2 }\n"),
+        ("bash", "if [ -f Package.swift ]; then swift test; fi\n"),
+        ("yaml", "name: SiriusMarkdown\nplatforms:\n  - macOS\n"),
+        ("diff", "-old\n+new\n"),
+        ("markdown", "# Title\n\n`code`\n")
+    ]
+
+    for fixture in fixtures {
+        let highlighted = DefaultMarkdownCodeHighlighter().highlightedCode(
+            fixture.code,
+            infoString: fixture.language
+        )
+
+        #expect(String(highlighted.characters) == fixture.code)
+        #expect(highlighted.runs.contains { $0.foregroundColor != nil })
+    }
+}
+
+@Test
+func ProductDefaultCodeHighlighterKeepsUnknownAndPlainFencesPlain() {
+    let diagnosticFence = """
+    id: 019de2e4-0571-7bf3-94f0-3cd35b8fa0d3
+    timestamp: 2026-05-02T10:15:00Z
+    message: "not source code"
+    """
+
+    let unknown = DefaultMarkdownCodeHighlighter().highlightedCode(
+        diagnosticFence,
+        infoString: "memory-diagnostic"
+    )
+    let plaintext = DefaultMarkdownCodeHighlighter().highlightedCode(
+        "let fake = \"text\"\n",
+        infoString: "plaintext"
+    )
+    let unlabeled = DefaultMarkdownCodeHighlighter().highlightedCode(
+        "let fake = \"text\"\n",
+        infoString: nil
+    )
+
+    #expect(String(unknown.characters) == diagnosticFence)
+    #expect(unknown.runs.contains { $0.foregroundColor != nil } == false)
+    #expect(plaintext.runs.contains { $0.foregroundColor != nil } == false)
+    #expect(unlabeled.runs.contains { $0.foregroundColor != nil } == false)
+}
+
+@Test
 func ProductPreparedImageDecisionsKeepRemoteLoadingOptIn() throws {
     var stream = MarkdownStream()
     stream.append("Remote ![diagram](https://example.com/diagram.png)")

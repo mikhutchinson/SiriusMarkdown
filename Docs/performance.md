@@ -1,6 +1,6 @@
 # Performance
 
-The **v0.1 contract** (see `plan.md` and `AGENTS.md`) is architectural: SwiftUI **`body`** must not parse Markdown, run syntax highlighting over raw source, rebuild the full document model, or drive wrapping via heavy per-fragment **`sizeThatFits`** over raw markdown strings. Width-driven work should stay on the **cheap layout** side of the prepare/layout split.
+The renderer contract (see `plan.md` and `AGENTS.md`) is architectural: SwiftUI **`body`** must not parse Markdown, run syntax highlighting over raw source, rebuild the full document model, or drive wrapping via heavy per-fragment **`sizeThatFits`** over raw markdown strings. Width-driven work should stay on the **cheap layout** side of the prepare/layout split.
 
 ## Streaming and parsing
 
@@ -26,12 +26,13 @@ Prepared inline layout is the cacheable measurement, resize, diagnostics, and me
 ## Rendering path
 
 - **`MarkdownDocumentView`** / **`StreamingMarkdownView`** should receive **`MarkdownPreparedSnapshot`** values prepared outside SwiftUI body evaluation. Deprecated direct `snapshot:` initializers prepare at the view boundary and are kept only for small compatibility cases.
-- **`MarkdownRendererConfiguration.prepare(snapshot:)`** returns **`MarkdownPreparedSnapshot`**, preparing inline attributed payloads, measured inline content, link/image policy decisions, code highlighting, math rendering, and HTML policy decisions before block bodies consume them. `MarkdownRenderPreparationCache` bounds inline/code/math reuse by source range, content hash, and preparation namespace.
+- **`MarkdownRendererConfiguration.prepare(snapshot:)`** returns **`MarkdownPreparedSnapshot`**, preparing inline attributed payloads, measured inline content, link/image policy decisions, code highlighting, math rendering, and HTML policy decisions before block bodies consume them. `MarkdownRenderPreparationCache` bounds inline/code/math reuse by source range, content hash, normalized code language, highlighter identity, theme palette identity, and preparation namespace.
 - **`MarkdownBlockView`** consumes **`MarkdownPreparedBlockContent`** for paragraphs, headings, lists, tables, code, math, and HTML, and exposes copy/context hooks through **`MarkdownCopyProvider`**.
 
 The suite includes headless renderer-performance contract tests:
 
 - repeated preparation of the same snapshot must keep `prepareCount`, `codeHighlightCount`, and `mathRenderCount` stable while cache hits increase;
+- language-aware code highlighting must run only for uncached explicit supported-language fences; plaintext, nohighlight, unlabeled, and unsupported default fences stay plain and do not increment highlight work counters;
 - large streaming transcript preparation must create unique prepared item IDs for every block and keep an active tail prepared without forcing a full finish;
 - renderer preparation must not eagerly generate per-character unit measurements for every segment;
 - explicit overwide fallback layout can use prepared unit measurements, while SwiftUI view-time line breaking refuses measurement fallback and uses already prepared segment widths only.
@@ -40,7 +41,7 @@ Strict Pretext fixture drift is a release blocker. The Swift fixture comparison 
 
 ## Accelerate and Metal
 
-**CoreText** owns glyph measurement for **`CoreTextInlineMeasurer`**. **Accelerate** / **vDSP** are reserved for proven layout math wins; **Metal** is not part of v0.1 text layout (future visualization or specialized canvases only).
+**CoreText** owns glyph measurement for **`CoreTextInlineMeasurer`**. **Accelerate** / **vDSP** are reserved for proven layout math wins; **Metal** is not part of the current text layout path (future visualization or specialized canvases only).
 
 ## Diagnostics
 

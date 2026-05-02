@@ -45,54 +45,17 @@ public protocol MarkdownImageResolver: Sendable {
     ) -> MarkdownPreparedImage
 }
 
-public struct PlainMarkdownCodeHighlighter: MarkdownCodeHighlighter {
+public struct PlainMarkdownCodeHighlighter: MarkdownCodeHighlighter, MarkdownCodeHighlighterCacheIdentifying {
     public init() {}
+
+    public var codeHighlighterCacheIdentity: String {
+        "siriusmarkdown.plain-code"
+    }
 
     public func highlightedCode(_ code: String, infoString _: String?) -> AttributedString {
         var highlighted = AttributedString(code)
         highlighted.inlinePresentationIntent = .code
         return highlighted
-    }
-}
-
-public struct DefaultMarkdownCodeHighlighter: MarkdownCodeHighlighter {
-    public init() {}
-
-    public func highlightedCode(_ code: String, infoString: String?) -> AttributedString {
-        let language = infoString?.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
-        var result = AttributedString()
-
-        for token in CodeToken.tokenize(code) {
-            var piece = AttributedString(token.text)
-            piece.inlinePresentationIntent = .code
-            if let color = color(for: token, language: language) {
-                piece.foregroundColor = color
-            }
-            result.append(piece)
-        }
-
-        return result
-    }
-
-    private func color(for token: CodeToken, language: String?) -> Color? {
-        guard token.kind != .plain else {
-            return nil
-        }
-
-        switch token.kind {
-        case .keyword:
-            return .purple
-        case .string:
-            return .green
-        case .number:
-            return .orange
-        case .comment:
-            return .secondary
-        case .property:
-            return language == "json" ? .blue : nil
-        case .plain:
-            return nil
-        }
     }
 }
 
@@ -229,16 +192,28 @@ public struct MarkdownRendererConfiguration: Sendable {
             let code = Self.codeText(for: block)
             switch codePolicy.evaluateCodeBlock(infoString: block.infoString, code: code) {
             case .allow:
-                let key = Self.cacheKey(for: block, namespace: "highlighted-code:\(block.infoString ?? "")")
+                let language = MarkdownCodeLanguage(infoString: block.infoString)
+                let key = Self.codeCacheKey(
+                    for: block,
+                    code: code,
+                    language: language,
+                    palette: theme.syntaxHighlightingPalette,
+                    highlighterIdentity: codeHighlighterCacheIdentity
+                )
                 if let cached = preparationCache.code(forKey: key) {
                     diagnosticsRecorder.recordCacheHit()
                     return MarkdownPreparedBlockContent(blockID: block.id, code: cached)
                 }
 
                 diagnosticsRecorder.recordCacheMiss()
-                diagnosticsRecorder.recordCodeHighlight()
-                let highlighted = MarkdownDiagnostics().signpost("CodeHighlight", category: "RenderPreparation") {
-                    codeHighlighter.highlightedCode(code, infoString: block.infoString)
+                let highlighted: AttributedString
+                if shouldRecordCodeHighlight(language: language) {
+                    diagnosticsRecorder.recordCodeHighlight()
+                    highlighted = MarkdownDiagnostics().signpost("CodeHighlight", category: "RenderPreparation") {
+                        highlightedCode(code, infoString: block.infoString, language: language)
+                    }
+                } else {
+                    highlighted = highlightedCode(code, infoString: block.infoString, language: language)
                 }
                 preparationCache.insertCode(highlighted, forKey: key)
                 return MarkdownPreparedBlockContent(
@@ -355,6 +330,69 @@ public struct MarkdownRendererConfiguration: Sendable {
             contentHash: block.contentHash == 0 ? stableHash(block.text) : block.contentHash,
             namespace: namespace
         )
+    }
+
+    private nonisolated static func codeCacheKey(
+        for block: MarkdownBlock,
+        code: String,
+        language: MarkdownCodeLanguage,
+        palette: MarkdownSyntaxHighlightingPalette,
+        highlighterIdentity: String
+    ) -> MarkdownCacheKey {
+        MarkdownCacheKey(
+            sourceRange: block.sourceRange,
+            contentHash: stableHash(code),
+            namespace: [
+                "highlighted-code:v2",
+                "language=\(language.cacheIdentity)",
+                "palette=\(palette.cacheIdentity)",
+                "highlighter=\(highlighterIdentity)"
+            ].joined(separator: ":")
+        )
+    }
+
+    private var codeHighlighterCacheIdentity: String {
+        if let identifying = codeHighlighter as? any MarkdownCodeHighlighterCacheIdentifying {
+            return identifying.codeHighlighterCacheIdentity
+        }
+
+        return String(reflecting: type(of: codeHighlighter))
+    }
+
+    private func shouldRecordCodeHighlight(language: MarkdownCodeLanguage) -> Bool {
+        if codeHighlighter is PlainMarkdownCodeHighlighter {
+            return false
+        }
+
+        if codeHighlighter is DefaultMarkdownCodeHighlighter {
+            return language.shouldHighlight
+        }
+
+        return true
+    }
+
+    private func highlightedCode(
+        _ code: String,
+        infoString: String?,
+        language: MarkdownCodeLanguage
+    ) -> AttributedString {
+        if codeHighlighter is PlainMarkdownCodeHighlighter {
+            return DefaultMarkdownCodeHighlighter.plainCode(code)
+        }
+
+        if let defaultHighlighter = codeHighlighter as? DefaultMarkdownCodeHighlighter {
+            guard language.shouldHighlight else {
+                return DefaultMarkdownCodeHighlighter.plainCode(code)
+            }
+
+            return defaultHighlighter.highlightedCode(
+                code,
+                infoString: infoString,
+                palette: theme.syntaxHighlightingPalette
+            )
+        }
+
+        return codeHighlighter.highlightedCode(code, infoString: infoString)
     }
 
     private func preparedInline(
@@ -904,116 +942,5 @@ public struct MarkdownBlockRenderPlan: Sendable, Equatable {
         self.mathAllowed = mathAllowed
         self.htmlAllowed = htmlAllowed
         self.policyDenialReason = policyDenialReason
-    }
-}
-
-private struct CodeToken: Sendable, Hashable {
-    enum Kind: Sendable, Hashable {
-        case plain
-        case keyword
-        case string
-        case number
-        case comment
-        case property
-    }
-
-    var text: String
-    var kind: Kind
-
-    static func tokenize(_ code: String) -> [CodeToken] {
-        guard !code.isEmpty else {
-            return []
-        }
-
-        var tokens: [CodeToken] = []
-        var cursor = code.startIndex
-
-        while cursor < code.endIndex {
-            let character = code[cursor]
-
-            if character == "\"" {
-                let start = cursor
-                cursor = code.index(after: cursor)
-                var escaped = false
-                while cursor < code.endIndex {
-                    let next = code[cursor]
-                    cursor = code.index(after: cursor)
-                    if escaped {
-                        escaped = false
-                    } else if next == "\\" {
-                        escaped = true
-                    } else if next == "\"" {
-                        break
-                    }
-                }
-                let text = String(code[start..<cursor])
-                let lookahead = code[cursor...].drop { $0.isWhitespace }
-                tokens.append(CodeToken(text: text, kind: lookahead.first == ":" ? .property : .string))
-                continue
-            }
-
-            if character == "/" {
-                let next = code.index(after: cursor)
-                if next < code.endIndex, code[next] == "/" {
-                    let start = cursor
-                    cursor = code[next...].firstIndex(of: "\n") ?? code.endIndex
-                    tokens.append(CodeToken(text: String(code[start..<cursor]), kind: .comment))
-                    continue
-                }
-            }
-
-            if character == "#" {
-                let start = cursor
-                cursor = code[cursor...].firstIndex(of: "\n") ?? code.endIndex
-                tokens.append(CodeToken(text: String(code[start..<cursor]), kind: .comment))
-                continue
-            }
-
-            if character.isNumber {
-                let start = cursor
-                repeat {
-                    cursor = code.index(after: cursor)
-                } while cursor < code.endIndex && (code[cursor].isNumber || code[cursor] == ".")
-                tokens.append(CodeToken(text: String(code[start..<cursor]), kind: .number))
-                continue
-            }
-
-            if character.isLetter || character == "_" {
-                let start = cursor
-                repeat {
-                    cursor = code.index(after: cursor)
-                } while cursor < code.endIndex && (code[cursor].isLetter || code[cursor].isNumber || code[cursor] == "_")
-
-                let text = String(code[start..<cursor])
-                tokens.append(CodeToken(text: text, kind: keywords.contains(text) ? .keyword : .plain))
-                continue
-            }
-
-            let start = cursor
-            cursor = code.index(after: cursor)
-            tokens.append(CodeToken(text: String(code[start..<cursor]), kind: .plain))
-        }
-
-        return mergeAdjacentPlainTokens(tokens)
-    }
-
-    private static let keywords: Set<String> = [
-        "actor", "await", "case", "catch", "class", "const", "do", "done", "else",
-        "enum", "export", "false", "fi", "for", "func", "function", "guard", "if",
-        "import", "in", "let", "nil", "null", "private", "public", "return", "set",
-        "static", "struct", "switch", "then", "throw", "throws", "true", "try",
-        "var", "while"
-    ]
-
-    private static func mergeAdjacentPlainTokens(_ tokens: [CodeToken]) -> [CodeToken] {
-        var merged: [CodeToken] = []
-        for token in tokens {
-            if token.kind == .plain, merged.last?.kind == .plain {
-                merged[merged.count - 1].text.append(token.text)
-            } else {
-                merged.append(token)
-            }
-        }
-        return merged
     }
 }

@@ -53,7 +53,10 @@ let package = Package(
         ),
         .target(
             name: "SiriusMarkdownSwiftUI",
-            dependencies: ["SiriusMarkdownCore"]
+            dependencies: ["SiriusMarkdownCore"],
+            resources: [
+                .process("Resources")
+            ]
         ),
         .target(
             name: "SiriusMarkdownPretextSupport",

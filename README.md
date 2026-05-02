@@ -10,9 +10,9 @@ The package is built around three principles:
 
 ## Status
 
-This checkout is a `v0.1.0` first-release candidate for public package use. The release gate is strict Swift-vs-Pretext layout comparison, required Pretext product fixture groups, and AppKit render probes for document, compact chat, multilingual, inline-attribute, overflow, hard-break, long-word, and finite-column containment rendering. Fixture drift, missing groups, duplicate fixture names/groups, and trivial render output are release blockers.
+This checkout is a `v0.2.0` public package release candidate. The release gate is strict Swift-vs-Pretext layout comparison, required Pretext product fixture groups, and AppKit render probes for document, compact chat, multilingual, inline-attribute, overflow, hard-break, long-word, finite-column containment, and language-aware code highlighting output. Fixture drift, missing groups, duplicate fixture names/groups, and trivial render output are release blockers.
 
-The `v0.1.0` product claim is native SwiftUI Markdown rendering with prepared-line layout, streaming snapshots, bounded caches, safe default policies, and public chat/document presets. It is not a custom glyph renderer: `preparedNativeLines` slices prepared attributed line ranges and renders them with SwiftUI `Text(AttributedString)`.
+The `v0.2.0` product claim is native SwiftUI Markdown rendering with prepared-line layout, streaming snapshots, bounded caches, safe default policies, language-aware default code highlighting, and public chat/document presets. It is not a custom glyph renderer: `preparedNativeLines` slices prepared attributed line ranges and renders them with SwiftUI `Text(AttributedString)`.
 
 ## Requirements
 
@@ -25,7 +25,7 @@ In `Package.swift` (adjust the package URL to the published repository):
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/mikhutchinson/SiriusMarkdown.git", from: "0.1.0")
+    .package(url: "https://github.com/mikhutchinson/SiriusMarkdown.git", from: "0.2.0")
 ],
 targets: [
     .target(
@@ -41,7 +41,7 @@ targets: [
 
 Runtime dependency: [swift-markdown](https://github.com/swiftlang/swift-markdown) (Markdown semantics). Third-party credits, including the Pretext golden oracle used by `Tools/pretext-golden`, are listed in `NOTICE.md`.
 
-For local development before the first public tag, use a path dependency instead:
+For local development from a sibling checkout, use a path dependency instead:
 
 ```swift
 .package(path: "../SiriusMarkdown")
@@ -54,6 +54,8 @@ The default SwiftUI renderer includes native structured blocks for paragraphs, h
 Inline rendering has an explicit boundary. The packaged chat and document presets, `MarkdownRendererConfiguration.compactChat` and `.document`, use `MarkdownInlineRenderingMode.preparedNativeLines`: cached prepared layout results slice the attributed payload into proposal-contained prepared lines before SwiftUI renders them with `Text(AttributedString)`. Direct custom `MarkdownRendererConfiguration(...)` construction keeps `MarkdownInlineRenderingMode.systemText` as a compatibility fallback. Neither path parses, prepares policy/code/math work, or measures inline content in SwiftUI body.
 
 Production CoreText measurement defaults to system-profile font measurement and caches include the measurement profile. Pretext golden fixtures still pin explicit named font profiles, usually Helvetica, so the oracle stays stable. Hosts that render custom fonts should pass matching `MarkdownInlineFontProfiles` through `MarkdownTheme`.
+
+Code highlighting remains pluggable through `MarkdownCodeHighlighter`, but the shipped default is now language-aware on Apple platforms with JavaScriptCore. `DefaultMarkdownCodeHighlighter` normalizes fence info strings and aliases, highlights explicit supported languages through a pinned embedded `highlight.js` common build, and renders plaintext, nohighlight, unlabeled, or unsupported fences plainly. Hosts that want no highlighting can still inject `PlainMarkdownCodeHighlighter`.
 
 ## Products
 
@@ -117,7 +119,7 @@ The release and product gates cover more than construction smoke tests:
 - streamed parse output matches whole-document parse output across chunk sizes;
 - block identity survives active-tail appends and tail-to-sealed transitions;
 - conservative sealing avoids open fences, math, HTML, and loose-list ambiguity;
-- SwiftUI renderer inputs are prepared outside block bodies, including inline layout, code highlighting, math rendering, and policy decisions;
+- SwiftUI renderer inputs are prepared outside block bodies, including inline layout, language-aware code highlighting, math rendering, and policy decisions;
 - `MarkdownRenderSession` keeps streaming, copy, cache, and prepared-snapshot state out of SwiftUI view bodies;
 - inline math is detected source-preservingly while code spans and fences remain excluded;
 - image runs produce prepared placeholder/resolution decisions, with no remote image loading by default;
@@ -125,7 +127,7 @@ The release and product gates cover more than construction smoke tests:
 - renderer preparation does not eagerly populate per-character fallback measurements;
 - repeated preparation reuses inline/code/math caches and records diagnostics;
 - large transcripts keep stable prepared item IDs for 10,000 sealed blocks plus one active tail;
-- `Tools/RenderProbe` renders document, compact-chat, multilingual, inline-attribute, overflow, hard-break, and long-word cases through AppKit and rejects blank, trivial, collapsed-spacing, or clipped-wide output;
+- `Tools/RenderProbe` renders document, compact-chat, multilingual, inline-attribute, overflow, hard-break, long-word, and code-highlighting cases through AppKit and rejects blank, trivial, collapsed-spacing, clipped-wide, or misleading plain-fence output;
 - strict Pretext golden fixtures compare Swift layout metrics against the JavaScript oracle with no known-drift whitelist, no duplicate fixture names/groups, and all required product groups present.
 
 Before a public tag, run:
@@ -199,14 +201,14 @@ Run the product gate before claiming native-renderer product quality:
 bash Tools/product-check.sh
 ```
 
-## First Release
+## Release
 
-`v0.1.0` is ready to publish only when:
+`v0.2.0` is ready to publish only when:
 
 - `README.md`, `NOTICE.md`, `changelog.md`, and `runbook.md` describe the current public package surface;
 - `bash Tools/product-check.sh` passes from the repository root;
 - `git diff --check` reports no whitespace errors;
 - `git remote -v` points at the intended public repository;
-- the release commit is tagged as `v0.1.0` and pushed with tags.
+- the release commit is tagged as `v0.2.0` and pushed with tags.
 
 Recommended release commands are documented in `runbook.md`.

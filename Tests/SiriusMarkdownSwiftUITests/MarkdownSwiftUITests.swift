@@ -458,6 +458,117 @@ func rendererPreparationCacheSeparatesIncompatibleFontProfiles() throws {
 }
 
 @Test
+func codeLanguageNormalizesFenceInfoStringsAndAliases() {
+    let cases: [(String?, String?, MarkdownCodeLanguage.Classification)] = [
+        ("swift", "swift", .supported),
+        ("language-swift", "swift", .supported),
+        ("py", "python", .supported),
+        ("python", "python", .supported),
+        ("js", "javascript", .supported),
+        ("javascript", "javascript", .supported),
+        ("ts", "typescript", .supported),
+        ("typescript", "typescript", .supported),
+        ("sh", "bash", .supported),
+        ("bash", "bash", .supported),
+        ("zsh", "bash", .supported),
+        ("yaml", "yaml", .supported),
+        ("yml", "yaml", .supported),
+        ("md", "markdown", .supported),
+        ("markdown", "markdown", .supported),
+        ("objc", "objectivec", .supported),
+        ("objective-c", "objectivec", .supported),
+        ("cpp", "cpp", .supported),
+        ("c++", "cpp", .supported),
+        ("text", nil, .plaintext),
+        ("plaintext", nil, .plaintext),
+        ("nohighlight", nil, .plaintext),
+        ("mermaid", nil, .unsupported),
+        (nil, nil, .unspecified)
+    ]
+
+    for testCase in cases {
+        let language = MarkdownCodeLanguage(infoString: testCase.0)
+
+        #expect(language.backendName == testCase.1)
+        #expect(language.classification == testCase.2)
+    }
+}
+
+@Test
+func codeHighlightCacheKeysIncludeLanguagePaletteAndHighlighterIdentity() throws {
+    let swiftBlock = try firstBlock("```swift\nlet x = 1\n```")
+    let pythonBlock = try firstBlock("```python\nlet x = 1\n```")
+    let cache = MarkdownRenderPreparationCache()
+    let recorder = MarkdownDiagnosticsRecorder()
+    let highlighter = IdentityCodeHighlighter(identity: "one")
+    let baseConfiguration = MarkdownRendererConfiguration(
+        codeHighlighter: highlighter,
+        preparationCache: cache,
+        diagnosticsRecorder: recorder
+    )
+
+    _ = baseConfiguration.prepare(block: swiftBlock)
+    let afterFirst = recorder.snapshot()
+    _ = baseConfiguration.prepare(block: swiftBlock)
+    let afterCached = recorder.snapshot()
+    _ = baseConfiguration.prepare(block: pythonBlock)
+    let afterLanguageChange = recorder.snapshot()
+
+    let changedPaletteTheme = MarkdownTheme(
+        syntaxHighlightingPalette: MarkdownSyntaxHighlightingPalette(keyword: .red)
+    )
+    let changedPaletteConfiguration = MarkdownRendererConfiguration(
+        theme: changedPaletteTheme,
+        codeHighlighter: highlighter,
+        preparationCache: cache,
+        diagnosticsRecorder: recorder
+    )
+    _ = changedPaletteConfiguration.prepare(block: swiftBlock)
+    let afterPaletteChange = recorder.snapshot()
+
+    let changedIdentityHighlighter = IdentityCodeHighlighter(identity: "two")
+    let changedIdentityConfiguration = MarkdownRendererConfiguration(
+        codeHighlighter: changedIdentityHighlighter,
+        preparationCache: cache,
+        diagnosticsRecorder: recorder
+    )
+    _ = changedIdentityConfiguration.prepare(block: swiftBlock)
+    let afterIdentityChange = recorder.snapshot()
+
+    #expect(afterFirst.codeHighlightCount == 1)
+    #expect(afterCached.codeHighlightCount == afterFirst.codeHighlightCount)
+    #expect(afterCached.cacheHitCount == afterFirst.cacheHitCount + 1)
+    #expect(afterLanguageChange.codeHighlightCount == afterFirst.codeHighlightCount + 1)
+    #expect(afterPaletteChange.codeHighlightCount == afterLanguageChange.codeHighlightCount + 1)
+    #expect(afterIdentityChange.codeHighlightCount == afterPaletteChange.codeHighlightCount + 1)
+    #expect(highlighter.count == 3)
+    #expect(changedIdentityHighlighter.count == 1)
+}
+
+@Test
+func defaultPlainAndUnsupportedFencesDoNotRecordHighlightWork() throws {
+    let supportedBlock = try firstBlock("```swift\nlet x = 1\n```")
+    let plaintextBlock = try firstBlock("```plaintext\n2026-05-02 12:00:00 \"plain\"\n```")
+    let unsupportedBlock = try firstBlock("```memory-diagnostics\nid=7a0f value=\"plain\"\n```")
+    let recorder = MarkdownDiagnosticsRecorder()
+    let configuration = MarkdownRendererConfiguration(diagnosticsRecorder: recorder)
+
+    _ = configuration.prepare(block: plaintextBlock)
+    let afterPlaintext = recorder.snapshot()
+    _ = configuration.prepare(block: unsupportedBlock)
+    let afterUnsupported = recorder.snapshot()
+    _ = configuration.prepare(block: supportedBlock)
+    let afterSupported = recorder.snapshot()
+    _ = configuration.prepare(block: supportedBlock)
+    let afterCachedSupported = recorder.snapshot()
+
+    #expect(afterPlaintext.codeHighlightCount == 0)
+    #expect(afterUnsupported.codeHighlightCount == 0)
+    #expect(afterSupported.codeHighlightCount == 1)
+    #expect(afterCachedSupported.codeHighlightCount == afterSupported.codeHighlightCount)
+}
+
+@Test
 func preparedNativeLineLayoutUsesOverwideFallbackForLongPlainWords() throws {
     var stream = MarkdownStream()
     stream.append("abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz")
@@ -767,6 +878,29 @@ private struct InlineFixtureMathRenderer: MarkdownMathRenderer {
 private final class CountingCodeHighlighter: MarkdownCodeHighlighter, @unchecked Sendable {
     private let lock = NSLock()
     private var callCount = 0
+
+    func highlightedCode(_ code: String, infoString: String?) -> AttributedString {
+        lock.withLock {
+            callCount += 1
+        }
+        return AttributedString(code)
+    }
+
+    var count: Int {
+        lock.withLock {
+            callCount
+        }
+    }
+}
+
+private final class IdentityCodeHighlighter: MarkdownCodeHighlighter, MarkdownCodeHighlighterCacheIdentifying, @unchecked Sendable {
+    private let lock = NSLock()
+    private var callCount = 0
+    let codeHighlighterCacheIdentity: String
+
+    init(identity: String) {
+        self.codeHighlighterCacheIdentity = identity
+    }
 
     func highlightedCode(_ code: String, infoString: String?) -> AttributedString {
         lock.withLock {

@@ -800,12 +800,12 @@ private struct MarkdownExample: Identifiable, Hashable {
             | :--- | :--- |
             | Math block | rendered by configured math renderer |
             | Raw HTML | denied or inert unless policy allows it |
-            | Code | plain safe text unless highlighter is supplied |
+            | Code | explicit supported fences use the language-aware default; unknown and plaintext fences stay plain |
             """,
             assertions: [
                 "Math rendering is pluggable.",
                 "Raw HTML stays controlled by MarkdownHTMLPolicy.",
-                "Code highlighting remains optional."
+                "Code highlighting remains pluggable, and plain rendering is still available through PlainMarkdownCodeHighlighter."
             ]
         ),
         MarkdownExample(

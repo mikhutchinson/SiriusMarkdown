@@ -19,6 +19,7 @@ Sources/SiriusMarkdownCore/
 Sources/SiriusMarkdownSwiftUI/
   Views/MarkdownDocumentView.swift       — MarkdownDocumentView, StreamingMarkdownView
   Views/MarkdownRendererConfiguration.swift — theme, policies, highlighter/math hooks
+  Views/MarkdownCodeHighlighting.swift — language normalization, default Highlight.js backend
   Blocks/MarkdownBlockView.swift
   Inline/InlineRunsView.swift, InlineRunView.swift
   Theme/MarkdownTheme.swift
@@ -48,7 +49,9 @@ Products (see `Package.swift`): **`SiriusMarkdown`** (app-facing umbrella module
 ### SwiftUI
 
 - **`MarkdownDocumentView`** (default theme `.document`) and **`StreamingMarkdownView`** (default `.compactChat`) should be driven with precomputed `MarkdownPreparedSnapshot` values. Direct `snapshot:` initializers remain as deprecated compatibility shims only; long or streaming content should prepare in the host model layer.
-- **`MarkdownRendererConfiguration`** wires `MarkdownTheme`, policies, optional `MarkdownLinkAction`, `MarkdownCopyProvider`, `MarkdownCodeHighlighter`, and `MarkdownMathRenderer` (`PlainMarkdownCodeHighlighter` / `PlainMarkdownMathRenderer` ship as defaults). Its `prepare(block:)` / `prepare(snapshot:)` methods move inline attributed text, measured inline content, link/image policy decisions, code highlighting, math rendering, and HTML policy decisions out of block `body` evaluation, with `MarkdownRenderPreparationCache` bounding inline/highlighted-code/rendered-math reuse.
+- **`MarkdownRendererConfiguration`** wires `MarkdownTheme`, policies, optional `MarkdownLinkAction`, `MarkdownCopyProvider`, `MarkdownCodeHighlighter`, and `MarkdownMathRenderer` (`DefaultMarkdownCodeHighlighter` and `PlainMarkdownMathRenderer` ship as defaults; `PlainMarkdownCodeHighlighter` remains available for opt-out). Its `prepare(block:)` / `prepare(snapshot:)` methods move inline attributed text, measured inline content, link/image policy decisions, code highlighting, math rendering, and HTML policy decisions out of block `body` evaluation, with `MarkdownRenderPreparationCache` bounding inline/highlighted-code/rendered-math reuse.
+- **`MarkdownCodeLanguage`** normalizes fence info strings and aliases before highlighting. The default highlighter only highlights explicit supported languages through the embedded Highlight.js backend and renders plaintext, nohighlight, unlabeled, unsupported, or backend-failed fences plainly.
+- **`MarkdownTheme`** owns `MarkdownSyntaxHighlightingPalette`, so default token colors are theme-owned and included in highlighted-code cache identity instead of being hidden inside SwiftUI body work.
 - **`MarkdownBlockView`** branches on `MarkdownBlockKind` for structured blocks and consumes `MarkdownPreparedBlockContent` for inline text, lists, nested lists, tables, code, math, and HTML. List and table rendering uses prepared source-range IDs rather than array offsets. Tables use prepared cell inline layouts and measured natural widths to choose bounded adaptive columns in SwiftUI; the view layer does not reparse table Markdown or measure raw source.
 - **`MarkdownTheme`** owns renderer-level table presentation tokens (`tableBackground`, header/alternate-row backgrounds, border/accent colors, corner radius, and cell padding). This keeps table styling part of the public renderer surface instead of a demo-only skin.
 
