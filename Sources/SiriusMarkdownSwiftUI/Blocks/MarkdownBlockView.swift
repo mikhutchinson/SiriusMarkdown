@@ -483,16 +483,7 @@ public struct MarkdownBlockView: View {
     }
 
     private var headingFont: Font {
-        switch block.headingLevel ?? 3 {
-        case 1:
-            return .largeTitle.bold()
-        case 2:
-            return .title.bold()
-        case 3:
-            return theme.headingFont
-        default:
-            return .headline
-        }
+        theme.headingStyle(for: block.headingLevel).font
     }
 }
 

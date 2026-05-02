@@ -2,7 +2,11 @@
 
 ## Unreleased
 
-- No unreleased changes.
+- Semver: target `v0.3.0`, not `v0.2.1`, because this adds public renderer theme API (`MarkdownTextStyle`, `MarkdownHeadingStyles`, `MarkdownTheme.headings`) and deprecates the old singular H3-only compatibility fields.
+- Added first-class H1-H6 heading typography to `MarkdownTheme` so visual SwiftUI fonts and CoreText measurement inputs resolve from the same `MarkdownTextStyle` source for every Markdown heading level.
+- Replaced hardcoded H1/H2/H4-H6 visual fonts and prepared-line metrics with per-level `MarkdownHeadingStyles` lookup, keeping prepared-inline cache identity tied to resolved `fontSize`, `lineHeight`, and `fontProfiles`.
+- Kept `headingFont`, `headingFontSize`, `headingLineHeight`, and `headingFontProfiles` as deprecated H3 compatibility aliases while documenting `MarkdownTheme.headings` as the general-purpose API.
+- Added H1-H6 renderer-preparation contract tests, hardcoded-metric regression tests, heading cache-separation coverage, and a uniform compact-heading consumer-style test.
 
 ## v0.2.0 - 2026-05-02
 

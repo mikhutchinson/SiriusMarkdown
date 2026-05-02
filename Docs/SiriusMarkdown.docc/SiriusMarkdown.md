@@ -33,6 +33,30 @@ The default `MarkdownCodeHighlighter` normalizes info strings such as `language-
 
 Markdown tables are rendered as native SwiftUI structure, not as raw pipe text. Prepared table cells keep stable source-range identities and measured inline layout, while **`MarkdownTheme`** exposes table background, header, alternate-row, border, accent, corner-radius, and padding tokens so host apps can make tables visually distinct without replacing the parser or renderer.
 
+Heading typography is configured through **`MarkdownTheme.headings`** for H1 through H6, similar to CSS `h1`...`h6` styling. Each **`MarkdownTextStyle`** carries the SwiftUI **`Font`** used for visible rendering plus the `fontSize`, `lineHeight`, and **`MarkdownInlineFontProfiles`** used by CoreText measurement during render preparation. Do not rely on SiriusMarkdown to infer measurement profiles from arbitrary SwiftUI fonts; pass matching profiles when using custom fonts.
+
+```swift
+let compactHeading = MarkdownTextStyle(
+    font: .system(size: 12, weight: .semibold),
+    fontSize: 12,
+    lineHeight: 16,
+    fontProfiles: MarkdownInlineFontProfiles(uniform: .system(weight: .semibold))
+)
+
+let compactTheme = MarkdownTheme(headings: .uniform(compactHeading))
+
+let documentTheme = MarkdownTheme(
+    headings: MarkdownHeadingStyles(
+        h1: MarkdownTextStyle(font: .system(size: 34, weight: .bold), fontSize: 34, lineHeight: 42, fontProfiles: .headingDefault),
+        h2: MarkdownTextStyle(font: .system(size: 28, weight: .bold), fontSize: 28, lineHeight: 36, fontProfiles: .headingDefault),
+        h3: MarkdownTextStyle(font: .system(size: 22, weight: .bold), fontSize: 22, lineHeight: 30, fontProfiles: .headingDefault),
+        h4: MarkdownTextStyle(font: .system(size: 18, weight: .bold), fontSize: 18, lineHeight: 24, fontProfiles: .headingDefault),
+        h5: MarkdownTextStyle(font: .system(size: 16, weight: .bold), fontSize: 16, lineHeight: 22, fontProfiles: .headingDefault),
+        h6: MarkdownTextStyle(font: .system(size: 14, weight: .bold), fontSize: 14, lineHeight: 20, fontProfiles: .headingDefault)
+    )
+)
+```
+
 ```swift
 @MainActor
 final class TranscriptModel: ObservableObject {

@@ -458,6 +458,131 @@ func rendererPreparationCacheSeparatesIncompatibleFontProfiles() throws {
 }
 
 @Test
+func headingStylesResolveEveryHeadingLevelThroughTheme() throws {
+    let styles = testHeadingStyles()
+    let configuration = MarkdownRendererConfiguration(theme: MarkdownTheme(headings: styles))
+
+    for level in 1...6 {
+        let block = try firstBlock("\(String(repeating: "#", count: level)) Heading \(level)")
+        let inlineLayout = try #require(configuration.prepare(block: block).inlineLayout)
+        let expected = styles.style(for: level)
+
+        #expect(inlineLayout.fontSize == expected.fontSize)
+        #expect(inlineLayout.lineHeight == expected.lineHeight)
+        #expect(inlineLayout.fontProfiles == expected.fontProfiles)
+        #expect(inlineLayout.measured.fontSize == expected.fontSize)
+        #expect(InlineRunsView.lineLayout(for: inlineLayout, containerWidth: 320).height == expected.lineHeight)
+    }
+}
+
+@Test
+func customHeadingStylesReplaceHardcodedDefaultMetrics() throws {
+    let styles = testHeadingStyles()
+    let configuration = MarkdownRendererConfiguration(theme: MarkdownTheme(headings: styles))
+    let hardcodedDefaults = [
+        1: 34.0,
+        2: 28.0,
+        4: 18.0,
+        5: 16.0,
+        6: 14.0
+    ]
+
+    for level in [1, 2, 4, 5, 6] {
+        let block = try firstBlock("\(String(repeating: "#", count: level)) Custom")
+        let inlineLayout = try #require(configuration.prepare(block: block).inlineLayout)
+
+        #expect(inlineLayout.fontSize == styles.style(for: level).fontSize)
+        #expect(inlineLayout.lineHeight == styles.style(for: level).lineHeight)
+        #expect(inlineLayout.fontSize != hardcodedDefaults[level])
+    }
+}
+
+@Test
+func headingStyleCacheSeparatesIncompatibleLevelMetricsAndProfiles() {
+    let range = MarkdownSourceRange(byteRange: 0..<7, lineRange: 1..<2)
+    let runs = [MarkdownInlineRun(kind: .text, text: "Title", sourceRange: range)]
+    let h1 = MarkdownBlock(
+        id: MarkdownBlockID("same-source-h1"),
+        kind: .heading,
+        sourceRange: range,
+        text: "Title",
+        inlines: runs,
+        headingLevel: 1,
+        isSealed: true
+    )
+    let h2 = MarkdownBlock(
+        id: MarkdownBlockID("same-source-h2"),
+        kind: .heading,
+        sourceRange: range,
+        text: "Title",
+        inlines: runs,
+        headingLevel: 2,
+        isSealed: true
+    )
+    let cache = MarkdownRenderPreparationCache()
+    let recorder = MarkdownDiagnosticsRecorder()
+    let configuration = MarkdownRendererConfiguration(
+        theme: MarkdownTheme(headings: testHeadingStyles()),
+        preparationCache: cache,
+        diagnosticsRecorder: recorder
+    )
+
+    _ = configuration.prepare(block: h1)
+    let afterH1 = recorder.snapshot()
+    _ = configuration.prepare(block: h1)
+    let afterH1Repeat = recorder.snapshot()
+    _ = configuration.prepare(block: h2)
+    let afterH2 = recorder.snapshot()
+
+    #expect(afterH1.prepareCount == 1)
+    #expect(afterH1Repeat.prepareCount == afterH1.prepareCount)
+    #expect(afterH1Repeat.cacheHitCount == afterH1.cacheHitCount + 1)
+    #expect(afterH2.prepareCount == afterH1.prepareCount + 1)
+}
+
+@Test
+func uniformHeadingStylesSupportCompactConsumerThemes() throws {
+    let compactHeading = MarkdownTextStyle(
+        font: .system(size: 12, weight: .semibold),
+        fontSize: 12,
+        lineHeight: 16,
+        fontProfiles: MarkdownInlineFontProfiles(uniform: .system(weight: .semibold))
+    )
+    let configuration = MarkdownRendererConfiguration(
+        theme: MarkdownTheme(headings: .uniform(compactHeading))
+    )
+
+    for level in 1...6 {
+        let block = try firstBlock("\(String(repeating: "#", count: level)) Compact")
+        let inlineLayout = try #require(configuration.prepare(block: block).inlineLayout)
+
+        #expect(inlineLayout.fontSize == compactHeading.fontSize)
+        #expect(inlineLayout.lineHeight == compactHeading.lineHeight)
+        #expect(inlineLayout.fontProfiles == compactHeading.fontProfiles)
+    }
+}
+
+@Test
+func headingStyleFallbacksUseH3ForMissingOrInvalidLevels() {
+    let styles = testHeadingStyles()
+    var mutable = styles
+    let replacement = MarkdownTextStyle(
+        font: .system(size: 31, weight: .bold),
+        fontSize: 31,
+        lineHeight: 39,
+        fontProfiles: MarkdownInlineFontProfiles(uniform: .named("Courier"))
+    )
+
+    mutable[0] = replacement
+
+    #expect(styles.style(for: nil).fontSize == styles.h3.fontSize)
+    #expect(styles.style(for: 0).fontSize == styles.h3.fontSize)
+    #expect(styles.style(for: 7).fontSize == styles.h3.fontSize)
+    #expect(mutable.h3.fontSize == replacement.fontSize)
+    #expect(mutable.style(for: 99).fontProfiles == replacement.fontProfiles)
+}
+
+@Test
 func codeLanguageNormalizesFenceInfoStringsAndAliases() {
     let cases: [(String?, String?, MarkdownCodeLanguage.Classification)] = [
         ("swift", "swift", .supported),
@@ -842,6 +967,47 @@ private func firstBlock(_ markdown: String) throws -> MarkdownBlock {
     stream.append(markdown)
     stream.finish()
     return try #require(stream.snapshot().blocks.first)
+}
+
+private func testHeadingStyles() -> MarkdownHeadingStyles {
+    MarkdownHeadingStyles(
+        h1: MarkdownTextStyle(
+            font: .system(size: 11, weight: .bold),
+            fontSize: 11,
+            lineHeight: 15,
+            fontProfiles: MarkdownInlineFontProfiles(uniform: .named("Helvetica", weight: .bold))
+        ),
+        h2: MarkdownTextStyle(
+            font: .system(size: 12, weight: .bold),
+            fontSize: 12,
+            lineHeight: 16,
+            fontProfiles: MarkdownInlineFontProfiles(uniform: .named("Menlo", weight: .bold))
+        ),
+        h3: MarkdownTextStyle(
+            font: .system(size: 13, weight: .bold),
+            fontSize: 13,
+            lineHeight: 17,
+            fontProfiles: MarkdownInlineFontProfiles(uniform: .system(weight: .bold))
+        ),
+        h4: MarkdownTextStyle(
+            font: .system(size: 19, weight: .semibold),
+            fontSize: 19,
+            lineHeight: 25,
+            fontProfiles: MarkdownInlineFontProfiles(uniform: .system(weight: .semibold, design: .rounded))
+        ),
+        h5: MarkdownTextStyle(
+            font: .system(size: 21, weight: .semibold),
+            fontSize: 21,
+            lineHeight: 29,
+            fontProfiles: MarkdownInlineFontProfiles(uniform: .named("Courier", weight: .semibold))
+        ),
+        h6: MarkdownTextStyle(
+            font: .system(size: 23, weight: .semibold),
+            fontSize: 23,
+            lineHeight: 31,
+            fontProfiles: MarkdownInlineFontProfiles(uniform: .monospacedSystem(weight: .semibold))
+        )
+    )
 }
 
 private func mirroredConfiguration(from view: MarkdownBlockView) -> MarkdownRendererConfiguration? {

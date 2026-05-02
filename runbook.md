@@ -2,6 +2,8 @@
 
 This runbook is the local release authority for `SiriusMarkdown`. For the current public package release, use `v0.2.0` as the tag and do not publish unless every release blocker below is clear.
 
+Unreleased semver note: heading typography API work targets `v0.3.0`, not a `v0.2.x` patch, because it adds public theme surface (`MarkdownTextStyle`, `MarkdownHeadingStyles`, `MarkdownTheme.headings`) and deprecates the old singular H3-only compatibility fields.
+
 ## Build
 
 Before changing architecture or renderer behavior, read `plan.md` and `AGENTS.md`. `plan.md` is the implementation source of truth; `AGENTS.md` restates the repo-local guardrails for future agents.
@@ -40,6 +42,7 @@ Layout and renderer acceptance for the current slice:
 - Use `MarkdownRenderSession` or `MarkdownRendererConfiguration.prepare(snapshot:)` in model/controller code and pass `MarkdownPreparedSnapshot` into `MarkdownDocumentView` or `StreamingMarkdownView`. Deprecated direct `snapshot:` view initializers are compatibility shims, not the streaming/document path.
 - Renderer configuration must be protocol-driven for link, image, HTML, code, math, code highlighting, and math rendering hooks.
 - Default code highlighting must stay language-aware, pluggable, and conservative: explicit supported languages may be highlighted; plaintext, nohighlight, unlabeled, and unsupported fences should render plainly.
+- Heading typography must resolve H1-H6 through `MarkdownTheme.headings`. Visual SwiftUI `Font` and prepared-line CoreText measurement inputs (`fontSize`, `lineHeight`, `MarkdownInlineFontProfiles`) must come from the same `MarkdownTextStyle`; do not infer measurement profiles from arbitrary SwiftUI fonts.
 - Inline math detection must remain source-preserving and must not rewrite code spans, fenced code, or Markdown source before `swift-markdown` parsing.
 - Image handling must produce prepared decisions and placeholders by default; no network image fetch is allowed without an explicit host resolver.
 - Selection/copy must stay block/range bounded and source-backed. Do not add per-fragment overlays for links, images, or selection.

@@ -1,10 +1,155 @@
 import SwiftUI
 import SiriusMarkdownCore
 
+public struct MarkdownTextStyle: Sendable, Hashable {
+    public var font: Font
+    public var fontSize: Double
+    public var lineHeight: Double
+    public var fontProfiles: MarkdownInlineFontProfiles
+
+    public init(
+        font: Font,
+        fontSize: Double,
+        lineHeight: Double,
+        fontProfiles: MarkdownInlineFontProfiles
+    ) {
+        self.font = font
+        self.fontSize = fontSize
+        self.lineHeight = lineHeight
+        self.fontProfiles = fontProfiles
+    }
+}
+
+public struct MarkdownHeadingStyles: Sendable, Hashable {
+    public var h1: MarkdownTextStyle
+    public var h2: MarkdownTextStyle
+    public var h3: MarkdownTextStyle
+    public var h4: MarkdownTextStyle
+    public var h5: MarkdownTextStyle
+    public var h6: MarkdownTextStyle
+
+    public init(
+        h1: MarkdownTextStyle,
+        h2: MarkdownTextStyle,
+        h3: MarkdownTextStyle,
+        h4: MarkdownTextStyle,
+        h5: MarkdownTextStyle,
+        h6: MarkdownTextStyle
+    ) {
+        self.h1 = h1
+        self.h2 = h2
+        self.h3 = h3
+        self.h4 = h4
+        self.h5 = h5
+        self.h6 = h6
+    }
+
+    public subscript(level: Int) -> MarkdownTextStyle {
+        get {
+            switch level {
+            case 1:
+                return h1
+            case 2:
+                return h2
+            case 3:
+                return h3
+            case 4:
+                return h4
+            case 5:
+                return h5
+            case 6:
+                return h6
+            default:
+                return h3
+            }
+        }
+        set {
+            switch level {
+            case 1:
+                h1 = newValue
+            case 2:
+                h2 = newValue
+            case 3:
+                h3 = newValue
+            case 4:
+                h4 = newValue
+            case 5:
+                h5 = newValue
+            case 6:
+                h6 = newValue
+            default:
+                h3 = newValue
+            }
+        }
+    }
+
+    public func style(for level: Int?) -> MarkdownTextStyle {
+        self[level ?? 3]
+    }
+
+    public static func uniform(_ style: MarkdownTextStyle) -> MarkdownHeadingStyles {
+        MarkdownHeadingStyles(
+            h1: style,
+            h2: style,
+            h3: style,
+            h4: style,
+            h5: style,
+            h6: style
+        )
+    }
+
+    public static var standard: MarkdownHeadingStyles {
+        MarkdownHeadingStyles(
+            h1: MarkdownTextStyle(
+                font: .system(size: 34, weight: .bold),
+                fontSize: 34,
+                lineHeight: 42,
+                fontProfiles: .headingDefault
+            ),
+            h2: MarkdownTextStyle(
+                font: .system(size: 28, weight: .bold),
+                fontSize: 28,
+                lineHeight: 36,
+                fontProfiles: .headingDefault
+            ),
+            h3: MarkdownTextStyle(
+                font: .system(size: 20, weight: .bold),
+                fontSize: 20,
+                lineHeight: 28,
+                fontProfiles: .headingDefault
+            ),
+            h4: MarkdownTextStyle(
+                font: .system(size: 18, weight: .bold),
+                fontSize: 18,
+                lineHeight: 24,
+                fontProfiles: .headingDefault
+            ),
+            h5: MarkdownTextStyle(
+                font: .system(size: 16, weight: .bold),
+                fontSize: 16,
+                lineHeight: 22,
+                fontProfiles: .headingDefault
+            ),
+            h6: MarkdownTextStyle(
+                font: .system(size: 14, weight: .bold),
+                fontSize: 14,
+                lineHeight: 20,
+                fontProfiles: .headingDefault
+            )
+        )
+    }
+
+    public static func standard(h3: MarkdownTextStyle) -> MarkdownHeadingStyles {
+        var styles = standard
+        styles.h3 = h3
+        return styles
+    }
+}
+
 public struct MarkdownTheme: Sendable, Hashable {
     public var paragraphFont: Font
     public var codeFont: Font
-    public var headingFont: Font
+    public var headings: MarkdownHeadingStyles
     public var textColor: Color
     public var secondaryTextColor: Color
     public var codeBackground: Color
@@ -20,14 +165,35 @@ public struct MarkdownTheme: Sendable, Hashable {
     public var blockSpacing: CGFloat
     public var paragraphFontSize: Double
     public var paragraphLineHeight: Double
-    public var headingFontSize: Double
-    public var headingLineHeight: Double
     public var codeFontSize: Double
     public var codeLineHeight: Double
     public var paragraphFontProfiles: MarkdownInlineFontProfiles
-    public var headingFontProfiles: MarkdownInlineFontProfiles
     public var codeFontProfiles: MarkdownInlineFontProfiles
     public var syntaxHighlightingPalette: MarkdownSyntaxHighlightingPalette
+
+    @available(*, deprecated, message: "Use headings.h3.font or MarkdownTheme.headings for per-level heading typography.")
+    public var headingFont: Font {
+        get { headings.h3.font }
+        set { headings.h3.font = newValue }
+    }
+
+    @available(*, deprecated, message: "Use headings.h3.fontSize or MarkdownTheme.headings for per-level heading typography.")
+    public var headingFontSize: Double {
+        get { headings.h3.fontSize }
+        set { headings.h3.fontSize = newValue }
+    }
+
+    @available(*, deprecated, message: "Use headings.h3.lineHeight or MarkdownTheme.headings for per-level heading typography.")
+    public var headingLineHeight: Double {
+        get { headings.h3.lineHeight }
+        set { headings.h3.lineHeight = newValue }
+    }
+
+    @available(*, deprecated, message: "Use headings.h3.fontProfiles or MarkdownTheme.headings for per-level heading typography.")
+    public var headingFontProfiles: MarkdownInlineFontProfiles {
+        get { headings.h3.fontProfiles }
+        set { headings.h3.fontProfiles = newValue }
+    }
 
     public init(
         paragraphFont: Font = .body,
@@ -54,7 +220,8 @@ public struct MarkdownTheme: Sendable, Hashable {
         codeLineHeight: Double = 20,
         paragraphFontProfiles: MarkdownInlineFontProfiles = .paragraphDefault,
         headingFontProfiles: MarkdownInlineFontProfiles = .headingDefault,
-        codeFontProfiles: MarkdownInlineFontProfiles = .codeDefault
+        codeFontProfiles: MarkdownInlineFontProfiles = .codeDefault,
+        headings: MarkdownHeadingStyles? = nil
     ) {
         self.init(
             paragraphFont: paragraphFont,
@@ -82,6 +249,7 @@ public struct MarkdownTheme: Sendable, Hashable {
             paragraphFontProfiles: paragraphFontProfiles,
             headingFontProfiles: headingFontProfiles,
             codeFontProfiles: codeFontProfiles,
+            headings: headings,
             syntaxHighlightingPalette: .default
         )
     }
@@ -112,11 +280,19 @@ public struct MarkdownTheme: Sendable, Hashable {
         paragraphFontProfiles: MarkdownInlineFontProfiles = .paragraphDefault,
         headingFontProfiles: MarkdownInlineFontProfiles = .headingDefault,
         codeFontProfiles: MarkdownInlineFontProfiles = .codeDefault,
+        headings: MarkdownHeadingStyles? = nil,
         syntaxHighlightingPalette: MarkdownSyntaxHighlightingPalette
     ) {
         self.paragraphFont = paragraphFont
         self.codeFont = codeFont
-        self.headingFont = headingFont
+        self.headings = headings ?? MarkdownHeadingStyles.standard(
+            h3: MarkdownTextStyle(
+                font: headingFont,
+                fontSize: headingFontSize,
+                lineHeight: headingLineHeight,
+                fontProfiles: headingFontProfiles
+            )
+        )
         self.textColor = textColor
         self.secondaryTextColor = secondaryTextColor
         self.codeBackground = codeBackground
@@ -132,18 +308,24 @@ public struct MarkdownTheme: Sendable, Hashable {
         self.blockSpacing = blockSpacing
         self.paragraphFontSize = paragraphFontSize
         self.paragraphLineHeight = paragraphLineHeight
-        self.headingFontSize = headingFontSize
-        self.headingLineHeight = headingLineHeight
         self.codeFontSize = codeFontSize
         self.codeLineHeight = codeLineHeight
         self.paragraphFontProfiles = paragraphFontProfiles
-        self.headingFontProfiles = headingFontProfiles
         self.codeFontProfiles = codeFontProfiles
         self.syntaxHighlightingPalette = syntaxHighlightingPalette
     }
 
-    public static let compactChat = MarkdownTheme(blockSpacing: 6)
-    public static let document = MarkdownTheme(blockSpacing: 12)
+    public static var compactChat: MarkdownTheme {
+        MarkdownTheme(blockSpacing: 6)
+    }
+
+    public static var document: MarkdownTheme {
+        MarkdownTheme(blockSpacing: 12)
+    }
+
+    public func headingStyle(for level: Int?) -> MarkdownTextStyle {
+        headings.style(for: level)
+    }
 }
 
 public struct MarkdownSyntaxHighlightingPalette: Sendable, Hashable {

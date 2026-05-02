@@ -562,14 +562,8 @@ public struct MarkdownRendererConfiguration: Sendable {
 
         switch block.kind {
         case .heading:
-            switch block.headingLevel ?? 3 {
-            case 1:
-                return (34, 42, theme.headingFontProfiles)
-            case 2:
-                return (28, 36, theme.headingFontProfiles)
-            default:
-                return (theme.headingFontSize, theme.headingLineHeight, theme.headingFontProfiles)
-            }
+            let style = theme.headingStyle(for: block.headingLevel)
+            return (style.fontSize, style.lineHeight, style.fontProfiles)
         case .codeBlock, .htmlBlock, .mathBlock:
             return (theme.codeFontSize, theme.codeLineHeight, theme.codeFontProfiles)
         default:

@@ -55,6 +55,32 @@ Inline rendering has an explicit boundary. The packaged chat and document preset
 
 Production CoreText measurement defaults to system-profile font measurement and caches include the measurement profile. Pretext golden fixtures still pin explicit named font profiles, usually Helvetica, so the oracle stays stable. Hosts that render custom fonts should pass matching `MarkdownInlineFontProfiles` through `MarkdownTheme`.
 
+Heading typography is a first-class theme contract, not a Sirius-specific override. Configure H1 through H6 with `MarkdownTheme.headings`, similar to CSS `h1`...`h6` rules. Each `MarkdownTextStyle` carries both the SwiftUI `Font` used for visible rendering and the CoreText measurement inputs used during prepared inline layout, so custom fonts must provide matching `fontProfiles`.
+
+```swift
+let compactHeading = MarkdownTextStyle(
+    font: .system(size: 12, weight: .semibold),
+    fontSize: 12,
+    lineHeight: 16,
+    fontProfiles: MarkdownInlineFontProfiles(uniform: .system(weight: .semibold))
+)
+
+let compactTheme = MarkdownTheme(
+    headings: .uniform(compactHeading)
+)
+
+let documentTheme = MarkdownTheme(
+    headings: MarkdownHeadingStyles(
+        h1: MarkdownTextStyle(font: .system(size: 34, weight: .bold), fontSize: 34, lineHeight: 42, fontProfiles: .headingDefault),
+        h2: MarkdownTextStyle(font: .system(size: 28, weight: .bold), fontSize: 28, lineHeight: 36, fontProfiles: .headingDefault),
+        h3: MarkdownTextStyle(font: .system(size: 22, weight: .bold), fontSize: 22, lineHeight: 30, fontProfiles: .headingDefault),
+        h4: MarkdownTextStyle(font: .system(size: 18, weight: .bold), fontSize: 18, lineHeight: 24, fontProfiles: .headingDefault),
+        h5: MarkdownTextStyle(font: .system(size: 16, weight: .bold), fontSize: 16, lineHeight: 22, fontProfiles: .headingDefault),
+        h6: MarkdownTextStyle(font: .system(size: 14, weight: .bold), fontSize: 14, lineHeight: 20, fontProfiles: .headingDefault)
+    )
+)
+```
+
 Code highlighting remains pluggable through `MarkdownCodeHighlighter`, but the shipped default is now language-aware on Apple platforms with JavaScriptCore. `DefaultMarkdownCodeHighlighter` normalizes fence info strings and aliases, highlights explicit supported languages through a pinned embedded `highlight.js` common build, and renders plaintext, nohighlight, unlabeled, or unsupported fences plainly. Hosts that want no highlighting can still inject `PlainMarkdownCodeHighlighter`.
 
 ## Products
