@@ -146,6 +146,22 @@ public struct MarkdownHeadingStyles: Sendable, Hashable {
     }
 }
 
+public struct MarkdownCodeBlockAffordances: Sendable, Hashable {
+    public var showsLanguageLabel: Bool
+    public var showsCopyButton: Bool
+
+    public init(showsLanguageLabel: Bool = true, showsCopyButton: Bool = true) {
+        self.showsLanguageLabel = showsLanguageLabel
+        self.showsCopyButton = showsCopyButton
+    }
+
+    public static let `default` = MarkdownCodeBlockAffordances()
+    public static let hidden = MarkdownCodeBlockAffordances(
+        showsLanguageLabel: false,
+        showsCopyButton: false
+    )
+}
+
 public struct MarkdownTheme: Sendable, Hashable {
     public var paragraphFont: Font
     public var codeFont: Font
@@ -170,6 +186,7 @@ public struct MarkdownTheme: Sendable, Hashable {
     public var paragraphFontProfiles: MarkdownInlineFontProfiles
     public var codeFontProfiles: MarkdownInlineFontProfiles
     public var syntaxHighlightingPalette: MarkdownSyntaxHighlightingPalette
+    public var codeBlockAffordances: MarkdownCodeBlockAffordances
 
     @available(*, deprecated, message: "Use headings.h3.font or MarkdownTheme.headings for per-level heading typography.")
     public var headingFont: Font {
@@ -313,6 +330,7 @@ public struct MarkdownTheme: Sendable, Hashable {
         self.paragraphFontProfiles = paragraphFontProfiles
         self.codeFontProfiles = codeFontProfiles
         self.syntaxHighlightingPalette = syntaxHighlightingPalette
+        self.codeBlockAffordances = .default
     }
 
     public static var compactChat: MarkdownTheme {

@@ -125,12 +125,19 @@ public struct MarkdownBlockView: View {
     @ViewBuilder
     private var codeBlockContent: some View {
         if let code = preparedContent.code {
-            ScrollView(.horizontal) {
-                Text(code)
-                    .font(theme.codeFont)
-                    .textSelection(.enabled)
-                    .padding(10)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+            VStack(alignment: .leading, spacing: 0) {
+                if showsCodeBlockHeader {
+                    codeBlockHeader
+                }
+                ScrollView(.horizontal) {
+                    Text(code)
+                        .font(theme.codeFont)
+                        .textSelection(.enabled)
+                        .padding(.horizontal, 10)
+                        .padding(.top, showsCodeBlockHeader ? 4 : 10)
+                        .padding(.bottom, 10)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
             }
             .background(theme.codeBackground)
             .clipShape(RoundedRectangle(cornerRadius: 6))
@@ -141,6 +148,44 @@ public struct MarkdownBlockView: View {
                 .font(theme.codeFont)
                 .textSelection(.enabled)
         }
+    }
+
+    private var showsCodeBlockHeader: Bool {
+        (theme.codeBlockAffordances.showsLanguageLabel && Self.codeBlockLanguageLabel(for: block) != nil) ||
+            theme.codeBlockAffordances.showsCopyButton
+    }
+
+    @ViewBuilder
+    private var codeBlockHeader: some View {
+        HStack(spacing: 8) {
+            if theme.codeBlockAffordances.showsLanguageLabel,
+               let label = Self.codeBlockLanguageLabel(for: block)
+            {
+                Text(label)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(theme.secondaryTextColor)
+                    .lineLimit(1)
+                    .accessibilityLabel("Code language: \(label)")
+            }
+
+            Spacer(minLength: 8)
+
+            if theme.codeBlockAffordances.showsCopyButton {
+                Button {
+                    copyCodeBlock()
+                } label: {
+                    Label("Copy", systemImage: "doc.on.doc")
+                        .labelStyle(.titleAndIcon)
+                        .font(.caption.weight(.semibold))
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(theme.secondaryTextColor)
+                .accessibilityLabel("Copy code")
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.top, 8)
+        .padding(.bottom, 2)
     }
 
     private var listContent: some View {
@@ -376,6 +421,17 @@ public struct MarkdownBlockView: View {
         }
     }
 
+    private func copyCodeBlock() {
+        let code = Self.codeCopyText(for: block)
+        guard !code.isEmpty else {
+            return
+        }
+
+        Task { @MainActor in
+            MarkdownPasteboard.copy(code)
+        }
+    }
+
     public nonisolated static func renderPlan(
         for block: MarkdownBlock,
         configuration: MarkdownRendererConfiguration = .compactChat
@@ -390,20 +446,20 @@ public struct MarkdownBlockView: View {
                 tableBodyRowCount: block.table?.rows.count ?? 0
             )
         case .codeBlock:
+            let codeText = MarkdownRendererConfiguration.codeText(for: block)
+            let decision = configuration.codePolicy.evaluateCodeBlock(
+                infoString: block.infoString,
+                code: codeText
+            )
+            let codeAllowed = policyAllowed(decision)
             return MarkdownBlockRenderPlan(
                 kind: block.kind,
-                codeAllowed: policyAllowed(
-                    configuration.codePolicy.evaluateCodeBlock(
-                        infoString: block.infoString,
-                        code: MarkdownRendererConfiguration.codeText(for: block)
-                    )
-                ),
-                policyDenialReason: denialReason(
-                    configuration.codePolicy.evaluateCodeBlock(
-                        infoString: block.infoString,
-                        code: MarkdownRendererConfiguration.codeText(for: block)
-                    )
-                )
+                codeAllowed: codeAllowed,
+                codeLanguageLabel: codeAllowed && configuration.theme.codeBlockAffordances.showsLanguageLabel
+                    ? Self.codeBlockLanguageLabel(for: block)
+                    : nil,
+                codeCopyButtonVisible: codeAllowed && configuration.theme.codeBlockAffordances.showsCopyButton,
+                policyDenialReason: denialReason(decision)
             )
         case .mathBlock:
             return MarkdownBlockRenderPlan(
@@ -475,6 +531,22 @@ public struct MarkdownBlockView: View {
         case let .deny(reason):
             return reason
         }
+    }
+
+    public nonisolated static func codeBlockLanguageLabel(for block: MarkdownBlock) -> String? {
+        guard block.kind == .codeBlock else {
+            return nil
+        }
+
+        return MarkdownCodeLanguage(infoString: block.infoString).displayName
+    }
+
+    public nonisolated static func codeCopyText(for block: MarkdownBlock) -> String {
+        guard block.kind == .codeBlock else {
+            return ""
+        }
+
+        return MarkdownRendererConfiguration.codeText(for: block)
     }
 
     private var headingFallbackText: String {

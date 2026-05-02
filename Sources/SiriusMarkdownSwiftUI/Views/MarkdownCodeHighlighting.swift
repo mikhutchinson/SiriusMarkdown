@@ -59,6 +59,26 @@ public struct MarkdownCodeLanguage: Sendable, Hashable, CustomStringConvertible 
         classification == .supported && backendName != nil
     }
 
+    public var displayName: String? {
+        switch classification {
+        case .unspecified:
+            return nil
+        case .plaintext:
+            return "Plain text"
+        case .supported, .unsupported:
+            if let normalizedInfoString, let displayName = Self.displayNames[normalizedInfoString] {
+                return displayName
+            }
+            if let canonicalName, let displayName = Self.displayNames[canonicalName] {
+                return displayName
+            }
+            if let normalizedInfoString {
+                return Self.titleCasedDisplayName(normalizedInfoString)
+            }
+            return nil
+        }
+    }
+
     public var cacheIdentity: String {
         switch classification {
         case .unspecified:
@@ -162,6 +182,55 @@ public struct MarkdownCodeLanguage: Sendable, Hashable, CustomStringConvertible 
         "zsh": "bash"
     ]
 
+    private static let displayNames: [String: String] = [
+        "bash": "Bash",
+        "c": "C",
+        "c++": "C++",
+        "cpp": "C++",
+        "c#": "C#",
+        "csharp": "C#",
+        "css": "CSS",
+        "diff": "Diff",
+        "dockerfile": "Dockerfile",
+        "go": "Go",
+        "graphql": "GraphQL",
+        "html": "HTML",
+        "ini": "INI",
+        "java": "Java",
+        "javascript": "JavaScript",
+        "json": "JSON",
+        "jsx": "JavaScript",
+        "kotlin": "Kotlin",
+        "less": "Less",
+        "lua": "Lua",
+        "makefile": "Makefile",
+        "markdown": "Markdown",
+        "objective-c": "Objective-C",
+        "objectivec": "Objective-C",
+        "perl": "Perl",
+        "php": "PHP",
+        "php-template": "PHP",
+        "plaintext": "Plain text",
+        "python": "Python",
+        "python-repl": "Python REPL",
+        "r": "R",
+        "ruby": "Ruby",
+        "rust": "Rust",
+        "scss": "SCSS",
+        "sh": "Shell",
+        "shell": "Shell",
+        "sql": "SQL",
+        "swift": "Swift",
+        "tsx": "TypeScript",
+        "typescript": "TypeScript",
+        "vbnet": "VB.NET",
+        "wasm": "WebAssembly",
+        "xml": "XML",
+        "yaml": "YAML",
+        "yml": "YAML",
+        "zsh": "Zsh"
+    ]
+
     private static let supportedBackendLanguages: Set<String> = [
         "bash", "c", "cpp", "csharp", "css", "diff", "go", "graphql", "ini",
         "java", "javascript", "json", "kotlin", "less", "lua", "makefile",
@@ -169,6 +238,22 @@ public struct MarkdownCodeLanguage: Sendable, Hashable, CustomStringConvertible 
         "python", "python-repl", "r", "ruby", "rust", "scss", "shell", "sql",
         "swift", "typescript", "vbnet", "wasm", "xml", "yaml"
     ]
+
+    private static func titleCasedDisplayName(_ token: String) -> String {
+        let separators = CharacterSet(charactersIn: "-_")
+        let parts = token.components(separatedBy: separators).filter { !$0.isEmpty }
+        guard !parts.isEmpty else {
+            return token
+        }
+
+        return parts.map { part in
+            guard let first = part.first else {
+                return part
+            }
+            return String(first).uppercased() + String(part.dropFirst())
+        }
+        .joined(separator: " ")
+    }
 }
 
 public struct DefaultMarkdownCodeHighlighter: MarkdownCodeHighlighter, MarkdownCodeHighlighterCacheIdentifying {

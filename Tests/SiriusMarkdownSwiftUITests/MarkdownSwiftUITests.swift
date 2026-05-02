@@ -620,6 +620,26 @@ func codeLanguageNormalizesFenceInfoStringsAndAliases() {
 }
 
 @Test
+func codeLanguageProvidesGenericDisplayNames() {
+    let cases: [(String?, String?)] = [
+        ("language-swift", "Swift"),
+        ("py", "Python"),
+        ("js", "JavaScript"),
+        ("ts", "TypeScript"),
+        ("html", "HTML"),
+        ("objective-c", "Objective-C"),
+        ("c++", "C++"),
+        ("plaintext", "Plain text"),
+        ("mermaid", "Mermaid"),
+        (nil, nil)
+    ]
+
+    for testCase in cases {
+        #expect(MarkdownCodeLanguage(infoString: testCase.0).displayName == testCase.1)
+    }
+}
+
+@Test
 func codeHighlightCacheKeysIncludeLanguagePaletteAndHighlighterIdentity() throws {
     let swiftBlock = try firstBlock("```swift\nlet x = 1\n```")
     let pythonBlock = try firstBlock("```python\nlet x = 1\n```")
@@ -836,6 +856,8 @@ func blockRenderPlanUsesProtocolPoliciesForCodeMathAndHTML() throws {
     )
     #expect(deniedCode.codeAllowed == false)
     #expect(deniedCode.policyDenialReason == "code denied")
+    #expect(deniedCode.codeCopyButtonVisible == false)
+    #expect(deniedCode.codeLanguageLabel == nil)
 
     let math = try firstBlock("$$\nx^2\n$$")
     let deniedMath = MarkdownBlockView.renderPlan(
@@ -854,6 +876,32 @@ func blockRenderPlanUsesProtocolPoliciesForCodeMathAndHTML() throws {
         configuration: MarkdownRendererConfiguration(htmlPolicy: AllowHTMLPolicy())
     )
     #expect(allowedHTML.htmlAllowed == true)
+}
+
+@Test
+func codeBlockRenderPlanExposesLanguageAndCopyAffordance() throws {
+    let code = try firstBlock("```language-swift\nlet x = 1\n```")
+    let plan = MarkdownBlockView.renderPlan(for: code)
+
+    #expect(plan.codeAllowed == true)
+    #expect(plan.codeLanguageLabel == "Swift")
+    #expect(plan.codeCopyButtonVisible == true)
+    #expect(MarkdownBlockView.codeBlockLanguageLabel(for: code) == "Swift")
+    #expect(MarkdownBlockView.codeCopyText(for: code) == "let x = 1\n")
+}
+
+@Test
+func codeBlockChromeCanBeDisabledByConfiguration() throws {
+    let code = try firstBlock("```python\nprint('hi')\n```")
+    var theme = MarkdownTheme()
+    theme.codeBlockAffordances = .hidden
+    let configuration = MarkdownRendererConfiguration(theme: theme)
+    let plan = MarkdownBlockView.renderPlan(for: code, configuration: configuration)
+
+    #expect(plan.codeAllowed == true)
+    #expect(plan.codeLanguageLabel == nil)
+    #expect(plan.codeCopyButtonVisible == false)
+    #expect(MarkdownBlockView.codeCopyText(for: code) == "print('hi')\n")
 }
 
 @Test

@@ -158,22 +158,20 @@ public struct MarkdownRendererConfiguration: Sendable {
         preparationCache: MarkdownRenderPreparationCache = MarkdownRenderPreparationCache(),
         diagnosticsRecorder: MarkdownDiagnosticsRecorder = MarkdownDiagnosticsRecorder()
     ) {
-        self.init(
-            theme: theme,
-            inlineRenderingMode: .systemText,
-            linkAction: linkAction,
-            copyProvider: copyProvider,
-            linkPolicy: linkPolicy,
-            imagePolicy: imagePolicy,
-            imageResolver: imageResolver,
-            htmlPolicy: htmlPolicy,
-            codePolicy: codePolicy,
-            mathPolicy: mathPolicy,
-            codeHighlighter: codeHighlighter,
-            mathRenderer: mathRenderer,
-            preparationCache: preparationCache,
-            diagnosticsRecorder: diagnosticsRecorder
-        )
+        self.theme = theme
+        self.inlineRenderingMode = .systemText
+        self.linkAction = linkAction
+        self.copyProvider = copyProvider
+        self.linkPolicy = linkPolicy
+        self.imagePolicy = imagePolicy
+        self.imageResolver = imageResolver
+        self.htmlPolicy = htmlPolicy
+        self.codePolicy = codePolicy
+        self.mathPolicy = mathPolicy
+        self.codeHighlighter = codeHighlighter
+        self.mathRenderer = mathRenderer
+        self.preparationCache = preparationCache
+        self.diagnosticsRecorder = diagnosticsRecorder
     }
 
     public static var compactChat: MarkdownRendererConfiguration {
@@ -914,6 +912,8 @@ public struct MarkdownBlockRenderPlan: Sendable, Equatable {
     public var tableColumnCount: Int
     public var tableBodyRowCount: Int
     public var codeAllowed: Bool?
+    public var codeLanguageLabel: String?
+    public var codeCopyButtonVisible: Bool
     public var mathAllowed: Bool?
     public var htmlAllowed: Bool?
     public var policyDenialReason: String?
@@ -924,6 +924,8 @@ public struct MarkdownBlockRenderPlan: Sendable, Equatable {
         tableColumnCount: Int = 0,
         tableBodyRowCount: Int = 0,
         codeAllowed: Bool? = nil,
+        codeLanguageLabel: String? = nil,
+        codeCopyButtonVisible: Bool = false,
         mathAllowed: Bool? = nil,
         htmlAllowed: Bool? = nil,
         policyDenialReason: String? = nil
@@ -933,6 +935,8 @@ public struct MarkdownBlockRenderPlan: Sendable, Equatable {
         self.tableColumnCount = tableColumnCount
         self.tableBodyRowCount = tableBodyRowCount
         self.codeAllowed = codeAllowed
+        self.codeLanguageLabel = codeLanguageLabel
+        self.codeCopyButtonVisible = codeCopyButtonVisible
         self.mathAllowed = mathAllowed
         self.htmlAllowed = htmlAllowed
         self.policyDenialReason = policyDenialReason
