@@ -1,4 +1,9 @@
 .DS_Store
+
+# Local agent/plan notes (keep editable without shipping in the public tree)
+AGENTS.md
+plan.md
+
 .build/
 .swiftpm/
 DerivedData/
