@@ -1,8 +1,6 @@
 # Runbook
 
-This runbook is the local release authority for `SiriusMarkdown`. For the current public package release, use `v0.2.0` as the tag and do not publish unless every release blocker below is clear.
-
-Unreleased semver note: heading typography API work targets `v0.3.0`, not a `v0.2.x` patch, because it adds public theme surface (`MarkdownTextStyle`, `MarkdownHeadingStyles`, `MarkdownTheme.headings`) and deprecates the old singular H3-only compatibility fields.
+This runbook is the local release authority for `SiriusMarkdown`. For the current public package release, use `v0.3.0` as the tag and do not publish unless every release blocker below is clear.
 
 ## Build
 
@@ -82,7 +80,7 @@ Run this before claiming native-renderer product quality. It wraps the release g
 
 ## Public Release Checklist
 
-Use this checklist for `v0.2.0`.
+Use this checklist for `v0.3.0`.
 
 1. Confirm public hygiene:
 
@@ -117,15 +115,15 @@ Use this checklist for `v0.2.0`.
 
    ```sh
    git add README.md runbook.md NOTICE.md changelog.md bugfix.md Docs Sources Tests Examples Tools Package.swift Package.resolved
-   git commit -m "Prepare SiriusMarkdown v0.2.0 release"
+   git commit -m "Prepare SiriusMarkdown v0.3.0 release"
    ```
 
 6. Tag and push:
 
    ```sh
-   git tag -a v0.2.0 -m "SiriusMarkdown v0.2.0"
+   git tag -a v0.3.0 -m "SiriusMarkdown v0.3.0"
    git push origin HEAD
-   git push origin v0.2.0
+   git push origin v0.3.0
    ```
 
 7. After pushing, create the public release notes from `changelog.md`. The release notes must keep the claim precise: native SwiftUI block rendering, prepared-line inline rendering, streaming snapshots, safe policies, language-aware default code highlighting, Pretext-backed layout gate, and demo/product probes. Do not claim a custom glyph renderer.
