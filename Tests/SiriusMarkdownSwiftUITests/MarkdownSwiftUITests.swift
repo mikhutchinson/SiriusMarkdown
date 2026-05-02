@@ -249,11 +249,11 @@ func preparedInlineRenderingUsesCachedBackendLayout() throws {
     let inlineLayout = try #require(prepared.preparedContentByBlockID[block.id]?.inlineLayout)
     let beforeLayout = recorder.snapshot()
 
-    _ = InlineRunsView.lineBrokenAttributedString(for: inlineLayout, containerWidth: 80)
+    _ = InlineRunsView.lineLayout(for: inlineLayout, containerWidth: 80)
     let afterFirstLayout = recorder.snapshot()
-    _ = InlineRunsView.lineBrokenAttributedString(for: inlineLayout, containerWidth: 80)
+    _ = InlineRunsView.lineLayout(for: inlineLayout, containerWidth: 80)
     let afterCachedLayout = recorder.snapshot()
-    _ = InlineRunsView.lineBrokenAttributedString(for: inlineLayout, containerWidth: 140)
+    _ = InlineRunsView.lineLayout(for: inlineLayout, containerWidth: 140)
     let afterSecondWidth = recorder.snapshot()
 
     #expect(afterFirstLayout.layoutCount == beforeLayout.layoutCount + 1)
@@ -277,12 +277,12 @@ func rendererPreparationDoesNotEagerlyPopulatePerCharacterUnits() throws {
     let block = try #require(snapshot.blocks.first)
     let inlineLayout = try #require(prepared.preparedContentByBlockID[block.id]?.inlineLayout)
     let beforeLayoutUnits = inlineLayout.measured.segments.flatMap(\.units)
-    let wrapped = InlineRunsView.lineBrokenAttributedString(for: inlineLayout, containerWidth: 32)
+    let wrapped = InlineRunsView.lineLayout(for: inlineLayout, containerWidth: 32)
     let afterLayoutUnits = inlineLayout.measured.segments.flatMap(\.units)
 
     #expect(beforeLayoutUnits.isEmpty)
     #expect(afterLayoutUnits.isEmpty)
-    #expect(String(wrapped.characters).contains("abcdefghijklmnopqrstuvwxyz"))
+    #expect(wrapped.lines.isEmpty == false)
 }
 
 @Test
@@ -508,8 +508,8 @@ func representativeDocumentPreparesStructuredRendererInputs() throws {
 
     let paragraph = try #require(preparedBlocks.first { $0.0.kind == .paragraph })
     let inlineLayout = try #require(paragraph.1.inlineLayout)
-    let wrapped = InlineRunsView.lineBrokenAttributedString(for: inlineLayout, containerWidth: 160)
-    #expect(String(wrapped.characters).contains("\n"))
+    let wrapped = InlineRunsView.lineLayout(for: inlineLayout, containerWidth: 160)
+    #expect(wrapped.lines.count > 1)
 
     let taskList = try #require(preparedBlocks.first { $0.0.kind == .taskList })
     #expect(taskList.1.listItems.count == 2)

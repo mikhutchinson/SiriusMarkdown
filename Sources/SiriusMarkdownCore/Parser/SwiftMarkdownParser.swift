@@ -373,7 +373,7 @@ private struct InlineRunConverter {
     private func runs(in markup: Markup) -> [MarkdownInlineRun] {
         switch markup {
         case let text as Markdown.Text:
-            return [run(kind: .text, text: text.string, markup: text)]
+            return textRuns(for: text)
         case let code as InlineCode:
             return [run(kind: .code, text: code.code, markup: code)]
         case let softBreak as SoftBreak:
@@ -409,6 +409,259 @@ private struct InlineRunConverter {
         default:
             return runs(in: markup.children)
         }
+    }
+
+    private func textRuns(for text: Markdown.Text) -> [MarkdownInlineRun] {
+        guard let sourceRange = sourceRange(for: text) else {
+            return splitInlineMath(in: text.string, baseRange: fallbackRange)
+        }
+
+        let rawText = sourceText(for: sourceRange.byteRange)
+        if rawText != text.string, rawText.contains("$") {
+            return splitInlineMathInSource(rawText, baseRange: sourceRange)
+        }
+
+        return splitInlineMath(in: text.string, baseRange: sourceRange)
+    }
+
+    private func splitInlineMathInSource(
+        _ rawText: String,
+        baseRange: MarkdownSourceRange
+    ) -> [MarkdownInlineRun] {
+        var runs: [MarkdownInlineRun] = []
+        var cursor = rawText.startIndex
+        var plainStart = cursor
+
+        func appendPlain(upTo end: String.Index) {
+            guard plainStart < end else {
+                return
+            }
+            let rawRange = plainStart..<end
+            let text = markdownUnescapedText(String(rawText[rawRange]))
+            guard !text.isEmpty else {
+                return
+            }
+            runs.append(
+                MarkdownInlineRun(
+                    kind: .text,
+                    text: text,
+                    sourceRange: sourceRange(
+                        in: rawText,
+                        localRange: rawRange,
+                        baseRange: baseRange
+                    )
+                )
+            )
+        }
+
+        while cursor < rawText.endIndex {
+            guard rawText[cursor] == "$",
+                  isPotentialOpeningDollar(in: rawText, at: cursor),
+                  let close = closingDollar(in: rawText, after: cursor)
+            else {
+                cursor = rawText.index(after: cursor)
+                continue
+            }
+
+            appendPlain(upTo: cursor)
+            let contentStart = rawText.index(after: cursor)
+            let contentRange = contentStart..<close
+            let fullRange = cursor..<rawText.index(after: close)
+            runs.append(
+                MarkdownInlineRun(
+                    kind: .math,
+                    text: String(rawText[contentRange]),
+                    sourceRange: sourceRange(
+                        in: rawText,
+                        localRange: fullRange,
+                        baseRange: baseRange
+                    )
+                )
+            )
+            cursor = rawText.index(after: close)
+            plainStart = cursor
+        }
+
+        appendPlain(upTo: rawText.endIndex)
+        return runs.isEmpty ? [
+            MarkdownInlineRun(
+                kind: .text,
+                text: markdownUnescapedText(rawText),
+                sourceRange: baseRange
+            )
+        ] : runs
+    }
+
+    private func splitInlineMath(
+        in text: String,
+        baseRange: MarkdownSourceRange
+    ) -> [MarkdownInlineRun] {
+        guard text.contains("$") else {
+            return [
+                MarkdownInlineRun(
+                    kind: .text,
+                    text: text,
+                    sourceRange: baseRange
+                )
+            ]
+        }
+
+        var runs: [MarkdownInlineRun] = []
+        var cursor = text.startIndex
+        var plainStart = cursor
+
+        func appendPlain(upTo end: String.Index) {
+            guard plainStart < end else {
+                return
+            }
+            let range = sourceRange(
+                in: text,
+                localRange: plainStart..<end,
+                baseRange: baseRange
+            )
+            runs.append(
+                MarkdownInlineRun(
+                    kind: .text,
+                    text: String(text[plainStart..<end]),
+                    sourceRange: range
+                )
+            )
+        }
+
+        while cursor < text.endIndex {
+            guard text[cursor] == "$",
+                  isPotentialOpeningDollar(in: text, at: cursor),
+                  let close = closingDollar(in: text, after: cursor)
+            else {
+                cursor = text.index(after: cursor)
+                continue
+            }
+
+            appendPlain(upTo: cursor)
+            let contentStart = text.index(after: cursor)
+            let contentRange = contentStart..<close
+            let fullRange = cursor..<text.index(after: close)
+            runs.append(
+                MarkdownInlineRun(
+                    kind: .math,
+                    text: String(text[contentRange]),
+                    sourceRange: sourceRange(
+                        in: text,
+                        localRange: fullRange,
+                        baseRange: baseRange
+                    )
+                )
+            )
+            cursor = text.index(after: close)
+            plainStart = cursor
+        }
+
+        appendPlain(upTo: text.endIndex)
+        return runs.isEmpty ? [
+            MarkdownInlineRun(kind: .text, text: text, sourceRange: baseRange)
+        ] : runs
+    }
+
+    private func isPotentialOpeningDollar(in text: String, at index: String.Index) -> Bool {
+        if index > text.startIndex, text[text.index(before: index)] == "\\" {
+            return false
+        }
+
+        let next = text.index(after: index)
+        guard next < text.endIndex else {
+            return false
+        }
+
+        if text[next] == "$" || text[next].isWhitespace {
+            return false
+        }
+
+        return true
+    }
+
+    private func closingDollar(in text: String, after opening: String.Index) -> String.Index? {
+        var cursor = text.index(after: opening)
+        while cursor < text.endIndex {
+            defer {
+                cursor = text.index(after: cursor)
+            }
+
+            guard text[cursor] == "$" else {
+                continue
+            }
+
+            if cursor > text.startIndex, text[text.index(before: cursor)] == "\\" {
+                continue
+            }
+
+            let previous = text.index(before: cursor)
+            if text[previous].isWhitespace {
+                continue
+            }
+
+            let next = text.index(after: cursor)
+            if next < text.endIndex, text[next] == "$" {
+                continue
+            }
+
+            return cursor
+        }
+
+        return nil
+    }
+
+    private func markdownUnescapedText(_ rawText: String) -> String {
+        var result = ""
+        var cursor = rawText.startIndex
+        let escapable = "\\`*_{}[]<>()#+-.!|$"
+
+        while cursor < rawText.endIndex {
+            if rawText[cursor] == "\\" {
+                let next = rawText.index(after: cursor)
+                if next < rawText.endIndex, escapable.contains(rawText[next]) {
+                    result.append(rawText[next])
+                    cursor = rawText.index(after: next)
+                    continue
+                }
+            }
+
+            result.append(rawText[cursor])
+            cursor = rawText.index(after: cursor)
+        }
+
+        return result
+    }
+
+    private func sourceRange(
+        in text: String,
+        localRange: Range<String.Index>,
+        baseRange: MarkdownSourceRange
+    ) -> MarkdownSourceRange {
+        let lowerOffset = text.utf8.distance(
+            from: text.utf8.startIndex,
+            to: localRange.lowerBound.samePosition(in: text.utf8) ?? text.utf8.startIndex
+        )
+        let upperOffset = text.utf8.distance(
+            from: text.utf8.startIndex,
+            to: localRange.upperBound.samePosition(in: text.utf8) ?? text.utf8.endIndex
+        )
+        let byteRange = (baseRange.byteRange.lowerBound + lowerOffset)..<(baseRange.byteRange.lowerBound + upperOffset)
+        return MarkdownSourceRange(
+            byteRange: byteRange,
+            lineRange: lineMap.lineRange(for: byteRange)
+        )
+    }
+
+    private func sourceText(for byteRange: Range<Int>) -> String {
+        let localLower = max(0, byteRange.lowerBound - baseOffset)
+        let localUpper = min(source.utf8.count, byteRange.upperBound - baseOffset)
+        guard localLower < localUpper else {
+            return ""
+        }
+
+        let lower = source.utf8.index(source.utf8.startIndex, offsetBy: localLower)
+        let upper = source.utf8.index(source.utf8.startIndex, offsetBy: localUpper)
+        return String(decoding: source.utf8[lower..<upper], as: UTF8.self)
     }
 
     private func run(

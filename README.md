@@ -47,35 +47,53 @@ The default SwiftUI renderer includes native structured blocks for paragraphs, h
 
 - **`SiriusMarkdown`**: umbrella library (`SiriusMarkdownCore` + `SiriusMarkdownSwiftUI`).
 - **`SiriusMarkdownCore`**: source storage, streaming, parsing, render model, layout contracts, caches, policies, and diagnostics.
-- **`SiriusMarkdownSwiftUI`**: native SwiftUI block rendering, themes, interaction hooks, and platform pasteboard/openURL helpers.
+- **`SiriusMarkdownSwiftUI`**: native SwiftUI block rendering, render sessions, themes, interaction hooks, and platform pasteboard/openURL helpers.
+- **`SiriusMarkdownMath`**: optional native math renderer used by demos; the core renderer stays pluggable and does not depend on this product.
 - **`SiriusMarkdownPretextSupport`**: fixture schema and comparison helpers for Pretext golden layout tests.
 
 ## Quick start
 
-Prepare snapshots outside SwiftUI body evaluation and pass prepared values into the renderer:
+For streaming or long content, keep a `MarkdownRenderSession` in your model layer. It owns the stream, long-lived renderer configuration, source-backed copy provider, render caches, prepared snapshot, and diagnostics counters:
 
 ```swift
 import SiriusMarkdown
 
+@MainActor
+final class TranscriptModel: ObservableObject {
+    @Published var session = MarkdownRenderSession(configuration: .compactChat)
+
+    func append(_ chunk: String) {
+        session.append(chunk)
+    }
+}
+
+StreamingMarkdownView(
+    preparedSnapshot: model.session.preparedSnapshot,
+    configuration: model.session.configuration
+)
+```
+
+For static documents, preparing snapshots outside SwiftUI body evaluation is still the direct path:
+
+```swift
 var stream = MarkdownStream()
 stream.append("# Hello\n\nStreaming Markdown.")
 stream.finish()
 
-let snapshot = stream.snapshot()
 let configuration = MarkdownRendererConfiguration.document
-let prepared = configuration.prepare(snapshot: snapshot)
-
+let prepared = configuration.prepare(snapshot: stream.snapshot())
 MarkdownDocumentView(preparedSnapshot: prepared, configuration: configuration)
 ```
 
-For live tail updates, update the stream, build the latest `snapshot()`, prepare it with your long-lived `MarkdownRendererConfiguration`, and drive `StreamingMarkdownView` with the resulting `MarkdownPreparedSnapshot`:
+Use the optional native math renderer when a host wants built-in math presentation without taking over the pluggable hook:
 
 ```swift
-stream.append(" More text")
-let snapshot = stream.snapshot()
-let prepared = configuration.prepare(snapshot: snapshot)
+import SiriusMarkdownMath
 
-StreamingMarkdownView(preparedSnapshot: prepared, configuration: configuration)
+let configuration = MarkdownRendererConfiguration(
+    theme: .document,
+    mathRenderer: NativeMarkdownMathRenderer()
+)
 ```
 
 The direct `snapshot:` view initializers remain for small compatibility cases, but they are deprecated because they hide preparation at the view boundary. Applications that stream or resize long content should keep preparation in their model layer.
@@ -88,9 +106,13 @@ The default test suite covers more than construction smoke tests:
 - block identity survives active-tail appends and tail-to-sealed transitions;
 - conservative sealing avoids open fences, math, HTML, and loose-list ambiguity;
 - SwiftUI renderer inputs are prepared outside block bodies, including inline layout, code highlighting, math rendering, and policy decisions;
+- `MarkdownRenderSession` keeps streaming, copy, cache, and prepared-snapshot state out of SwiftUI view bodies;
+- inline math is detected source-preservingly while code spans and fences remain excluded;
+- image runs produce prepared placeholder/resolution decisions, with no remote image loading by default;
+- selection/copy is bounded at the block level instead of using unbounded per-fragment overlays;
 - renderer preparation does not eagerly populate per-character fallback measurements;
 - repeated preparation reuses inline/code/math caches and records diagnostics;
-- large transcripts keep stable prepared item IDs for hundreds of sealed blocks plus one active tail;
+- large transcripts keep stable prepared item IDs for 10,000 sealed blocks plus one active tail;
 - `Tools/RenderProbe` renders `MarkdownDocumentView` through AppKit in its own process and rejects blank or trivial pixel output;
 - strict Pretext golden fixtures compare Swift layout metrics against the JavaScript oracle with no known-drift whitelist.
 
@@ -98,6 +120,7 @@ The default test suite covers more than construction smoke tests:
 
 - DocC catalog: `Docs/SiriusMarkdown.docc`
 - Topic notes: `Docs/architecture.md`, `Docs/streaming.md`, `Docs/performance.md`
+- Textual-replacement gate: `Docs/textual-replacement-scorecard.md`
 
 ## Project tracking
 
@@ -147,4 +170,10 @@ Run the full local release gate with:
 
 ```sh
 bash Tools/release-check.sh
+```
+
+Run the product gate before claiming Textual-replacement quality:
+
+```sh
+bash Tools/product-check.sh
 ```

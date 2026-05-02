@@ -140,16 +140,24 @@ public struct InlineRunsView: View {
         for prepared: MarkdownPreparedInlineContent,
         containerWidth: Double
     ) -> [AttributedString] {
-        let layout = prepared.layout(
-            containerWidth: containerWidth,
-            allowsOverwideFallback: false
-        )
+        let layout = lineLayout(for: prepared, containerWidth: containerWidth)
 
         return layout.lines.map {
             attributedSlice(prepared.attributed, text: prepared.prepared.naturalText, byteRange: $0.byteRange)
         }
     }
 
+    public nonisolated static func lineLayout(
+        for prepared: MarkdownPreparedInlineContent,
+        containerWidth: Double
+    ) -> InlineLayoutResult {
+        prepared.layout(
+            containerWidth: containerWidth,
+            allowsOverwideFallback: false
+        )
+    }
+
+    @available(*, deprecated, message: "Use lineLayout(for:containerWidth:) and native text rendering instead of injecting layout newlines into AttributedString.")
     public nonisolated static func lineBrokenAttributedString(
         for prepared: MarkdownPreparedInlineContent,
         containerWidth: Double
@@ -250,20 +258,15 @@ private struct PreparedInlineTextView: View {
     var linkAction: MarkdownLinkAction?
 
     @State private var containerWidth: CGFloat = 0
+    @State private var layoutResult = InlineLayoutResult(lines: [], naturalWidth: 0, height: 0)
 
     var body: some View {
-        Text(
-            containerWidth > 0
-                ? InlineRunsView.lineBrokenAttributedString(
-                    for: prepared,
-                    containerWidth: Double(containerWidth)
-                )
-                : fallbackAttributed
-        )
+        Text(fallbackAttributed)
         .font(baseFont)
         .foregroundStyle(theme.textColor)
         .environment(\.openURL, openURLAction)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityValue(layoutResult.lines.isEmpty ? "" : "\(layoutResult.lines.count) prepared lines")
         .background(
             GeometryReader { proxy in
                 Color.clear.preference(
@@ -275,6 +278,10 @@ private struct PreparedInlineTextView: View {
         .onPreferenceChange(PreparedInlineWidthPreferenceKey.self) { width in
             if width > 0, abs(width - containerWidth) > 0.5 {
                 containerWidth = width
+                layoutResult = InlineRunsView.lineLayout(
+                    for: prepared,
+                    containerWidth: Double(width)
+                )
             }
         }
     }

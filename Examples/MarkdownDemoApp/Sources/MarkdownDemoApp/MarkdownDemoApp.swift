@@ -1,5 +1,6 @@
 import AppKit
 import SiriusMarkdown
+import SiriusMarkdownMath
 import SwiftUI
 
 @main
@@ -442,6 +443,7 @@ private struct PreparedMarkdownExample: Identifiable {
         let configuration = MarkdownRendererConfiguration(
             theme: .document,
             copyProvider: copyProvider,
+            mathRenderer: NativeMarkdownMathRenderer(),
             diagnosticsRecorder: renderRecorder
         )
         let snapshot = stream.snapshot()
@@ -596,7 +598,11 @@ private struct MarkdownExample: Identifiable, Hashable {
             markdown: """
             # Overview
 
-            SiriusMarkdown renders native SwiftUI documents from prepared snapshots. The demo app intentionally uses the same public renderer path a host app would use.
+            SiriusMarkdown renders native SwiftUI documents from prepared snapshots. The demo app intentionally uses the same public renderer path a host app would use, including inline math like $x^2 \\rightarrow y_1 + \\alpha$.
+
+            $$
+            widthChange \\rightarrow layout(preparedSegments, width)
+            $$
 
             - [x] Parse semantics with `swift-markdown`
             - [x] Prepare inline content before SwiftUI evaluates document rows

@@ -91,6 +91,7 @@ struct SiriusMarkdownRenderProbe {
         let root = MarkdownDocumentView(preparedSnapshot: prepared, configuration: configuration)
             .frame(width: size.width, height: size.height)
             .background(Color.white)
+            .environment(\.colorScheme, .light)
 
         let hostingView = NSHostingView(rootView: root)
         hostingView.frame = NSRect(origin: .zero, size: size)

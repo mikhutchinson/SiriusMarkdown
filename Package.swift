@@ -28,6 +28,10 @@ let package = Package(
         .library(
             name: "SiriusMarkdownPretextSupport",
             targets: ["SiriusMarkdownPretextSupport"]
+        ),
+        .library(
+            name: "SiriusMarkdownMath",
+            targets: ["SiriusMarkdownMath"]
         )
     ],
     dependencies: [
@@ -58,6 +62,10 @@ let package = Package(
                 .process("Fixtures")
             ]
         ),
+        .target(
+            name: "SiriusMarkdownMath",
+            dependencies: ["SiriusMarkdownSwiftUI"]
+        ),
         .testTarget(
             name: "SiriusMarkdownTests",
             dependencies: ["SiriusMarkdown"]
@@ -73,6 +81,10 @@ let package = Package(
         .testTarget(
             name: "SiriusMarkdownPretextSupportTests",
             dependencies: ["SiriusMarkdownPretextSupport"]
+        ),
+        .testTarget(
+            name: "SiriusMarkdownMathTests",
+            dependencies: ["SiriusMarkdownMath"]
         )
     ]
 )

@@ -9,7 +9,8 @@ Native, streaming-first Markdown rendering for Apple platforms—designed for lo
 - **`swift-markdown`** (`Markdown` product) provides parsing semantics; SiriusMarkdown converts the AST to **`MarkdownBlock`** and **`MarkdownInlineRun`** value types.
 - **`MarkdownStream`** stores append-only UTF-8, incrementally scans safe seal points, reparses only the **mutable tail**, and exposes **`MarkdownSnapshot`** plus source-backed copy slices.
 - **`SiriusMarkdown`** is the app-facing umbrella module. Import **`SiriusMarkdownCore`** or **`SiriusMarkdownSwiftUI`** directly only when you need a narrower dependency.
-- **`SiriusMarkdownSwiftUI`** renders prepared snapshots with **`MarkdownDocumentView`** and **`StreamingMarkdownView`**, **`MarkdownTheme`**, and **`MarkdownRendererConfiguration`** (policies, optional link/copy actions, pluggable code highlighting and math rendering).
+- **`SiriusMarkdownSwiftUI`** renders prepared snapshots with **`MarkdownRenderSession`**, **`MarkdownDocumentView`**, **`StreamingMarkdownView`**, **`MarkdownTheme`**, and **`MarkdownRendererConfiguration`** (policies, optional link/copy actions, pluggable code highlighting, image decisions, selection/copy, and math rendering).
+- **`SiriusMarkdownMath`** is an optional product with a native math renderer. The core path remains source-preserving and renderer-agnostic.
 
 ```swift
 import SiriusMarkdown
@@ -26,25 +27,17 @@ MarkdownDocumentView(preparedSnapshot: prepared, configuration: configuration)
 
 For live updates, append to the stream (or rebuild snapshots from your pipeline) and pass the latest snapshot into **`StreamingMarkdownView`** or **`MarkdownDocumentView`**.
 
-In production paths, keep **`MarkdownRendererConfiguration`** alive in your model layer and call **`prepare(snapshot:)`** before SwiftUI evaluates renderer bodies. Prepared snapshots carry policy-gated inline text, measured inline content, highlighted code, rendered math, HTML policy decisions, table cells, list items, and host-boundary ordering. The compatibility `snapshot:` view initializers are deprecated because they hide this work at the view boundary.
+In production paths, prefer **`MarkdownRenderSession`** or keep **`MarkdownRendererConfiguration`** alive in your model layer and call **`prepare(snapshot:)`** before SwiftUI evaluates renderer bodies. Prepared snapshots carry policy-gated inline text, measured inline content, image decisions, highlighted code, rendered math, HTML policy decisions, table cells, list items, selection/copy source ranges, and host-boundary ordering. The compatibility `snapshot:` view initializers are deprecated because they hide this work at the view boundary.
 
 Markdown tables are rendered as native SwiftUI structure, not as raw pipe text. Prepared table cells keep stable source-range identities and measured inline layout, while **`MarkdownTheme`** exposes table background, header, alternate-row, border, accent, corner-radius, and padding tokens so host apps can make tables visually distinct without replacing the parser or renderer.
 
 ```swift
 @MainActor
 final class TranscriptModel: ObservableObject {
-    @Published var preparedSnapshot: MarkdownPreparedSnapshot
-
-    private var stream = MarkdownStream()
-    private let configuration = MarkdownRendererConfiguration.compactChat
-
-    init() {
-        preparedSnapshot = configuration.prepare(snapshot: stream.snapshot())
-    }
+    @Published var session = MarkdownRenderSession(configuration: .compactChat)
 
     func append(_ chunk: String) {
-        stream.append(chunk)
-        preparedSnapshot = configuration.prepare(snapshot: stream.snapshot())
+        session.append(chunk)
     }
 }
 ```
@@ -58,6 +51,7 @@ SiriusMarkdown's default tests assert this contract through renderer preparation
 | `SiriusMarkdown` | Umbrella: Core + SwiftUI |
 | `SiriusMarkdownCore` | Source buffer, stream, parser adapter, model, inline layout engine, policies, caches, diagnostics |
 | `SiriusMarkdownSwiftUI` | SwiftUI views, theme, configuration, interaction helpers |
+| `SiriusMarkdownMath` | Optional native math renderer for hosts and demos |
 | `SiriusMarkdownPretextSupport` | Fixture types and golden comparison helpers; JS oracle lives under `Tools/pretext-golden` |
 
 Platform availability matches **`Package.swift`** (e.g. macOS 13, iOS 16).
@@ -84,6 +78,7 @@ The binding renderer plan and contributor rules live in **`plan.md`** and **`AGE
 - ``SiriusMarkdownCore/MarkdownHostBoundary``
 - ``SiriusMarkdownSwiftUI/MarkdownDocumentView``
 - ``SiriusMarkdownSwiftUI/StreamingMarkdownView``
+- ``SiriusMarkdownSwiftUI/MarkdownRenderSession``
 - ``SiriusMarkdownSwiftUI/MarkdownRendererConfiguration``
 - ``SiriusMarkdownSwiftUI/MarkdownPreparedSnapshot``
 - ``SiriusMarkdownSwiftUI/MarkdownPreparedBlockContent``
@@ -107,3 +102,5 @@ The binding renderer plan and contributor rules live in **`plan.md`** and **`AGE
 - ``SiriusMarkdownCore/MarkdownMathPolicy``
 - ``SiriusMarkdownCore/DefaultMarkdownPolicy``
 - ``SiriusMarkdownSwiftUI/MarkdownCopyProvider``
+- ``SiriusMarkdownSwiftUI/MarkdownSelectionController``
+- ``SiriusMarkdownSwiftUI/MarkdownPreparedImage``

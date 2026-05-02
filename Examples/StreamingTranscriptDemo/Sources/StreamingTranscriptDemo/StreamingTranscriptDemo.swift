@@ -1,4 +1,5 @@
 import SiriusMarkdown
+import SiriusMarkdownMath
 import SwiftUI
 
 @main
@@ -39,6 +40,7 @@ private final class StreamingTranscriptModel: ObservableObject {
         let renderRecorder = MarkdownDiagnosticsRecorder()
         let configuration = MarkdownRendererConfiguration(
             theme: .compactChat,
+            mathRenderer: NativeMarkdownMathRenderer(),
             diagnosticsRecorder: renderRecorder
         )
         let stream = MarkdownStream(diagnosticsRecorder: streamRecorder)
@@ -119,6 +121,7 @@ private final class StreamingTranscriptModel: ObservableObject {
         let renderRecorder = MarkdownDiagnosticsRecorder()
         let configuration = MarkdownRendererConfiguration(
             theme: .compactChat,
+            mathRenderer: NativeMarkdownMathRenderer(),
             diagnosticsRecorder: renderRecorder
         )
 
@@ -276,6 +279,7 @@ private struct SidebarCaseButton: View {
 
 private struct StreamingCaseDetail: View {
     @ObservedObject var model: StreamingTranscriptModel
+    @State private var showsInspector = false
 
     var body: some View {
         ZStack {
@@ -288,7 +292,8 @@ private struct StreamingCaseDetail: View {
                     emittedStepCount: model.emittedStepCount,
                     totalStepCount: model.totalStepCount,
                     isPaused: model.isPaused,
-                    isFinished: model.isFinished
+                    isFinished: model.isFinished,
+                    showsInspector: $showsInspector
                 )
 
                 Divider()
@@ -311,14 +316,18 @@ private struct StreamingCaseDetail: View {
                 TranscriptSurface(model: model)
                     .frame(maxWidth: .infinity, alignment: .topLeading)
 
-                StreamInspectorPanel(model: model)
-                    .frame(width: 300)
+                if showsInspector {
+                    StreamInspectorPanel(model: model)
+                        .frame(width: 300)
+                }
             }
             .frame(maxWidth: .infinity, alignment: .topLeading)
         } else {
             VStack(alignment: .leading, spacing: 18) {
                 TranscriptSurface(model: model)
-                StreamInspectorPanel(model: model)
+                if showsInspector {
+                    StreamInspectorPanel(model: model)
+                }
             }
         }
     }
@@ -330,6 +339,7 @@ private struct DetailHeader: View {
     var totalStepCount: Int
     var isPaused: Bool
     var isFinished: Bool
+    @Binding var showsInspector: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -338,6 +348,14 @@ private struct DetailHeader: View {
                     .font(.title2.weight(.semibold))
 
                 Spacer()
+
+                Button {
+                    showsInspector.toggle()
+                } label: {
+                    Image(systemName: "sidebar.right")
+                }
+                .buttonStyle(.borderless)
+                .help(showsInspector ? "Hide diagnostics" : "Show diagnostics")
 
                 Text(statusText)
                     .font(.caption.weight(.semibold))
@@ -624,9 +642,12 @@ private struct StreamingCase: Identifiable, Hashable {
             systemImage: "message.badge.waveform",
             steps: [
                 .append("# Streaming Transcript\n\n"),
-                .append("This transcript appends Markdown in small chunks while preserving stable block identity.\n\n"),
+                .append("This transcript appends Markdown in small chunks while preserving stable block identity and inline math like $x^2 \\rightarrow y_1 + \\alpha$.\n\n"),
                 .append("- [ ] Parse only the mutable tail\n"),
                 .append("- [x] Keep sealed regions immutable\n\n"),
+                .append("$$\n"),
+                .append("tailReparseCount \\rightarrow activeTailOnly\n"),
+                .append("$$\n\n"),
                 .append("> Host apps can interleave native UI at stream boundaries.\n\n"),
                 .append("```swift\n"),
                 .append("var stream = MarkdownStream()\n"),

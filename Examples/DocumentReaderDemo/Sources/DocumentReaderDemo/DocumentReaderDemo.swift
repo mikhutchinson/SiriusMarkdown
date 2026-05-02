@@ -1,5 +1,6 @@
 import AppKit
 import SiriusMarkdown
+import SiriusMarkdownMath
 import SwiftUI
 
 @main
@@ -30,6 +31,7 @@ private final class DocumentReaderModel: ObservableObject {
         let configuration = MarkdownRendererConfiguration(
             theme: .document,
             copyProvider: copyProvider,
+            mathRenderer: NativeMarkdownMathRenderer(),
             diagnosticsRecorder: renderRecorder
         )
 
@@ -486,9 +488,13 @@ private enum DemoDocument {
     static let markdown = """
     ## Overview
 
-    This field guide is written as a compact technical brief with a table of contents, reading-width controls, source-copy behavior, and rich content that belongs in a native reader.
+    This field guide is written as a compact technical brief with a table of contents, reading-width controls, source-copy behavior, inline math like $x^2 \\rightarrow y_1 + \\alpha$, and rich content that belongs in a native reader.
 
     The reader surface should feel calm and persistent. The sidebar is for document navigation and reading metadata, the toolbar is for document actions, and the page itself stays focused on long-form content.
+
+    $$
+    readableMeasure = preparedSegments \\rightarrow layout(width)
+    $$
 
     ## Reading Workflow
 

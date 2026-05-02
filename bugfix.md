@@ -38,3 +38,8 @@
 - Fixed Swift CoreText measurement to match Pretext's selected-font profile for unsupported glyphs by using the selected font's missing-glyph advance instead of silently measuring native fallback fonts.
 - Fixed the overwide inline unit fallback cache so Swift Testing no longer crashes while exercising long-word Pretext fixtures.
 - Fixed `DocumentReaderDemo` launch crashing in `initializeWithCopy for MarkdownRendererConfiguration` after backend copy-provider changes. Document-style demos now use a source-backed `MarkdownCopyProvider(markdownSource:)` that slices exact UTF-8 source ranges without capturing a full `MarkdownStream` inside renderer configuration; added Unicode slice coverage and verified `swift test`, `Examples/MarkdownDemoApp`, and bundled `DocumentReaderDemo.app` launch.
+- Fixed the integration footgun where hosts had to manually keep stream state, renderer configuration, copy providers, caches, and prepared snapshots aligned by adding `MarkdownRenderSession`.
+- Fixed the remaining newline-injected prepared-inline view path so SwiftUI now renders the attributed payload natively while prepared line layout is still consumed for width-change counters and tests.
+- Fixed inline math coverage by detecting `$...$` as typed math runs without rewriting source and without touching code spans or fenced code.
+- Fixed image handling being only visible text by adding prepared image decisions; default behavior remains placeholder-only with no remote loading.
+- Fixed selection/copy being purely ad hoc text selection by adding a bounded block-level selection controller with source-backed Markdown and plain-text copy helpers.

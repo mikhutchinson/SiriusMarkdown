@@ -37,3 +37,8 @@
 - Added renderer-level table presentation tokens to `MarkdownTheme` and redesigned SwiftUI table rendering around prepared cell measurements, bounded adaptive columns, header/accent styling, row separators, and subtle banding.
 - Stopped `StreamingTranscriptDemo` from publishing renderer configuration changes, avoiding unnecessary Combine copies during macOS window startup while still refreshing prepared snapshots through the model.
 - Redesigned `MarkdownDemoApp` into a sidebar-driven static-document workbench with renderer coverage metrics, pipeline counters, and expanded examples for inline policy, tables, wide blocks, multilingual layout, math/HTML policy, and long-form documents.
+- Added `MarkdownRenderSession` as the public streaming/document integration seam that owns stream state, long-lived renderer configuration, source-backed copy, prepared snapshots, caches, and diagnostics counters.
+- Replaced SwiftUI's newline-injected prepared-inline render path with native `Text(AttributedString)` rendering while still consuming prepared `InlineLayoutResult` records for width-change diagnostics and layout reuse.
+- Added bounded `MarkdownSelectionController` support for block-level selection, source-backed Markdown copy, plain-text copy, and selection rendering without per-fragment overlay growth.
+- Added source-preserving inline math detection outside code spans/fences, prepared image decisions with placeholder-safe defaults, a theme-aware default code highlighter, and an optional `SiriusMarkdownMath` product used by the demos.
+- Added `Docs/textual-replacement-scorecard.md` and `Tools/product-check.sh` to make Textual-replacement quality a product gate instead of a claim.

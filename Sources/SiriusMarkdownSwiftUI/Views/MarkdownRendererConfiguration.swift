@@ -1,4 +1,5 @@
 import SiriusMarkdownCore
+import Foundation
 import SwiftUI
 
 public protocol MarkdownCodeHighlighter: Sendable {
@@ -9,6 +10,41 @@ public protocol MarkdownMathRenderer: Sendable {
     func renderedMath(_ source: String, isBlock: Bool) -> AttributedString
 }
 
+public enum MarkdownPreparedImageSource: Sendable, Hashable {
+    case placeholder(reason: String)
+    case localFile(path: String)
+    case data(Data, mimeType: String)
+    case remote(URL)
+}
+
+public struct MarkdownPreparedImage: Sendable, Hashable {
+    public var source: String
+    public var altText: String?
+    public var sourceRange: MarkdownSourceRange?
+    public var preparedSource: MarkdownPreparedImageSource
+
+    public init(
+        source: String,
+        altText: String?,
+        sourceRange: MarkdownSourceRange?,
+        preparedSource: MarkdownPreparedImageSource
+    ) {
+        self.source = source
+        self.altText = altText
+        self.sourceRange = sourceRange
+        self.preparedSource = preparedSource
+    }
+}
+
+public protocol MarkdownImageResolver: Sendable {
+    func preparedImage(
+        source: String,
+        altText: String?,
+        sourceRange: MarkdownSourceRange?,
+        policyDecision: MarkdownPolicyDecision
+    ) -> MarkdownPreparedImage
+}
+
 public struct PlainMarkdownCodeHighlighter: MarkdownCodeHighlighter {
     public init() {}
 
@@ -16,6 +52,47 @@ public struct PlainMarkdownCodeHighlighter: MarkdownCodeHighlighter {
         var highlighted = AttributedString(code)
         highlighted.inlinePresentationIntent = .code
         return highlighted
+    }
+}
+
+public struct DefaultMarkdownCodeHighlighter: MarkdownCodeHighlighter {
+    public init() {}
+
+    public func highlightedCode(_ code: String, infoString: String?) -> AttributedString {
+        let language = infoString?.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        var result = AttributedString()
+
+        for token in CodeToken.tokenize(code) {
+            var piece = AttributedString(token.text)
+            piece.inlinePresentationIntent = .code
+            if let color = color(for: token, language: language) {
+                piece.foregroundColor = color
+            }
+            result.append(piece)
+        }
+
+        return result
+    }
+
+    private func color(for token: CodeToken, language: String?) -> Color? {
+        guard token.kind != .plain else {
+            return nil
+        }
+
+        switch token.kind {
+        case .keyword:
+            return .purple
+        case .string:
+            return .green
+        case .number:
+            return .orange
+        case .comment:
+            return .secondary
+        case .property:
+            return language == "json" ? .blue : nil
+        case .plain:
+            return nil
+        }
     }
 }
 
@@ -29,12 +106,39 @@ public struct PlainMarkdownMathRenderer: MarkdownMathRenderer {
     }
 }
 
+public struct DefaultMarkdownImageResolver: MarkdownImageResolver {
+    public init() {}
+
+    public func preparedImage(
+        source: String,
+        altText: String?,
+        sourceRange: MarkdownSourceRange?,
+        policyDecision: MarkdownPolicyDecision
+    ) -> MarkdownPreparedImage {
+        let preparedSource: MarkdownPreparedImageSource
+        switch policyDecision {
+        case .allow:
+            preparedSource = .placeholder(reason: "Image rendering requires a host image resolver.")
+        case let .deny(reason):
+            preparedSource = .placeholder(reason: reason)
+        }
+
+        return MarkdownPreparedImage(
+            source: source,
+            altText: altText,
+            sourceRange: sourceRange,
+            preparedSource: preparedSource
+        )
+    }
+}
+
 public struct MarkdownRendererConfiguration: Sendable {
     public var theme: MarkdownTheme
     public var linkAction: MarkdownLinkAction?
     public var copyProvider: MarkdownCopyProvider?
     public var linkPolicy: any MarkdownLinkPolicy
     public var imagePolicy: any MarkdownImagePolicy
+    public var imageResolver: any MarkdownImageResolver
     public var htmlPolicy: any MarkdownHTMLPolicy
     public var codePolicy: any MarkdownCodePolicy
     public var mathPolicy: any MarkdownMathPolicy
@@ -49,10 +153,11 @@ public struct MarkdownRendererConfiguration: Sendable {
         copyProvider: MarkdownCopyProvider? = nil,
         linkPolicy: any MarkdownLinkPolicy = DefaultMarkdownPolicy(),
         imagePolicy: any MarkdownImagePolicy = DefaultMarkdownPolicy(),
+        imageResolver: any MarkdownImageResolver = DefaultMarkdownImageResolver(),
         htmlPolicy: any MarkdownHTMLPolicy = DefaultMarkdownPolicy(),
         codePolicy: any MarkdownCodePolicy = DefaultMarkdownPolicy(),
         mathPolicy: any MarkdownMathPolicy = DefaultMarkdownPolicy(),
-        codeHighlighter: any MarkdownCodeHighlighter = PlainMarkdownCodeHighlighter(),
+        codeHighlighter: any MarkdownCodeHighlighter = DefaultMarkdownCodeHighlighter(),
         mathRenderer: any MarkdownMathRenderer = PlainMarkdownMathRenderer(),
         preparationCache: MarkdownRenderPreparationCache = MarkdownRenderPreparationCache(),
         diagnosticsRecorder: MarkdownDiagnosticsRecorder = MarkdownDiagnosticsRecorder()
@@ -62,6 +167,7 @@ public struct MarkdownRendererConfiguration: Sendable {
         self.copyProvider = copyProvider
         self.linkPolicy = linkPolicy
         self.imagePolicy = imagePolicy
+        self.imageResolver = imageResolver
         self.htmlPolicy = htmlPolicy
         self.codePolicy = codePolicy
         self.mathPolicy = mathPolicy
@@ -71,8 +177,13 @@ public struct MarkdownRendererConfiguration: Sendable {
         self.diagnosticsRecorder = diagnosticsRecorder
     }
 
-    public static let compactChat = MarkdownRendererConfiguration(theme: .compactChat)
-    public static let document = MarkdownRendererConfiguration(theme: .document)
+    public static var compactChat: MarkdownRendererConfiguration {
+        MarkdownRendererConfiguration(theme: .compactChat)
+    }
+
+    public static var document: MarkdownRendererConfiguration {
+        MarkdownRendererConfiguration(theme: .document)
+    }
 
     public func prepare(block: MarkdownBlock) -> MarkdownPreparedBlockContent {
         diagnosticsRecorder.recordRenderPreparation()
@@ -231,12 +342,9 @@ public struct MarkdownRendererConfiguration: Sendable {
         }
 
         diagnosticsRecorder.recordCacheMiss()
-        let attributed = InlineRunsView.attributedString(
-            for: runs,
-            linkPolicy: linkPolicy,
-            imagePolicy: imagePolicy
-        )
-        let prepared = PreparedInlineContent(runs: runs, sourceRange: sourceRange)
+        let inlinePayload = preparedInlinePayload(for: runs)
+        let images = preparedImages(for: runs)
+        let prepared = PreparedInlineContent(runs: inlinePayload.runs, sourceRange: sourceRange)
         diagnosticsRecorder.recordPrepare()
         let measured = VariableWidthLineWalker().prepare(
             prepared,
@@ -244,15 +352,66 @@ public struct MarkdownRendererConfiguration: Sendable {
         )
         let layoutCache = MarkdownInlineLayoutCache(diagnosticsRecorder: diagnosticsRecorder)
         let inline = MarkdownPreparedInlineContent(
-            attributed: attributed,
+            attributed: inlinePayload.attributed,
             prepared: prepared,
             measured: measured,
+            images: images,
             fontSize: metrics.fontSize,
             lineHeight: metrics.lineHeight,
             layoutCache: layoutCache
         )
         preparationCache.insertInline(inline, forKey: key)
         return inline
+    }
+
+    private func preparedInlinePayload(
+        for runs: [MarkdownInlineRun]
+    ) -> (runs: [MarkdownInlineRun], attributed: AttributedString) {
+        var displayRuns: [MarkdownInlineRun] = []
+        var attributed = AttributedString()
+
+        for run in runs {
+            guard run.kind == .math else {
+                displayRuns.append(run)
+                attributed.append(
+                    InlineRunsView.attributedString(
+                        for: [run],
+                        linkPolicy: linkPolicy,
+                        imagePolicy: imagePolicy
+                    )
+                )
+                continue
+            }
+
+            switch mathPolicy.evaluateMath(run.text, isBlock: false) {
+            case .allow:
+                diagnosticsRecorder.recordMathRender()
+                let rendered = MarkdownDiagnostics().signpost("MathRender", category: "RenderPreparation") {
+                    mathRenderer.renderedMath(run.text, isBlock: false)
+                }
+                attributed.append(rendered)
+                let renderedText = String(rendered.characters)
+                displayRuns.append(
+                    MarkdownInlineRun(
+                        kind: .math,
+                        text: renderedText.isEmpty ? run.text : renderedText,
+                        sourceRange: run.sourceRange,
+                        destination: run.destination
+                    )
+                )
+            case .deny:
+                displayRuns.append(run)
+                attributed.append(
+                    InlineRunsView.attributedString(
+                        for: [run],
+                        linkPolicy: linkPolicy,
+                        imagePolicy: imagePolicy
+                    )
+                )
+            }
+        }
+
+        return (displayRuns, attributed)
     }
 
     private func preparedListItems(_ items: [MarkdownListItem]) -> [MarkdownPreparedListItem] {
@@ -267,6 +426,24 @@ public struct MarkdownRendererConfiguration: Sendable {
                 childListKind: item.childListKind,
                 childOrderedListStart: item.childOrderedListStart,
                 childItems: preparedListItems(item.childItems)
+            )
+        }
+    }
+
+    private func preparedImages(for runs: [MarkdownInlineRun]) -> [MarkdownPreparedImage] {
+        runs.compactMap { run in
+            guard run.kind == .image,
+                  let source = run.destination
+            else {
+                return nil
+            }
+
+            let decision = imagePolicy.evaluateImage(source: source, altText: run.text)
+            return imageResolver.preparedImage(
+                source: source,
+                altText: run.text.isEmpty ? nil : run.text,
+                sourceRange: run.sourceRange,
+                policyDecision: decision
             )
         }
     }
@@ -348,6 +525,7 @@ public struct MarkdownPreparedInlineContent: Sendable {
     public var attributed: AttributedString
     public var prepared: PreparedInlineContent
     public var measured: MeasuredInlineContent
+    public var images: [MarkdownPreparedImage]
     public var fontSize: Double
     public var lineHeight: Double
     public var layoutCache: MarkdownInlineLayoutCache
@@ -356,6 +534,7 @@ public struct MarkdownPreparedInlineContent: Sendable {
         attributed: AttributedString,
         prepared: PreparedInlineContent,
         measured: MeasuredInlineContent,
+        images: [MarkdownPreparedImage] = [],
         fontSize: Double,
         lineHeight: Double,
         layoutCache: MarkdownInlineLayoutCache = MarkdownInlineLayoutCache()
@@ -363,6 +542,7 @@ public struct MarkdownPreparedInlineContent: Sendable {
         self.attributed = attributed
         self.prepared = prepared
         self.measured = measured
+        self.images = images
         self.fontSize = fontSize
         self.lineHeight = lineHeight
         self.layoutCache = layoutCache
@@ -664,5 +844,116 @@ public struct MarkdownBlockRenderPlan: Sendable, Equatable {
         self.mathAllowed = mathAllowed
         self.htmlAllowed = htmlAllowed
         self.policyDenialReason = policyDenialReason
+    }
+}
+
+private struct CodeToken: Sendable, Hashable {
+    enum Kind: Sendable, Hashable {
+        case plain
+        case keyword
+        case string
+        case number
+        case comment
+        case property
+    }
+
+    var text: String
+    var kind: Kind
+
+    static func tokenize(_ code: String) -> [CodeToken] {
+        guard !code.isEmpty else {
+            return []
+        }
+
+        var tokens: [CodeToken] = []
+        var cursor = code.startIndex
+
+        while cursor < code.endIndex {
+            let character = code[cursor]
+
+            if character == "\"" {
+                let start = cursor
+                cursor = code.index(after: cursor)
+                var escaped = false
+                while cursor < code.endIndex {
+                    let next = code[cursor]
+                    cursor = code.index(after: cursor)
+                    if escaped {
+                        escaped = false
+                    } else if next == "\\" {
+                        escaped = true
+                    } else if next == "\"" {
+                        break
+                    }
+                }
+                let text = String(code[start..<cursor])
+                let lookahead = code[cursor...].drop { $0.isWhitespace }
+                tokens.append(CodeToken(text: text, kind: lookahead.first == ":" ? .property : .string))
+                continue
+            }
+
+            if character == "/" {
+                let next = code.index(after: cursor)
+                if next < code.endIndex, code[next] == "/" {
+                    let start = cursor
+                    cursor = code[next...].firstIndex(of: "\n") ?? code.endIndex
+                    tokens.append(CodeToken(text: String(code[start..<cursor]), kind: .comment))
+                    continue
+                }
+            }
+
+            if character == "#" {
+                let start = cursor
+                cursor = code[cursor...].firstIndex(of: "\n") ?? code.endIndex
+                tokens.append(CodeToken(text: String(code[start..<cursor]), kind: .comment))
+                continue
+            }
+
+            if character.isNumber {
+                let start = cursor
+                repeat {
+                    cursor = code.index(after: cursor)
+                } while cursor < code.endIndex && (code[cursor].isNumber || code[cursor] == ".")
+                tokens.append(CodeToken(text: String(code[start..<cursor]), kind: .number))
+                continue
+            }
+
+            if character.isLetter || character == "_" {
+                let start = cursor
+                repeat {
+                    cursor = code.index(after: cursor)
+                } while cursor < code.endIndex && (code[cursor].isLetter || code[cursor].isNumber || code[cursor] == "_")
+
+                let text = String(code[start..<cursor])
+                tokens.append(CodeToken(text: text, kind: keywords.contains(text) ? .keyword : .plain))
+                continue
+            }
+
+            let start = cursor
+            cursor = code.index(after: cursor)
+            tokens.append(CodeToken(text: String(code[start..<cursor]), kind: .plain))
+        }
+
+        return mergeAdjacentPlainTokens(tokens)
+    }
+
+    private static let keywords: Set<String> = [
+        "actor", "await", "case", "catch", "class", "const", "do", "done", "else",
+        "enum", "export", "false", "fi", "for", "func", "function", "guard", "if",
+        "import", "in", "let", "nil", "null", "private", "public", "return", "set",
+        "static", "struct", "switch", "then", "throw", "throws", "true", "try",
+        "var", "while"
+    ]
+
+    private static func mergeAdjacentPlainTokens(_ tokens: [CodeToken]) -> [CodeToken] {
+        var merged: [CodeToken] = []
+        for token in tokens {
+            if token.kind == .plain, merged.last?.kind == .plain {
+                merged[merged.count - 1].text.append(token.text)
+            } else {
+                merged.append(token)
+            }
+        }
+        return merged
     }
 }

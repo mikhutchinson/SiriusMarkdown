@@ -20,7 +20,8 @@ let package = Package(
         .executableTarget(
             name: "DocumentReaderDemo",
             dependencies: [
-                .product(name: "SiriusMarkdown", package: "SiriusMarkdown")
+                .product(name: "SiriusMarkdown", package: "SiriusMarkdown"),
+                .product(name: "SiriusMarkdownMath", package: "SiriusMarkdown")
             ]
         )
     ]
