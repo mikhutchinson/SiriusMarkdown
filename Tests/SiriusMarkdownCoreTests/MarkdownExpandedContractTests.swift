@@ -407,6 +407,32 @@ final class CountingWidthMeasurer: InlineMeasuring, @unchecked Sendable {
     }
 }
 
+final class SegmentRecordingMeasurer: InlineMeasuring, @unchecked Sendable {
+    private let lock = NSLock()
+    private var recordedKinds: [MarkdownInlineKind] = []
+
+    var measurementCacheKey: String {
+        "segment-recording"
+    }
+
+    func width(of text: String, fontSize: Double) -> Double {
+        Double(text.utf8.count)
+    }
+
+    func width(of segment: PreparedInlineSegment, fontSize: Double) -> Double {
+        lock.withLock {
+            recordedKinds.append(segment.kind)
+        }
+        return Double(segment.text.utf8.count)
+    }
+
+    var kinds: [MarkdownInlineKind] {
+        lock.withLock {
+            recordedKinds
+        }
+    }
+}
+
 private struct LayoutCase: Sendable {
     var text: String
     var width: Double
@@ -444,12 +470,98 @@ private func layoutWalkerProducesDeterministicLineCounts(layoutCase: LayoutCase)
 @Test
 private func coreTextMeasurerMatchesPretextBaseFontProfileForMissingGlyphs() {
     #if canImport(CoreText)
-    let measurer = CoreTextInlineMeasurer()
+    let measurer = CoreTextInlineMeasurer(fontName: "Helvetica")
 
     #expect(abs(measurer.width(of: "Hello SiriusMarkdown", fontSize: 16) - 154.72) < 0.5)
     #expect(abs(measurer.width(of: "🚀🚀 春天 emoji wrap", fontSize: 16) - 126.82) < 0.5)
     #expect(abs(measurer.width(of: "بدأت الرحلة ثم اكتملت", fontSize: 16) - 195.87) < 0.5)
     #endif
+}
+
+@Test
+private func defaultCoreTextMeasurerUsesSystemProfileInsteadOfHelvetica() {
+    let defaultMeasurer = CoreTextInlineMeasurer()
+    let helveticaMeasurer = CoreTextInlineMeasurer(fontName: "Helvetica")
+
+    #expect(defaultMeasurer.measurementCacheKey.contains("system"))
+    #expect(defaultMeasurer.measurementCacheKey.contains("Helvetica") == false)
+    #expect(defaultMeasurer.measurementCacheKey != helveticaMeasurer.measurementCacheKey)
+}
+
+@Test
+private func fontProfilesProduceDistinctMeasurementCacheKeys() {
+    let system = CoreTextInlineMeasurer()
+    let helvetica = CoreTextInlineMeasurer(fontName: "Helvetica")
+    let menlo = CoreTextInlineMeasurer(fontName: "Menlo")
+    let mixed = CoreTextInlineMeasurer(
+        profiles: MarkdownInlineFontProfiles(
+            body: .system(),
+            emphasis: .system(),
+            strong: .system(weight: .bold),
+            code: .monospacedSystem(),
+            math: .monospacedSystem(weight: .semibold),
+            imagePlaceholder: .system(weight: .medium)
+        )
+    )
+
+    #expect(Set([
+        system.measurementCacheKey,
+        helvetica.measurementCacheKey,
+        menlo.measurementCacheKey,
+        mixed.measurementCacheKey
+    ]).count == 4)
+}
+
+@Test
+private func measuredInlineCacheIncludesMeasurementProfileIdentity() {
+    let recorder = MarkdownDiagnosticsRecorder()
+    var engine = InlineLayoutEngine(
+        measurer: CoreTextInlineMeasurer(fontName: "Helvetica"),
+        cacheCapacity: 8,
+        diagnosticsRecorder: recorder
+    )
+    let range = MarkdownSourceRange(byteRange: 0..<11, lineRange: 1..<2)
+    let prepared = PreparedInlineContent(
+        runs: [.init(kind: .text, text: "hello world")],
+        sourceRange: range
+    )
+
+    _ = engine.prepareMeasuredContent(prepared, fontSize: 16)
+    let afterFirst = recorder.snapshot()
+    _ = engine.prepareMeasuredContent(prepared, fontSize: 16)
+    let afterSecond = recorder.snapshot()
+    engine.walker.measurer = CoreTextInlineMeasurer(fontName: "Menlo")
+    _ = engine.prepareMeasuredContent(prepared, fontSize: 16)
+    let afterProfileChange = recorder.snapshot()
+
+    #expect(afterFirst.prepareCount == 1)
+    #expect(afterSecond.prepareCount == afterFirst.prepareCount)
+    #expect(afterSecond.cacheHitCount == afterFirst.cacheHitCount + 1)
+    #expect(afterProfileChange.prepareCount == afterFirst.prepareCount + 1)
+}
+
+@Test
+private func variableWidthWalkerMeasuresSegmentsWithSemanticKinds() {
+    let measurer = SegmentRecordingMeasurer()
+    let walker = VariableWidthLineWalker(measurer: measurer)
+    let prepared = PreparedInlineContent(
+        runs: [
+            .init(kind: .text, text: "body "),
+            .init(kind: .strong, text: "strong"),
+            .init(kind: .code, text: "code"),
+            .init(kind: .math, text: "x^2"),
+            .init(kind: .image, text: "diagram")
+        ]
+    )
+
+    _ = walker.prepare(prepared, fontSize: 16)
+    let kinds = Set(measurer.kinds)
+
+    #expect(kinds.contains(.text))
+    #expect(kinds.contains(.strong))
+    #expect(kinds.contains(.code))
+    #expect(kinds.contains(.math))
+    #expect(kinds.contains(.image))
 }
 
 @Test

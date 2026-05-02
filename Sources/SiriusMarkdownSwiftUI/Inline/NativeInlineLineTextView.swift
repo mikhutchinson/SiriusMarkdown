@@ -7,16 +7,20 @@ struct NativeInlineLineTextView: View {
     var fallbackAttributed: AttributedString
     var baseFont: Font
     var theme: MarkdownTheme
+    var containerWidth: CGFloat
 
     static var isSupported: Bool { true }
 
     var body: some View {
         let lines = InlineRunsView.attributedLines(for: prepared, layout: layoutResult)
+        let width = max(0, containerWidth)
 
         if lines.isEmpty {
             Text(fallbackAttributed)
                 .font(baseFont)
                 .foregroundStyle(theme.textColor)
+                .frame(width: width, alignment: .leading)
+                .clipped()
         } else {
             VStack(alignment: .leading, spacing: lineSpacing) {
                 ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
@@ -26,12 +30,15 @@ struct NativeInlineLineTextView: View {
                         .foregroundStyle(theme.textColor)
                         .lineLimit(1)
                         .fixedSize(horizontal: true, vertical: true)
+                        .frame(width: width, alignment: .leading)
+                        .clipped()
                         .frame(minHeight: CGFloat(prepared.lineHeight), alignment: .leading)
                         .opacity(isEmpty ? 0 : 1)
                         .accessibilityHidden(isEmpty)
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(width: width, alignment: .leading)
+            .clipped()
             .accessibilityElement(children: .combine)
             .accessibilityLabel(String(fallbackAttributed.characters))
         }

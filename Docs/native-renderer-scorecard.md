@@ -10,7 +10,8 @@ The goal is a native, streaming-first Markdown renderer for Apple applications: 
 - Streaming: appends reparse only the mutable tail; sealed regions stay immutable and cacheable.
 - Resize: width changes perform cheap prepared layout only.
 - Rendering: paragraphs, headings, nested/task lists, quotes, code, tables, math, links, images, and host boundaries have structured native render paths.
-- Inline rendering: packaged chat and document presets use `MarkdownInlineRenderingMode.preparedNativeLines`, so visible wrapping is driven by cached prepared line ranges. `MarkdownInlineRenderingMode.systemText` remains an explicit compatibility fallback for custom configurations.
+- Inline rendering: packaged chat and document presets use `MarkdownInlineRenderingMode.preparedNativeLines`, so visible wrapping is driven by cached prepared line ranges contained to the finite proposal. `MarkdownInlineRenderingMode.systemText` remains an explicit compatibility fallback for custom configurations.
+- Font measurement: production CoreText measurement defaults to system-profile fonts and includes font profiles in cache identity; Pretext fixtures pin explicit named fonts for oracle stability.
 - Safety: links, images, HTML, code, and math stay policy controlled, with no remote image fetch by default.
 - Interaction: selection and copy are bounded at block/range level and never create unbounded per-fragment overlays.
 - Product surfaces: demos show clean transcript and reader behavior first, with diagnostics available as inspection rather than primary UI.
@@ -23,7 +24,7 @@ Run:
 bash Tools/product-check.sh
 ```
 
-The gate wraps the release check and adds focused product checks for render sessions, selection, long transcript behavior, resize discipline, required Pretext fixture groups, and AppKit-rendered document/chat/overflow/multilingual output.
+The gate wraps the release check and adds focused product checks for render sessions, selection, long transcript behavior, resize discipline, required Pretext fixture groups, and AppKit-rendered document/chat/overflow/multilingual/finite-column containment output.
 
 ## Release Claim
 

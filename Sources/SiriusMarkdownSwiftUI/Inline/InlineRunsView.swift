@@ -168,11 +168,12 @@ public struct InlineRunsView: View {
 
     public nonisolated static func lineLayout(
         for prepared: MarkdownPreparedInlineContent,
-        containerWidth: Double
+        containerWidth: Double,
+        allowsOverwideFallback: Bool = false
     ) -> InlineLayoutResult {
         prepared.layout(
             containerWidth: containerWidth,
-            allowsOverwideFallback: false
+            allowsOverwideFallback: allowsOverwideFallback
         )
     }
 
@@ -279,21 +280,39 @@ private struct PreparedInlineTextView: View {
 
     @State private var containerWidth: CGFloat = 0
     @State private var layoutResult = InlineLayoutResult(lines: [], naturalWidth: 0, height: 0)
+    @State private var recordedNonFiniteFallback = false
+    @State private var recordedClipping = false
 
     @ViewBuilder
     var body: some View {
-        renderedText
+        PreparedInlineProposalLayout {
+            renderedText
+                .background(widthReader)
+        }
             .environment(\.openURL, openURLAction)
             .frame(maxWidth: .infinity, alignment: .leading)
             .accessibilityValue(layoutResult.lines.isEmpty ? "" : "\(layoutResult.lines.count) prepared lines")
-            .background(widthReader)
             .onPreferenceChange(PreparedInlineWidthPreferenceKey.self) { width in
-                if width > 0, abs(width - containerWidth) > 0.5 {
+                guard width.isFinite, width > 0 else {
+                    if !recordedNonFiniteFallback {
+                        recordedNonFiniteFallback = true
+                        prepared.layoutCache.recordNonFiniteInlineProposalFallback()
+                    }
+                    return
+                }
+
+                if abs(width - containerWidth) > 0.5 {
                     containerWidth = width
                     layoutResult = InlineRunsView.lineLayout(
                         for: prepared,
-                        containerWidth: Double(width)
+                        containerWidth: Double(width),
+                        allowsOverwideFallback: true
                     )
+                    if !recordedClipping,
+                       layoutResult.lines.contains(where: { $0.width > Double(width) + 0.5 }) {
+                        recordedClipping = true
+                        prepared.layoutCache.recordNativeLineClipping()
+                    }
                 }
             }
     }
@@ -309,12 +328,15 @@ private struct PreparedInlineTextView: View {
                 layoutResult: layoutResult,
                 fallbackAttributed: fallbackAttributed,
                 baseFont: baseFont,
-                theme: theme
+                theme: theme,
+                containerWidth: containerWidth
             )
         } else {
             Text(fallbackAttributed)
                 .font(baseFont)
                 .foregroundStyle(theme.textColor)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .clipped()
         }
     }
 
@@ -349,5 +371,49 @@ private struct PreparedInlineWidthPreferenceKey: PreferenceKey {
         if next > 0 {
             value = next
         }
+    }
+}
+
+private struct PreparedInlineProposalLayout: Layout {
+    func sizeThatFits(
+        proposal: ProposedViewSize,
+        subviews: Subviews,
+        cache _: inout ()
+    ) -> CGSize {
+        guard let subview = subviews.first else {
+            return .zero
+        }
+
+        let proposedWidth = finiteWidth(from: proposal)
+        let childProposal = ProposedViewSize(width: proposedWidth, height: proposal.height)
+        let childSize = subview.sizeThatFits(childProposal)
+        let width = proposedWidth ?? childSize.width
+        return CGSize(width: width, height: childSize.height)
+    }
+
+    func placeSubviews(
+        in bounds: CGRect,
+        proposal: ProposedViewSize,
+        subviews: Subviews,
+        cache _: inout ()
+    ) {
+        guard let subview = subviews.first else {
+            return
+        }
+
+        let proposedWidth = bounds.width.isFinite && bounds.width > 0
+            ? bounds.width
+            : finiteWidth(from: proposal)
+        subview.place(
+            at: bounds.origin,
+            proposal: ProposedViewSize(width: proposedWidth, height: bounds.height)
+        )
+    }
+
+    private func finiteWidth(from proposal: ProposedViewSize) -> CGFloat? {
+        guard let width = proposal.width, width.isFinite, width > 0 else {
+            return nil
+        }
+        return width
     }
 }

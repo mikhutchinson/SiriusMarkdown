@@ -40,13 +40,19 @@ func bundledPretextFixturesCompareAgainstSwiftLayout() throws {
     for fixture in fixtures {
         let runs = try parsedInlineRuns(for: fixture)
         if let expectedInlineKinds = fixture.expectedInlineKinds {
-            #expect(runs.map(\.kind) == expectedInlineKinds, "\(fixture.name) inline kinds must come from swift-markdown")
+            if runs.map(\.kind) != expectedInlineKinds {
+                Issue.record("\(fixture.name) inline kinds must come from swift-markdown")
+            }
         }
 
         let prepared = PreparedInlineContent(runs: runs)
-        #expect(prepared.naturalText == fixture.oracleText ?? fixture.markdown)
+        if prepared.naturalText != fixture.oracleText ?? fixture.markdown {
+            Issue.record("\(fixture.name) prepared natural text drifted from oracle text.")
+        }
         if let expectedPreparedSegments = fixture.expectedPreparedSegments {
-            #expect(prepared.segments.map(PretextExpectedPreparedSegment.init) == expectedPreparedSegments)
+            if prepared.segments.map(PretextExpectedPreparedSegment.init) != expectedPreparedSegments {
+                Issue.record("\(fixture.name) prepared segments drifted from fixture.")
+            }
         }
 
         let font = fontProfile(for: fixture)
@@ -66,7 +72,9 @@ func bundledPretextFixturesCompareAgainstSwiftLayout() throws {
             naturalText: prepared.naturalText,
             tolerance: 2
         )
-        #expect(differences.isEmpty, "Pretext drift for \(fixture.name): \(differences)")
+        if !differences.isEmpty {
+            Issue.record("Pretext drift for \(fixture.name): \(differences)")
+        }
     }
 }
 

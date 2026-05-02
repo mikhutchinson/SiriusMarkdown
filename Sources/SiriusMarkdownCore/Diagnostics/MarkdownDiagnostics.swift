@@ -14,7 +14,9 @@ public struct MarkdownDiagnosticsCounters: Sendable, Hashable {
     public var boundaryScanCount: Int
     public var boundaryScannedByteCount: Int
     public var boundaryScannedLineCount: Int
+    public var nonFiniteInlineProposalFallbackCount: Int
     public var overwideUnitFallbackCount: Int
+    public var nativeLineClippingCount: Int
     public var cacheHitCount: Int
     public var cacheMissCount: Int
     public var sealedRegionCacheHitCount: Int
@@ -33,7 +35,9 @@ public struct MarkdownDiagnosticsCounters: Sendable, Hashable {
         boundaryScanCount: Int = 0,
         boundaryScannedByteCount: Int = 0,
         boundaryScannedLineCount: Int = 0,
+        nonFiniteInlineProposalFallbackCount: Int = 0,
         overwideUnitFallbackCount: Int = 0,
+        nativeLineClippingCount: Int = 0,
         cacheHitCount: Int = 0,
         cacheMissCount: Int = 0,
         sealedRegionCacheHitCount: Int = 0,
@@ -51,7 +55,9 @@ public struct MarkdownDiagnosticsCounters: Sendable, Hashable {
         self.boundaryScanCount = boundaryScanCount
         self.boundaryScannedByteCount = boundaryScannedByteCount
         self.boundaryScannedLineCount = boundaryScannedLineCount
+        self.nonFiniteInlineProposalFallbackCount = nonFiniteInlineProposalFallbackCount
         self.overwideUnitFallbackCount = overwideUnitFallbackCount
+        self.nativeLineClippingCount = nativeLineClippingCount
         self.cacheHitCount = cacheHitCount
         self.cacheMissCount = cacheMissCount
         self.sealedRegionCacheHitCount = sealedRegionCacheHitCount
@@ -129,6 +135,18 @@ public final class MarkdownDiagnosticsRecorder: @unchecked Sendable {
     public func recordOverwideUnitFallback() {
         lock.withLock {
             counters.overwideUnitFallbackCount += 1
+        }
+    }
+
+    public func recordNonFiniteInlineProposalFallback() {
+        lock.withLock {
+            counters.nonFiniteInlineProposalFallbackCount += 1
+        }
+    }
+
+    public func recordNativeLineClipping() {
+        lock.withLock {
+            counters.nativeLineClippingCount += 1
         }
     }
 

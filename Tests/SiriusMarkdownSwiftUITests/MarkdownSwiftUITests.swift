@@ -423,6 +423,66 @@ func rendererPreparationDoesNotEagerlyPopulatePerCharacterUnits() throws {
 }
 
 @Test
+func rendererPreparationCacheSeparatesIncompatibleFontProfiles() throws {
+    let block = try firstBlock("alpha beta gamma delta")
+    let cache = MarkdownRenderPreparationCache()
+    let recorder = MarkdownDiagnosticsRecorder()
+    let helveticaTheme = MarkdownTheme(
+        paragraphFontProfiles: MarkdownInlineFontProfiles(uniform: .named("Helvetica"))
+    )
+    let menloTheme = MarkdownTheme(
+        paragraphFontProfiles: MarkdownInlineFontProfiles(uniform: .named("Menlo"))
+    )
+    let helveticaConfiguration = MarkdownRendererConfiguration(
+        theme: helveticaTheme,
+        preparationCache: cache,
+        diagnosticsRecorder: recorder
+    )
+    let menloConfiguration = MarkdownRendererConfiguration(
+        theme: menloTheme,
+        preparationCache: cache,
+        diagnosticsRecorder: recorder
+    )
+
+    _ = helveticaConfiguration.prepare(block: block)
+    let afterFirst = recorder.snapshot()
+    _ = helveticaConfiguration.prepare(block: block)
+    let afterSecond = recorder.snapshot()
+    _ = menloConfiguration.prepare(block: block)
+    let afterProfileChange = recorder.snapshot()
+
+    #expect(afterFirst.prepareCount == 1)
+    #expect(afterSecond.prepareCount == afterFirst.prepareCount)
+    #expect(afterSecond.cacheHitCount == afterFirst.cacheHitCount + 1)
+    #expect(afterProfileChange.prepareCount == afterFirst.prepareCount + 1)
+}
+
+@Test
+func preparedNativeLineLayoutUsesOverwideFallbackForLongPlainWords() throws {
+    var stream = MarkdownStream()
+    stream.append("abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz")
+    stream.finish()
+    let snapshot = stream.snapshot()
+    let recorder = MarkdownDiagnosticsRecorder()
+    let configuration = MarkdownRendererConfiguration(
+        inlineRenderingMode: .preparedNativeLines,
+        diagnosticsRecorder: recorder
+    )
+    let prepared = configuration.prepare(snapshot: snapshot)
+    let block = try #require(snapshot.blocks.first)
+    let inlineLayout = try #require(prepared.preparedContentByBlockID[block.id]?.inlineLayout)
+
+    let result = InlineRunsView.lineLayout(
+        for: inlineLayout,
+        containerWidth: 48,
+        allowsOverwideFallback: true
+    )
+
+    #expect(result.lines.count > 1)
+    #expect(result.lines.allSatisfy { $0.width <= 48.5 })
+    #expect(recorder.snapshot().overwideUnitFallbackCount > 0)
+}
+
 func repeatedPreparationReusesInlineCodeAndMathCaches() throws {
     var stream = MarkdownStream()
     stream.append(

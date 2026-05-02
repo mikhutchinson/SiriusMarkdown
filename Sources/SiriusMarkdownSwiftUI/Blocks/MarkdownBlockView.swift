@@ -46,6 +46,7 @@ public struct MarkdownBlockView: View {
                         .frame(width: 3)
                     inlineContent(baseFont: theme.paragraphFont, fallbackText: block.text)
                         .foregroundStyle(theme.secondaryTextColor)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             case .thematicBreak:
@@ -186,6 +187,7 @@ public struct MarkdownBlockView: View {
                 }
                 .padding(.vertical, 4)
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
         } else {
             inlineContent(baseFont: theme.codeFont, fallbackText: block.text)
         }
@@ -534,6 +536,7 @@ private struct MarkdownListItemRow: View {
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
 
             if !item.childItems.isEmpty {
                 MarkdownListItemsView(
@@ -544,8 +547,10 @@ private struct MarkdownListItemRow: View {
                     theme: theme
                 )
                 .padding(.leading, markerWidth + 8)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     @ViewBuilder

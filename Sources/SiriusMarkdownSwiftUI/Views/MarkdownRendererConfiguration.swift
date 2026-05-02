@@ -370,7 +370,7 @@ public struct MarkdownRendererConfiguration: Sendable {
         let key = MarkdownCacheKey(
             sourceRange: sourceRange,
             contentHash: Self.inlineHash(runs),
-            namespace: "inline-prepared:\(metrics.fontSize):\(metrics.lineHeight)"
+            namespace: "inline-prepared:\(metrics.fontSize):\(metrics.lineHeight):\(metrics.fontProfiles.cacheKey)"
         )
         if let cached = preparationCache.inline(forKey: key) {
             diagnosticsRecorder.recordCacheHit()
@@ -382,11 +382,15 @@ public struct MarkdownRendererConfiguration: Sendable {
         let images = preparedImages(for: runs)
         let prepared = PreparedInlineContent(runs: inlinePayload.runs, sourceRange: sourceRange)
         diagnosticsRecorder.recordPrepare()
-        let measured = VariableWidthLineWalker().prepare(
+        let measurer = CoreTextInlineMeasurer(profiles: metrics.fontProfiles)
+        let measured = VariableWidthLineWalker(measurer: measurer).prepare(
             prepared,
             fontSize: metrics.fontSize
         )
-        let layoutCache = MarkdownInlineLayoutCache(diagnosticsRecorder: diagnosticsRecorder)
+        let layoutCache = MarkdownInlineLayoutCache(
+            measurer: measurer,
+            diagnosticsRecorder: diagnosticsRecorder
+        )
         let inline = MarkdownPreparedInlineContent(
             attributed: inlinePayload.attributed,
             prepared: prepared,
@@ -394,6 +398,7 @@ public struct MarkdownRendererConfiguration: Sendable {
             images: images,
             fontSize: metrics.fontSize,
             lineHeight: metrics.lineHeight,
+            fontProfiles: metrics.fontProfiles,
             layoutCache: layoutCache
         )
         preparationCache.insertInline(inline, forKey: key)
@@ -510,25 +515,27 @@ public struct MarkdownRendererConfiguration: Sendable {
         )
     }
 
-    private func inlineMetrics(for block: MarkdownBlock?) -> (fontSize: Double, lineHeight: Double) {
+    private func inlineMetrics(
+        for block: MarkdownBlock?
+    ) -> (fontSize: Double, lineHeight: Double, fontProfiles: MarkdownInlineFontProfiles) {
         guard let block else {
-            return (theme.paragraphFontSize, theme.paragraphLineHeight)
+            return (theme.paragraphFontSize, theme.paragraphLineHeight, theme.paragraphFontProfiles)
         }
 
         switch block.kind {
         case .heading:
             switch block.headingLevel ?? 3 {
             case 1:
-                return (34, 42)
+                return (34, 42, theme.headingFontProfiles)
             case 2:
-                return (28, 36)
+                return (28, 36, theme.headingFontProfiles)
             default:
-                return (theme.headingFontSize, theme.headingLineHeight)
+                return (theme.headingFontSize, theme.headingLineHeight, theme.headingFontProfiles)
             }
         case .codeBlock, .htmlBlock, .mathBlock:
-            return (theme.codeFontSize, theme.codeLineHeight)
+            return (theme.codeFontSize, theme.codeLineHeight, theme.codeFontProfiles)
         default:
-            return (theme.paragraphFontSize, theme.paragraphLineHeight)
+            return (theme.paragraphFontSize, theme.paragraphLineHeight, theme.paragraphFontProfiles)
         }
     }
 
@@ -564,6 +571,7 @@ public struct MarkdownPreparedInlineContent: Sendable {
     public var images: [MarkdownPreparedImage]
     public var fontSize: Double
     public var lineHeight: Double
+    public var fontProfiles: MarkdownInlineFontProfiles
     public var layoutCache: MarkdownInlineLayoutCache
 
     public init(
@@ -573,6 +581,7 @@ public struct MarkdownPreparedInlineContent: Sendable {
         images: [MarkdownPreparedImage] = [],
         fontSize: Double,
         lineHeight: Double,
+        fontProfiles: MarkdownInlineFontProfiles = .paragraphDefault,
         layoutCache: MarkdownInlineLayoutCache = MarkdownInlineLayoutCache()
     ) {
         self.attributed = attributed
@@ -581,6 +590,7 @@ public struct MarkdownPreparedInlineContent: Sendable {
         self.images = images
         self.fontSize = fontSize
         self.lineHeight = lineHeight
+        self.fontProfiles = fontProfiles
         self.layoutCache = layoutCache
     }
 
@@ -615,10 +625,12 @@ public final class MarkdownInlineLayoutCache: @unchecked Sendable {
     private var engine: InlineLayoutEngine<CoreTextInlineMeasurer>
 
     public init(
+        measurer: CoreTextInlineMeasurer = CoreTextInlineMeasurer(),
         cacheCapacity: Int = 256,
         diagnosticsRecorder: MarkdownDiagnosticsRecorder = MarkdownDiagnosticsRecorder()
     ) {
         self.engine = InlineLayoutEngine(
+            measurer: measurer,
             cacheCapacity: cacheCapacity,
             diagnosticsRecorder: diagnosticsRecorder
         )
@@ -641,6 +653,18 @@ public final class MarkdownInlineLayoutCache: @unchecked Sendable {
                 options: options,
                 allowsOverwideFallback: allowsOverwideFallback
             )
+        }
+    }
+
+    public func recordNonFiniteInlineProposalFallback() {
+        lock.withLock {
+            engine.diagnosticsRecorder.recordNonFiniteInlineProposalFallback()
+        }
+    }
+
+    public func recordNativeLineClipping() {
+        lock.withLock {
+            engine.diagnosticsRecorder.recordNativeLineClipping()
         }
     }
 }

@@ -1,4 +1,5 @@
 import SwiftUI
+import SiriusMarkdownCore
 
 public struct MarkdownTheme: Sendable, Hashable {
     public var paragraphFont: Font
@@ -23,6 +24,9 @@ public struct MarkdownTheme: Sendable, Hashable {
     public var headingLineHeight: Double
     public var codeFontSize: Double
     public var codeLineHeight: Double
+    public var paragraphFontProfiles: MarkdownInlineFontProfiles
+    public var headingFontProfiles: MarkdownInlineFontProfiles
+    public var codeFontProfiles: MarkdownInlineFontProfiles
 
     public init(
         paragraphFont: Font = .body,
@@ -46,7 +50,10 @@ public struct MarkdownTheme: Sendable, Hashable {
         headingFontSize: Double = 20,
         headingLineHeight: Double = 28,
         codeFontSize: Double = 14,
-        codeLineHeight: Double = 20
+        codeLineHeight: Double = 20,
+        paragraphFontProfiles: MarkdownInlineFontProfiles = .paragraphDefault,
+        headingFontProfiles: MarkdownInlineFontProfiles = .headingDefault,
+        codeFontProfiles: MarkdownInlineFontProfiles = .codeDefault
     ) {
         self.paragraphFont = paragraphFont
         self.codeFont = codeFont
@@ -70,8 +77,40 @@ public struct MarkdownTheme: Sendable, Hashable {
         self.headingLineHeight = headingLineHeight
         self.codeFontSize = codeFontSize
         self.codeLineHeight = codeLineHeight
+        self.paragraphFontProfiles = paragraphFontProfiles
+        self.headingFontProfiles = headingFontProfiles
+        self.codeFontProfiles = codeFontProfiles
     }
 
     public static let compactChat = MarkdownTheme(blockSpacing: 6)
     public static let document = MarkdownTheme(blockSpacing: 12)
+}
+
+public extension MarkdownInlineFontProfiles {
+    static let paragraphDefault = MarkdownInlineFontProfiles(
+        body: .system(),
+        emphasis: .system(),
+        strong: .system(weight: .bold),
+        code: .monospacedSystem(),
+        math: .monospacedSystem(),
+        imagePlaceholder: .system()
+    )
+
+    static let headingDefault = MarkdownInlineFontProfiles(
+        body: .system(weight: .bold),
+        emphasis: .system(weight: .bold),
+        strong: .system(weight: .bold),
+        code: .monospacedSystem(weight: .semibold),
+        math: .monospacedSystem(weight: .semibold),
+        imagePlaceholder: .system(weight: .bold)
+    )
+
+    static let codeDefault = MarkdownInlineFontProfiles(
+        body: .monospacedSystem(),
+        emphasis: .monospacedSystem(),
+        strong: .monospacedSystem(weight: .bold),
+        code: .monospacedSystem(),
+        math: .monospacedSystem(),
+        imagePlaceholder: .monospacedSystem()
+    )
 }

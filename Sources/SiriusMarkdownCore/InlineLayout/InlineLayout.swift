@@ -216,25 +216,75 @@ public struct InlineLayoutOptions: Sendable, Hashable {
 }
 
 public protocol InlineMeasuring: Sendable {
+    var measurementCacheKey: String { get }
     func width(of text: String, fontSize: Double) -> Double
+    func width(of segment: PreparedInlineSegment, fontSize: Double) -> Double
+}
+
+public extension InlineMeasuring {
+    var measurementCacheKey: String {
+        String(reflecting: Self.self)
+    }
+
+    func width(of segment: PreparedInlineSegment, fontSize: Double) -> Double {
+        width(of: segment.text, fontSize: fontSize)
+    }
 }
 
 public typealias TextMeasurer = InlineMeasuring
 
 public struct CoreTextInlineMeasurer: InlineMeasuring {
-    public var fontName: String
+    public var profiles: MarkdownInlineFontProfiles
 
-    public init(fontName: String = "Helvetica") {
-        self.fontName = fontName
+    public var fontName: String {
+        get {
+            switch profiles.body {
+            case let .named(name, _):
+                return name
+            default:
+                return ".system"
+            }
+        }
+        set {
+            profiles = MarkdownInlineFontProfiles(uniform: .named(newValue))
+        }
+    }
+
+    public var measurementCacheKey: String {
+        "coretext:\(profiles.cacheKey)"
+    }
+
+    public init() {
+        self.profiles = MarkdownInlineFontProfiles()
+    }
+
+    public init(fontName: String) {
+        self.profiles = MarkdownInlineFontProfiles(uniform: .named(fontName))
+    }
+
+    public init(profiles: MarkdownInlineFontProfiles) {
+        self.profiles = profiles
+    }
+
+    public func width(of segment: PreparedInlineSegment, fontSize: Double) -> Double {
+        width(
+            of: segment.text,
+            fontSize: fontSize,
+            profile: profiles.profile(for: segment.kind)
+        )
     }
 
     public func width(of text: String, fontSize: Double) -> Double {
+        width(of: text, fontSize: fontSize, profile: profiles.body)
+    }
+
+    private func width(of text: String, fontSize: Double, profile: MarkdownFontProfile) -> Double {
         guard !text.isEmpty else {
             return 0
         }
 
         #if canImport(CoreText)
-        let font = CTFontCreateWithName(fontName as CFString, fontSize, nil)
+        let font = makeFont(profile: profile, fontSize: fontSize)
         if selectedFontCoversEveryScalar(in: text, font: font) {
             return shapedWidth(of: text, font: font)
         }
@@ -246,6 +296,82 @@ public struct CoreTextInlineMeasurer: InlineMeasuring {
     }
 
     #if canImport(CoreText)
+    private func makeFont(profile: MarkdownFontProfile, fontSize: Double) -> CTFont {
+        switch profile {
+        case let .named(name, weight):
+            let base = CTFontCreateWithName(name as CFString, fontSize, nil)
+            return apply(weight: weight, to: base, fontSize: fontSize)
+        case let .system(weight, design):
+            let base = systemFont(design: design, fontSize: fontSize)
+            return apply(weight: weight, design: design, to: base, fontSize: fontSize)
+        case let .monospacedSystem(weight):
+            let base = CTFontCreateWithName("Menlo" as CFString, fontSize, nil)
+            return apply(weight: weight, design: .monospaced, to: base, fontSize: fontSize)
+        }
+    }
+
+    private func apply(
+        weight: MarkdownFontWeight,
+        design: MarkdownFontDesign = .default,
+        to font: CTFont,
+        fontSize: Double
+    ) -> CTFont {
+        let symbolicTraits: CTFontSymbolicTraits
+        switch design {
+        case .default, .serif, .rounded:
+            symbolicTraits = []
+        case .monospaced:
+            symbolicTraits = .traitMonoSpace
+        }
+
+        var traits: [CFString: Any] = [:]
+        if let weightValue = fontWeightValue(for: weight) {
+            traits[kCTFontWeightTrait] = weightValue
+        }
+
+        let attributes: [CFString: Any] = [
+            kCTFontTraitsAttribute: traits
+        ]
+        let descriptor = CTFontDescriptorCreateWithAttributes(attributes as CFDictionary)
+        let weighted = CTFontCreateCopyWithAttributes(font, CGFloat(fontSize), nil, descriptor)
+        guard symbolicTraits != [] else {
+            return weighted
+        }
+
+        return CTFontCreateCopyWithSymbolicTraits(
+            weighted,
+            CGFloat(fontSize),
+            nil,
+            symbolicTraits,
+            symbolicTraits
+        ) ?? weighted
+    }
+
+    private func systemFont(design: MarkdownFontDesign, fontSize: Double) -> CTFont {
+        switch design {
+        case .serif:
+            return CTFontCreateWithName("Times" as CFString, fontSize, nil)
+        case .monospaced:
+            return CTFontCreateWithName("Menlo" as CFString, fontSize, nil)
+        case .default, .rounded:
+            return CTFontCreateUIFontForLanguage(.system, CGFloat(fontSize), nil)
+                ?? CTFontCreateWithName("Helvetica" as CFString, fontSize, nil)
+        }
+    }
+
+    private func fontWeightValue(for weight: MarkdownFontWeight) -> CGFloat? {
+        switch weight {
+        case .regular:
+            return nil
+        case .medium:
+            return 0.23
+        case .semibold:
+            return 0.3
+        case .bold:
+            return 0.4
+        }
+    }
+
     private func shapedWidth(of text: String, font: CTFont) -> Double {
         let attributed = CFAttributedStringCreate(
             nil,
@@ -330,7 +456,7 @@ public struct VariableWidthLineWalker<Measurer: InlineMeasuring>: Sendable {
                 continue
             }
 
-            let width = measurer.width(of: segment.text, fontSize: fontSize)
+            let width = measurer.width(of: segment, fontSize: fontSize)
             let measured = MeasuredInlineSegment(
                 segment: segment,
                 width: width,
@@ -467,7 +593,16 @@ public struct VariableWidthLineWalker<Measurer: InlineMeasuring>: Sendable {
             units.append(
                 MeasuredInlineUnit(
                     byteRange: cursor..<upper,
-                    width: measurer.width(of: characterText, fontSize: fontSize)
+                    width: measurer.width(
+                        of: PreparedInlineSegment(
+                            kind: segment.kind,
+                            text: characterText,
+                            byteRange: cursor..<upper,
+                            isHardBreak: false,
+                            isBreakOpportunity: false
+                        ),
+                        fontSize: fontSize
+                    )
                 )
             )
             cursor = upper
@@ -703,7 +838,10 @@ public struct InlineLayoutEngine<Measurer: InlineMeasuring>: Sendable {
                 byteRange: 0..<prepared.naturalText.utf8.count,
                 lineRange: 1..<2
             ),
-            contentHash: preparedContentHash(prepared, salt: "font:\(fontSize)"),
+            contentHash: preparedContentHash(
+                prepared,
+                salt: "font:\(fontSize)|measurer:\(walker.measurer.measurementCacheKey)"
+            ),
             namespace: "measured-inline"
         )
     }
@@ -720,7 +858,7 @@ public struct InlineLayoutEngine<Measurer: InlineMeasuring>: Sendable {
             ),
             contentHash: preparedContentHash(
                 measured.prepared,
-                salt: "font:\(options.fontSize)|width:\(options.containerWidth)|line:\(options.lineHeight)|overwide:\(allowsOverwideFallback)"
+                salt: "font:\(options.fontSize)|line:\(options.lineHeight)|width:\(options.containerWidth)|overwide:\(allowsOverwideFallback)|measurer:\(walker.measurer.measurementCacheKey)"
             ),
             namespace: "inline-layout"
         )
@@ -735,7 +873,10 @@ public struct InlineLayoutEngine<Measurer: InlineMeasuring>: Sendable {
                 byteRange: measuredSegment.segment.byteRange,
                 lineRange: 1..<2
             ),
-            contentHash: preparedSegmentHash(measuredSegment.segment, salt: "font:\(fontSize)"),
+            contentHash: preparedSegmentHash(
+                measuredSegment.segment,
+                salt: "font:\(fontSize)|measurer:\(walker.measurer.measurementCacheKey)"
+            ),
             namespace: "overwide-inline-units"
         )
     }
@@ -788,7 +929,16 @@ public struct InlineLayoutEngine<Measurer: InlineMeasuring>: Sendable {
             units.append(
                 MeasuredInlineUnit(
                     byteRange: cursor..<upper,
-                    width: walker.measurer.width(of: characterText, fontSize: fontSize)
+                    width: walker.measurer.width(
+                        of: PreparedInlineSegment(
+                            kind: segment.kind,
+                            text: characterText,
+                            byteRange: cursor..<upper,
+                            isHardBreak: false,
+                            isBreakOpportunity: false
+                        ),
+                        fontSize: fontSize
+                    )
                 )
             )
             cursor = upper

@@ -16,6 +16,7 @@ struct SiriusMarkdownRenderProbe {
         let breakResult = renderBreakAndLongWordProbe()
         let widthResult = renderInlineWidthProbe()
         let nativeSpacingResult = renderNativeInlineSpacingProbe()
+        let containmentResult = renderPreparedNativeContainmentProbe()
         assertRenderable("MarkdownDocumentView", result)
         assertRenderable("prepared native MarkdownDocumentView", nativeResult)
         assertRenderable("compact chat prepared native transcript", chatResult, minimumNonWhitePixels: 1_400)
@@ -23,6 +24,7 @@ struct SiriusMarkdownRenderProbe {
         assertRenderable("inline attribute crossing prepared native document", attributeResult)
         assertRenderable("code and table overflow prepared native document", overflowResult)
         assertRenderable("hard-break and long-word prepared native document", breakResult, minimumNonWhitePixels: 1_200)
+        assertRenderable("prepared native containment document", containmentResult, minimumNonWhitePixels: 1_400)
 
         if widthResult.darkRightmostX < widthResult.minimumDarkRightmostX {
             fputs(
@@ -48,6 +50,22 @@ struct SiriusMarkdownRenderProbe {
             exit(EXIT_FAILURE)
         }
 
+        if containmentResult.darkRightmostX > containmentResult.maximumDarkRightmostX {
+            fputs(
+                "error: prepared native containment probe leaked dark text to x=\(containmentResult.darkRightmostX); expected no normal inline text beyond x=\(containmentResult.maximumDarkRightmostX).\n",
+                stderr
+            )
+            exit(EXIT_FAILURE)
+        }
+
+        if containmentResult.fittingWidth > containmentResult.maximumFittingWidth {
+            fputs(
+                "error: prepared native containment fitting width was \(containmentResult.fittingWidth); expected <= \(containmentResult.maximumFittingWidth).\n",
+                stderr
+            )
+            exit(EXIT_FAILURE)
+        }
+
         print("MarkdownDocumentView render probe: \(result.nonWhitePixels) non-white pixels, \(result.distinctColorBuckets) color buckets")
         print("Prepared native document render probe: \(nativeResult.nonWhitePixels) non-white pixels, \(nativeResult.distinctColorBuckets) color buckets")
         print("Compact chat render probe: \(chatResult.nonWhitePixels) non-white pixels, \(chatResult.distinctColorBuckets) color buckets")
@@ -57,6 +75,7 @@ struct SiriusMarkdownRenderProbe {
         print("Break and long-word probe: \(breakResult.nonWhitePixels) non-white pixels, \(breakResult.distinctColorBuckets) color buckets")
         print("Prepared inline width probe: dark text reached x=\(widthResult.darkRightmostX)")
         print("Native inline spacing probe: \(nativeSpacingResult.wideDarkColumnGaps) wide word gaps")
+        print("Prepared native containment probe: dark text reached x=\(containmentResult.darkRightmostX), fitting width \(containmentResult.fittingWidth)")
     }
 
     private static func assertRenderable(
@@ -245,6 +264,61 @@ struct SiriusMarkdownRenderProbe {
     }
 
     @MainActor
+    private static func renderPreparedNativeContainmentProbe() -> RenderResult {
+        let markdown =
+            """
+            # Contained Prepared Native Heading With Long Text
+
+            Paragraph with abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz content that must stay in the proposed column.
+
+            > Quote with abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz content that must respect quote indentation.
+
+            1. Ordered list item with abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz content.
+               - Nested list item with abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz content.
+            - [x] Task list item with abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz content.
+
+            | Region | Evidence |
+            | - | - |
+            | Cell | abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz |
+            """
+        let configuration = MarkdownRendererConfiguration.document
+        var stream = MarkdownStream()
+        stream.append(markdown)
+        stream.finish()
+        let prepared = configuration.prepare(snapshot: stream.snapshot())
+        let columnWidth = CGFloat(300)
+        let leadingInset = CGFloat(32)
+        let size = NSSize(width: 720, height: 560)
+        let document = MarkdownDocumentView(preparedSnapshot: prepared, configuration: configuration)
+            .frame(width: columnWidth, alignment: .leading)
+        let fittingView = NSHostingView(rootView: document)
+        fittingView.frame = NSRect(origin: .zero, size: NSSize(width: columnWidth, height: 1_000))
+        fittingView.layoutSubtreeIfNeeded()
+        let fittingWidth = fittingView.fittingSize.width
+
+        let root = HStack(spacing: 0) {
+            Color.white.frame(width: leadingInset)
+            MarkdownDocumentView(preparedSnapshot: prepared, configuration: configuration)
+                .frame(width: columnWidth, alignment: .leading)
+                .clipped()
+            Color.white
+        }
+        .frame(width: size.width, height: size.height, alignment: .topLeading)
+        .background(Color.white)
+        .environment(\.colorScheme, .light)
+
+        var result = renderHosted(
+            root,
+            size: size,
+            outputPath: ProcessInfo.processInfo.environment["SIRIUS_MARKDOWN_CONTAINMENT_PROBE_OUTPUT"]
+        )
+        result.maximumDarkRightmostX = Int(Double(leadingInset + columnWidth + 8) * result.pixelScale)
+        result.fittingWidth = fittingWidth
+        result.maximumFittingWidth = Double(columnWidth + 1)
+        return result
+    }
+
+    @MainActor
     private static func renderDocument(
         markdown: String,
         configuration: MarkdownRendererConfiguration = .document,
@@ -264,6 +338,15 @@ struct SiriusMarkdownRenderProbe {
             .background(Color.white)
             .environment(\.colorScheme, .light)
 
+        return renderHosted(root, size: size, outputPath: outputPath)
+    }
+
+    @MainActor
+    private static func renderHosted<V: View>(
+        _ root: V,
+        size: NSSize,
+        outputPath: String?
+    ) -> RenderResult {
         let hostingView = NSHostingView(rootView: root)
         hostingView.frame = NSRect(origin: .zero, size: size)
         hostingView.wantsLayer = true
@@ -296,7 +379,8 @@ struct SiriusMarkdownRenderProbe {
             nonWhitePixels: sample.nonWhitePixels,
             distinctColorBuckets: sample.distinctColorBuckets,
             darkRightmostX: sample.darkRightmostX,
-            wideDarkColumnGaps: sample.wideDarkColumnGaps
+            wideDarkColumnGaps: sample.wideDarkColumnGaps,
+            pixelScale: Double(bitmap.pixelsWide) / Double(size.width)
         )
     }
 
@@ -386,6 +470,10 @@ private struct RenderResult {
     var distinctColorBuckets: Int
     var darkRightmostX: Int
     var wideDarkColumnGaps: Int
+    var pixelScale = 1.0
+    var maximumDarkRightmostX = Int.max
+    var fittingWidth = 0.0
+    var maximumFittingWidth = Double.infinity
 
     let minimumNonWhitePixels = 2_000
     let minimumDistinctColorBuckets = 3
