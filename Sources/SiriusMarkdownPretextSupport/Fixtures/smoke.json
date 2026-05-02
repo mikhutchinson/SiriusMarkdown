@@ -1,7 +1,14 @@
 {
   "name": "smoke",
+  "group": "smoke-baseline",
+  "description": "Baseline single-line paragraph fixture proving the oracle path is wired.",
   "markdown": "Hello SiriusMarkdown",
+  "oracleText": null,
   "containerWidth": 320,
+  "font": "16px Helvetica",
+  "lineHeight": 18,
+  "whiteSpace": "pre-wrap",
+  "wordBreak": "normal",
   "expected": {
     "lineCount": 1,
     "naturalWidth": 154.72,
@@ -53,5 +60,9 @@
         }
       }
     ]
-  }
+  },
+  "expectedInlineKinds": [
+    "text"
+  ],
+  "expectedPreparedSegments": null
 }

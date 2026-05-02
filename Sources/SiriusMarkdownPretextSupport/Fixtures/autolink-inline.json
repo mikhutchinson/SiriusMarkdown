@@ -1,0 +1,171 @@
+{
+  "name": "autolink-inline",
+  "group": "autolink-inline",
+  "description": "Autolinks are semantic link runs but Pretext measures their visible URL text.",
+  "markdown": "Visit <https://example.com/docs> now",
+  "oracleText": "Visit https://example.com/docs now",
+  "containerWidth": 190,
+  "font": "16px Helvetica",
+  "lineHeight": 18,
+  "whiteSpace": "pre-wrap",
+  "wordBreak": "normal",
+  "expected": {
+    "lineCount": 3,
+    "naturalWidth": 249.61,
+    "height": 54,
+    "segments": [
+      {
+        "text": "Visit",
+        "kind": "text",
+        "width": 29.95,
+        "byteRange": {
+          "lowerBound": 0,
+          "upperBound": 5
+        }
+      },
+      {
+        "text": " ",
+        "kind": "preserved-space",
+        "width": 4.45,
+        "byteRange": {
+          "lowerBound": 5,
+          "upperBound": 6
+        }
+      },
+      {
+        "text": "https://example.com/docs",
+        "kind": "text",
+        "width": 181.41,
+        "byteRange": {
+          "lowerBound": 6,
+          "upperBound": 30
+        }
+      },
+      {
+        "text": " ",
+        "kind": "preserved-space",
+        "width": 4.45,
+        "byteRange": {
+          "lowerBound": 30,
+          "upperBound": 31
+        }
+      },
+      {
+        "text": "now",
+        "kind": "text",
+        "width": 29.35,
+        "byteRange": {
+          "lowerBound": 31,
+          "upperBound": 34
+        }
+      }
+    ],
+    "lines": [
+      {
+        "text": "Visit ",
+        "width": 34.4,
+        "byteRange": {
+          "lowerBound": 0,
+          "upperBound": 6
+        },
+        "start": {
+          "segmentIndex": 0,
+          "graphemeIndex": 0
+        },
+        "end": {
+          "segmentIndex": 2,
+          "graphemeIndex": 0
+        }
+      },
+      {
+        "text": "https://example.com/docs ",
+        "width": 185.86,
+        "byteRange": {
+          "lowerBound": 6,
+          "upperBound": 31
+        },
+        "start": {
+          "segmentIndex": 2,
+          "graphemeIndex": 0
+        },
+        "end": {
+          "segmentIndex": 4,
+          "graphemeIndex": 0
+        }
+      },
+      {
+        "text": "now",
+        "width": 29.35,
+        "byteRange": {
+          "lowerBound": 31,
+          "upperBound": 34
+        },
+        "start": {
+          "segmentIndex": 4,
+          "graphemeIndex": 0
+        },
+        "end": {
+          "segmentIndex": 5,
+          "graphemeIndex": 0
+        }
+      }
+    ]
+  },
+  "expectedInlineKinds": [
+    "text",
+    "link",
+    "text"
+  ],
+  "expectedPreparedSegments": [
+    {
+      "kind": "text",
+      "text": "Visit",
+      "byteRange": {
+        "lowerBound": 0,
+        "upperBound": 5
+      },
+      "isHardBreak": false,
+      "isBreakOpportunity": false
+    },
+    {
+      "kind": "text",
+      "text": " ",
+      "byteRange": {
+        "lowerBound": 5,
+        "upperBound": 6
+      },
+      "isHardBreak": false,
+      "isBreakOpportunity": true
+    },
+    {
+      "kind": "link",
+      "text": "https://example.com/docs",
+      "byteRange": {
+        "lowerBound": 6,
+        "upperBound": 30
+      },
+      "isHardBreak": false,
+      "isBreakOpportunity": false
+    },
+    {
+      "kind": "text",
+      "text": " ",
+      "byteRange": {
+        "lowerBound": 30,
+        "upperBound": 31
+      },
+      "isHardBreak": false,
+      "isBreakOpportunity": true
+    },
+    {
+      "kind": "text",
+      "text": "now",
+      "byteRange": {
+        "lowerBound": 31,
+        "upperBound": 34
+      },
+      "isHardBreak": false,
+      "isBreakOpportunity": false
+    }
+  ]
+}

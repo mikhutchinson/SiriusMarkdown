@@ -1,0 +1,102 @@
+{
+  "name": "heading-font-profile",
+  "group": "heading-font-profile",
+  "description": "Heading inline content is checked against the heading-size font profile.",
+  "markdown": "# Heading layout profile",
+  "oracleText": "Heading layout profile",
+  "containerWidth": 260,
+  "font": "34px Helvetica",
+  "lineHeight": 42,
+  "whiteSpace": "pre-wrap",
+  "wordBreak": "normal",
+  "expected": {
+    "lineCount": 2,
+    "naturalWidth": 328.88,
+    "height": 84,
+    "segments": [
+      {
+        "text": "Heading",
+        "kind": "text",
+        "width": 126.65,
+        "byteRange": {
+          "lowerBound": 0,
+          "upperBound": 7
+        }
+      },
+      {
+        "text": " ",
+        "kind": "preserved-space",
+        "width": 9.45,
+        "byteRange": {
+          "lowerBound": 7,
+          "upperBound": 8
+        }
+      },
+      {
+        "text": "layout",
+        "kind": "text",
+        "width": 90.73,
+        "byteRange": {
+          "lowerBound": 8,
+          "upperBound": 14
+        }
+      },
+      {
+        "text": " ",
+        "kind": "preserved-space",
+        "width": 9.45,
+        "byteRange": {
+          "lowerBound": 14,
+          "upperBound": 15
+        }
+      },
+      {
+        "text": "profile",
+        "kind": "text",
+        "width": 92.6,
+        "byteRange": {
+          "lowerBound": 15,
+          "upperBound": 22
+        }
+      }
+    ],
+    "lines": [
+      {
+        "text": "Heading layout ",
+        "width": 236.28,
+        "byteRange": {
+          "lowerBound": 0,
+          "upperBound": 15
+        },
+        "start": {
+          "segmentIndex": 0,
+          "graphemeIndex": 0
+        },
+        "end": {
+          "segmentIndex": 4,
+          "graphemeIndex": 0
+        }
+      },
+      {
+        "text": "profile",
+        "width": 92.6,
+        "byteRange": {
+          "lowerBound": 15,
+          "upperBound": 22
+        },
+        "start": {
+          "segmentIndex": 4,
+          "graphemeIndex": 0
+        },
+        "end": {
+          "segmentIndex": 5,
+          "graphemeIndex": 0
+        }
+      }
+    ]
+  },
+  "expectedInlineKinds": [
+    "text"
+  ],
+  "expectedPreparedSegments": null
+}

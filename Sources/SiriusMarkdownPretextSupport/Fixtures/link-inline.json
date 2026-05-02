@@ -1,0 +1,139 @@
+{
+  "name": "link-inline",
+  "group": "link-inline",
+  "description": "Inline link labels are measured while destination policy stays outside layout.",
+  "markdown": "Open [Sirius](https://example.com) safely",
+  "oracleText": "Open Sirius safely",
+  "containerWidth": 150,
+  "font": "16px Helvetica",
+  "lineHeight": 18,
+  "whiteSpace": "pre-wrap",
+  "wordBreak": "normal",
+  "expected": {
+    "lineCount": 1,
+    "naturalWidth": 129.85,
+    "height": 18,
+    "segments": [
+      {
+        "text": "Open",
+        "kind": "text",
+        "width": 39.14,
+        "byteRange": {
+          "lowerBound": 0,
+          "upperBound": 4
+        }
+      },
+      {
+        "text": " ",
+        "kind": "preserved-space",
+        "width": 4.45,
+        "byteRange": {
+          "lowerBound": 4,
+          "upperBound": 5
+        }
+      },
+      {
+        "text": "Sirius",
+        "kind": "text",
+        "width": 40.01,
+        "byteRange": {
+          "lowerBound": 5,
+          "upperBound": 11
+        }
+      },
+      {
+        "text": " ",
+        "kind": "preserved-space",
+        "width": 4.45,
+        "byteRange": {
+          "lowerBound": 11,
+          "upperBound": 12
+        }
+      },
+      {
+        "text": "safely",
+        "kind": "text",
+        "width": 41.8,
+        "byteRange": {
+          "lowerBound": 12,
+          "upperBound": 18
+        }
+      }
+    ],
+    "lines": [
+      {
+        "text": "Open Sirius safely",
+        "width": 129.85,
+        "byteRange": {
+          "lowerBound": 0,
+          "upperBound": 18
+        },
+        "start": {
+          "segmentIndex": 0,
+          "graphemeIndex": 0
+        },
+        "end": {
+          "segmentIndex": 5,
+          "graphemeIndex": 0
+        }
+      }
+    ]
+  },
+  "expectedInlineKinds": [
+    "text",
+    "link",
+    "text"
+  ],
+  "expectedPreparedSegments": [
+    {
+      "kind": "text",
+      "text": "Open",
+      "byteRange": {
+        "lowerBound": 0,
+        "upperBound": 4
+      },
+      "isHardBreak": false,
+      "isBreakOpportunity": false
+    },
+    {
+      "kind": "text",
+      "text": " ",
+      "byteRange": {
+        "lowerBound": 4,
+        "upperBound": 5
+      },
+      "isHardBreak": false,
+      "isBreakOpportunity": true
+    },
+    {
+      "kind": "link",
+      "text": "Sirius",
+      "byteRange": {
+        "lowerBound": 5,
+        "upperBound": 11
+      },
+      "isHardBreak": false,
+      "isBreakOpportunity": false
+    },
+    {
+      "kind": "text",
+      "text": " ",
+      "byteRange": {
+        "lowerBound": 11,
+        "upperBound": 12
+      },
+      "isHardBreak": false,
+      "isBreakOpportunity": true
+    },
+    {
+      "kind": "text",
+      "text": "safely",
+      "byteRange": {
+        "lowerBound": 12,
+        "upperBound": 18
+      },
+      "isHardBreak": false,
+      "isBreakOpportunity": false
+    }
+  ]
+}

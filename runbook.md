@@ -14,7 +14,7 @@ swift build
 swift test
 ```
 
-Current status: `swift test` must pass with strict Swift-vs-Pretext comparison enabled. The former `emoji-cjk`, `multilingual`, and `rtl` drift in `bundledPretextFixturesCompareAgainstSwiftLayout` is fixed; do not reintroduce known-drift allowlists or call construction-only smoke tests renderer coverage.
+Current status: `swift test` must pass with strict Swift-vs-Pretext comparison enabled across the required product fixture groups. Missing groups, duplicate fixture names/groups, absent fixture metadata, or known-drift allowlists are release blockers.
 
 Count the Swift test functions reported by the runner:
 
@@ -52,7 +52,7 @@ npm ci
 npm test
 ```
 
-The Pretext tool is the JavaScript golden oracle for layout drift. It uses real `@chenglou/pretext` with `@napi-rs/canvas` providing a Node measurement context. Swift fixtures live in `Sources/SiriusMarkdownPretextSupport/Fixtures`; JS fixtures live in `Tools/pretext-golden/fixtures`.
+The Pretext tool is the JavaScript golden oracle for layout drift. It uses real `@chenglou/pretext` with `@napi-rs/canvas` providing a Node measurement context. Swift fixtures live in `Sources/SiriusMarkdownPretextSupport/Fixtures`; JS fixtures live in `Tools/pretext-golden/fixtures`. `npm test` validates every fixture, rejects duplicate names/groups, verifies all required product groups, and checks Swift-resource/JS mirror parity.
 Run `npm ci` and `npm test` sequentially; running them in parallel can race while `node_modules` is being replaced.
 The Swift fixture comparison must not whitelist known drift. A failing Pretext fixture is a release blocker until the native layout path or fixture contract is corrected.
 
@@ -62,7 +62,7 @@ The Swift fixture comparison must not whitelist known drift. A failing Pretext f
 bash Tools/release-check.sh
 ```
 
-The script first runs `Tools/RenderProbe`, which renders a representative `MarkdownDocumentView` through AppKit and rejects blank or trivial output. It then runs Swift tests, test count, root build, macOS demo app bundling (`Examples/scripts/bundle-macos-demos.sh`), Pretext install/test, symbol graph generation, and warning-clean DocC conversion. Before cutting a release, update `changelog.md` and confirm `bugfix.md` records any defects found during the slice.
+The script first runs `Tools/RenderProbe`, which renders representative document, compact-chat, multilingual, inline-attribute, overflow, hard-break, and long-word cases through AppKit and rejects blank/trivial/collapsed/clipped output. It then runs Swift tests, test count, root build, macOS demo app bundling (`Examples/scripts/bundle-macos-demos.sh`), Pretext install/test, symbol graph generation, and warning-clean DocC conversion. Before cutting a release, update `changelog.md` and confirm `bugfix.md` records any defects found during the slice.
 If this script fails, treat it as a real release blocker. Do not bypass the Pretext fixture comparison or the AppKit render probe to make a release check look green.
 
 ## Product Checks

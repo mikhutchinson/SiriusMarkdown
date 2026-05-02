@@ -1,0 +1,61 @@
+{
+  "name": "table-cell-inline",
+  "group": "table-cell-inline",
+  "description": "Table cell inline content is covered by the Pretext oracle where it becomes text layout.",
+  "markdown": "| Label | Value |\n| - | - |\n| **CPU** | `99%` |",
+  "oracleText": "CPU",
+  "containerWidth": 80,
+  "font": "16px Helvetica",
+  "lineHeight": 18,
+  "whiteSpace": "pre-wrap",
+  "wordBreak": "normal",
+  "expected": {
+    "lineCount": 1,
+    "naturalWidth": 33.78,
+    "height": 18,
+    "segments": [
+      {
+        "text": "CPU",
+        "kind": "text",
+        "width": 33.78,
+        "byteRange": {
+          "lowerBound": 0,
+          "upperBound": 3
+        }
+      }
+    ],
+    "lines": [
+      {
+        "text": "CPU",
+        "width": 33.78,
+        "byteRange": {
+          "lowerBound": 0,
+          "upperBound": 3
+        },
+        "start": {
+          "segmentIndex": 0,
+          "graphemeIndex": 0
+        },
+        "end": {
+          "segmentIndex": 1,
+          "graphemeIndex": 0
+        }
+      }
+    ]
+  },
+  "expectedInlineKinds": [
+    "strong"
+  ],
+  "expectedPreparedSegments": [
+    {
+      "kind": "strong",
+      "text": "CPU",
+      "byteRange": {
+        "lowerBound": 0,
+        "upperBound": 3
+      },
+      "isHardBreak": false,
+      "isBreakOpportunity": false
+    }
+  ]
+}

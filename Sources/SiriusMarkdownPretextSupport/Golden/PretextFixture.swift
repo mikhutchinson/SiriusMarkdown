@@ -3,26 +3,44 @@ import SiriusMarkdownCore
 
 public struct PretextFixture: Codable, Sendable, Hashable {
     public var name: String
+    public var group: String?
+    public var description: String?
     public var markdown: String
     public var oracleText: String?
     public var containerWidth: Double
+    public var font: String?
+    public var lineHeight: Double?
+    public var whiteSpace: String?
+    public var wordBreak: String?
     public var expected: PretextExpectedLayout
     public var expectedInlineKinds: [MarkdownInlineKind]?
     public var expectedPreparedSegments: [PretextExpectedPreparedSegment]?
 
     public init(
         name: String,
+        group: String? = nil,
+        description: String? = nil,
         markdown: String,
         oracleText: String? = nil,
         containerWidth: Double,
+        font: String? = nil,
+        lineHeight: Double? = nil,
+        whiteSpace: String? = nil,
+        wordBreak: String? = nil,
         expected: PretextExpectedLayout,
         expectedInlineKinds: [MarkdownInlineKind]? = nil,
         expectedPreparedSegments: [PretextExpectedPreparedSegment]? = nil
     ) {
         self.name = name
+        self.group = group
+        self.description = description
         self.markdown = markdown
         self.oracleText = oracleText
         self.containerWidth = containerWidth
+        self.font = font
+        self.lineHeight = lineHeight
+        self.whiteSpace = whiteSpace
+        self.wordBreak = wordBreak
         self.expected = expected
         self.expectedInlineKinds = expectedInlineKinds
         self.expectedPreparedSegments = expectedPreparedSegments
@@ -30,6 +48,34 @@ public struct PretextFixture: Codable, Sendable, Hashable {
 }
 
 public extension PretextFixture {
+    static let requiredProductGroups: Set<String> = [
+        "autolink-inline",
+        "cjk-wrap",
+        "code-font-profile",
+        "code-span",
+        "combining-marks",
+        "emoji-cjk",
+        "emphasis-inline",
+        "hard-breaks",
+        "heading-font-profile",
+        "image-placeholder",
+        "inline-math",
+        "link-inline",
+        "list-cell-inline",
+        "long-word",
+        "mixed-script",
+        "paragraph-wrap-medium",
+        "paragraph-wrap-narrow",
+        "paragraph-wrap-wide",
+        "punctuation-trailing-whitespace",
+        "rtl-wrap",
+        "smoke-baseline",
+        "soft-wraps",
+        "strikethrough-inline",
+        "strong-inline",
+        "table-cell-inline"
+    ]
+
     static func bundledFixtures() throws -> [PretextFixture] {
         let urls = Bundle.module.urls(forResourcesWithExtension: "json", subdirectory: nil) ?? []
         return try urls.sorted { $0.lastPathComponent < $1.lastPathComponent }.map { url in

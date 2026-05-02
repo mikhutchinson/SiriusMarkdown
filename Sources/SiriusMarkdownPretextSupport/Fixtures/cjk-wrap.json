@@ -1,0 +1,165 @@
+{
+  "name": "cjk-wrap",
+  "group": "cjk-wrap",
+  "description": "CJK text participates in strict Pretext line breaking without fallback drift.",
+  "markdown": "春天来了 文字换行 测试",
+  "oracleText": null,
+  "containerWidth": 96,
+  "font": "16px Helvetica",
+  "lineHeight": 18,
+  "whiteSpace": "pre-wrap",
+  "wordBreak": "normal",
+  "expected": {
+    "lineCount": 2,
+    "naturalWidth": 110.3,
+    "height": 36,
+    "segments": [
+      {
+        "text": "春",
+        "kind": "text",
+        "width": 10.14,
+        "byteRange": {
+          "lowerBound": 0,
+          "upperBound": 3
+        }
+      },
+      {
+        "text": "天",
+        "kind": "text",
+        "width": 10.14,
+        "byteRange": {
+          "lowerBound": 3,
+          "upperBound": 6
+        }
+      },
+      {
+        "text": "来",
+        "kind": "text",
+        "width": 10.14,
+        "byteRange": {
+          "lowerBound": 6,
+          "upperBound": 9
+        }
+      },
+      {
+        "text": "了",
+        "kind": "text",
+        "width": 10.14,
+        "byteRange": {
+          "lowerBound": 9,
+          "upperBound": 12
+        }
+      },
+      {
+        "text": " ",
+        "kind": "preserved-space",
+        "width": 4.45,
+        "byteRange": {
+          "lowerBound": 12,
+          "upperBound": 13
+        }
+      },
+      {
+        "text": "文",
+        "kind": "text",
+        "width": 10.14,
+        "byteRange": {
+          "lowerBound": 13,
+          "upperBound": 16
+        }
+      },
+      {
+        "text": "字",
+        "kind": "text",
+        "width": 10.14,
+        "byteRange": {
+          "lowerBound": 16,
+          "upperBound": 19
+        }
+      },
+      {
+        "text": "换",
+        "kind": "text",
+        "width": 10.14,
+        "byteRange": {
+          "lowerBound": 19,
+          "upperBound": 22
+        }
+      },
+      {
+        "text": "行",
+        "kind": "text",
+        "width": 10.14,
+        "byteRange": {
+          "lowerBound": 22,
+          "upperBound": 25
+        }
+      },
+      {
+        "text": " ",
+        "kind": "preserved-space",
+        "width": 4.45,
+        "byteRange": {
+          "lowerBound": 25,
+          "upperBound": 26
+        }
+      },
+      {
+        "text": "测",
+        "kind": "text",
+        "width": 10.14,
+        "byteRange": {
+          "lowerBound": 26,
+          "upperBound": 29
+        }
+      },
+      {
+        "text": "试",
+        "kind": "text",
+        "width": 10.14,
+        "byteRange": {
+          "lowerBound": 29,
+          "upperBound": 32
+        }
+      }
+    ],
+    "lines": [
+      {
+        "text": "春天来了 文字换行 ",
+        "width": 90.02,
+        "byteRange": {
+          "lowerBound": 0,
+          "upperBound": 26
+        },
+        "start": {
+          "segmentIndex": 0,
+          "graphemeIndex": 0
+        },
+        "end": {
+          "segmentIndex": 10,
+          "graphemeIndex": 0
+        }
+      },
+      {
+        "text": "测试",
+        "width": 20.28,
+        "byteRange": {
+          "lowerBound": 26,
+          "upperBound": 32
+        },
+        "start": {
+          "segmentIndex": 10,
+          "graphemeIndex": 0
+        },
+        "end": {
+          "segmentIndex": 12,
+          "graphemeIndex": 0
+        }
+      }
+    ]
+  },
+  "expectedInlineKinds": [
+    "text"
+  ],
+  "expectedPreparedSegments": null
+}

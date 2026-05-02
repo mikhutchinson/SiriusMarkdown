@@ -1,7 +1,14 @@
 {
   "name": "soft-wraps",
+  "group": "soft-wraps",
+  "description": "Soft wrapping uses prepared break opportunities rather than source reparsing.",
   "markdown": "alpha beta gamma delta epsilon zeta",
+  "oracleText": null,
   "containerWidth": 120,
+  "font": "16px Helvetica",
+  "lineHeight": 18,
+  "whiteSpace": "pre-wrap",
+  "wordBreak": "normal",
   "expected": {
     "lineCount": 3,
     "naturalWidth": 261.53,
@@ -157,5 +164,9 @@
         }
       }
     ]
-  }
+  },
+  "expectedInlineKinds": [
+    "text"
+  ],
+  "expectedPreparedSegments": null
 }

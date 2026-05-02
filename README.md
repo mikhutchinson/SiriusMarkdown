@@ -10,7 +10,7 @@ The package is built around three principles:
 
 ## Status
 
-This checkout should not be called v0.1 beta-ready from narrow smoke tests or construction-only assertions. The release gate now includes strict Swift-vs-Pretext layout comparison and an AppKit `MarkdownDocumentView` render probe. The prior emoji/CJK, multilingual, and RTL Pretext drift is fixed; future fixture drift must fail the gate instead of being whitelisted.
+This checkout is gated for Sirius use through strict Swift-vs-Pretext layout comparison, required Pretext product fixture groups, and AppKit render probes for document, compact chat, multilingual, inline-attribute, overflow, hard-break, and long-word rendering. Fixture drift, missing groups, duplicate fixture names/groups, and trivial render output are release blockers.
 
 ## Requirements
 
@@ -43,7 +43,7 @@ Runtime dependency: [swift-markdown](https://github.com/swiftlang/swift-markdown
 
 The default SwiftUI renderer includes native structured blocks for paragraphs, headings, quotes, lists, task lists, code blocks, math/HTML policy paths, and Markdown tables. Tables are first-class renderer output: cells are prepared from the AST, column widths are derived from prepared inline measurements, wide tables stay horizontally contained, and visual treatment is controlled through `MarkdownTheme` table tokens rather than demo-only styling.
 
-Inline rendering has an explicit boundary. The default visible text path is `MarkdownInlineRenderingMode.systemText`, which renders the prepared attributed payload with SwiftUI `Text(AttributedString)`. The opt-in `MarkdownInlineRenderingMode.preparedNativeLines` mode uses cached prepared layout results to slice that attributed payload into prepared lines, then still renders those lines with SwiftUI `Text(AttributedString)`. It validates the prepare/layout split and avoids doing parse, policy, code/math prep, or inline measurement in SwiftUI body, but it is not a fully custom glyph renderer.
+Inline rendering has an explicit boundary. The Sirius-ready presets, `MarkdownRendererConfiguration.compactChat` and `.document`, use `MarkdownInlineRenderingMode.preparedNativeLines`: cached prepared layout results slice the attributed payload into prepared lines before SwiftUI renders them with `Text(AttributedString)`. Direct custom `MarkdownRendererConfiguration(...)` construction keeps `MarkdownInlineRenderingMode.systemText` as a compatibility fallback. Neither path parses, prepares policy/code/math work, or measures inline content in SwiftUI body.
 
 ## Products
 
@@ -115,8 +115,8 @@ The default test suite covers more than construction smoke tests:
 - renderer preparation does not eagerly populate per-character fallback measurements;
 - repeated preparation reuses inline/code/math caches and records diagnostics;
 - large transcripts keep stable prepared item IDs for 10,000 sealed blocks plus one active tail;
-- `Tools/RenderProbe` renders `MarkdownDocumentView` through AppKit in its own process and rejects blank or trivial pixel output;
-- strict Pretext golden fixtures compare Swift layout metrics against the JavaScript oracle with no known-drift whitelist.
+- `Tools/RenderProbe` renders document, compact-chat, multilingual, inline-attribute, overflow, hard-break, and long-word cases through AppKit and rejects blank, trivial, collapsed-spacing, or clipped-wide output;
+- strict Pretext golden fixtures compare Swift layout metrics against the JavaScript oracle with no known-drift whitelist, no duplicate fixture names/groups, and all required product groups present.
 
 ## Documentation
 

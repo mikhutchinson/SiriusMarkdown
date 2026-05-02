@@ -9,39 +9,20 @@ struct SiriusMarkdownRenderProbe {
     static func main() {
         let result = renderRepresentativeDocument()
         let nativeResult = renderRepresentativeNativeDocument()
+        let chatResult = renderCompactChatTranscript()
+        let multilingualResult = renderMultilingualNativeDocument()
+        let attributeResult = renderInlineAttributeCrossingProbe()
+        let overflowResult = renderOverflowContainmentProbe()
+        let breakResult = renderBreakAndLongWordProbe()
         let widthResult = renderInlineWidthProbe()
         let nativeSpacingResult = renderNativeInlineSpacingProbe()
-        if result.nonWhitePixels < result.minimumNonWhitePixels {
-            fputs(
-                "error: MarkdownDocumentView rendered only \(result.nonWhitePixels) non-white pixels; expected at least \(result.minimumNonWhitePixels)\n",
-                stderr
-            )
-            exit(EXIT_FAILURE)
-        }
-
-        if result.distinctColorBuckets < result.minimumDistinctColorBuckets {
-            fputs(
-                "error: MarkdownDocumentView rendered only \(result.distinctColorBuckets) color buckets; expected at least \(result.minimumDistinctColorBuckets)\n",
-                stderr
-            )
-            exit(EXIT_FAILURE)
-        }
-
-        if nativeResult.nonWhitePixels < nativeResult.minimumNonWhitePixels {
-            fputs(
-                "error: prepared native MarkdownDocumentView rendered only \(nativeResult.nonWhitePixels) non-white pixels; expected at least \(nativeResult.minimumNonWhitePixels)\n",
-                stderr
-            )
-            exit(EXIT_FAILURE)
-        }
-
-        if nativeResult.distinctColorBuckets < nativeResult.minimumDistinctColorBuckets {
-            fputs(
-                "error: prepared native MarkdownDocumentView rendered only \(nativeResult.distinctColorBuckets) color buckets; expected at least \(nativeResult.minimumDistinctColorBuckets)\n",
-                stderr
-            )
-            exit(EXIT_FAILURE)
-        }
+        assertRenderable("MarkdownDocumentView", result)
+        assertRenderable("prepared native MarkdownDocumentView", nativeResult)
+        assertRenderable("compact chat prepared native transcript", chatResult, minimumNonWhitePixels: 1_400)
+        assertRenderable("multilingual prepared native document", multilingualResult, minimumNonWhitePixels: 1_200)
+        assertRenderable("inline attribute crossing prepared native document", attributeResult)
+        assertRenderable("code and table overflow prepared native document", overflowResult)
+        assertRenderable("hard-break and long-word prepared native document", breakResult, minimumNonWhitePixels: 1_200)
 
         if widthResult.darkRightmostX < widthResult.minimumDarkRightmostX {
             fputs(
@@ -59,10 +40,46 @@ struct SiriusMarkdownRenderProbe {
             exit(EXIT_FAILURE)
         }
 
+        if overflowResult.darkRightmostX < 300 {
+            fputs(
+                "error: code/table overflow probe only reached x=\(overflowResult.darkRightmostX); expected wide block content to render inside its containment surface.\n",
+                stderr
+            )
+            exit(EXIT_FAILURE)
+        }
+
         print("MarkdownDocumentView render probe: \(result.nonWhitePixels) non-white pixels, \(result.distinctColorBuckets) color buckets")
         print("Prepared native document render probe: \(nativeResult.nonWhitePixels) non-white pixels, \(nativeResult.distinctColorBuckets) color buckets")
+        print("Compact chat render probe: \(chatResult.nonWhitePixels) non-white pixels, \(chatResult.distinctColorBuckets) color buckets")
+        print("Multilingual render probe: \(multilingualResult.nonWhitePixels) non-white pixels, \(multilingualResult.distinctColorBuckets) color buckets")
+        print("Inline attribute crossing probe: \(attributeResult.nonWhitePixels) non-white pixels, \(attributeResult.distinctColorBuckets) color buckets")
+        print("Overflow containment probe: \(overflowResult.nonWhitePixels) non-white pixels, \(overflowResult.distinctColorBuckets) color buckets")
+        print("Break and long-word probe: \(breakResult.nonWhitePixels) non-white pixels, \(breakResult.distinctColorBuckets) color buckets")
         print("Prepared inline width probe: dark text reached x=\(widthResult.darkRightmostX)")
         print("Native inline spacing probe: \(nativeSpacingResult.wideDarkColumnGaps) wide word gaps")
+    }
+
+    private static func assertRenderable(
+        _ label: String,
+        _ result: RenderResult,
+        minimumNonWhitePixels: Int = 2_000,
+        minimumDistinctColorBuckets: Int = 3
+    ) {
+        if result.nonWhitePixels < minimumNonWhitePixels {
+            fputs(
+                "error: \(label) rendered only \(result.nonWhitePixels) non-white pixels; expected at least \(minimumNonWhitePixels)\n",
+                stderr
+            )
+            exit(EXIT_FAILURE)
+        }
+
+        if result.distinctColorBuckets < minimumDistinctColorBuckets {
+            fputs(
+                "error: \(label) rendered only \(result.distinctColorBuckets) color buckets; expected at least \(minimumDistinctColorBuckets)\n",
+                stderr
+            )
+            exit(EXIT_FAILURE)
+        }
     }
 
     @MainActor
@@ -117,6 +134,82 @@ struct SiriusMarkdownRenderProbe {
                 theme: .document,
                 inlineRenderingMode: .preparedNativeLines
             ),
+            outputPath: nil
+        )
+    }
+
+    @MainActor
+    private static func renderCompactChatTranscript() -> RenderResult {
+        renderDocument(
+            markdown:
+                """
+                Assistant response with **strong text**, `inline code`, [safe link](https://example.com), and image alt ![diagram](diagram.png).
+
+                - [ ] streamed task
+                - [x] completed task
+                """,
+            configuration: .compactChat,
+            size: NSSize(width: 520, height: 260),
+            outputPath: nil
+        )
+    }
+
+    @MainActor
+    private static func renderMultilingualNativeDocument() -> RenderResult {
+        renderDocument(
+            markdown:
+                """
+                # Multilingual
+
+                English 日本語 العربية emoji 😀 café wraps in the prepared native line path without corrupting byte ranges.
+                """,
+            configuration: .document,
+            size: NSSize(width: 560, height: 260),
+            outputPath: nil
+        )
+    }
+
+    @MainActor
+    private static func renderInlineAttributeCrossingProbe() -> RenderResult {
+        renderDocument(
+            markdown:
+                """
+                A paragraph with [linked text crossing a prepared line boundary](https://example.com) and `code value crossing another boundary` so attributes survive line slicing.
+                """,
+            configuration: .document,
+            size: NSSize(width: 420, height: 240),
+            outputPath: nil
+        )
+    }
+
+    @MainActor
+    private static func renderOverflowContainmentProbe() -> RenderResult {
+        renderDocument(
+            markdown:
+                """
+                | Region | Very Wide Evidence |
+                | - | - |
+                | Code | `abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz` |
+
+                ```swift
+                let veryLongIdentifierName = "abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz"
+                ```
+                """,
+            configuration: .document,
+            size: NSSize(width: 560, height: 300),
+            outputPath: nil
+        )
+    }
+
+    @MainActor
+    private static func renderBreakAndLongWordProbe() -> RenderResult {
+        renderDocument(
+            markdown: "first  \n"
+                + "second  \n"
+                + "third\n\n"
+                + "abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz",
+            configuration: .document,
+            size: NSSize(width: 420, height: 260),
             outputPath: nil
         )
     }

@@ -1,0 +1,224 @@
+{
+  "name": "paragraph-wrap-narrow",
+  "group": "paragraph-wrap-narrow",
+  "description": "Narrow chat bubble paragraph wrapping across several prepared lines.",
+  "markdown": "alpha beta gamma delta epsilon zeta eta theta",
+  "oracleText": null,
+  "containerWidth": 96,
+  "font": "16px Helvetica",
+  "lineHeight": 18,
+  "whiteSpace": "pre-wrap",
+  "wordBreak": "normal",
+  "expected": {
+    "lineCount": 4,
+    "naturalWidth": 328.26,
+    "height": 72,
+    "segments": [
+      {
+        "text": "alpha",
+        "kind": "text",
+        "width": 39.15,
+        "byteRange": {
+          "lowerBound": 0,
+          "upperBound": 5
+        }
+      },
+      {
+        "text": " ",
+        "kind": "preserved-space",
+        "width": 4.45,
+        "byteRange": {
+          "lowerBound": 5,
+          "upperBound": 6
+        }
+      },
+      {
+        "text": "beta",
+        "kind": "text",
+        "width": 31.14,
+        "byteRange": {
+          "lowerBound": 6,
+          "upperBound": 10
+        }
+      },
+      {
+        "text": " ",
+        "kind": "preserved-space",
+        "width": 4.45,
+        "byteRange": {
+          "lowerBound": 10,
+          "upperBound": 11
+        }
+      },
+      {
+        "text": "gamma",
+        "kind": "text",
+        "width": 53.35,
+        "byteRange": {
+          "lowerBound": 11,
+          "upperBound": 16
+        }
+      },
+      {
+        "text": " ",
+        "kind": "preserved-space",
+        "width": 4.45,
+        "byteRange": {
+          "lowerBound": 16,
+          "upperBound": 17
+        }
+      },
+      {
+        "text": "delta",
+        "kind": "text",
+        "width": 34.7,
+        "byteRange": {
+          "lowerBound": 17,
+          "upperBound": 22
+        }
+      },
+      {
+        "text": " ",
+        "kind": "preserved-space",
+        "width": 4.45,
+        "byteRange": {
+          "lowerBound": 22,
+          "upperBound": 23
+        }
+      },
+      {
+        "text": "epsilon",
+        "kind": "text",
+        "width": 50.7,
+        "byteRange": {
+          "lowerBound": 23,
+          "upperBound": 30
+        }
+      },
+      {
+        "text": " ",
+        "kind": "preserved-space",
+        "width": 4.45,
+        "byteRange": {
+          "lowerBound": 30,
+          "upperBound": 31
+        }
+      },
+      {
+        "text": "zeta",
+        "kind": "text",
+        "width": 30.24,
+        "byteRange": {
+          "lowerBound": 31,
+          "upperBound": 35
+        }
+      },
+      {
+        "text": " ",
+        "kind": "preserved-space",
+        "width": 4.45,
+        "byteRange": {
+          "lowerBound": 35,
+          "upperBound": 36
+        }
+      },
+      {
+        "text": "eta",
+        "kind": "text",
+        "width": 22.24,
+        "byteRange": {
+          "lowerBound": 36,
+          "upperBound": 39
+        }
+      },
+      {
+        "text": " ",
+        "kind": "preserved-space",
+        "width": 4.45,
+        "byteRange": {
+          "lowerBound": 39,
+          "upperBound": 40
+        }
+      },
+      {
+        "text": "theta",
+        "kind": "text",
+        "width": 35.59,
+        "byteRange": {
+          "lowerBound": 40,
+          "upperBound": 45
+        }
+      }
+    ],
+    "lines": [
+      {
+        "text": "alpha beta ",
+        "width": 79.19,
+        "byteRange": {
+          "lowerBound": 0,
+          "upperBound": 11
+        },
+        "start": {
+          "segmentIndex": 0,
+          "graphemeIndex": 0
+        },
+        "end": {
+          "segmentIndex": 4,
+          "graphemeIndex": 0
+        }
+      },
+      {
+        "text": "gamma delta ",
+        "width": 96.95,
+        "byteRange": {
+          "lowerBound": 11,
+          "upperBound": 23
+        },
+        "start": {
+          "segmentIndex": 4,
+          "graphemeIndex": 0
+        },
+        "end": {
+          "segmentIndex": 8,
+          "graphemeIndex": 0
+        }
+      },
+      {
+        "text": "epsilon zeta ",
+        "width": 89.84,
+        "byteRange": {
+          "lowerBound": 23,
+          "upperBound": 36
+        },
+        "start": {
+          "segmentIndex": 8,
+          "graphemeIndex": 0
+        },
+        "end": {
+          "segmentIndex": 12,
+          "graphemeIndex": 0
+        }
+      },
+      {
+        "text": "eta theta",
+        "width": 62.28,
+        "byteRange": {
+          "lowerBound": 36,
+          "upperBound": 45
+        },
+        "start": {
+          "segmentIndex": 12,
+          "graphemeIndex": 0
+        },
+        "end": {
+          "segmentIndex": 15,
+          "graphemeIndex": 0
+        }
+      }
+    ]
+  },
+  "expectedInlineKinds": [
+    "text"
+  ],
+  "expectedPreparedSegments": null
+}

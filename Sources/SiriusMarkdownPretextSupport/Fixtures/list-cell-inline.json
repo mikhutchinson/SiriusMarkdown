@@ -1,0 +1,178 @@
+{
+  "name": "list-cell-inline",
+  "group": "list-cell-inline",
+  "description": "List item inline content uses the same prepared layout contract as paragraphs.",
+  "markdown": "- item **strong** link [ref](https://example.com)",
+  "oracleText": "item strong link ref",
+  "containerWidth": 160,
+  "font": "16px Helvetica",
+  "lineHeight": 18,
+  "whiteSpace": "pre-wrap",
+  "wordBreak": "normal",
+  "expected": {
+    "lineCount": 1,
+    "naturalWidth": 130.73,
+    "height": 18,
+    "segments": [
+      {
+        "text": "item",
+        "kind": "text",
+        "width": 30.23,
+        "byteRange": {
+          "lowerBound": 0,
+          "upperBound": 4
+        }
+      },
+      {
+        "text": " ",
+        "kind": "preserved-space",
+        "width": 4.45,
+        "byteRange": {
+          "lowerBound": 4,
+          "upperBound": 5
+        }
+      },
+      {
+        "text": "strong",
+        "kind": "text",
+        "width": 44.47,
+        "byteRange": {
+          "lowerBound": 5,
+          "upperBound": 11
+        }
+      },
+      {
+        "text": " ",
+        "kind": "preserved-space",
+        "width": 4.45,
+        "byteRange": {
+          "lowerBound": 11,
+          "upperBound": 12
+        }
+      },
+      {
+        "text": "link",
+        "kind": "text",
+        "width": 24.01,
+        "byteRange": {
+          "lowerBound": 12,
+          "upperBound": 16
+        }
+      },
+      {
+        "text": " ",
+        "kind": "preserved-space",
+        "width": 4.45,
+        "byteRange": {
+          "lowerBound": 16,
+          "upperBound": 17
+        }
+      },
+      {
+        "text": "ref",
+        "kind": "text",
+        "width": 18.67,
+        "byteRange": {
+          "lowerBound": 17,
+          "upperBound": 20
+        }
+      }
+    ],
+    "lines": [
+      {
+        "text": "item strong link ref",
+        "width": 130.73,
+        "byteRange": {
+          "lowerBound": 0,
+          "upperBound": 20
+        },
+        "start": {
+          "segmentIndex": 0,
+          "graphemeIndex": 0
+        },
+        "end": {
+          "segmentIndex": 7,
+          "graphemeIndex": 0
+        }
+      }
+    ]
+  },
+  "expectedInlineKinds": [
+    "text",
+    "strong",
+    "text",
+    "link"
+  ],
+  "expectedPreparedSegments": [
+    {
+      "kind": "text",
+      "text": "item",
+      "byteRange": {
+        "lowerBound": 0,
+        "upperBound": 4
+      },
+      "isHardBreak": false,
+      "isBreakOpportunity": false
+    },
+    {
+      "kind": "text",
+      "text": " ",
+      "byteRange": {
+        "lowerBound": 4,
+        "upperBound": 5
+      },
+      "isHardBreak": false,
+      "isBreakOpportunity": true
+    },
+    {
+      "kind": "strong",
+      "text": "strong",
+      "byteRange": {
+        "lowerBound": 5,
+        "upperBound": 11
+      },
+      "isHardBreak": false,
+      "isBreakOpportunity": false
+    },
+    {
+      "kind": "text",
+      "text": " ",
+      "byteRange": {
+        "lowerBound": 11,
+        "upperBound": 12
+      },
+      "isHardBreak": false,
+      "isBreakOpportunity": true
+    },
+    {
+      "kind": "text",
+      "text": "link",
+      "byteRange": {
+        "lowerBound": 12,
+        "upperBound": 16
+      },
+      "isHardBreak": false,
+      "isBreakOpportunity": false
+    },
+    {
+      "kind": "text",
+      "text": " ",
+      "byteRange": {
+        "lowerBound": 16,
+        "upperBound": 17
+      },
+      "isHardBreak": false,
+      "isBreakOpportunity": true
+    },
+    {
+      "kind": "link",
+      "text": "ref",
+      "byteRange": {
+        "lowerBound": 17,
+        "upperBound": 20
+      },
+      "isHardBreak": false,
+      "isBreakOpportunity": false
+    }
+  ]
+}

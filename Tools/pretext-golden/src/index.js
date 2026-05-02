@@ -9,6 +9,33 @@ const defaultFont = "16px Helvetica";
 const defaultLineHeight = 18;
 const tolerance = 0.5;
 const segmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+const requiredProductGroups = new Set([
+  "autolink-inline",
+  "cjk-wrap",
+  "code-font-profile",
+  "code-span",
+  "combining-marks",
+  "emoji-cjk",
+  "emphasis-inline",
+  "hard-breaks",
+  "heading-font-profile",
+  "image-placeholder",
+  "inline-math",
+  "link-inline",
+  "list-cell-inline",
+  "long-word",
+  "mixed-script",
+  "paragraph-wrap-medium",
+  "paragraph-wrap-narrow",
+  "paragraph-wrap-wide",
+  "punctuation-trailing-whitespace",
+  "rtl-wrap",
+  "smoke-baseline",
+  "soft-wraps",
+  "strikethrough-inline",
+  "strong-inline",
+  "table-cell-inline"
+]);
 
 if (typeof globalThis.OffscreenCanvas === "undefined") {
   globalThis.OffscreenCanvas = class NodeOffscreenCanvas {
@@ -25,6 +52,7 @@ if (typeof globalThis.OffscreenCanvas === "undefined") {
 function loadFixtures() {
   return readdirSync(fixturesDir)
     .filter((name) => name.endsWith(".json"))
+    .sort()
     .map((name) => {
       const file = join(fixturesDir.pathname, name);
       return { name, fixture: JSON.parse(readFileSync(file, "utf8")) };
@@ -39,6 +67,8 @@ function main() {
   if (shouldCheck && entries.length === 0) {
     throw new Error("No Pretext fixtures found.");
   }
+
+  validateFixtureSet(entries);
 
   for (const entry of entries) {
     const fixture = entry.fixture;
@@ -101,7 +131,70 @@ function expectedLayout(fixture) {
 
 function writeFixture(name, fixture, directory) {
   const file = join(directory.pathname, name);
-  writeFileSync(file, `${JSON.stringify(fixture, null, 2)}\n`);
+  writeFileSync(file, `${JSON.stringify(orderedFixture(fixture), null, 2)}\n`);
+}
+
+function orderedFixture(fixture) {
+  return {
+    name: fixture.name,
+    group: fixture.group,
+    description: fixture.description,
+    markdown: fixture.markdown,
+    oracleText: fixture.oracleText ?? null,
+    containerWidth: fixture.containerWidth,
+    font: fixture.font ?? defaultFont,
+    lineHeight: fixture.lineHeight ?? defaultLineHeight,
+    whiteSpace: fixture.whiteSpace ?? "pre-wrap",
+    wordBreak: fixture.wordBreak ?? "normal",
+    expected: fixture.expected,
+    expectedInlineKinds: fixture.expectedInlineKinds ?? null,
+    expectedPreparedSegments: fixture.expectedPreparedSegments ?? null
+  };
+}
+
+function validateFixtureSet(entries) {
+  const names = new Set();
+  const groups = new Set();
+
+  for (const entry of entries) {
+    const fixture = entry.fixture;
+    requireString(fixture, "name", entry.name);
+    requireString(fixture, "group", entry.name);
+    requireString(fixture, "description", entry.name);
+    requireString(fixture, "markdown", entry.name);
+    requireFiniteNumber(fixture, "containerWidth", entry.name);
+    requireString(fixture, "font", entry.name);
+    requireFiniteNumber(fixture, "lineHeight", entry.name);
+    requireString(fixture, "whiteSpace", entry.name);
+    requireString(fixture, "wordBreak", entry.name);
+
+    if (names.has(fixture.name)) {
+      throw new Error(`Duplicate Pretext fixture name: ${fixture.name}`);
+    }
+    names.add(fixture.name);
+
+    if (groups.has(fixture.group)) {
+      throw new Error(`Duplicate Pretext fixture group: ${fixture.group}`);
+    }
+    groups.add(fixture.group);
+  }
+
+  const missingGroups = [...requiredProductGroups].filter((group) => !groups.has(group)).sort();
+  if (missingGroups.length > 0) {
+    throw new Error(`Missing required Pretext fixture groups: ${missingGroups.join(", ")}`);
+  }
+}
+
+function requireString(fixture, field, fileName) {
+  if (typeof fixture[field] !== "string" || fixture[field].length === 0) {
+    throw new Error(`${fileName}.${field} must be a non-empty string`);
+  }
+}
+
+function requireFiniteNumber(fixture, field, fileName) {
+  if (typeof fixture[field] !== "number" || !Number.isFinite(fixture[field])) {
+    throw new Error(`${fileName}.${field} must be a finite number`);
+  }
 }
 
 function assertExpectedMatches(name, expected, actual) {

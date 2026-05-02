@@ -1,0 +1,120 @@
+{
+  "name": "combining-marks",
+  "group": "combining-marks",
+  "description": "Combining marks are measured and sliced without corrupting grapheme boundaries.",
+  "markdown": "Café naïve resumé touché",
+  "oracleText": null,
+  "containerWidth": 150,
+  "font": "16px Helvetica",
+  "lineHeight": 18,
+  "whiteSpace": "pre-wrap",
+  "wordBreak": "normal",
+  "expected": {
+    "lineCount": 2,
+    "naturalWidth": 187.68,
+    "height": 36,
+    "segments": [
+      {
+        "text": "Café",
+        "kind": "text",
+        "width": 33.8,
+        "byteRange": {
+          "lowerBound": 0,
+          "upperBound": 6
+        }
+      },
+      {
+        "text": " ",
+        "kind": "preserved-space",
+        "width": 4.45,
+        "byteRange": {
+          "lowerBound": 6,
+          "upperBound": 7
+        }
+      },
+      {
+        "text": "naïve",
+        "kind": "text",
+        "width": 39.14,
+        "byteRange": {
+          "lowerBound": 7,
+          "upperBound": 14
+        }
+      },
+      {
+        "text": " ",
+        "kind": "preserved-space",
+        "width": 4.45,
+        "byteRange": {
+          "lowerBound": 14,
+          "upperBound": 15
+        }
+      },
+      {
+        "text": "resumé",
+        "kind": "text",
+        "width": 53.35,
+        "byteRange": {
+          "lowerBound": 15,
+          "upperBound": 23
+        }
+      },
+      {
+        "text": " ",
+        "kind": "preserved-space",
+        "width": 4.45,
+        "byteRange": {
+          "lowerBound": 23,
+          "upperBound": 24
+        }
+      },
+      {
+        "text": "touché",
+        "kind": "text",
+        "width": 48.04,
+        "byteRange": {
+          "lowerBound": 24,
+          "upperBound": 31
+        }
+      }
+    ],
+    "lines": [
+      {
+        "text": "Café naïve resumé ",
+        "width": 139.64,
+        "byteRange": {
+          "lowerBound": 0,
+          "upperBound": 24
+        },
+        "start": {
+          "segmentIndex": 0,
+          "graphemeIndex": 0
+        },
+        "end": {
+          "segmentIndex": 6,
+          "graphemeIndex": 0
+        }
+      },
+      {
+        "text": "touché",
+        "width": 48.04,
+        "byteRange": {
+          "lowerBound": 24,
+          "upperBound": 31
+        },
+        "start": {
+          "segmentIndex": 6,
+          "graphemeIndex": 0
+        },
+        "end": {
+          "segmentIndex": 7,
+          "graphemeIndex": 0
+        }
+      }
+    ]
+  },
+  "expectedInlineKinds": [
+    "text"
+  ],
+  "expectedPreparedSegments": null
+}

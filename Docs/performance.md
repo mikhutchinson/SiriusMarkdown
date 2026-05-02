@@ -21,7 +21,7 @@ Bounded LRU-style caches (default capacity **256**) cover prepared, measured, la
 
 SwiftUI block views consume **prepared inline content** created by **`MarkdownRendererConfiguration.prepare(snapshot:)`**. The prepared inline payload stores both the attributed text and **`MeasuredInlineContent`** so view-time width changes can compute line breaks from cached segment/unit measurements. Use **`InlineLayoutEngine`** directly when you need deterministic metrics outside the SwiftUI renderer (tests, golden comparison, future layout-driven UI).
 
-Current caveat: prepared inline layout is the cacheable measurement, resize, diagnostics, and metadata layer. The default visible text path still goes through SwiftUI **`Text(AttributedString)`** via **`MarkdownInlineRenderingMode.systemText`**. **`MarkdownInlineRenderingMode.preparedNativeLines`** is opt-in; it consumes **`InlineLayoutResult`** line ranges, slices the prepared attributed inline payload into those lines, and renders each line with SwiftUI **`Text(AttributedString)`**. That is useful for validating prepared wrapping and avoiding the old newline-injection path, but it is not a fully custom glyph renderer and it does not prove every SwiftUI text or selection limitation is gone.
+Prepared inline layout is the cacheable measurement, resize, diagnostics, and metadata layer. The Sirius-ready presets **`MarkdownRendererConfiguration.compactChat`** and **`.document`** use **`MarkdownInlineRenderingMode.preparedNativeLines`**, which consumes **`InlineLayoutResult`** ranges, slices the prepared attributed payload into prepared lines, and renders those lines with SwiftUI **`Text(AttributedString)`**. Direct custom configuration keeps **`MarkdownInlineRenderingMode.systemText`** available as a compatibility fallback. Both paths keep parsing, policy preparation, code/math rendering, and inline measurement out of SwiftUI **`body`**.
 
 ## Rendering path
 
@@ -36,7 +36,7 @@ The suite includes headless renderer-performance contract tests:
 - renderer preparation must not eagerly generate per-character unit measurements for every segment;
 - explicit overwide fallback layout can use prepared unit measurements, while SwiftUI view-time line breaking refuses measurement fallback and uses already prepared segment widths only.
 
-Strict Pretext fixture drift is a beta blocker. The Swift fixture comparison now passes for emoji/CJK, multilingual, RTL, long-word, hard-break, code-span, and soft-wrap fixtures without a known-drift whitelist.
+Strict Pretext fixture drift is a release blocker. The Swift fixture comparison now requires the full product fixture corpus: paragraph width profiles, semantic inline runs, autolinks, inline code, inline math, image placeholders, CJK, RTL, emoji, mixed scripts, combining marks, hard breaks, soft wraps, long words, punctuation/trailing whitespace, heading/code font profiles, and list/table cell inline content.
 
 ## Accelerate and Metal
 

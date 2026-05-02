@@ -214,11 +214,11 @@ public struct MarkdownRendererConfiguration: Sendable {
     }
 
     public static var compactChat: MarkdownRendererConfiguration {
-        MarkdownRendererConfiguration(theme: .compactChat)
+        MarkdownRendererConfiguration(theme: .compactChat, inlineRenderingMode: .preparedNativeLines)
     }
 
     public static var document: MarkdownRendererConfiguration {
-        MarkdownRendererConfiguration(theme: .document)
+        MarkdownRendererConfiguration(theme: .document, inlineRenderingMode: .preparedNativeLines)
     }
 
     public func prepare(block: MarkdownBlock) -> MarkdownPreparedBlockContent {

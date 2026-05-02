@@ -1,7 +1,14 @@
 {
   "name": "hard-breaks",
-  "markdown": "first\nsecond\nthird",
+  "group": "hard-breaks",
+  "description": "Markdown hard breaks become prepared line boundaries without reparsing in SwiftUI.",
+  "markdown": "first  \nsecond  \nthird",
+  "oracleText": "first\nsecond\nthird",
   "containerWidth": 220,
+  "font": "16px Helvetica",
+  "lineHeight": 18,
+  "whiteSpace": "pre-wrap",
+  "wordBreak": "normal",
   "expected": {
     "lineCount": 3,
     "naturalWidth": 51.59,
@@ -103,5 +110,64 @@
         }
       }
     ]
-  }
+  },
+  "expectedInlineKinds": [
+    "text",
+    "hardBreak",
+    "text",
+    "hardBreak",
+    "text"
+  ],
+  "expectedPreparedSegments": [
+    {
+      "kind": "text",
+      "text": "first",
+      "byteRange": {
+        "lowerBound": 0,
+        "upperBound": 5
+      },
+      "isHardBreak": false,
+      "isBreakOpportunity": false
+    },
+    {
+      "kind": "hardBreak",
+      "text": "\n",
+      "byteRange": {
+        "lowerBound": 5,
+        "upperBound": 6
+      },
+      "isHardBreak": true,
+      "isBreakOpportunity": true
+    },
+    {
+      "kind": "text",
+      "text": "second",
+      "byteRange": {
+        "lowerBound": 6,
+        "upperBound": 12
+      },
+      "isHardBreak": false,
+      "isBreakOpportunity": false
+    },
+    {
+      "kind": "hardBreak",
+      "text": "\n",
+      "byteRange": {
+        "lowerBound": 12,
+        "upperBound": 13
+      },
+      "isHardBreak": true,
+      "isBreakOpportunity": true
+    },
+    {
+      "kind": "text",
+      "text": "third",
+      "byteRange": {
+        "lowerBound": 13,
+        "upperBound": 18
+      },
+      "isHardBreak": false,
+      "isBreakOpportunity": false
+    }
+  ]
 }

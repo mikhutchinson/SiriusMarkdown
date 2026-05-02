@@ -1,0 +1,264 @@
+{
+  "name": "paragraph-wrap-wide",
+  "group": "paragraph-wrap-wide",
+  "description": "Wide document paragraph that should stay within a single prepared line.",
+  "markdown": "Wide document paragraphs should stay on one measured line when space allows.",
+  "oracleText": null,
+  "containerWidth": 560,
+  "font": "16px Helvetica",
+  "lineHeight": 18,
+  "whiteSpace": "pre-wrap",
+  "wordBreak": "normal",
+  "expected": {
+    "lineCount": 2,
+    "naturalWidth": 583.53,
+    "height": 36,
+    "segments": [
+      {
+        "text": "Wide",
+        "kind": "text",
+        "width": 36.45,
+        "byteRange": {
+          "lowerBound": 0,
+          "upperBound": 4
+        }
+      },
+      {
+        "text": " ",
+        "kind": "preserved-space",
+        "width": 4.45,
+        "byteRange": {
+          "lowerBound": 4,
+          "upperBound": 5
+        }
+      },
+      {
+        "text": "document",
+        "kind": "text",
+        "width": 70.27,
+        "byteRange": {
+          "lowerBound": 5,
+          "upperBound": 13
+        }
+      },
+      {
+        "text": " ",
+        "kind": "preserved-space",
+        "width": 4.45,
+        "byteRange": {
+          "lowerBound": 13,
+          "upperBound": 14
+        }
+      },
+      {
+        "text": "paragraphs",
+        "kind": "text",
+        "width": 80.95,
+        "byteRange": {
+          "lowerBound": 14,
+          "upperBound": 24
+        }
+      },
+      {
+        "text": " ",
+        "kind": "preserved-space",
+        "width": 4.45,
+        "byteRange": {
+          "lowerBound": 24,
+          "upperBound": 25
+        }
+      },
+      {
+        "text": "should",
+        "kind": "text",
+        "width": 47.15,
+        "byteRange": {
+          "lowerBound": 25,
+          "upperBound": 31
+        }
+      },
+      {
+        "text": " ",
+        "kind": "preserved-space",
+        "width": 4.45,
+        "byteRange": {
+          "lowerBound": 31,
+          "upperBound": 32
+        }
+      },
+      {
+        "text": "stay",
+        "kind": "text",
+        "width": 29.34,
+        "byteRange": {
+          "lowerBound": 32,
+          "upperBound": 36
+        }
+      },
+      {
+        "text": " ",
+        "kind": "preserved-space",
+        "width": 4.45,
+        "byteRange": {
+          "lowerBound": 36,
+          "upperBound": 37
+        }
+      },
+      {
+        "text": "on",
+        "kind": "text",
+        "width": 17.8,
+        "byteRange": {
+          "lowerBound": 37,
+          "upperBound": 39
+        }
+      },
+      {
+        "text": " ",
+        "kind": "preserved-space",
+        "width": 4.45,
+        "byteRange": {
+          "lowerBound": 39,
+          "upperBound": 40
+        }
+      },
+      {
+        "text": "one",
+        "kind": "text",
+        "width": 26.7,
+        "byteRange": {
+          "lowerBound": 40,
+          "upperBound": 43
+        }
+      },
+      {
+        "text": " ",
+        "kind": "preserved-space",
+        "width": 4.45,
+        "byteRange": {
+          "lowerBound": 43,
+          "upperBound": 44
+        }
+      },
+      {
+        "text": "measured",
+        "kind": "text",
+        "width": 71.15,
+        "byteRange": {
+          "lowerBound": 44,
+          "upperBound": 52
+        }
+      },
+      {
+        "text": " ",
+        "kind": "preserved-space",
+        "width": 4.45,
+        "byteRange": {
+          "lowerBound": 52,
+          "upperBound": 53
+        }
+      },
+      {
+        "text": "line",
+        "kind": "text",
+        "width": 24.91,
+        "byteRange": {
+          "lowerBound": 53,
+          "upperBound": 57
+        }
+      },
+      {
+        "text": " ",
+        "kind": "preserved-space",
+        "width": 4.45,
+        "byteRange": {
+          "lowerBound": 57,
+          "upperBound": 58
+        }
+      },
+      {
+        "text": "when",
+        "kind": "text",
+        "width": 38.25,
+        "byteRange": {
+          "lowerBound": 58,
+          "upperBound": 62
+        }
+      },
+      {
+        "text": " ",
+        "kind": "preserved-space",
+        "width": 4.45,
+        "byteRange": {
+          "lowerBound": 62,
+          "upperBound": 63
+        }
+      },
+      {
+        "text": "space",
+        "kind": "text",
+        "width": 42.7,
+        "byteRange": {
+          "lowerBound": 63,
+          "upperBound": 68
+        }
+      },
+      {
+        "text": " ",
+        "kind": "preserved-space",
+        "width": 4.45,
+        "byteRange": {
+          "lowerBound": 68,
+          "upperBound": 69
+        }
+      },
+      {
+        "text": "allows.",
+        "kind": "text",
+        "width": 48.91,
+        "byteRange": {
+          "lowerBound": 69,
+          "upperBound": 76
+        }
+      }
+    ],
+    "lines": [
+      {
+        "text": "Wide document paragraphs should stay on one measured line when space ",
+        "width": 534.62,
+        "byteRange": {
+          "lowerBound": 0,
+          "upperBound": 69
+        },
+        "start": {
+          "segmentIndex": 0,
+          "graphemeIndex": 0
+        },
+        "end": {
+          "segmentIndex": 22,
+          "graphemeIndex": 0
+        }
+      },
+      {
+        "text": "allows.",
+        "width": 48.91,
+        "byteRange": {
+          "lowerBound": 69,
+          "upperBound": 76
+        },
+        "start": {
+          "segmentIndex": 22,
+          "graphemeIndex": 0
+        },
+        "end": {
+          "segmentIndex": 23,
+          "graphemeIndex": 0
+        }
+      }
+    ]
+  },
+  "expectedInlineKinds": [
+    "text"
+  ],
+  "expectedPreparedSegments": null
+}

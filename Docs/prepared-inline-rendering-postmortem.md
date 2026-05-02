@@ -12,7 +12,7 @@ The concern was valid. SiriusMarkdown had a prepared inline layout pipeline, cou
 
 The response was wrong. I treated that caveat as permission to replace the visible inline renderer immediately with a custom native drawing bridge. The result technically consumed `MeasuredInlineContent` and `InlineLayoutResult`, but it was visually unacceptable: word spacing collapsed, list rows looked broken, font matching was poor, and product demos regressed even while tests and the product gate still passed.
 
-The failed custom drawing bridge was removed. The current product fix is narrower and safer: `MarkdownInlineRenderingMode.preparedNativeLines` consumes `InlineLayoutResult`, slices the prepared attributed inline payload into prepared lines, and renders each line with SwiftUI `Text(AttributedString)`. That keeps the prepare/layout contract visible in the renderer without pretending SiriusMarkdown owns final glyph drawing.
+The failed custom drawing bridge was removed. The current product path is `MarkdownInlineRenderingMode.preparedNativeLines`: it consumes `InlineLayoutResult`, slices the prepared attributed inline payload into prepared lines, and renders each line with SwiftUI `Text(AttributedString)`. `MarkdownRendererConfiguration.compactChat` and `.document` use that path by default for Sirius-facing rendering.
 
 ## What We Set Out To Fix
 
@@ -174,14 +174,14 @@ That state was not the final architecture, but it was product-safer than the fai
 
 The honest claim should remain:
 
-> SiriusMarkdown has prepared inline layout and uses it for caching, diagnostics, width-change layout, and metadata. The default visible inline path still uses SwiftUI `Text(AttributedString)`. The opt-in `preparedNativeLines` path uses prepared layout to slice line text first, then also renders those lines with SwiftUI `Text(AttributedString)`. It is not a fully custom glyph renderer.
+> SiriusMarkdown has prepared inline layout and uses it for caching, diagnostics, width-change layout, and metadata. Sirius-facing chat and document presets use `preparedNativeLines`, which slices line text from prepared layout first, then renders those lines with SwiftUI `Text(AttributedString)`. It is not a fully custom glyph renderer.
 
 ## Correct Remediation Plan
 
 ### Short Term
 
 - Keep `Text(AttributedString)` as the visible inline renderer.
-- Keep `preparedNativeLines` opt-in as prepared-line slicing rendered through SwiftUI text.
+- Keep `preparedNativeLines` as the Sirius preset path for prepared-line slicing rendered through SwiftUI text.
 - Keep prepared inline layout as the source for counters, cached layout, source ranges, and future hit-testing.
 - Do not claim native glyph placement ownership.
 - Keep the caveat explicit in the scorecard, performance docs, and README.
@@ -215,13 +215,11 @@ The probe must catch collapsed words, broken marker alignment, clipped baselines
 
 ### Release Claim Rule
 
-Do not say prepared inline layout owns on-screen glyph placement until:
+Do not say prepared inline layout is a custom glyph renderer until:
 
-- The native path is visually at parity with the current SwiftUI `Text` path.
 - The renderer actually owns shaped glyph drawing instead of rendering prepared line slices through SwiftUI `Text`.
-- The product gate includes visual checks that would have caught this regression.
+- The product gate includes visual checks for that custom drawing path.
 - Demos are inspected after building the exact app bundles users will run.
-- The old path remains available until the new path is proven under chat and document workloads.
 
 ## Non-Goals
 

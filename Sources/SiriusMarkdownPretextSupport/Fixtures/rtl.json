@@ -1,7 +1,14 @@
 {
   "name": "rtl",
+  "group": "rtl-wrap",
+  "description": "RTL text stays in the strict Pretext drift corpus.",
   "markdown": "بدأت الرحلة ثم اكتملت",
+  "oracleText": null,
   "containerWidth": 140,
+  "font": "16px Helvetica",
+  "lineHeight": 18,
+  "whiteSpace": "pre-wrap",
+  "wordBreak": "normal",
   "expected": {
     "lineCount": 2,
     "naturalWidth": 195.87,
@@ -105,5 +112,9 @@
         }
       }
     ]
-  }
+  },
+  "expectedInlineKinds": [
+    "text"
+  ],
+  "expectedPreparedSegments": null
 }

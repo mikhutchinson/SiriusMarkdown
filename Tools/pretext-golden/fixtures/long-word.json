@@ -1,7 +1,14 @@
 {
   "name": "long-word",
+  "group": "long-word",
+  "description": "Overwide words use the cached emergency fallback path and stay in Pretext parity.",
   "markdown": "abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz",
+  "oracleText": null,
   "containerWidth": 100,
+  "font": "16px Helvetica",
+  "lineHeight": 18,
+  "whiteSpace": "pre-wrap",
+  "wordBreak": "normal",
   "expected": {
     "lineCount": 5,
     "naturalWidth": 407.3,
@@ -99,5 +106,9 @@
         }
       }
     ]
-  }
+  },
+  "expectedInlineKinds": [
+    "text"
+  ],
+  "expectedPreparedSegments": null
 }

@@ -1,0 +1,115 @@
+{
+  "name": "code-font-profile",
+  "group": "code-font-profile",
+  "description": "Code-profile inline layout is locked with a monospaced font profile.",
+  "markdown": "`monospace code span wraps`",
+  "oracleText": "monospace code span wraps",
+  "containerWidth": 260,
+  "font": "16px Menlo",
+  "lineHeight": 20,
+  "whiteSpace": "pre-wrap",
+  "wordBreak": "normal",
+  "expected": {
+    "lineCount": 1,
+    "naturalWidth": 240.81,
+    "height": 20,
+    "segments": [
+      {
+        "text": "monospace",
+        "kind": "text",
+        "width": 86.7,
+        "byteRange": {
+          "lowerBound": 0,
+          "upperBound": 9
+        }
+      },
+      {
+        "text": " ",
+        "kind": "preserved-space",
+        "width": 9.63,
+        "byteRange": {
+          "lowerBound": 9,
+          "upperBound": 10
+        }
+      },
+      {
+        "text": "code",
+        "kind": "text",
+        "width": 38.53,
+        "byteRange": {
+          "lowerBound": 10,
+          "upperBound": 14
+        }
+      },
+      {
+        "text": " ",
+        "kind": "preserved-space",
+        "width": 9.63,
+        "byteRange": {
+          "lowerBound": 14,
+          "upperBound": 15
+        }
+      },
+      {
+        "text": "span",
+        "kind": "text",
+        "width": 38.53,
+        "byteRange": {
+          "lowerBound": 15,
+          "upperBound": 19
+        }
+      },
+      {
+        "text": " ",
+        "kind": "preserved-space",
+        "width": 9.63,
+        "byteRange": {
+          "lowerBound": 19,
+          "upperBound": 20
+        }
+      },
+      {
+        "text": "wraps",
+        "kind": "text",
+        "width": 48.16,
+        "byteRange": {
+          "lowerBound": 20,
+          "upperBound": 25
+        }
+      }
+    ],
+    "lines": [
+      {
+        "text": "monospace code span wraps",
+        "width": 240.81,
+        "byteRange": {
+          "lowerBound": 0,
+          "upperBound": 25
+        },
+        "start": {
+          "segmentIndex": 0,
+          "graphemeIndex": 0
+        },
+        "end": {
+          "segmentIndex": 7,
+          "graphemeIndex": 0
+        }
+      }
+    ]
+  },
+  "expectedInlineKinds": [
+    "code"
+  ],
+  "expectedPreparedSegments": [
+    {
+      "kind": "code",
+      "text": "monospace code span wraps",
+      "byteRange": {
+        "lowerBound": 0,
+        "upperBound": 25
+      },
+      "isHardBreak": false,
+      "isBreakOpportunity": false
+    }
+  ]
+}

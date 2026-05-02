@@ -1,0 +1,177 @@
+{
+  "name": "emphasis-inline",
+  "group": "emphasis-inline",
+  "description": "Emphasis inline semantics are parsed by swift-markdown and measured as visible text.",
+  "markdown": "Use *emphasis* inside text",
+  "oracleText": "Use emphasis inside text",
+  "containerWidth": 180,
+  "font": "16px Helvetica",
+  "lineHeight": 18,
+  "whiteSpace": "pre-wrap",
+  "wordBreak": "normal",
+  "expected": {
+    "lineCount": 1,
+    "naturalWidth": 177.87,
+    "height": 18,
+    "segments": [
+      {
+        "text": "Use",
+        "kind": "text",
+        "width": 28.45,
+        "byteRange": {
+          "lowerBound": 0,
+          "upperBound": 3
+        }
+      },
+      {
+        "text": " ",
+        "kind": "preserved-space",
+        "width": 4.45,
+        "byteRange": {
+          "lowerBound": 3,
+          "upperBound": 4
+        }
+      },
+      {
+        "text": "emphasis",
+        "kind": "text",
+        "width": 68.48,
+        "byteRange": {
+          "lowerBound": 4,
+          "upperBound": 12
+        }
+      },
+      {
+        "text": " ",
+        "kind": "preserved-space",
+        "width": 4.45,
+        "byteRange": {
+          "lowerBound": 12,
+          "upperBound": 13
+        }
+      },
+      {
+        "text": "inside",
+        "kind": "text",
+        "width": 41.8,
+        "byteRange": {
+          "lowerBound": 13,
+          "upperBound": 19
+        }
+      },
+      {
+        "text": " ",
+        "kind": "preserved-space",
+        "width": 4.45,
+        "byteRange": {
+          "lowerBound": 19,
+          "upperBound": 20
+        }
+      },
+      {
+        "text": "text",
+        "kind": "text",
+        "width": 25.79,
+        "byteRange": {
+          "lowerBound": 20,
+          "upperBound": 24
+        }
+      }
+    ],
+    "lines": [
+      {
+        "text": "Use emphasis inside text",
+        "width": 177.87,
+        "byteRange": {
+          "lowerBound": 0,
+          "upperBound": 24
+        },
+        "start": {
+          "segmentIndex": 0,
+          "graphemeIndex": 0
+        },
+        "end": {
+          "segmentIndex": 7,
+          "graphemeIndex": 0
+        }
+      }
+    ]
+  },
+  "expectedInlineKinds": [
+    "text",
+    "emphasis",
+    "text"
+  ],
+  "expectedPreparedSegments": [
+    {
+      "kind": "text",
+      "text": "Use",
+      "byteRange": {
+        "lowerBound": 0,
+        "upperBound": 3
+      },
+      "isHardBreak": false,
+      "isBreakOpportunity": false
+    },
+    {
+      "kind": "text",
+      "text": " ",
+      "byteRange": {
+        "lowerBound": 3,
+        "upperBound": 4
+      },
+      "isHardBreak": false,
+      "isBreakOpportunity": true
+    },
+    {
+      "kind": "emphasis",
+      "text": "emphasis",
+      "byteRange": {
+        "lowerBound": 4,
+        "upperBound": 12
+      },
+      "isHardBreak": false,
+      "isBreakOpportunity": false
+    },
+    {
+      "kind": "text",
+      "text": " ",
+      "byteRange": {
+        "lowerBound": 12,
+        "upperBound": 13
+      },
+      "isHardBreak": false,
+      "isBreakOpportunity": true
+    },
+    {
+      "kind": "text",
+      "text": "inside",
+      "byteRange": {
+        "lowerBound": 13,
+        "upperBound": 19
+      },
+      "isHardBreak": false,
+      "isBreakOpportunity": false
+    },
+    {
+      "kind": "text",
+      "text": " ",
+      "byteRange": {
+        "lowerBound": 19,
+        "upperBound": 20
+      },
+      "isHardBreak": false,
+      "isBreakOpportunity": true
+    },
+    {
+      "kind": "text",
+      "text": "text",
+      "byteRange": {
+        "lowerBound": 20,
+        "upperBound": 24
+      },
+      "isHardBreak": false,
+      "isBreakOpportunity": false
+    }
+  ]
+}

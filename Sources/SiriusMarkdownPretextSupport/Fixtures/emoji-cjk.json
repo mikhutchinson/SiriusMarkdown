@@ -1,7 +1,14 @@
 {
   "name": "emoji-cjk",
+  "group": "emoji-cjk",
+  "description": "Emoji plus CJK fallback behavior must stay aligned with the selected Pretext font profile.",
   "markdown": "🚀🚀 春天 emoji wrap",
+  "oracleText": null,
   "containerWidth": 90,
+  "font": "16px Helvetica",
+  "lineHeight": 18,
+  "whiteSpace": "pre-wrap",
+  "wordBreak": "normal",
   "expected": {
     "lineCount": 2,
     "naturalWidth": 126.82,
@@ -123,5 +130,9 @@
         }
       }
     ]
-  }
+  },
+  "expectedInlineKinds": [
+    "text"
+  ],
+  "expectedPreparedSegments": null
 }

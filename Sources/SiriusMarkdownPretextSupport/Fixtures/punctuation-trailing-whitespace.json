@@ -1,0 +1,138 @@
+{
+  "name": "punctuation-trailing-whitespace",
+  "group": "punctuation-trailing-whitespace",
+  "description": "Punctuation and trailing non-breaking whitespace remain measured in the layout oracle.",
+  "markdown": "Symbols, punctuation: alpha; beta? gamma! ",
+  "oracleText": null,
+  "containerWidth": 190,
+  "font": "16px Helvetica",
+  "lineHeight": 18,
+  "whiteSpace": "pre-wrap",
+  "wordBreak": "normal",
+  "expected": {
+    "lineCount": 2,
+    "naturalWidth": 316.65,
+    "height": 36,
+    "segments": [
+      {
+        "text": "Symbols,",
+        "kind": "text",
+        "width": 65.8,
+        "byteRange": {
+          "lowerBound": 0,
+          "upperBound": 8
+        }
+      },
+      {
+        "text": " ",
+        "kind": "preserved-space",
+        "width": 4.45,
+        "byteRange": {
+          "lowerBound": 8,
+          "upperBound": 9
+        }
+      },
+      {
+        "text": "punctuation:",
+        "kind": "text",
+        "width": 87.18,
+        "byteRange": {
+          "lowerBound": 9,
+          "upperBound": 21
+        }
+      },
+      {
+        "text": " ",
+        "kind": "preserved-space",
+        "width": 4.45,
+        "byteRange": {
+          "lowerBound": 21,
+          "upperBound": 22
+        }
+      },
+      {
+        "text": "alpha;",
+        "kind": "text",
+        "width": 43.59,
+        "byteRange": {
+          "lowerBound": 22,
+          "upperBound": 28
+        }
+      },
+      {
+        "text": " ",
+        "kind": "preserved-space",
+        "width": 4.45,
+        "byteRange": {
+          "lowerBound": 28,
+          "upperBound": 29
+        }
+      },
+      {
+        "text": "beta?",
+        "kind": "text",
+        "width": 40.04,
+        "byteRange": {
+          "lowerBound": 29,
+          "upperBound": 34
+        }
+      },
+      {
+        "text": " ",
+        "kind": "preserved-space",
+        "width": 4.45,
+        "byteRange": {
+          "lowerBound": 34,
+          "upperBound": 35
+        }
+      },
+      {
+        "text": "gamma! ",
+        "kind": "text",
+        "width": 62.24,
+        "byteRange": {
+          "lowerBound": 35,
+          "upperBound": 43
+        }
+      }
+    ],
+    "lines": [
+      {
+        "text": "Symbols, punctuation: ",
+        "width": 161.88,
+        "byteRange": {
+          "lowerBound": 0,
+          "upperBound": 22
+        },
+        "start": {
+          "segmentIndex": 0,
+          "graphemeIndex": 0
+        },
+        "end": {
+          "segmentIndex": 4,
+          "graphemeIndex": 0
+        }
+      },
+      {
+        "text": "alpha; beta? gamma! ",
+        "width": 154.77,
+        "byteRange": {
+          "lowerBound": 22,
+          "upperBound": 43
+        },
+        "start": {
+          "segmentIndex": 4,
+          "graphemeIndex": 0
+        },
+        "end": {
+          "segmentIndex": 9,
+          "graphemeIndex": 0
+        }
+      }
+    ]
+  },
+  "expectedInlineKinds": [
+    "text"
+  ],
+  "expectedPreparedSegments": null
+}

@@ -1,0 +1,202 @@
+{
+  "name": "inline-math",
+  "group": "inline-math",
+  "description": "Inline math is source-preserving and measured as an atomic prepared run.",
+  "markdown": "Solve $x^2 + \\alpha$ today",
+  "oracleText": "Solve x^2 + \\alpha today",
+  "containerWidth": 180,
+  "font": "16px Helvetica",
+  "lineHeight": 18,
+  "whiteSpace": "pre-wrap",
+  "wordBreak": "normal",
+  "expected": {
+    "lineCount": 1,
+    "naturalWidth": 174.31,
+    "height": 18,
+    "segments": [
+      {
+        "text": "Solve",
+        "kind": "text",
+        "width": 40.02,
+        "byteRange": {
+          "lowerBound": 0,
+          "upperBound": 5
+        }
+      },
+      {
+        "text": " ",
+        "kind": "preserved-space",
+        "width": 4.45,
+        "byteRange": {
+          "lowerBound": 5,
+          "upperBound": 6
+        }
+      },
+      {
+        "text": "x",
+        "kind": "text",
+        "width": 8,
+        "byteRange": {
+          "lowerBound": 6,
+          "upperBound": 7
+        }
+      },
+      {
+        "text": "^",
+        "kind": "text",
+        "width": 7.51,
+        "byteRange": {
+          "lowerBound": 7,
+          "upperBound": 8
+        }
+      },
+      {
+        "text": "2",
+        "kind": "text",
+        "width": 8.9,
+        "byteRange": {
+          "lowerBound": 8,
+          "upperBound": 9
+        }
+      },
+      {
+        "text": " ",
+        "kind": "preserved-space",
+        "width": 4.45,
+        "byteRange": {
+          "lowerBound": 9,
+          "upperBound": 10
+        }
+      },
+      {
+        "text": "+",
+        "kind": "text",
+        "width": 9.34,
+        "byteRange": {
+          "lowerBound": 10,
+          "upperBound": 11
+        }
+      },
+      {
+        "text": " ",
+        "kind": "preserved-space",
+        "width": 4.45,
+        "byteRange": {
+          "lowerBound": 11,
+          "upperBound": 12
+        }
+      },
+      {
+        "text": "\\",
+        "kind": "text",
+        "width": 4.45,
+        "byteRange": {
+          "lowerBound": 12,
+          "upperBound": 13
+        }
+      },
+      {
+        "text": "alpha",
+        "kind": "text",
+        "width": 39.15,
+        "byteRange": {
+          "lowerBound": 13,
+          "upperBound": 18
+        }
+      },
+      {
+        "text": " ",
+        "kind": "preserved-space",
+        "width": 4.45,
+        "byteRange": {
+          "lowerBound": 18,
+          "upperBound": 19
+        }
+      },
+      {
+        "text": "today",
+        "kind": "text",
+        "width": 39.14,
+        "byteRange": {
+          "lowerBound": 19,
+          "upperBound": 24
+        }
+      }
+    ],
+    "lines": [
+      {
+        "text": "Solve x^2 + \\alpha today",
+        "width": 174.31,
+        "byteRange": {
+          "lowerBound": 0,
+          "upperBound": 24
+        },
+        "start": {
+          "segmentIndex": 0,
+          "graphemeIndex": 0
+        },
+        "end": {
+          "segmentIndex": 12,
+          "graphemeIndex": 0
+        }
+      }
+    ]
+  },
+  "expectedInlineKinds": [
+    "text",
+    "math",
+    "text"
+  ],
+  "expectedPreparedSegments": [
+    {
+      "kind": "text",
+      "text": "Solve",
+      "byteRange": {
+        "lowerBound": 0,
+        "upperBound": 5
+      },
+      "isHardBreak": false,
+      "isBreakOpportunity": false
+    },
+    {
+      "kind": "text",
+      "text": " ",
+      "byteRange": {
+        "lowerBound": 5,
+        "upperBound": 6
+      },
+      "isHardBreak": false,
+      "isBreakOpportunity": true
+    },
+    {
+      "kind": "math",
+      "text": "x^2 + \\alpha",
+      "byteRange": {
+        "lowerBound": 6,
+        "upperBound": 18
+      },
+      "isHardBreak": false,
+      "isBreakOpportunity": false
+    },
+    {
+      "kind": "text",
+      "text": " ",
+      "byteRange": {
+        "lowerBound": 18,
+        "upperBound": 19
+      },
+      "isHardBreak": false,
+      "isBreakOpportunity": true
+    },
+    {
+      "kind": "text",
+      "text": "today",
+      "byteRange": {
+        "lowerBound": 19,
+        "upperBound": 24
+      },
+      "isHardBreak": false,
+      "isBreakOpportunity": false
+    }
+  ]
+}

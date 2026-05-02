@@ -1,0 +1,244 @@
+{
+  "name": "paragraph-wrap-medium",
+  "group": "paragraph-wrap-medium",
+  "description": "Medium-width transcript paragraph wrapping with reused prepared measurements.",
+  "markdown": "Reusable renderer paragraphs wrap predictably inside a medium chat bubble.",
+  "oracleText": null,
+  "containerWidth": 220,
+  "font": "16px Helvetica",
+  "lineHeight": 18,
+  "whiteSpace": "pre-wrap",
+  "wordBreak": "normal",
+  "expected": {
+    "lineCount": 3,
+    "naturalWidth": 551.48,
+    "height": 54,
+    "segments": [
+      {
+        "text": "Reusable",
+        "kind": "text",
+        "width": 67.6,
+        "byteRange": {
+          "lowerBound": 0,
+          "upperBound": 8
+        }
+      },
+      {
+        "text": " ",
+        "kind": "preserved-space",
+        "width": 4.45,
+        "byteRange": {
+          "lowerBound": 8,
+          "upperBound": 9
+        }
+      },
+      {
+        "text": "renderer",
+        "kind": "text",
+        "width": 60.48,
+        "byteRange": {
+          "lowerBound": 9,
+          "upperBound": 17
+        }
+      },
+      {
+        "text": " ",
+        "kind": "preserved-space",
+        "width": 4.45,
+        "byteRange": {
+          "lowerBound": 17,
+          "upperBound": 18
+        }
+      },
+      {
+        "text": "paragraphs",
+        "kind": "text",
+        "width": 80.95,
+        "byteRange": {
+          "lowerBound": 18,
+          "upperBound": 28
+        }
+      },
+      {
+        "text": " ",
+        "kind": "preserved-space",
+        "width": 4.45,
+        "byteRange": {
+          "lowerBound": 28,
+          "upperBound": 29
+        }
+      },
+      {
+        "text": "wrap",
+        "kind": "text",
+        "width": 34.68,
+        "byteRange": {
+          "lowerBound": 29,
+          "upperBound": 33
+        }
+      },
+      {
+        "text": " ",
+        "kind": "preserved-space",
+        "width": 4.45,
+        "byteRange": {
+          "lowerBound": 33,
+          "upperBound": 34
+        }
+      },
+      {
+        "text": "predictably",
+        "kind": "text",
+        "width": 77.38,
+        "byteRange": {
+          "lowerBound": 34,
+          "upperBound": 45
+        }
+      },
+      {
+        "text": " ",
+        "kind": "preserved-space",
+        "width": 4.45,
+        "byteRange": {
+          "lowerBound": 45,
+          "upperBound": 46
+        }
+      },
+      {
+        "text": "inside",
+        "kind": "text",
+        "width": 41.8,
+        "byteRange": {
+          "lowerBound": 46,
+          "upperBound": 52
+        }
+      },
+      {
+        "text": " ",
+        "kind": "preserved-space",
+        "width": 4.45,
+        "byteRange": {
+          "lowerBound": 52,
+          "upperBound": 53
+        }
+      },
+      {
+        "text": "a",
+        "kind": "text",
+        "width": 8.9,
+        "byteRange": {
+          "lowerBound": 53,
+          "upperBound": 54
+        }
+      },
+      {
+        "text": " ",
+        "kind": "preserved-space",
+        "width": 4.45,
+        "byteRange": {
+          "lowerBound": 54,
+          "upperBound": 55
+        }
+      },
+      {
+        "text": "medium",
+        "kind": "text",
+        "width": 56.91,
+        "byteRange": {
+          "lowerBound": 55,
+          "upperBound": 61
+        }
+      },
+      {
+        "text": " ",
+        "kind": "preserved-space",
+        "width": 4.45,
+        "byteRange": {
+          "lowerBound": 61,
+          "upperBound": 62
+        }
+      },
+      {
+        "text": "chat",
+        "kind": "text",
+        "width": 30.24,
+        "byteRange": {
+          "lowerBound": 62,
+          "upperBound": 66
+        }
+      },
+      {
+        "text": " ",
+        "kind": "preserved-space",
+        "width": 4.45,
+        "byteRange": {
+          "lowerBound": 66,
+          "upperBound": 67
+        }
+      },
+      {
+        "text": "bubble.",
+        "kind": "text",
+        "width": 52.49,
+        "byteRange": {
+          "lowerBound": 67,
+          "upperBound": 74
+        }
+      }
+    ],
+    "lines": [
+      {
+        "text": "Reusable renderer paragraphs ",
+        "width": 222.38,
+        "byteRange": {
+          "lowerBound": 0,
+          "upperBound": 29
+        },
+        "start": {
+          "segmentIndex": 0,
+          "graphemeIndex": 0
+        },
+        "end": {
+          "segmentIndex": 6,
+          "graphemeIndex": 0
+        }
+      },
+      {
+        "text": "wrap predictably inside a ",
+        "width": 180.56,
+        "byteRange": {
+          "lowerBound": 29,
+          "upperBound": 55
+        },
+        "start": {
+          "segmentIndex": 6,
+          "graphemeIndex": 0
+        },
+        "end": {
+          "segmentIndex": 14,
+          "graphemeIndex": 0
+        }
+      },
+      {
+        "text": "medium chat bubble.",
+        "width": 148.54,
+        "byteRange": {
+          "lowerBound": 55,
+          "upperBound": 74
+        },
+        "start": {
+          "segmentIndex": 14,
+          "graphemeIndex": 0
+        },
+        "end": {
+          "segmentIndex": 19,
+          "graphemeIndex": 0
+        }
+      }
+    ]
+  },
+  "expectedInlineKinds": [
+    "text"
+  ],
+  "expectedPreparedSegments": null
+}

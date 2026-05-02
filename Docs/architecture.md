@@ -56,7 +56,7 @@ Host-native content between Markdown segments is modeled in Core via **`Markdown
 
 ### Pretext support
 
-- **`PretextFixture`** / **`PretextExpectedLayout`** describe markdown + expected line/natural-width/height metrics.
+- **`PretextFixture`** / **`PretextExpectedLayout`** describe markdown, required product group metadata, font/spacing profile, and expected line/natural-width/height metrics.
 - **`PretextGoldenComparator`** compares `InlineLayoutResult` from Swift to fixture tolerances.
 - Full golden pipeline runs in **`Tools/pretext-golden`** against real Pretext output; see repository `runbook.md`.
 
@@ -75,7 +75,7 @@ Renderer verification intentionally favors deterministic contracts over fragile 
 - large streaming transcripts must produce unique prepared item IDs for hundreds of sealed blocks plus the active tail;
 - nested list metadata and table row/cell identities must come from the AST-backed render model, not SwiftUI offsets;
 - native SwiftUI rendering must produce nonblank pixels for representative structured documents, with `Tools/RenderProbe` exercising `MarkdownDocumentView` through an AppKit host outside Swift Testing's helper process;
-- Pretext fixtures remain the layout oracle for line count, natural width, height, CJK, RTL, emoji, hard breaks, soft wraps, code spans, and atomic inline items. Known drift is not whitelisted; the former emoji/CJK, multilingual, and RTL failures are covered by strict passing fixtures.
+- Pretext fixtures remain the layout oracle for line count, natural width, height, paragraph width profiles, semantic inline runs, autolinks, inline code, inline math, image placeholders, CJK, RTL, emoji, mixed scripts, combining marks, hard breaks, soft wraps, long words, punctuation/trailing whitespace, heading/code font profiles, and list/table cell inline content. Known drift is not whitelisted, and missing required groups fail the gate.
 
 ## Related docs
 

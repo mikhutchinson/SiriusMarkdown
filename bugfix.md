@@ -2,7 +2,7 @@
 
 ## Open
 
-- No open bugfix entries for the Pretext drift fixed in this slice.
+- No open bugfix entries for the Pretext/product gate fixed in this slice.
 
 ## Fixed
 
@@ -43,3 +43,5 @@
 - Fixed inline math coverage by detecting `$...$` as typed math runs without rewriting source and without touching code spans or fenced code.
 - Fixed image handling being only visible text by adding prepared image decisions; default behavior remains placeholder-only with no remote loading.
 - Fixed selection/copy being purely ad hoc text selection by adding a bounded block-level selection controller with source-backed Markdown and plain-text copy helpers.
+- Fixed the Pretext gate being limited to a narrow seed corpus by requiring a 25-group product fixture set with metadata, duplicate name/group rejection, JS mirror parity, and strict Swift-vs-Pretext layout comparison.
+- Fixed Sirius-facing presets still requiring callers to opt into prepared-line rendering; `.compactChat` and `.document` now select `.preparedNativeLines`, while raw custom configurations keep `.systemText` as a compatibility fallback.

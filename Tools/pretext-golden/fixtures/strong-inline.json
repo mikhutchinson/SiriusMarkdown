@@ -1,0 +1,231 @@
+{
+  "name": "strong-inline",
+  "group": "strong-inline",
+  "description": "Strong inline semantics preserve prepared segment kinds across word and space tokens.",
+  "markdown": "Use **strong words** inside text",
+  "oracleText": "Use strong words inside text",
+  "containerWidth": 170,
+  "font": "16px Helvetica",
+  "lineHeight": 18,
+  "whiteSpace": "pre-wrap",
+  "wordBreak": "normal",
+  "expected": {
+    "lineCount": 2,
+    "naturalWidth": 200.99,
+    "height": 36,
+    "segments": [
+      {
+        "text": "Use",
+        "kind": "text",
+        "width": 28.45,
+        "byteRange": {
+          "lowerBound": 0,
+          "upperBound": 3
+        }
+      },
+      {
+        "text": " ",
+        "kind": "preserved-space",
+        "width": 4.45,
+        "byteRange": {
+          "lowerBound": 3,
+          "upperBound": 4
+        }
+      },
+      {
+        "text": "strong",
+        "kind": "text",
+        "width": 44.47,
+        "byteRange": {
+          "lowerBound": 4,
+          "upperBound": 10
+        }
+      },
+      {
+        "text": " ",
+        "kind": "preserved-space",
+        "width": 4.45,
+        "byteRange": {
+          "lowerBound": 10,
+          "upperBound": 11
+        }
+      },
+      {
+        "text": "words",
+        "kind": "text",
+        "width": 42.68,
+        "byteRange": {
+          "lowerBound": 11,
+          "upperBound": 16
+        }
+      },
+      {
+        "text": " ",
+        "kind": "preserved-space",
+        "width": 4.45,
+        "byteRange": {
+          "lowerBound": 16,
+          "upperBound": 17
+        }
+      },
+      {
+        "text": "inside",
+        "kind": "text",
+        "width": 41.8,
+        "byteRange": {
+          "lowerBound": 17,
+          "upperBound": 23
+        }
+      },
+      {
+        "text": " ",
+        "kind": "preserved-space",
+        "width": 4.45,
+        "byteRange": {
+          "lowerBound": 23,
+          "upperBound": 24
+        }
+      },
+      {
+        "text": "text",
+        "kind": "text",
+        "width": 25.79,
+        "byteRange": {
+          "lowerBound": 24,
+          "upperBound": 28
+        }
+      }
+    ],
+    "lines": [
+      {
+        "text": "Use strong words ",
+        "width": 128.95,
+        "byteRange": {
+          "lowerBound": 0,
+          "upperBound": 17
+        },
+        "start": {
+          "segmentIndex": 0,
+          "graphemeIndex": 0
+        },
+        "end": {
+          "segmentIndex": 6,
+          "graphemeIndex": 0
+        }
+      },
+      {
+        "text": "inside text",
+        "width": 72.04,
+        "byteRange": {
+          "lowerBound": 17,
+          "upperBound": 28
+        },
+        "start": {
+          "segmentIndex": 6,
+          "graphemeIndex": 0
+        },
+        "end": {
+          "segmentIndex": 9,
+          "graphemeIndex": 0
+        }
+      }
+    ]
+  },
+  "expectedInlineKinds": [
+    "text",
+    "strong",
+    "text"
+  ],
+  "expectedPreparedSegments": [
+    {
+      "kind": "text",
+      "text": "Use",
+      "byteRange": {
+        "lowerBound": 0,
+        "upperBound": 3
+      },
+      "isHardBreak": false,
+      "isBreakOpportunity": false
+    },
+    {
+      "kind": "text",
+      "text": " ",
+      "byteRange": {
+        "lowerBound": 3,
+        "upperBound": 4
+      },
+      "isHardBreak": false,
+      "isBreakOpportunity": true
+    },
+    {
+      "kind": "strong",
+      "text": "strong",
+      "byteRange": {
+        "lowerBound": 4,
+        "upperBound": 10
+      },
+      "isHardBreak": false,
+      "isBreakOpportunity": false
+    },
+    {
+      "kind": "strong",
+      "text": " ",
+      "byteRange": {
+        "lowerBound": 10,
+        "upperBound": 11
+      },
+      "isHardBreak": false,
+      "isBreakOpportunity": true
+    },
+    {
+      "kind": "strong",
+      "text": "words",
+      "byteRange": {
+        "lowerBound": 11,
+        "upperBound": 16
+      },
+      "isHardBreak": false,
+      "isBreakOpportunity": false
+    },
+    {
+      "kind": "text",
+      "text": " ",
+      "byteRange": {
+        "lowerBound": 16,
+        "upperBound": 17
+      },
+      "isHardBreak": false,
+      "isBreakOpportunity": true
+    },
+    {
+      "kind": "text",
+      "text": "inside",
+      "byteRange": {
+        "lowerBound": 17,
+        "upperBound": 23
+      },
+      "isHardBreak": false,
+      "isBreakOpportunity": false
+    },
+    {
+      "kind": "text",
+      "text": " ",
+      "byteRange": {
+        "lowerBound": 23,
+        "upperBound": 24
+      },
+      "isHardBreak": false,
+      "isBreakOpportunity": true
+    },
+    {
+      "kind": "text",
+      "text": "text",
+      "byteRange": {
+        "lowerBound": 24,
+        "upperBound": 28
+      },
+      "isHardBreak": false,
+      "isBreakOpportunity": false
+    }
+  ]
+}

@@ -259,6 +259,14 @@ func preparedNativeLinesModePreservesPreparedLineText() throws {
 }
 
 @Test
+func siriusReadyPresetsUsePreparedNativeLinesWhileRawConfigKeepsCompatibilityFallback() {
+    #expect(MarkdownRendererConfiguration.compactChat.inlineRenderingMode == .preparedNativeLines)
+    #expect(MarkdownRendererConfiguration.document.inlineRenderingMode == .preparedNativeLines)
+    #expect(MarkdownRendererConfiguration().inlineRenderingMode == .systemText)
+    #expect(MarkdownRendererConfiguration(inlineRenderingMode: .systemText).inlineRenderingMode == .systemText)
+}
+
+@Test
 func preparedNativeLinesPreserveInlineAttributesAcrossLineSlices() throws {
     var stream = MarkdownStream()
     stream.append("alpha [linked text](https://example.com) and `code value` after")
@@ -279,6 +287,51 @@ func preparedNativeLinesPreserveInlineAttributesAcrossLineSlices() throws {
     #expect(renderedText == inlineLayout.prepared.naturalText)
     #expect(lines.contains { line in line.runs.contains { $0.link != nil } })
     #expect(lines.contains { line in line.runs.contains { $0.inlinePresentationIntent?.contains(.code) == true } })
+}
+
+@Test
+func preparedNativeLinesPreserveMathRenderedTextAndImagePlaceholderText() throws {
+    var stream = MarkdownStream()
+    stream.append("Math $x^2$ and image ![diagram](diagram.png) after")
+    stream.finish()
+    let snapshot = stream.snapshot()
+    let configuration = MarkdownRendererConfiguration(
+        inlineRenderingMode: .preparedNativeLines,
+        mathRenderer: InlineFixtureMathRenderer()
+    )
+
+    let prepared = configuration.prepare(snapshot: snapshot)
+    let block = try #require(snapshot.blocks.first)
+    let inlineLayout = try #require(prepared.preparedContentByBlockID[block.id]?.inlineLayout)
+    let layout = InlineRunsView.lineLayout(for: inlineLayout, containerWidth: 112)
+    let lines = InlineRunsView.attributedLines(for: inlineLayout, layout: layout)
+    let renderedText = lines.map { String($0.characters) }.joined()
+
+    #expect(lines.count > 1)
+    #expect(renderedText == inlineLayout.prepared.naturalText)
+    #expect(renderedText.contains("math[x^2]"))
+    #expect(renderedText.contains("diagram"))
+    #expect(inlineLayout.images.first?.source == "diagram.png")
+}
+
+@Test
+func preparedNativeLinesPreserveHardBreakLineSlices() throws {
+    var stream = MarkdownStream()
+    stream.append("first  \nsecond  \nthird")
+    stream.finish()
+    let snapshot = stream.snapshot()
+    let configuration = MarkdownRendererConfiguration(
+        inlineRenderingMode: .preparedNativeLines
+    )
+
+    let prepared = configuration.prepare(snapshot: snapshot)
+    let block = try #require(snapshot.blocks.first)
+    let inlineLayout = try #require(prepared.preparedContentByBlockID[block.id]?.inlineLayout)
+    let layout = InlineRunsView.lineLayout(for: inlineLayout, containerWidth: 320)
+    let lines = InlineRunsView.attributedLines(for: inlineLayout, layout: layout)
+
+    #expect(lines.map { String($0.characters) } == ["first", "second", "third"])
+    #expect(layout.lines.count == 3)
 }
 
 @Test
@@ -623,6 +676,12 @@ private struct DenyMathPolicy: MarkdownMathPolicy {
 private struct AllowHTMLPolicy: MarkdownHTMLPolicy {
     func evaluateHTML(_ html: String) -> MarkdownPolicyDecision {
         .allow
+    }
+}
+
+private struct InlineFixtureMathRenderer: MarkdownMathRenderer {
+    func renderedMath(_ source: String, isBlock _: Bool) -> AttributedString {
+        AttributedString("math[\(source)]")
     }
 }
 

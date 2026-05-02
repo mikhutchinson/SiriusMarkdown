@@ -1,0 +1,177 @@
+{
+  "name": "strikethrough-inline",
+  "group": "strikethrough-inline",
+  "description": "Strikethrough inline semantics keep their run kind through prepared layout.",
+  "markdown": "Use ~~stale text~~ safely",
+  "oracleText": "Use stale text safely",
+  "containerWidth": 160,
+  "font": "16px Helvetica",
+  "lineHeight": 18,
+  "whiteSpace": "pre-wrap",
+  "wordBreak": "normal",
+  "expected": {
+    "lineCount": 1,
+    "naturalWidth": 143.19,
+    "height": 18,
+    "segments": [
+      {
+        "text": "Use",
+        "kind": "text",
+        "width": 28.45,
+        "byteRange": {
+          "lowerBound": 0,
+          "upperBound": 3
+        }
+      },
+      {
+        "text": " ",
+        "kind": "preserved-space",
+        "width": 4.45,
+        "byteRange": {
+          "lowerBound": 3,
+          "upperBound": 4
+        }
+      },
+      {
+        "text": "stale",
+        "kind": "text",
+        "width": 33.8,
+        "byteRange": {
+          "lowerBound": 4,
+          "upperBound": 9
+        }
+      },
+      {
+        "text": " ",
+        "kind": "preserved-space",
+        "width": 4.45,
+        "byteRange": {
+          "lowerBound": 9,
+          "upperBound": 10
+        }
+      },
+      {
+        "text": "text",
+        "kind": "text",
+        "width": 25.79,
+        "byteRange": {
+          "lowerBound": 10,
+          "upperBound": 14
+        }
+      },
+      {
+        "text": " ",
+        "kind": "preserved-space",
+        "width": 4.45,
+        "byteRange": {
+          "lowerBound": 14,
+          "upperBound": 15
+        }
+      },
+      {
+        "text": "safely",
+        "kind": "text",
+        "width": 41.8,
+        "byteRange": {
+          "lowerBound": 15,
+          "upperBound": 21
+        }
+      }
+    ],
+    "lines": [
+      {
+        "text": "Use stale text safely",
+        "width": 143.19,
+        "byteRange": {
+          "lowerBound": 0,
+          "upperBound": 21
+        },
+        "start": {
+          "segmentIndex": 0,
+          "graphemeIndex": 0
+        },
+        "end": {
+          "segmentIndex": 7,
+          "graphemeIndex": 0
+        }
+      }
+    ]
+  },
+  "expectedInlineKinds": [
+    "text",
+    "strikethrough",
+    "text"
+  ],
+  "expectedPreparedSegments": [
+    {
+      "kind": "text",
+      "text": "Use",
+      "byteRange": {
+        "lowerBound": 0,
+        "upperBound": 3
+      },
+      "isHardBreak": false,
+      "isBreakOpportunity": false
+    },
+    {
+      "kind": "text",
+      "text": " ",
+      "byteRange": {
+        "lowerBound": 3,
+        "upperBound": 4
+      },
+      "isHardBreak": false,
+      "isBreakOpportunity": true
+    },
+    {
+      "kind": "strikethrough",
+      "text": "stale",
+      "byteRange": {
+        "lowerBound": 4,
+        "upperBound": 9
+      },
+      "isHardBreak": false,
+      "isBreakOpportunity": false
+    },
+    {
+      "kind": "strikethrough",
+      "text": " ",
+      "byteRange": {
+        "lowerBound": 9,
+        "upperBound": 10
+      },
+      "isHardBreak": false,
+      "isBreakOpportunity": true
+    },
+    {
+      "kind": "strikethrough",
+      "text": "text",
+      "byteRange": {
+        "lowerBound": 10,
+        "upperBound": 14
+      },
+      "isHardBreak": false,
+      "isBreakOpportunity": false
+    },
+    {
+      "kind": "text",
+      "text": " ",
+      "byteRange": {
+        "lowerBound": 14,
+        "upperBound": 15
+      },
+      "isHardBreak": false,
+      "isBreakOpportunity": true
+    },
+    {
+      "kind": "text",
+      "text": "safely",
+      "byteRange": {
+        "lowerBound": 15,
+        "upperBound": 21
+      },
+      "isHardBreak": false,
+      "isBreakOpportunity": false
+    }
+  ]
+}

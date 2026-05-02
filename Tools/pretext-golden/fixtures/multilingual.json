@@ -1,10 +1,17 @@
 {
   "name": "multilingual",
-  "markdown": "Hello 春天 مرحبا 🚀",
+  "group": "mixed-script",
+  "description": "Mixed Latin, CJK, RTL, accent, and emoji text remains part of product layout parity.",
+  "markdown": "Hello 春天 مرحبا café 🚀",
+  "oracleText": null,
   "containerWidth": 180,
+  "font": "16px Helvetica",
+  "lineHeight": 18,
+  "whiteSpace": "pre-wrap",
+  "wordBreak": "normal",
   "expected": {
     "lineCount": 1,
-    "naturalWidth": 130.93,
+    "naturalWidth": 165.62,
     "height": 18,
     "segments": [
       {
@@ -71,32 +78,54 @@
         }
       },
       {
+        "text": "café",
+        "kind": "text",
+        "width": 30.24,
+        "byteRange": {
+          "lowerBound": 24,
+          "upperBound": 29
+        }
+      },
+      {
+        "text": " ",
+        "kind": "preserved-space",
+        "width": 4.45,
+        "byteRange": {
+          "lowerBound": 29,
+          "upperBound": 30
+        }
+      },
+      {
         "text": "🚀",
         "kind": "text",
         "width": 10.14,
         "byteRange": {
-          "lowerBound": 24,
-          "upperBound": 28
+          "lowerBound": 30,
+          "upperBound": 34
         }
       }
     ],
     "lines": [
       {
-        "text": "Hello 春天 مرحبا 🚀",
-        "width": 130.93,
+        "text": "Hello 春天 مرحبا café 🚀",
+        "width": 165.62,
         "byteRange": {
           "lowerBound": 0,
-          "upperBound": 28
+          "upperBound": 34
         },
         "start": {
           "segmentIndex": 0,
           "graphemeIndex": 0
         },
         "end": {
-          "segmentIndex": 8,
+          "segmentIndex": 10,
           "graphemeIndex": 0
         }
       }
     ]
-  }
+  },
+  "expectedInlineKinds": [
+    "text"
+  ],
+  "expectedPreparedSegments": null
 }
