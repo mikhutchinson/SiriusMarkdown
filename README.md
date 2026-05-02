@@ -10,7 +10,9 @@ The package is built around three principles:
 
 ## Status
 
-This checkout is gated for public package use through strict Swift-vs-Pretext layout comparison, required Pretext product fixture groups, and AppKit render probes for document, compact chat, multilingual, inline-attribute, overflow, hard-break, and long-word rendering. Fixture drift, missing groups, duplicate fixture names/groups, and trivial render output are release blockers.
+This checkout is a `v0.1.0` first-release candidate for public package use. The release gate is strict Swift-vs-Pretext layout comparison, required Pretext product fixture groups, and AppKit render probes for document, compact chat, multilingual, inline-attribute, overflow, hard-break, and long-word rendering. Fixture drift, missing groups, duplicate fixture names/groups, and trivial render output are release blockers.
+
+The `v0.1.0` product claim is native SwiftUI Markdown rendering with prepared-line layout, streaming snapshots, bounded caches, safe default policies, and public chat/document presets. It is not a custom glyph renderer: `preparedNativeLines` slices prepared attributed line ranges and renders them with SwiftUI `Text(AttributedString)`.
 
 ## Requirements
 
@@ -19,11 +21,11 @@ This checkout is gated for public package use through strict Swift-vs-Pretext la
 
 ## Adding the package
 
-In `Package.swift` (adjust the package reference to your checkout or published URL):
+In `Package.swift` (adjust the package URL to the published repository):
 
 ```swift
 dependencies: [
-    .package(path: "../SiriusMarkdown") // or .package(url: "...", from: "1.0.0")
+    .package(url: "https://github.com/mikhutchinson/SiriusMarkdown.git", from: "0.1.0")
 ],
 targets: [
     .target(
@@ -38,6 +40,12 @@ targets: [
 ```
 
 Runtime dependency: [swift-markdown](https://github.com/swiftlang/swift-markdown) (Markdown semantics). Third-party credits, including the Pretext golden oracle used by `Tools/pretext-golden`, are listed in `NOTICE.md`.
+
+For local development before the first public tag, use a path dependency instead:
+
+```swift
+.package(path: "../SiriusMarkdown")
+```
 
 ## Renderer surface
 
@@ -102,7 +110,7 @@ The direct `snapshot:` view initializers remain for small compatibility cases, b
 
 ## What the tests prove
 
-The default test suite covers more than construction smoke tests:
+The release and product gates cover more than construction smoke tests:
 
 - streamed parse output matches whole-document parse output across chunk sizes;
 - block identity survives active-tail appends and tail-to-sealed transitions;
@@ -117,6 +125,14 @@ The default test suite covers more than construction smoke tests:
 - large transcripts keep stable prepared item IDs for 10,000 sealed blocks plus one active tail;
 - `Tools/RenderProbe` renders document, compact-chat, multilingual, inline-attribute, overflow, hard-break, and long-word cases through AppKit and rejects blank, trivial, collapsed-spacing, or clipped-wide output;
 - strict Pretext golden fixtures compare Swift layout metrics against the JavaScript oracle with no known-drift whitelist, no duplicate fixture names/groups, and all required product groups present.
+
+Before a public tag, run:
+
+```sh
+bash Tools/product-check.sh
+```
+
+That wraps the release gate, Swift tests, Pretext golden parity, DocC conversion, demo app bundling, focused product tests, and AppKit render probes.
 
 ## Documentation
 
@@ -180,3 +196,15 @@ Run the product gate before claiming native-renderer product quality:
 ```sh
 bash Tools/product-check.sh
 ```
+
+## First Release
+
+`v0.1.0` is ready to publish only when:
+
+- `README.md`, `NOTICE.md`, `changelog.md`, and `runbook.md` describe the current public package surface;
+- `bash Tools/product-check.sh` passes from the repository root;
+- `git diff --check` reports no whitespace errors;
+- `git remote -v` points at the intended public repository;
+- the release commit is tagged as `v0.1.0` and pushed with tags.
+
+Recommended release commands are documented in `runbook.md`.

@@ -1,5 +1,7 @@
 # Runbook
 
+This runbook is the local release authority for `SiriusMarkdown`. For the first public release, use `v0.1.0` as the tag and do not publish unless every release blocker below is clear.
+
 ## Build
 
 Before changing architecture or renderer behavior, read `plan.md` and `AGENTS.md`. `plan.md` is the implementation source of truth; `AGENTS.md` restates the repo-local guardrails for future agents.
@@ -73,3 +75,73 @@ bash Tools/product-check.sh
 ```
 
 Run this before claiming native-renderer product quality. It wraps the release gate and adds focused checks for `MarkdownRenderSession`, bounded selection, long-transcript resize behavior, and render-probe output. The gate proves SiriusMarkdown behavior directly; it has no competitor dependency.
+
+## First Public Release Checklist
+
+Use this checklist for `v0.1.0`.
+
+1. Confirm public hygiene:
+
+   Review README, DocC, runbook, changelog, notices, package manifests, source, tests, examples, and tool metadata for stale internal references, stale dependency names, and unreleased implementation claims. Package-name references to SiriusMarkdown are expected.
+
+2. Confirm third-party credit files:
+
+   ```sh
+   test -f LICENSE
+   test -f NOTICE.md
+   rg -n "@chenglou/pretext|swift-markdown|@napi-rs/canvas" NOTICE.md README.md runbook.md
+   ```
+
+3. Run the product gate:
+
+   ```sh
+   bash Tools/product-check.sh
+   ```
+
+4. Run final repository checks:
+
+   ```sh
+   git diff --check
+   git status --short
+   git remote -v
+   git branch --show-current
+   ```
+
+   The expected release branch is the public default branch. If the remote expects a different branch name, rename or push intentionally before tagging. If the public remote is not `https://github.com/mikhutchinson/SiriusMarkdown.git`, update the README installation snippet before tagging.
+
+5. Commit the release candidate:
+
+   ```sh
+   git add README.md runbook.md NOTICE.md changelog.md bugfix.md Docs Sources Tests Examples Tools Package.swift Package.resolved
+   git commit -m "Prepare SiriusMarkdown v0.1.0 release"
+   ```
+
+6. Tag and push:
+
+   ```sh
+   git tag -a v0.1.0 -m "SiriusMarkdown v0.1.0"
+   git push origin HEAD
+   git push origin v0.1.0
+   ```
+
+7. After pushing, create the public release notes from `changelog.md`. The release notes must keep the claim precise: native SwiftUI block rendering, prepared-line inline rendering, streaming snapshots, safe policies, Pretext-backed layout gate, and demo/product probes. Do not claim a custom glyph renderer.
+
+## Release Blockers
+
+- `Tools/product-check.sh` fails.
+- `swift test` fails or the expected Swift test count unexpectedly drops.
+- Pretext fixture comparison has missing required groups, duplicate fixture names/groups, missing bundled metadata, or known-drift allowlists.
+- `Tools/RenderProbe` reports blank, trivial, collapsed-spacing, clipped-wide, or insufficient-width rendering.
+- `README.md`, DocC, runbook, changelog, or notices describe stale internal, stale dependency, or uncredited Pretext behavior.
+- The public package surface requires non-package app concepts or a downstream app integration to function.
+- `git remote -v` does not point at the intended public repository before pushing tags.
+
+## Consumer Handoff
+
+Consuming apps should depend on the public package product and use one of these paths:
+
+- `MarkdownRenderSession(configuration: .compactChat)` for streaming/chat surfaces.
+- `MarkdownRendererConfiguration.document` plus `prepare(snapshot:)` for document surfaces.
+- Explicit `MarkdownRendererConfiguration(inlineRenderingMode: .systemText)` only as a compatibility fallback.
+
+The consumer handoff is not part of the package release tag. It is a downstream integration check that should verify the app does not parse, highlight, or prepare raw Markdown from SwiftUI `body`.
