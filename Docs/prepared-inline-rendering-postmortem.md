@@ -12,7 +12,7 @@ The concern was valid. SiriusMarkdown had a prepared inline layout pipeline, cou
 
 The response was wrong. I treated that caveat as permission to replace the visible inline renderer immediately with a custom native drawing bridge. The result technically consumed `MeasuredInlineContent` and `InlineLayoutResult`, but it was visually unacceptable: word spacing collapsed, list rows looked broken, font matching was poor, and product demos regressed even while tests and the product gate still passed.
 
-The failed custom drawing bridge was removed. The current product path is `MarkdownInlineRenderingMode.preparedNativeLines`: it consumes `InlineLayoutResult`, slices the prepared attributed inline payload into prepared lines, and renders each line with SwiftUI `Text(AttributedString)`. `MarkdownRendererConfiguration.compactChat` and `.document` use that path by default for Sirius-facing rendering.
+The failed custom drawing bridge was removed. The current product path is `MarkdownInlineRenderingMode.preparedNativeLines`: it consumes `InlineLayoutResult`, slices the prepared attributed inline payload into prepared lines, and renders each line with SwiftUI `Text(AttributedString)`. `MarkdownRendererConfiguration.compactChat` and `.document` use that path by default for packaged chat and document rendering.
 
 ## What We Set Out To Fix
 
@@ -76,7 +76,7 @@ That was a process failure. Once a renderer rewrite visibly degraded product sur
 
 ### 5. I Mixed A Legitimate Copy Cleanup With A Risky Renderer Rewrite
 
-The direct "Textual replacement" language cleanup was a separate, low-risk docs task. The native inline renderer change was high-risk code.
+The old renderer-dependency language cleanup was a separate, low-risk docs task. The native inline renderer change was high-risk code.
 
 Bundling them in one dirty worktree made rollback too broad. Restoring to the good commit removed both the bad renderer changes and the good copy cleanup, which then had to be re-applied.
 
@@ -174,14 +174,14 @@ That state was not the final architecture, but it was product-safer than the fai
 
 The honest claim should remain:
 
-> SiriusMarkdown has prepared inline layout and uses it for caching, diagnostics, width-change layout, and metadata. Sirius-facing chat and document presets use `preparedNativeLines`, which slices line text from prepared layout first, then renders those lines with SwiftUI `Text(AttributedString)`. It is not a fully custom glyph renderer.
+> SiriusMarkdown has prepared inline layout and uses it for caching, diagnostics, width-change layout, and metadata. Chat and document presets use `preparedNativeLines`, which slices line text from prepared layout first, then renders those lines with SwiftUI `Text(AttributedString)`. It is not a fully custom glyph renderer.
 
 ## Correct Remediation Plan
 
 ### Short Term
 
 - Keep `Text(AttributedString)` as the visible inline renderer.
-- Keep `preparedNativeLines` as the Sirius preset path for prepared-line slicing rendered through SwiftUI text.
+- Keep `preparedNativeLines` as the chat and document preset path for prepared-line slicing rendered through SwiftUI text.
 - Keep prepared inline layout as the source for counters, cached layout, source ranges, and future hit-testing.
 - Do not claim native glyph placement ownership.
 - Keep the caveat explicit in the scorecard, performance docs, and README.

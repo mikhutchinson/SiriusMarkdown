@@ -12,7 +12,7 @@ public struct MarkdownBlockView: View {
 
     public init(block: MarkdownBlock, theme: MarkdownTheme = .compactChat) {
         self.block = block
-        self.configuration = MarkdownRendererConfiguration(theme: theme)
+        self.configuration = MarkdownRendererConfiguration(theme: theme, inlineRenderingMode: .preparedNativeLines)
         self.preparedContent = self.configuration.prepare(block: block)
     }
 

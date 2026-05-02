@@ -55,6 +55,7 @@ npm test
 The Pretext tool is the JavaScript golden oracle for layout drift. It uses real `@chenglou/pretext` with `@napi-rs/canvas` providing a Node measurement context. Swift fixtures live in `Sources/SiriusMarkdownPretextSupport/Fixtures`; JS fixtures live in `Tools/pretext-golden/fixtures`. `npm test` validates every fixture, rejects duplicate names/groups, verifies all required product groups, and checks Swift-resource/JS mirror parity.
 Run `npm ci` and `npm test` sequentially; running them in parallel can race while `node_modules` is being replaced.
 The Swift fixture comparison must not whitelist known drift. A failing Pretext fixture is a release blocker until the native layout path or fixture contract is corrected.
+Third-party credits for Pretext, the Node canvas shim, and `swift-markdown` are tracked in `NOTICE.md`.
 
 ## Release Checks
 

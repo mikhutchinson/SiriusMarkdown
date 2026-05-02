@@ -259,11 +259,23 @@ func preparedNativeLinesModePreservesPreparedLineText() throws {
 }
 
 @Test
-func siriusReadyPresetsUsePreparedNativeLinesWhileRawConfigKeepsCompatibilityFallback() {
+@MainActor
+func packagedPresetsUsePreparedNativeLinesWhileRawConfigKeepsCompatibilityFallback() throws {
     #expect(MarkdownRendererConfiguration.compactChat.inlineRenderingMode == .preparedNativeLines)
     #expect(MarkdownRendererConfiguration.document.inlineRenderingMode == .preparedNativeLines)
     #expect(MarkdownRendererConfiguration().inlineRenderingMode == .systemText)
     #expect(MarkdownRendererConfiguration(inlineRenderingMode: .systemText).inlineRenderingMode == .systemText)
+
+    let block = MarkdownBlock(
+        id: MarkdownBlockID("block-default-mode"),
+        kind: .paragraph,
+        sourceRange: MarkdownSourceRange(byteRange: 0..<5, lineRange: 1..<2),
+        text: "Hello",
+        isSealed: true
+    )
+    let view = MarkdownBlockView(block: block)
+    let configuration = try #require(mirroredConfiguration(from: view))
+    #expect(configuration.inlineRenderingMode == .preparedNativeLines)
 }
 
 @Test
@@ -659,6 +671,13 @@ private func firstBlock(_ markdown: String) throws -> MarkdownBlock {
     stream.append(markdown)
     stream.finish()
     return try #require(stream.snapshot().blocks.first)
+}
+
+private func mirroredConfiguration(from view: MarkdownBlockView) -> MarkdownRendererConfiguration? {
+    Mirror(reflecting: view)
+        .children
+        .first { $0.label == "configuration" }?
+        .value as? MarkdownRendererConfiguration
 }
 
 private struct DenyCodePolicy: MarkdownCodePolicy {

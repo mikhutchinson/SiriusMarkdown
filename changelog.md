@@ -44,5 +44,5 @@
 - Added source-preserving inline math detection outside code spans/fences, prepared image decisions with placeholder-safe defaults, a theme-aware default code highlighter, and an optional `SiriusMarkdownMath` product used by the demos.
 - Added `Docs/native-renderer-scorecard.md` and `Tools/product-check.sh` to make native-renderer product quality a gate instead of a claim.
 - Expanded Pretext from a nine-fixture seed to a required 25-group product corpus covering paragraph width profiles, semantic inline runs, autolinks, inline code, inline math, image placeholders, CJK, RTL, emoji, mixed scripts, combining marks, hard breaks, soft wraps, long words, punctuation/trailing whitespace, heading/code font profiles, and list/table cell inline content.
-- Promoted Sirius-ready chat and document presets to `MarkdownInlineRenderingMode.preparedNativeLines` while keeping direct custom configurations on `.systemText` for compatibility.
+- Promoted packaged chat and document presets to `MarkdownInlineRenderingMode.preparedNativeLines` while keeping direct custom configurations on `.systemText` for compatibility.
 - Expanded `Tools/RenderProbe` to cover compact chat, multilingual text, inline attributes crossing lines, code/table overflow, hard breaks, long words, width reach, color variation, and collapsed word-spacing checks.

@@ -4,7 +4,7 @@ Native, streaming-first Markdown rendering for Apple platforms—designed for lo
 
 ## Overview
 
-> Product status: Sirius-ready presets use prepared-line rendering, and the release gate includes strict required-group Swift-vs-Pretext fixture comparison plus AppKit render probes for document, compact chat, multilingual, inline-attribute, overflow, hard-break, and long-word output.
+> Product status: the packaged chat and document presets use prepared-line rendering, and the release gate includes strict required-group Swift-vs-Pretext fixture comparison plus AppKit render probes for document, compact chat, multilingual, inline-attribute, overflow, hard-break, and long-word output.
 
 - **`swift-markdown`** (`Markdown` product) provides parsing semantics; SiriusMarkdown converts the AST to **`MarkdownBlock`** and **`MarkdownInlineRun`** value types.
 - **`MarkdownStream`** stores append-only UTF-8, incrementally scans safe seal points, reparses only the **mutable tail**, and exposes **`MarkdownSnapshot`** plus source-backed copy slices.
@@ -44,7 +44,7 @@ final class TranscriptModel: ObservableObject {
 
 SiriusMarkdown's default tests assert this contract through renderer preparation, diagnostics, an AppKit `MarkdownDocumentView` render probe, and strict Pretext comparison: large streaming transcripts must keep stable prepared item IDs, repeated preparation must hit inline/code/math caches, width changes must reuse measured inline content, and Pretext drift must fail instead of being hidden as a passing known issue.
 
-`MarkdownRendererConfiguration.compactChat` and `.document` select `MarkdownInlineRenderingMode.preparedNativeLines`, so Sirius-facing views render prepared attributed line slices. Direct custom configuration still defaults to `.systemText` as a compatibility fallback.
+`MarkdownRendererConfiguration.compactChat` and `.document` select `MarkdownInlineRenderingMode.preparedNativeLines`, so chat and document views render prepared attributed line slices. Direct custom configuration still defaults to `.systemText` as a compatibility fallback.
 
 ### Products
 

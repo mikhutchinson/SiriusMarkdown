@@ -13,7 +13,7 @@ public struct MarkdownDocumentView: View {
 
     @available(*, deprecated, message: "Prepare snapshots outside SwiftUI update paths and use init(preparedSnapshot:configuration:) for streaming or large documents.")
     public init(snapshot: MarkdownSnapshot, theme: MarkdownTheme = .document) {
-        self.configuration = MarkdownRendererConfiguration(theme: theme)
+        self.configuration = MarkdownRendererConfiguration(theme: theme, inlineRenderingMode: .preparedNativeLines)
         self.preparedSnapshot = self.configuration.prepare(snapshot: snapshot)
         self.selectionController = nil
         self.hostBoundaryView = { _ in AnyView(EmptyView()) }
@@ -114,7 +114,7 @@ public struct StreamingMarkdownView: View {
 
     @available(*, deprecated, message: "Prepare snapshots outside SwiftUI update paths and use init(preparedSnapshot:configuration:) for streaming or large documents.")
     public init(snapshot: MarkdownSnapshot, theme: MarkdownTheme = .compactChat) {
-        self.configuration = MarkdownRendererConfiguration(theme: theme)
+        self.configuration = MarkdownRendererConfiguration(theme: theme, inlineRenderingMode: .preparedNativeLines)
         self.preparedSnapshot = self.configuration.prepare(snapshot: snapshot)
         self.selectionController = nil
         self.hostBoundaryView = { _ in AnyView(EmptyView()) }
