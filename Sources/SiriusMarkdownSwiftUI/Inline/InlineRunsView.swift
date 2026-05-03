@@ -286,8 +286,8 @@ private struct PreparedInlineTextView: View {
     @ViewBuilder
     var body: some View {
         PreparedInlineProposalLayout {
+            widthReader
             renderedText
-                .background(widthReader)
         }
             .environment(\.openURL, openURLAction)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -380,13 +380,13 @@ private struct PreparedInlineProposalLayout: Layout {
         subviews: Subviews,
         cache _: inout ()
     ) -> CGSize {
-        guard let subview = subviews.first else {
+        guard let content = contentSubview(in: subviews) else {
             return .zero
         }
 
         let proposedWidth = finiteWidth(from: proposal)
         let childProposal = ProposedViewSize(width: proposedWidth, height: proposal.height)
-        let childSize = subview.sizeThatFits(childProposal)
+        let childSize = content.sizeThatFits(childProposal)
         let width = proposedWidth ?? childSize.width
         return CGSize(width: width, height: childSize.height)
     }
@@ -397,17 +397,37 @@ private struct PreparedInlineProposalLayout: Layout {
         subviews: Subviews,
         cache _: inout ()
     ) {
-        guard let subview = subviews.first else {
+        guard let content = contentSubview(in: subviews) else {
             return
         }
 
         let proposedWidth = bounds.width.isFinite && bounds.width > 0
             ? bounds.width
             : finiteWidth(from: proposal)
-        subview.place(
+
+        if let probe = widthProbeSubview(in: subviews) {
+            probe.place(
+                at: bounds.origin,
+                proposal: ProposedViewSize(width: proposedWidth, height: bounds.height)
+            )
+        }
+
+        content.place(
             at: bounds.origin,
             proposal: ProposedViewSize(width: proposedWidth, height: bounds.height)
         )
+    }
+
+    private func widthProbeSubview(in subviews: Subviews) -> LayoutSubview? {
+        subviews.first
+    }
+
+    private func contentSubview(in subviews: Subviews) -> LayoutSubview? {
+        guard subviews.count > 1 else {
+            return subviews.first
+        }
+
+        return subviews[1]
     }
 
     private func finiteWidth(from proposal: ProposedViewSize) -> CGFloat? {

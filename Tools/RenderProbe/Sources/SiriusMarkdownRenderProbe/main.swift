@@ -18,6 +18,7 @@ struct SiriusMarkdownRenderProbe {
         let widthResult = renderInlineWidthProbe()
         let nativeSpacingResult = renderNativeInlineSpacingProbe()
         let containmentResult = renderPreparedNativeContainmentProbe()
+        let resizeResult = renderPreparedNativeResizeProbe()
         assertRenderable("MarkdownDocumentView", result)
         assertRenderable("prepared native MarkdownDocumentView", nativeResult)
         assertRenderable("compact chat prepared native transcript", chatResult, minimumNonWhitePixels: 1_400)
@@ -32,6 +33,7 @@ struct SiriusMarkdownRenderProbe {
         )
         assertRenderable("hard-break and long-word prepared native document", breakResult, minimumNonWhitePixels: 1_200)
         assertRenderable("prepared native containment document", containmentResult, minimumNonWhitePixels: 1_400)
+        assertRenderable("prepared native resize document", resizeResult, minimumNonWhitePixels: 1_200)
 
         if widthResult.darkRightmostX < widthResult.minimumDarkRightmostX {
             fputs(
@@ -73,6 +75,22 @@ struct SiriusMarkdownRenderProbe {
             exit(EXIT_FAILURE)
         }
 
+        if resizeResult.darkRightmostX > resizeResult.maximumDarkRightmostX {
+            fputs(
+                "error: prepared native resize probe leaked dark text to x=\(resizeResult.darkRightmostX); expected no normal inline text beyond x=\(resizeResult.maximumDarkRightmostX) after narrowing the host column.\n",
+                stderr
+            )
+            exit(EXIT_FAILURE)
+        }
+
+        if resizeResult.fittingWidth > resizeResult.maximumFittingWidth {
+            fputs(
+                "error: prepared native resize fitting width was \(resizeResult.fittingWidth); expected <= \(resizeResult.maximumFittingWidth) after shrinking the host column.\n",
+                stderr
+            )
+            exit(EXIT_FAILURE)
+        }
+
         print("MarkdownDocumentView render probe: \(result.nonWhitePixels) non-white pixels, \(result.distinctColorBuckets) color buckets")
         print("Prepared native document render probe: \(nativeResult.nonWhitePixels) non-white pixels, \(nativeResult.distinctColorBuckets) color buckets")
         print("Compact chat render probe: \(chatResult.nonWhitePixels) non-white pixels, \(chatResult.distinctColorBuckets) color buckets")
@@ -84,6 +102,7 @@ struct SiriusMarkdownRenderProbe {
         print("Prepared inline width probe: dark text reached x=\(widthResult.darkRightmostX)")
         print("Native inline spacing probe: \(nativeSpacingResult.wideDarkColumnGaps) wide word gaps")
         print("Prepared native containment probe: dark text reached x=\(containmentResult.darkRightmostX), fitting width \(containmentResult.fittingWidth)")
+        print("Prepared native resize probe: dark text reached x=\(resizeResult.darkRightmostX), fitting width \(resizeResult.fittingWidth)")
     }
 
     private static func assertRenderable(
@@ -381,6 +400,57 @@ struct SiriusMarkdownRenderProbe {
     }
 
     @MainActor
+    private static func renderPreparedNativeResizeProbe() -> RenderResult {
+        let markdown =
+            """
+            Resize probe paragraph with abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz content that must rewrap when the host column shrinks.
+
+            - Resize list item with abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz content.
+            - Another item with [linked prepared native text](https://example.com) and `inline code` that should stay inside the narrowed column.
+            """
+        let configuration = MarkdownRendererConfiguration.document
+        var stream = MarkdownStream()
+        stream.append(markdown)
+        stream.finish()
+        let prepared = configuration.prepare(snapshot: stream.snapshot())
+        let leadingInset = CGFloat(32)
+        let initialColumnWidth = CGFloat(560)
+        let finalColumnWidth = CGFloat(220)
+        let canvasSize = NSSize(width: 720, height: 420)
+        let model = PreparedNativeResizeProbeModel(columnWidth: initialColumnWidth)
+
+        let fittingView = NSHostingView(
+            rootView: StreamingMarkdownView(preparedSnapshot: prepared, configuration: configuration)
+                .frame(width: finalColumnWidth, alignment: .leading)
+        )
+        fittingView.frame = NSRect(origin: .zero, size: NSSize(width: finalColumnWidth, height: 1_000))
+        fittingView.layoutSubtreeIfNeeded()
+        let fittingWidth = fittingView.fittingSize.width
+
+        let root = PreparedNativeResizeProbeHarness(
+            model: model,
+            preparedSnapshot: prepared,
+            configuration: configuration,
+            leadingInset: leadingInset
+        )
+        .frame(width: canvasSize.width, height: canvasSize.height, alignment: .topLeading)
+        .background(Color.white)
+        .environment(\.colorScheme, .light)
+
+        var result = renderHosted(
+            root,
+            size: canvasSize,
+            outputPath: ProcessInfo.processInfo.environment["SIRIUS_MARKDOWN_RESIZE_PROBE_OUTPUT"]
+        ) {
+            model.columnWidth = finalColumnWidth
+        }
+        result.maximumDarkRightmostX = Int(Double(leadingInset + finalColumnWidth + 8) * result.pixelScale)
+        result.fittingWidth = fittingWidth
+        result.maximumFittingWidth = Double(finalColumnWidth + 1)
+        return result
+    }
+
+    @MainActor
     private static func renderDocument(
         markdown: String,
         configuration: MarkdownRendererConfiguration = .document,
@@ -407,7 +477,8 @@ struct SiriusMarkdownRenderProbe {
     private static func renderHosted<V: View>(
         _ root: V,
         size: NSSize,
-        outputPath: String?
+        outputPath: String?,
+        afterInitialLayout: (() -> Void)? = nil
     ) -> RenderResult {
         let hostingView = NSHostingView(rootView: root)
         hostingView.frame = NSRect(origin: .zero, size: size)
@@ -427,6 +498,16 @@ struct SiriusMarkdownRenderProbe {
             hostingView.layoutSubtreeIfNeeded()
             hostingView.displayIfNeeded()
             RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+        }
+
+        if let afterInitialLayout {
+            afterInitialLayout()
+            for _ in 0..<6 {
+                hostingView.needsLayout = true
+                hostingView.layoutSubtreeIfNeeded()
+                hostingView.displayIfNeeded()
+                RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+            }
         }
 
         guard let bitmap = hostingView.bitmapImageRepForCachingDisplay(in: hostingView.bounds) else {
@@ -530,6 +611,36 @@ struct SiriusMarkdownRenderProbe {
         } catch {
             fputs("warning: could not write render probe image to \(outputPath): \(error)\n", stderr)
         }
+    }
+}
+
+@MainActor
+private final class PreparedNativeResizeProbeModel: ObservableObject {
+    @Published var columnWidth: CGFloat
+
+    init(columnWidth: CGFloat) {
+        self.columnWidth = columnWidth
+    }
+}
+
+private struct PreparedNativeResizeProbeHarness: View {
+    @ObservedObject var model: PreparedNativeResizeProbeModel
+    var preparedSnapshot: MarkdownPreparedSnapshot
+    var configuration: MarkdownRendererConfiguration
+    var leadingInset: CGFloat
+
+    var body: some View {
+        HStack(spacing: 0) {
+            Color.white
+                .frame(width: leadingInset)
+            StreamingMarkdownView(
+                preparedSnapshot: preparedSnapshot,
+                configuration: configuration
+            )
+            .frame(width: model.columnWidth, alignment: .leading)
+            Color.white
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 }
 

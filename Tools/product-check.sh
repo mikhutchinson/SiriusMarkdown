@@ -10,6 +10,7 @@ swift test --filter MarkdownSelection
 SIRIUS_MARKDOWN_PRODUCT_CHECK=1 swift test --filter Product
 SIRIUS_MARKDOWN_RENDER_PROBE_OUTPUT="${TMPDIR:-/tmp}/SiriusMarkdownProductProbe.png" \
 SIRIUS_MARKDOWN_CODE_HIGHLIGHT_PROBE_OUTPUT="${TMPDIR:-/tmp}/SiriusMarkdownCodeHighlightProbe.png" \
+SIRIUS_MARKDOWN_RESIZE_PROBE_OUTPUT="${TMPDIR:-/tmp}/SiriusMarkdownResizeProbe.png" \
   swift run --package-path Tools/RenderProbe SiriusMarkdownRenderProbe
 
 echo "SiriusMarkdown product check passed."

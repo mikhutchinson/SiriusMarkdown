@@ -4,6 +4,11 @@
 
 - No unreleased changes.
 
+## 0.3.3 - 2026-05-02
+
+- Fixed prepared native-line width observation so split-view and right-panel resizing relayouts against the current proposed width instead of a stale rendered line frame.
+- Added an AppKit wide-to-narrow resize probe that keeps the SwiftUI view alive while shrinking the host column, then asserts prepared native text stays inside the new column and fitting width remains bounded.
+
 ## 0.3.2 - 2026-05-02
 
 - Corrected the MIT license copyright holder from generic project-contributor boilerplate to `Dr. Mikholae Hutchinson`.
