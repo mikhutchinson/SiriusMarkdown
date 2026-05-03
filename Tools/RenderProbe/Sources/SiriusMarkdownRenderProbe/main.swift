@@ -19,6 +19,8 @@ struct SiriusMarkdownRenderProbe {
         let nativeSpacingResult = renderNativeInlineSpacingProbe()
         let containmentResult = renderPreparedNativeContainmentProbe()
         let resizeResult = renderPreparedNativeResizeProbe()
+        let documentAffordanceResult = renderDocumentAffordanceProbe(collapsed: false)
+        let collapsedDocumentAffordanceResult = renderDocumentAffordanceProbe(collapsed: true)
         assertRenderable("MarkdownDocumentView", result)
         assertRenderable("prepared native MarkdownDocumentView", nativeResult)
         assertRenderable("compact chat prepared native transcript", chatResult, minimumNonWhitePixels: 1_400)
@@ -34,6 +36,8 @@ struct SiriusMarkdownRenderProbe {
         assertRenderable("hard-break and long-word prepared native document", breakResult, minimumNonWhitePixels: 1_200)
         assertRenderable("prepared native containment document", containmentResult, minimumNonWhitePixels: 1_400)
         assertRenderable("prepared native resize document", resizeResult, minimumNonWhitePixels: 1_200)
+        assertRenderable("document affordance surface", documentAffordanceResult, minimumNonWhitePixels: 2_600)
+        assertRenderable("collapsed document affordance surface", collapsedDocumentAffordanceResult, minimumNonWhitePixels: 1_000)
 
         if widthResult.darkRightmostX < widthResult.minimumDarkRightmostX {
             fputs(
@@ -91,6 +95,22 @@ struct SiriusMarkdownRenderProbe {
             exit(EXIT_FAILURE)
         }
 
+        if documentAffordanceResult.nonWhiteRightmostX < Int(520 * documentAffordanceResult.pixelScale) {
+            fputs(
+                "error: document affordance surface did not render non-white pixels in the top-right action region; rightmost x was \(documentAffordanceResult.nonWhiteRightmostX).\n",
+                stderr
+            )
+            exit(EXIT_FAILURE)
+        }
+
+        if collapsedDocumentAffordanceResult.nonWhiteRightmostX < Int(520 * collapsedDocumentAffordanceResult.pixelScale) {
+            fputs(
+                "error: collapsed document affordance surface did not keep visible header chrome; rightmost x was \(collapsedDocumentAffordanceResult.nonWhiteRightmostX).\n",
+                stderr
+            )
+            exit(EXIT_FAILURE)
+        }
+
         print("MarkdownDocumentView render probe: \(result.nonWhitePixels) non-white pixels, \(result.distinctColorBuckets) color buckets")
         print("Prepared native document render probe: \(nativeResult.nonWhitePixels) non-white pixels, \(nativeResult.distinctColorBuckets) color buckets")
         print("Compact chat render probe: \(chatResult.nonWhitePixels) non-white pixels, \(chatResult.distinctColorBuckets) color buckets")
@@ -103,6 +123,8 @@ struct SiriusMarkdownRenderProbe {
         print("Native inline spacing probe: \(nativeSpacingResult.wideDarkColumnGaps) wide word gaps")
         print("Prepared native containment probe: dark text reached x=\(containmentResult.darkRightmostX), fitting width \(containmentResult.fittingWidth)")
         print("Prepared native resize probe: dark text reached x=\(resizeResult.darkRightmostX), fitting width \(resizeResult.fittingWidth)")
+        print("Document affordance surface probe: \(documentAffordanceResult.nonWhitePixels) non-white pixels, rightmost x=\(documentAffordanceResult.nonWhiteRightmostX)")
+        print("Collapsed document affordance surface probe: \(collapsedDocumentAffordanceResult.nonWhitePixels) non-white pixels, rightmost x=\(collapsedDocumentAffordanceResult.nonWhiteRightmostX)")
     }
 
     private static func assertRenderable(
@@ -451,6 +473,54 @@ struct SiriusMarkdownRenderProbe {
     }
 
     @MainActor
+    private static func renderDocumentAffordanceProbe(collapsed: Bool) -> RenderResult {
+        let markdown =
+            """
+            # Affordance Probe
+
+            Document-level affordances should be visible without requiring host-private chrome.
+
+            ```swift
+            let surface = MarkdownDocumentSurface(preparedSnapshot: prepared, configuration: configuration)
+            ```
+
+            | Action | Source |
+            | :--- | :--- |
+            | Copy | source-backed Markdown |
+            | Export | host-replaceable action handler |
+            """
+        var configuration = MarkdownRendererConfiguration.document
+        configuration.copyProvider = MarkdownCopyProvider(markdownSource: markdown)
+        var affordances = MarkdownDocumentAffordances.default
+        affordances.startsCollapsed = collapsed
+
+        var stream = MarkdownStream()
+        stream.append(markdown)
+        stream.finish()
+        let prepared = configuration.prepare(snapshot: stream.snapshot())
+        let size = NSSize(width: 680, height: collapsed ? 180 : 520)
+        let root = MarkdownDocumentSurface(
+            title: "Affordance Probe",
+            subtitle: "Copy, export, and collapse are package-level document chrome.",
+            suggestedFilename: "AffordanceProbe.md",
+            preparedSnapshot: prepared,
+            configuration: configuration,
+            affordances: affordances
+        )
+        .frame(width: size.width, height: size.height, alignment: .topLeading)
+        .background(Color.white)
+        .environment(\.colorScheme, .light)
+
+        return renderHosted(
+            root,
+            size: size,
+            outputPath: collapsed
+                ? ProcessInfo.processInfo.environment["SIRIUS_MARKDOWN_AFFORDANCE_COLLAPSED_PROBE_OUTPUT"]
+                : ProcessInfo.processInfo.environment["SIRIUS_MARKDOWN_AFFORDANCE_PROBE_OUTPUT"]
+        )
+    }
+
+    @MainActor
     private static func renderDocument(
         markdown: String,
         configuration: MarkdownRendererConfiguration = .document,
@@ -522,6 +592,7 @@ struct SiriusMarkdownRenderProbe {
         return RenderResult(
             nonWhitePixels: sample.nonWhitePixels,
             distinctColorBuckets: sample.distinctColorBuckets,
+            nonWhiteRightmostX: sample.nonWhiteRightmostX,
             darkRightmostX: sample.darkRightmostX,
             wideDarkColumnGaps: sample.wideDarkColumnGaps,
             pixelScale: pixelScale
@@ -531,6 +602,7 @@ struct SiriusMarkdownRenderProbe {
     private static func sampleRenderedPixels(_ bitmap: NSBitmapImageRep, pixelScale: Double) -> PixelSample {
         var nonWhitePixels = 0
         var colorBuckets = Set<Int>()
+        var nonWhiteRightmostX = 0
         var darkRightmostX = 0
         var darkColumnCounts = Array(repeating: 0, count: bitmap.pixelsWide)
 
@@ -545,6 +617,7 @@ struct SiriusMarkdownRenderProbe {
                 let blue = color.blueComponent
                 if red < 0.96 || green < 0.96 || blue < 0.96 {
                     nonWhitePixels += 1
+                    nonWhiteRightmostX = max(nonWhiteRightmostX, x)
                     let bucket =
                         (Int(red * 15) << 8) |
                         (Int(green * 15) << 4) |
@@ -567,6 +640,7 @@ struct SiriusMarkdownRenderProbe {
         return PixelSample(
             nonWhitePixels: nonWhitePixels,
             distinctColorBuckets: colorBuckets.count,
+            nonWhiteRightmostX: nonWhiteRightmostX,
             darkRightmostX: darkRightmostX,
             wideDarkColumnGaps: wideBlankRunCount(darkColumns, minimumWidth: minimumGapWidth)
         )
@@ -647,6 +721,7 @@ private struct PreparedNativeResizeProbeHarness: View {
 private struct RenderResult {
     var nonWhitePixels: Int
     var distinctColorBuckets: Int
+    var nonWhiteRightmostX: Int
     var darkRightmostX: Int
     var wideDarkColumnGaps: Int
     var pixelScale = 1.0
@@ -663,6 +738,7 @@ private struct RenderResult {
 private struct PixelSample {
     var nonWhitePixels: Int
     var distinctColorBuckets: Int
+    var nonWhiteRightmostX: Int
     var darkRightmostX: Int
     var wideDarkColumnGaps: Int
 }

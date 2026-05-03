@@ -10,9 +10,9 @@ The package is built around three principles:
 
 ## Status
 
-This checkout is the `0.3.3` public package release. The release gate is strict Swift-vs-Pretext layout comparison, required Pretext product fixture groups, and AppKit render probes for document, compact chat, multilingual, inline-attribute, overflow, hard-break, long-word, finite-column containment, wide-to-narrow resize, and language-aware code highlighting output. Fixture drift, missing groups, duplicate fixture names/groups, and trivial render output are release blockers.
+This checkout is the `0.4.0` public package release. The release gate is strict Swift-vs-Pretext layout comparison, required Pretext product fixture groups, and AppKit render probes for document, compact chat, multilingual, inline-attribute, overflow, hard-break, long-word, finite-column containment, wide-to-narrow resize, document affordance chrome, and language-aware code highlighting output. Fixture drift, missing groups, duplicate fixture names/groups, and trivial render output are release blockers.
 
-The `0.3.3` product claim is native SwiftUI Markdown rendering with prepared-line layout, streaming snapshots, bounded caches, safe default policies, language-aware default code highlighting, code-block language/copy affordances, public chat/document presets, first-class H1-H6 heading typography through `MarkdownTheme.headings`, and resize-stable prepared native lines. It is not a custom glyph renderer: `preparedNativeLines` slices prepared attributed line ranges and renders them with SwiftUI `Text(AttributedString)`.
+The current product claim is native SwiftUI Markdown rendering with prepared-line layout, streaming snapshots, bounded caches, safe default policies, language-aware default code highlighting, generic document/code affordances, public chat/document presets, first-class H1-H6 heading typography through `MarkdownTheme.headings`, and resize-stable prepared native lines. It is not a custom glyph renderer: `preparedNativeLines` slices prepared attributed line ranges and renders them with SwiftUI `Text(AttributedString)`.
 
 ## Requirements
 
@@ -25,7 +25,7 @@ In `Package.swift` (adjust the package URL to the published repository):
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/mikhutchinson/SiriusMarkdown.git", from: "0.3.3")
+    .package(url: "https://github.com/mikhutchinson/SiriusMarkdown.git", from: "0.4.0")
 ],
 targets: [
     .target(
@@ -81,7 +81,24 @@ let documentTheme = MarkdownTheme(
 )
 ```
 
-Code highlighting remains pluggable through `MarkdownCodeHighlighter`, but the shipped default is now language-aware on Apple platforms with JavaScriptCore. `DefaultMarkdownCodeHighlighter` normalizes fence info strings and aliases, highlights explicit supported languages through a pinned embedded `highlight.js` common build, and renders plaintext, nohighlight, unlabeled, or unsupported fences plainly. Code blocks also include generic SwiftUI chrome for the normalized language label and a copy-code control; hosts can hide or tune those affordances through `MarkdownTheme.codeBlockAffordances`. Hosts that want no highlighting can still inject `PlainMarkdownCodeHighlighter`.
+Code highlighting remains pluggable through `MarkdownCodeHighlighter`, but the shipped default is now language-aware on Apple platforms with JavaScriptCore. `DefaultMarkdownCodeHighlighter` normalizes fence info strings and aliases, highlights explicit supported languages through a pinned embedded `highlight.js` common build, and renders plaintext, nohighlight, unlabeled, or unsupported fences plainly. Code blocks also include generic SwiftUI chrome for the normalized language label, copy, export, and collapse controls; hosts can hide or tune those affordances through `MarkdownTheme.codeBlockAffordances`. Hosts that want no highlighting can still inject `PlainMarkdownCodeHighlighter`.
+
+Document chrome is generic and source-backed. `MarkdownDocumentSurface` wraps prepared document content with optional copy, export/download, and collapse controls while keeping parsing, highlighting, and layout preparation outside SwiftUI body evaluation. Source comes from `MarkdownCopyProvider`, and behavior is replaceable through `MarkdownAffordanceActionHandler`:
+
+```swift
+let copyProvider = MarkdownCopyProvider(markdownSource: markdown)
+let configuration = MarkdownRendererConfiguration.document
+var configured = configuration
+configured.copyProvider = copyProvider
+
+MarkdownDocumentSurface(
+    title: "Field Guide",
+    subtitle: "Prepared native Markdown with source-backed actions.",
+    suggestedFilename: "FieldGuide.md",
+    preparedSnapshot: prepared,
+    configuration: configured
+)
+```
 
 ## Products
 
@@ -199,9 +216,11 @@ open Examples/MacOSArtifacts/MarkdownDemoApp.app
 
 The bundled demos have distinct jobs:
 
-- `MarkdownDemoApp` is the renderer workbench: example navigation, coverage summaries, cache/pipeline counters, and stress cases.
-- `DocumentReaderDemo` is the reader product surface: a single prepared document with library navigation, reading metadata, source-copy actions, and reading-width controls.
-- `StreamingTranscriptDemo` exercises the streaming append model.
+- `MarkdownDemoApp` is the renderer workbench: example navigation, package-owned document/code affordances, coverage summaries, optional diagnostics, and stress cases.
+- `DocumentReaderDemo` is the reader product surface: a single prepared document with library navigation, reading metadata, top-right document actions, optional inspector, and reading-width controls.
+- `StreamingTranscriptDemo` is the streaming lab: live compact-chat rendering, pause/step/burst controls, subtle sealed-tail state, host-boundary markers, and optional diagnostics.
+
+All three demos share `Examples/DemoSupport` for macOS tokens, surfaces, sidebar rows, metric rows, icon buttons, affordance bars, and empty/error states so demo polish does not drift across apps.
 
 Build a single demo as an app by name:
 
@@ -229,12 +248,12 @@ bash Tools/product-check.sh
 
 ## Release
 
-`0.3.3` is ready to publish only when:
+`0.4.0` is ready to publish only when:
 
 - `README.md`, `NOTICE.md`, `changelog.md`, and `runbook.md` describe the current public package surface;
 - `bash Tools/product-check.sh` passes from the repository root;
 - `git diff --check` reports no whitespace errors;
 - `git remote -v` points at the intended public repository;
-- the release commit is tagged as `0.3.3` and pushed with tags.
+- the release commit is tagged as `0.4.0` and pushed with tags.
 
 Recommended release commands are documented in `runbook.md`.

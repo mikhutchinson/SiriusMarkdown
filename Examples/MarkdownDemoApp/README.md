@@ -2,7 +2,7 @@
 
 Static-document SwiftUI demo packaged as a local SwiftPM executable.
 
-The app is a native macOS workbench for the public `SiriusMarkdown` renderer. It uses the same design language as the other demos: a sidebar of examples, a rendered document surface, and an inspector that reports coverage and pipeline counters.
+The app is a native macOS workbench for the public `SiriusMarkdown` renderer. It uses shared `Examples/DemoSupport` tokens, surfaces, sidebar rows, metric rows, icon buttons, and affordance bars; package-owned document/code affordances; a sidebar of examples; and an optional inspector for coverage and pipeline counters.
 
 Demonstrated cases:
 
@@ -27,4 +27,4 @@ Debug-run from the repo as a plain executable:
 swift run --package-path Examples/MarkdownDemoApp
 ```
 
-The demo imports the public `SiriusMarkdown` umbrella module, parses each sample with `MarkdownStream`, prepares snapshots through `MarkdownRendererConfiguration`, and renders with `MarkdownDocumentView`.
+The demo imports the public `SiriusMarkdown` umbrella module, parses each sample with `MarkdownStream`, prepares snapshots through `MarkdownRendererConfiguration`, and renders with `MarkdownDocumentSurface`.

@@ -149,16 +149,58 @@ public struct MarkdownHeadingStyles: Sendable, Hashable {
 public struct MarkdownCodeBlockAffordances: Sendable, Hashable {
     public var showsLanguageLabel: Bool
     public var showsCopyButton: Bool
+    public var showsExportButton: Bool
+    public var showsCollapseButton: Bool
+    public var startsCollapsed: Bool
 
-    public init(showsLanguageLabel: Bool = true, showsCopyButton: Bool = true) {
+    public init(
+        showsLanguageLabel: Bool = true,
+        showsCopyButton: Bool = true,
+        showsExportButton: Bool = true,
+        showsCollapseButton: Bool = true,
+        startsCollapsed: Bool = false
+    ) {
         self.showsLanguageLabel = showsLanguageLabel
         self.showsCopyButton = showsCopyButton
+        self.showsExportButton = showsExportButton
+        self.showsCollapseButton = showsCollapseButton
+        self.startsCollapsed = startsCollapsed
     }
 
     public static let `default` = MarkdownCodeBlockAffordances()
     public static let hidden = MarkdownCodeBlockAffordances(
         showsLanguageLabel: false,
-        showsCopyButton: false
+        showsCopyButton: false,
+        showsExportButton: false,
+        showsCollapseButton: false,
+        startsCollapsed: false
+    )
+}
+
+public struct MarkdownDocumentAffordances: Sendable, Hashable {
+    public var showsCopyButton: Bool
+    public var showsExportButton: Bool
+    public var showsCollapseButton: Bool
+    public var startsCollapsed: Bool
+
+    public init(
+        showsCopyButton: Bool = true,
+        showsExportButton: Bool = true,
+        showsCollapseButton: Bool = true,
+        startsCollapsed: Bool = false
+    ) {
+        self.showsCopyButton = showsCopyButton
+        self.showsExportButton = showsExportButton
+        self.showsCollapseButton = showsCollapseButton
+        self.startsCollapsed = startsCollapsed
+    }
+
+    public static let `default` = MarkdownDocumentAffordances()
+    public static let hidden = MarkdownDocumentAffordances(
+        showsCopyButton: false,
+        showsExportButton: false,
+        showsCollapseButton: false,
+        startsCollapsed: false
     )
 }
 

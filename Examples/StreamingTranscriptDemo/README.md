@@ -2,6 +2,12 @@
 
 Streaming SwiftUI demo packaged as a local SwiftPM executable.
 
+This app is the streaming lab. It keeps the transcript surface primary, uses
+toolbar controls for restart/pause/step/burst, shows subtle sealed-tail state
+inside the stream surface, and keeps diagnostics behind an optional inspector.
+The sidebar, status pills, icon buttons, metric rows, transcript surface, and
+inspector chrome come from the shared `Examples/DemoSupport` design language.
+
 For a **macOS `.app`**:
 
 ```sh
@@ -15,4 +21,6 @@ Debug-run from the repo:
 swift run --package-path Examples/StreamingTranscriptDemo
 ```
 
-The demo appends timed chunks into `MarkdownStream` and renders snapshots with `StreamingMarkdownView`.
+The demo appends timed chunks into `MarkdownStream`, renders prepared snapshots
+with `StreamingMarkdownView`, and uses shared demo controls from
+`Examples/DemoSupport`.

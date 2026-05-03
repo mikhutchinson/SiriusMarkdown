@@ -21,9 +21,14 @@ public struct MarkdownLinkAction: Sendable {
 
 public struct MarkdownCopyProvider: Sendable {
     public var markdown: @Sendable (MarkdownSourceRange) -> String?
+    public var documentMarkdown: (@Sendable () -> String?)?
 
-    public init(markdown: @escaping @Sendable (MarkdownSourceRange) -> String?) {
+    public init(
+        markdown: @escaping @Sendable (MarkdownSourceRange) -> String?,
+        documentMarkdown: (@Sendable () -> String?)? = nil
+    ) {
         self.markdown = markdown
+        self.documentMarkdown = documentMarkdown
     }
 
     public init(markdownSource: String) {
@@ -31,6 +36,48 @@ public struct MarkdownCopyProvider: Sendable {
         self.markdown = { range in
             store.markdown(in: range)
         }
+        self.documentMarkdown = {
+            store.markdown
+        }
+    }
+
+    public var hasDocumentMarkdown: Bool {
+        documentMarkdown != nil
+    }
+
+    public func markdownForDocument() -> String? {
+        documentMarkdown?()
+    }
+}
+
+public struct MarkdownExportPayload: Sendable, Hashable {
+    public var markdown: String
+    public var suggestedFilename: String
+
+    public init(markdown: String, suggestedFilename: String = "Document.md") {
+        self.markdown = markdown
+        self.suggestedFilename = suggestedFilename
+    }
+}
+
+public struct MarkdownAffordanceActionHandler: Sendable {
+    public var copyString: @MainActor @Sendable (String) -> Void
+    public var exportMarkdown: @MainActor @Sendable (MarkdownExportPayload) -> Void
+
+    public init(
+        copyString: @escaping @MainActor @Sendable (String) -> Void = { string in
+            MarkdownPasteboard.copy(string)
+        },
+        exportMarkdown: @escaping @MainActor @Sendable (MarkdownExportPayload) -> Void = { payload in
+            MarkdownDocumentExporter.export(payload)
+        }
+    ) {
+        self.copyString = copyString
+        self.exportMarkdown = exportMarkdown
+    }
+
+    public static var platformDefault: MarkdownAffordanceActionHandler {
+        MarkdownAffordanceActionHandler()
     }
 }
 
@@ -184,6 +231,10 @@ private final class MarkdownSourceCopyStore: @unchecked Sendable {
 
     init(_ source: String) {
         self.source = source
+    }
+
+    var markdown: String {
+        source
     }
 
     func markdown(in sourceRange: MarkdownSourceRange) -> String? {

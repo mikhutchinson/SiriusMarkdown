@@ -1,3 +1,4 @@
+import DemoSupport
 import SiriusMarkdown
 import SiriusMarkdownMath
 import SwiftUI
@@ -217,8 +218,10 @@ private struct StreamingSidebar: View {
         List {
             Section("Streaming Cases") {
                 ForEach(StreamingCase.allCases) { demoCase in
-                    SidebarCaseButton(
-                        demoCase: demoCase,
+                    DemoSidebarRow(
+                        title: demoCase.title,
+                        subtitle: demoCase.summary,
+                        systemImage: demoCase.systemImage,
                         isSelected: model.selectedCaseID == demoCase.id
                     ) {
                         model.selectedCaseID = demoCase.id
@@ -227,11 +230,11 @@ private struct StreamingSidebar: View {
             }
 
             Section("Stream State") {
-                MetricRow(title: "Progress", value: "\(model.emittedStepCount)/\(model.totalStepCount)")
-                MetricRow(title: "Source bytes", value: model.sourceByteCount.formatted())
-                MetricRow(title: "Blocks", value: model.blockCount.formatted())
-                MetricRow(title: "Mutable tail", value: model.activeTailBlockCount.formatted())
-                MetricRow(title: "Host boundaries", value: model.hostBoundaryCount.formatted())
+                DemoMetricRow(title: "Progress", value: "\(model.emittedStepCount)/\(model.totalStepCount)")
+                DemoMetricRow(title: "Source bytes", value: model.sourceByteCount.formatted())
+                DemoMetricRow(title: "Blocks", value: model.blockCount.formatted())
+                DemoMetricRow(title: "Mutable tail", value: model.activeTailBlockCount.formatted())
+                DemoMetricRow(title: "Host boundaries", value: model.hostBoundaryCount.formatted())
             }
 
             Section("Controls") {
@@ -269,50 +272,13 @@ private struct StreamingSidebar: View {
     }
 }
 
-private struct SidebarCaseButton: View {
-    var demoCase: StreamingCase
-    var isSelected: Bool
-    var action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            HStack(alignment: .top, spacing: 10) {
-                Image(systemName: demoCase.systemImage)
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(isSelected ? Color.white : Color.accentColor)
-                    .frame(width: 22)
-
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(demoCase.title)
-                        .font(.headline)
-                    Text(demoCase.summary)
-                        .font(.caption)
-                        .foregroundStyle(isSelected ? Color.white.opacity(0.78) : Color.secondary)
-                        .lineLimit(2)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .foregroundStyle(isSelected ? Color.white : Color.primary)
-        .padding(.vertical, 6)
-        .padding(.horizontal, 8)
-        .background {
-            RoundedRectangle(cornerRadius: 7)
-                .fill(isSelected ? Color.accentColor : Color.clear)
-        }
-        .listRowInsets(EdgeInsets(top: 2, leading: 10, bottom: 2, trailing: 10))
-    }
-}
-
 private struct StreamingCaseDetail: View {
     @ObservedObject var model: StreamingTranscriptModel
     @State private var showsInspector = false
 
     var body: some View {
         ZStack {
-            Color(nsColor: .windowBackgroundColor)
+            DemoColors.windowBackground
                 .ignoresSafeArea()
 
             VStack(alignment: .leading, spacing: 0) {
@@ -378,22 +344,17 @@ private struct DetailHeader: View {
 
                 Spacer()
 
-                Button {
-                    showsInspector.toggle()
-                } label: {
-                    Image(systemName: "sidebar.right")
-                }
-                .buttonStyle(.borderless)
-                .help(showsInspector ? "Hide diagnostics" : "Show diagnostics")
-
-                Text(statusText)
-                    .font(.caption.weight(.semibold))
-                    .padding(.horizontal, 9)
-                    .padding(.vertical, 4)
-                    .background {
-                        Capsule().fill(statusColor.opacity(0.16))
+                DemoAffordanceBar {
+                    DemoIconButton(
+                        title: showsInspector ? "Hide diagnostics" : "Show diagnostics",
+                        systemImage: "sidebar.right",
+                        isActive: showsInspector
+                    ) {
+                        showsInspector.toggle()
                     }
-                    .foregroundStyle(statusColor)
+
+                    DemoStatusPill(text: statusText, color: statusColor)
+                }
             }
 
             Text(demoCase.detail)
@@ -432,36 +393,29 @@ private struct TranscriptSurface: View {
     @ObservedObject var model: StreamingTranscriptModel
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack {
-                Label("Rendered Stream", systemImage: "text.bubble")
-                    .font(.headline)
-                Spacer()
-                Text("\(model.sealedBlockCount) sealed")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-            }
+        DemoSurface {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(alignment: .firstTextBaseline) {
+                    Label("Rendered Stream", systemImage: "text.bubble")
+                        .font(.headline)
+                    Spacer()
+                    DemoAffordanceBar {
+                        DemoStatusPill(text: "\(model.sealedBlockCount) sealed", systemImage: "lock", color: .green)
+                        DemoStatusPill(text: "\(model.activeTailBlockCount) tail", systemImage: "waveform", color: .orange)
+                    }
+                }
 
-            Divider()
+                Divider()
 
-            StreamingMarkdownView(
-                preparedSnapshot: model.preparedSnapshot,
-                configuration: model.configuration
-            ) { boundary in
-                HostBoundaryMarker(boundary: boundary)
+                StreamingMarkdownView(
+                    preparedSnapshot: model.preparedSnapshot,
+                    configuration: model.configuration
+                ) { boundary in
+                    HostBoundaryMarker(boundary: boundary)
+                }
+                .frame(maxWidth: 900, alignment: .leading)
             }
-            .frame(maxWidth: 900, alignment: .leading)
         }
-        .padding(24)
-        .background {
-            RoundedRectangle(cornerRadius: 10)
-                .fill(Color(nsColor: .textBackgroundColor))
-        }
-        .overlay {
-            RoundedRectangle(cornerRadius: 10)
-                .stroke(Color.primary.opacity(0.08))
-        }
-        .shadow(color: Color.black.opacity(0.05), radius: 18, x: 0, y: 8)
     }
 }
 
@@ -469,9 +423,9 @@ private struct StreamInspectorPanel: View {
     @ObservedObject var model: StreamingTranscriptModel
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            InspectorSection(title: "Pipeline") {
-                InspectorMetricGrid(
+        DemoInspectorPanel {
+            DemoInspectorSection(title: "Pipeline") {
+                DemoMetricGrid(
                     metrics: [
                         ("Parse", model.streamCounters.parseCount.formatted()),
                         ("Tail", model.streamCounters.tailReparseCount.formatted()),
@@ -483,17 +437,17 @@ private struct StreamInspectorPanel: View {
                 )
             }
 
-            InspectorSection(title: "Snapshot") {
+            DemoInspectorSection(title: "Snapshot") {
                 VStack(spacing: 8) {
-                    MetricRow(title: "Source bytes", value: model.sourceByteCount.formatted())
-                    MetricRow(title: "Blocks", value: model.blockCount.formatted())
-                    MetricRow(title: "Sealed blocks", value: model.sealedBlockCount.formatted())
-                    MetricRow(title: "Mutable tail", value: model.activeTailBlockCount.formatted())
-                    MetricRow(title: "Host boundaries", value: model.hostBoundaryCount.formatted())
+                    DemoMetricRow(title: "Source bytes", value: model.sourceByteCount.formatted())
+                    DemoMetricRow(title: "Blocks", value: model.blockCount.formatted())
+                    DemoMetricRow(title: "Sealed blocks", value: model.sealedBlockCount.formatted())
+                    DemoMetricRow(title: "Mutable tail", value: model.activeTailBlockCount.formatted())
+                    DemoMetricRow(title: "Host boundaries", value: model.hostBoundaryCount.formatted())
                 }
             }
 
-            InspectorSection(title: "Chunk Timeline") {
+            DemoInspectorSection(title: "Chunk Timeline") {
                 VStack(alignment: .leading, spacing: 8) {
                     ForEach(Array(model.selectedCase.steps.enumerated()), id: \.offset) { index, step in
                         StepTimelineRow(
@@ -503,60 +457,6 @@ private struct StreamInspectorPanel: View {
                             isCurrent: index == model.emittedStepCount
                         )
                     }
-                }
-            }
-        }
-        .padding(18)
-        .background {
-            RoundedRectangle(cornerRadius: 10)
-                .fill(Color(nsColor: .controlBackgroundColor))
-        }
-        .overlay {
-            RoundedRectangle(cornerRadius: 10)
-                .stroke(Color.primary.opacity(0.08))
-        }
-    }
-}
-
-private struct InspectorSection<Content: View>: View {
-    var title: String
-    @ViewBuilder var content: Content
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 9) {
-            Text(title)
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-                .textCase(.uppercase)
-            content
-        }
-    }
-}
-
-private struct InspectorMetricGrid: View {
-    var metrics: [(String, String)]
-
-    private let columns = [
-        GridItem(.flexible(), spacing: 8),
-        GridItem(.flexible(), spacing: 8)
-    ]
-
-    var body: some View {
-        LazyVGrid(columns: columns, alignment: .leading, spacing: 8) {
-            ForEach(metrics, id: \.0) { title, value in
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(value)
-                        .font(.headline.monospacedDigit())
-                    Text(title)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 8)
-                .background {
-                    RoundedRectangle(cornerRadius: 7)
-                        .fill(Color(nsColor: .textBackgroundColor))
                 }
             }
         }
@@ -632,21 +532,6 @@ private struct HostBoundaryMarker: View {
                 .stroke(Color.accentColor.opacity(0.24))
         }
         .accessibilityElement(children: .combine)
-    }
-}
-
-private struct MetricRow: View {
-    var title: String
-    var value: String
-
-    var body: some View {
-        HStack {
-            Text(title)
-            Spacer()
-            Text(value)
-                .fontDesign(.monospaced)
-                .foregroundStyle(.secondary)
-        }
     }
 }
 

@@ -1,4 +1,4 @@
-import AppKit
+import DemoSupport
 import SiriusMarkdown
 import SiriusMarkdownMath
 import SwiftUI
@@ -54,6 +54,7 @@ private struct DocumentReaderView: View {
     @State private var measure = DocumentMeasure.readable
     @State private var selectedBlockID: MarkdownBlockID?
     @State private var scrollToTopRequest = 0
+    @State private var showsInspector = false
 
     @MainActor
     init() {
@@ -83,9 +84,9 @@ private struct DocumentReaderView: View {
                         }
 
                         Button {
-                            copyDocumentMarkdown()
+                            showsInspector.toggle()
                         } label: {
-                            Label("Copy Document", systemImage: "doc.on.doc")
+                            Label(showsInspector ? "Hide Inspector" : "Show Inspector", systemImage: "sidebar.right")
                         }
 
                         Picker("Measure", selection: $measure) {
@@ -105,20 +106,29 @@ private struct DocumentReaderView: View {
             DemoColors.windowBackground
                 .ignoresSafeArea()
 
-            PreparedDocumentScrollView(
-                document: model.document,
-                preparedSnapshot: model.preparedSnapshot,
-                configuration: model.configuration,
-                selectedBlockID: $selectedBlockID,
-                scrollToTopRequest: scrollToTopRequest,
-                currentSectionTitle: currentSectionTitle
-            )
-            .frame(maxWidth: measure.width, maxHeight: .infinity)
-            .background(DemoColors.documentBackground)
-            .clipShape(RoundedRectangle(cornerRadius: 8))
-            .overlay {
-                RoundedRectangle(cornerRadius: 8)
-                    .stroke(DemoColors.pageStroke)
+            HStack(alignment: .top, spacing: 18) {
+                MarkdownDocumentSurface(
+                    title: model.document.title,
+                    subtitle: model.document.subtitle,
+                    suggestedFilename: "Native Reader Field Guide.md",
+                    preparedSnapshot: model.preparedSnapshot,
+                    configuration: model.configuration
+                ) {
+                    PreparedDocumentScrollView(
+                        document: model.document,
+                        preparedSnapshot: model.preparedSnapshot,
+                        configuration: model.configuration,
+                        selectedBlockID: $selectedBlockID,
+                        scrollToTopRequest: scrollToTopRequest,
+                        currentSectionTitle: currentSectionTitle
+                    )
+                }
+                .frame(maxWidth: measure.width, maxHeight: .infinity)
+
+                if showsInspector {
+                    ReaderInspectorPanel(document: model.document)
+                        .frame(width: 260)
+                }
             }
             .padding(.horizontal, 28)
             .padding(.vertical, 22)
@@ -135,10 +145,6 @@ private struct DocumentReaderView: View {
         return section.title
     }
 
-    private func copyDocumentMarkdown() {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(DemoDocument.markdown, forType: .string)
-    }
 }
 
 private struct ReaderSidebar: View {
@@ -165,10 +171,10 @@ private struct ReaderSidebar: View {
             }
 
             Section("Reader") {
-                MetricRow(title: "Reading time", value: "\(document.readingMinutes) min")
-                MetricRow(title: "Words", value: document.wordCount.formatted())
-                MetricRow(title: "Sections", value: document.sectionCount.formatted())
-                MetricRow(title: "Width", value: measure.title)
+                DemoMetricRow(title: "Reading time", value: "\(document.readingMinutes) min")
+                DemoMetricRow(title: "Words", value: document.wordCount.formatted())
+                DemoMetricRow(title: "Sections", value: document.sectionCount.formatted())
+                DemoMetricRow(title: "Width", value: measure.title)
             }
         }
         .listStyle(.sidebar)
@@ -243,7 +249,7 @@ private struct PreparedDocumentScrollView: View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: theme.blockSpacing) {
-                    ReaderDocumentHeader(
+                    ReaderMetadataStrip(
                         document: document,
                         currentSectionTitle: currentSectionTitle
                     )
@@ -287,6 +293,31 @@ private struct PreparedDocumentScrollView: View {
             .id(block.id)
         case .hostBoundary:
             EmptyView()
+        }
+    }
+}
+
+private struct ReaderInspectorPanel: View {
+    var document: ReaderDocument
+
+    var body: some View {
+        DemoInspectorPanel {
+            DemoInspectorSection(title: "Document") {
+                VStack(spacing: 8) {
+                    DemoMetricRow(title: "Source bytes", value: document.sourceBytes.formatted())
+                    DemoMetricRow(title: "Blocks", value: document.blockCount.formatted())
+                    DemoMetricRow(title: "Sections", value: document.sectionCount.formatted())
+                    DemoMetricRow(title: "Words", value: document.wordCount.formatted())
+                }
+            }
+
+            DemoInspectorSection(title: "Reader Contract") {
+                DemoAssertionStrip(assertions: [
+                    "Document actions come from MarkdownDocumentSurface.",
+                    "Block copy remains source-backed.",
+                    "Reading width relayouts prepared content."
+                ])
+            }
         }
     }
 }
@@ -342,21 +373,6 @@ private enum ReaderDocumentTopAnchor {
     static let id = "reader-document-top"
 }
 
-private struct MetricRow: View {
-    var title: String
-    var value: String
-
-    var body: some View {
-        HStack {
-            Text(title)
-            Spacer()
-            Text(value)
-                .foregroundStyle(.secondary)
-                .monospacedDigit()
-        }
-    }
-}
-
 private struct ReaderDocument: Hashable {
     var title: String
     var subtitle: String
@@ -387,24 +403,12 @@ private struct ReaderDocument: Hashable {
     }
 }
 
-private struct ReaderDocumentHeader: View {
+private struct ReaderMetadataStrip: View {
     var document: ReaderDocument
     var currentSectionTitle: String
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            VStack(alignment: .leading, spacing: 8) {
-                Text(document.title)
-                    .font(.largeTitle.weight(.semibold))
-                    .textSelection(.enabled)
-
-                Text(document.subtitle)
-                    .font(.title3)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .textSelection(.enabled)
-            }
-
+        VStack(alignment: .leading, spacing: 12) {
             LazyVGrid(
                 columns: [
                     GridItem(.adaptive(minimum: 142), alignment: .leading)
@@ -479,12 +483,6 @@ private enum DocumentMeasure: String, CaseIterable, Identifiable {
             return 1080
         }
     }
-}
-
-private enum DemoColors {
-    static let windowBackground = Color(nsColor: .windowBackgroundColor)
-    static let documentBackground = Color(nsColor: .textBackgroundColor)
-    static let pageStroke = Color(nsColor: .separatorColor).opacity(0.45)
 }
 
 private enum DemoDocument {

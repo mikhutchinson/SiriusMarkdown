@@ -5,6 +5,7 @@ public struct MarkdownBlockView: View {
     private var block: MarkdownBlock
     private var configuration: MarkdownRendererConfiguration
     private var preparedContent: MarkdownPreparedBlockContent
+    @State private var isCodeBlockCollapsed: Bool
 
     private var theme: MarkdownTheme {
         configuration.theme
@@ -14,12 +15,14 @@ public struct MarkdownBlockView: View {
         self.block = block
         self.configuration = MarkdownRendererConfiguration(theme: theme, inlineRenderingMode: .preparedNativeLines)
         self.preparedContent = self.configuration.prepare(block: block)
+        _isCodeBlockCollapsed = State(initialValue: self.configuration.theme.codeBlockAffordances.startsCollapsed)
     }
 
     public init(block: MarkdownBlock, configuration: MarkdownRendererConfiguration) {
         self.block = block
         self.configuration = configuration
         self.preparedContent = configuration.prepare(block: block)
+        _isCodeBlockCollapsed = State(initialValue: configuration.theme.codeBlockAffordances.startsCollapsed)
     }
 
     public init(
@@ -30,6 +33,7 @@ public struct MarkdownBlockView: View {
         self.block = block
         self.configuration = configuration
         self.preparedContent = preparedContent ?? configuration.prepare(block: block)
+        _isCodeBlockCollapsed = State(initialValue: configuration.theme.codeBlockAffordances.startsCollapsed)
     }
 
     public var body: some View {
@@ -129,14 +133,23 @@ public struct MarkdownBlockView: View {
                 if showsCodeBlockHeader {
                     codeBlockHeader
                 }
-                ScrollView(.horizontal) {
-                    Text(code)
-                        .font(theme.codeFont)
-                        .textSelection(.enabled)
+                if !isCodeBlockCollapsed {
+                    ScrollView(.horizontal) {
+                        Text(code)
+                            .font(theme.codeFont)
+                            .textSelection(.enabled)
+                            .padding(.horizontal, 10)
+                            .padding(.top, showsCodeBlockHeader ? 4 : 10)
+                            .padding(.bottom, 10)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                } else {
+                    Text("\(Self.codeCopyText(for: block).utf8.count.formatted()) bytes hidden")
+                        .font(.caption)
+                        .foregroundStyle(theme.secondaryTextColor)
                         .padding(.horizontal, 10)
-                        .padding(.top, showsCodeBlockHeader ? 4 : 10)
-                        .padding(.bottom, 10)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.vertical, 8)
+                        .accessibilityLabel("Code block collapsed")
                 }
             }
             .background(theme.codeBackground)
@@ -152,7 +165,9 @@ public struct MarkdownBlockView: View {
 
     private var showsCodeBlockHeader: Bool {
         (theme.codeBlockAffordances.showsLanguageLabel && Self.codeBlockLanguageLabel(for: block) != nil) ||
-            theme.codeBlockAffordances.showsCopyButton
+            theme.codeBlockAffordances.showsCopyButton ||
+            theme.codeBlockAffordances.showsExportButton ||
+            theme.codeBlockAffordances.showsCollapseButton
     }
 
     @ViewBuilder
@@ -174,13 +189,39 @@ public struct MarkdownBlockView: View {
                 Button {
                     copyCodeBlock()
                 } label: {
-                    Label("Copy", systemImage: "doc.on.doc")
-                        .labelStyle(.titleAndIcon)
-                        .font(.caption.weight(.semibold))
+                    MarkdownAffordanceIcon(systemName: MarkdownAffordanceSymbols.copy, size: 12)
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(theme.secondaryTextColor)
                 .accessibilityLabel("Copy code")
+                .help("Copy code")
+            }
+
+            if theme.codeBlockAffordances.showsExportButton {
+                Button {
+                    exportCodeBlock()
+                } label: {
+                    MarkdownAffordanceIcon(systemName: MarkdownAffordanceSymbols.export, size: 12)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(theme.secondaryTextColor)
+                .accessibilityLabel("Export code")
+                .help("Export code")
+            }
+
+            if theme.codeBlockAffordances.showsCollapseButton {
+                Button {
+                    isCodeBlockCollapsed.toggle()
+                } label: {
+                    MarkdownAffordanceIcon(
+                        systemName: isCodeBlockCollapsed ? MarkdownAffordanceSymbols.expand : MarkdownAffordanceSymbols.collapse,
+                        size: 12
+                    )
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(theme.secondaryTextColor)
+                .accessibilityLabel(isCodeBlockCollapsed ? "Expand code block" : "Collapse code block")
+                .help(isCodeBlockCollapsed ? "Expand code block" : "Collapse code block")
             }
         }
         .padding(.horizontal, 10)
@@ -417,7 +458,7 @@ public struct MarkdownBlockView: View {
         }
 
         Task { @MainActor in
-            MarkdownPasteboard.copy(markdown)
+            configuration.affordanceActionHandler.copyString(markdown)
         }
     }
 
@@ -428,7 +469,22 @@ public struct MarkdownBlockView: View {
         }
 
         Task { @MainActor in
-            MarkdownPasteboard.copy(code)
+            configuration.affordanceActionHandler.copyString(code)
+        }
+    }
+
+    private func exportCodeBlock() {
+        let code = Self.codeCopyText(for: block)
+        guard !code.isEmpty else {
+            return
+        }
+
+        let payload = MarkdownExportPayload(
+            markdown: code,
+            suggestedFilename: Self.codeExportFilename(for: block)
+        )
+        Task { @MainActor in
+            configuration.affordanceActionHandler.exportMarkdown(payload)
         }
     }
 
@@ -459,6 +515,9 @@ public struct MarkdownBlockView: View {
                     ? Self.codeBlockLanguageLabel(for: block)
                     : nil,
                 codeCopyButtonVisible: codeAllowed && configuration.theme.codeBlockAffordances.showsCopyButton,
+                codeExportButtonVisible: codeAllowed && configuration.theme.codeBlockAffordances.showsExportButton,
+                codeCollapseButtonVisible: codeAllowed && configuration.theme.codeBlockAffordances.showsCollapseButton,
+                codeInitiallyCollapsed: codeAllowed && configuration.theme.codeBlockAffordances.startsCollapsed,
                 policyDenialReason: denialReason(decision)
             )
         case .mathBlock:
@@ -547,6 +606,17 @@ public struct MarkdownBlockView: View {
         }
 
         return MarkdownRendererConfiguration.codeText(for: block)
+    }
+
+    public nonisolated static func codeExportFilename(for block: MarkdownBlock) -> String {
+        let language = MarkdownCodeLanguage(infoString: block.infoString)
+        let suffix = language.canonicalName ?? language.normalizedInfoString ?? "txt"
+        let cleanedSuffix = suffix
+            .replacingOccurrences(of: "plaintext", with: "txt")
+            .replacingOccurrences(of: "javascript", with: "js")
+            .replacingOccurrences(of: "typescript", with: "ts")
+            .replacingOccurrences(of: "objectivec", with: "m")
+        return "CodeBlock.\(cleanedSuffix)"
     }
 
     private var headingFallbackText: String {

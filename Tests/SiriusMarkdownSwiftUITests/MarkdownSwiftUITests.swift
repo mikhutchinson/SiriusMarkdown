@@ -837,6 +837,93 @@ func sourceBackedCopyProviderReturnsUTF8SourceSlices() throws {
 }
 
 @Test
+@MainActor
+func copyProviderReturnsFullDocumentMarkdown() throws {
+    let markdown = "# Title\n\nBody with `code`.\n"
+    let provider = MarkdownCopyProvider(markdownSource: markdown)
+
+    #expect(provider.hasDocumentMarkdown)
+    #expect(provider.markdownForDocument() == markdown)
+
+    let session = MarkdownRenderSession(configuration: .document)
+    session.append(markdown)
+    session.finish()
+
+    #expect(session.configuration.copyProvider?.hasDocumentMarkdown == true)
+    #expect(session.configuration.copyProvider?.markdownForDocument() == markdown)
+}
+
+@Test
+func documentSurfaceRenderPlanReflectsSourceBackedAffordanceCapability() throws {
+    let markdown = "# Title\n\nBody.\n"
+    var stream = MarkdownStream()
+    stream.append(markdown)
+    stream.finish()
+
+    let sourceBackedConfiguration = MarkdownRendererConfiguration(
+        theme: .document,
+        copyProvider: MarkdownCopyProvider(markdownSource: markdown)
+    )
+    let prepared = sourceBackedConfiguration.prepare(snapshot: stream.snapshot())
+    let plan = MarkdownDocumentSurfaceRenderPlan(
+        preparedSnapshot: prepared,
+        configuration: sourceBackedConfiguration
+    )
+
+    #expect(plan.documentCopyButtonVisible)
+    #expect(plan.documentExportButtonVisible)
+    #expect(plan.documentCollapseButtonVisible)
+    #expect(plan.blockCount == 2)
+
+    let noSourcePlan = MarkdownDocumentSurfaceRenderPlan(
+        preparedSnapshot: prepared,
+        configuration: MarkdownRendererConfiguration.document
+    )
+
+    #expect(noSourcePlan.documentCopyButtonVisible == false)
+    #expect(noSourcePlan.documentExportButtonVisible == false)
+    #expect(noSourcePlan.documentCollapseButtonVisible)
+}
+
+@Test
+func documentSurfaceCollapsedPlanPreservesPreparedIdentityWithoutRepreparing() throws {
+    let markdown = "# Title\n\nBody with **strong** and `code`.\n"
+    var stream = MarkdownStream()
+    stream.append(markdown)
+    stream.finish()
+
+    let recorder = MarkdownDiagnosticsRecorder()
+    let configuration = MarkdownRendererConfiguration(
+        theme: .document,
+        copyProvider: MarkdownCopyProvider(markdownSource: markdown),
+        diagnosticsRecorder: recorder
+    )
+    let prepared = configuration.prepare(snapshot: stream.snapshot())
+    let afterPrepare = recorder.snapshot()
+
+    let collapsed = MarkdownDocumentSurfaceRenderPlan(
+        preparedSnapshot: prepared,
+        configuration: configuration,
+        isCollapsed: true
+    )
+    let expanded = MarkdownDocumentSurfaceRenderPlan(
+        preparedSnapshot: prepared,
+        configuration: configuration,
+        isCollapsed: false
+    )
+    let afterPlans = recorder.snapshot()
+
+    #expect(collapsed.itemIDs == expanded.itemIDs)
+    #expect(collapsed.snapshotGeneration == expanded.snapshotGeneration)
+    #expect(collapsed.isCollapsed)
+    #expect(expanded.isCollapsed == false)
+    #expect(afterPlans.renderPreparationCount == afterPrepare.renderPreparationCount)
+    #expect(afterPlans.prepareCount == afterPrepare.prepareCount)
+    #expect(afterPlans.codeHighlightCount == afterPrepare.codeHighlightCount)
+    #expect(afterPlans.mathRenderCount == afterPrepare.mathRenderCount)
+}
+
+@Test
 func blockAccessibilityLabelsDescribeStructuredBlocks() throws {
     let heading = try firstBlock("## Title")
     let table = try firstBlock("| A | B |\n| - | - |\n| 1 | 2 |")
@@ -886,8 +973,12 @@ func codeBlockRenderPlanExposesLanguageAndCopyAffordance() throws {
     #expect(plan.codeAllowed == true)
     #expect(plan.codeLanguageLabel == "Swift")
     #expect(plan.codeCopyButtonVisible == true)
+    #expect(plan.codeExportButtonVisible == true)
+    #expect(plan.codeCollapseButtonVisible == true)
+    #expect(plan.codeInitiallyCollapsed == false)
     #expect(MarkdownBlockView.codeBlockLanguageLabel(for: code) == "Swift")
     #expect(MarkdownBlockView.codeCopyText(for: code) == "let x = 1\n")
+    #expect(MarkdownBlockView.codeExportFilename(for: code) == "CodeBlock.swift")
 }
 
 @Test
@@ -901,7 +992,29 @@ func codeBlockChromeCanBeDisabledByConfiguration() throws {
     #expect(plan.codeAllowed == true)
     #expect(plan.codeLanguageLabel == nil)
     #expect(plan.codeCopyButtonVisible == false)
+    #expect(plan.codeExportButtonVisible == false)
+    #expect(plan.codeCollapseButtonVisible == false)
+    #expect(plan.codeInitiallyCollapsed == false)
     #expect(MarkdownBlockView.codeCopyText(for: code) == "print('hi')\n")
+}
+
+@Test
+func codeBlockAffordancePlanIncludesExportAndInitialCollapse() throws {
+    let code = try firstBlock("```json\n{\"ok\": true}\n```")
+    var theme = MarkdownTheme()
+    theme.codeBlockAffordances = MarkdownCodeBlockAffordances(startsCollapsed: true)
+    let plan = MarkdownBlockView.renderPlan(
+        for: code,
+        configuration: MarkdownRendererConfiguration(theme: theme)
+    )
+
+    #expect(plan.codeAllowed == true)
+    #expect(plan.codeLanguageLabel == "JSON")
+    #expect(plan.codeCopyButtonVisible)
+    #expect(plan.codeExportButtonVisible)
+    #expect(plan.codeCollapseButtonVisible)
+    #expect(plan.codeInitiallyCollapsed)
+    #expect(MarkdownBlockView.codeExportFilename(for: code) == "CodeBlock.json")
 }
 
 @Test

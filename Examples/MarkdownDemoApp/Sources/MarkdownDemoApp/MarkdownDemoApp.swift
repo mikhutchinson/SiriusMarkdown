@@ -1,4 +1,4 @@
-import AppKit
+import DemoSupport
 import SiriusMarkdown
 import SiriusMarkdownMath
 import SwiftUI
@@ -50,8 +50,10 @@ private struct MarkdownDemoSidebar: View {
         List {
             Section("Markdown Examples") {
                 ForEach(model.examples) { example in
-                    SidebarExampleButton(
-                        example: example,
+                    DemoSidebarRow(
+                        title: example.title,
+                        subtitle: example.summary,
+                        systemImage: example.systemImage,
                         isSelected: model.selectedExampleID == example.id
                     ) {
                         model.selectedExampleID = example.id
@@ -60,18 +62,18 @@ private struct MarkdownDemoSidebar: View {
             }
 
             Section("Selected Document") {
-                MetricRow(title: "Source bytes", value: model.selectedExample.sourceByteCount.formatted())
-                MetricRow(title: "Blocks", value: model.selectedExample.blockCount.formatted())
-                MetricRow(title: "Headings", value: model.selectedExample.sectionCount.formatted())
-                MetricRow(title: "Tables", value: model.selectedExample.tableCount.formatted())
-                MetricRow(title: "Code blocks", value: model.selectedExample.codeBlockCount.formatted())
+                DemoMetricRow(title: "Source bytes", value: model.selectedExample.sourceByteCount.formatted())
+                DemoMetricRow(title: "Blocks", value: model.selectedExample.blockCount.formatted())
+                DemoMetricRow(title: "Headings", value: model.selectedExample.sectionCount.formatted())
+                DemoMetricRow(title: "Tables", value: model.selectedExample.tableCount.formatted())
+                DemoMetricRow(title: "Code blocks", value: model.selectedExample.codeBlockCount.formatted())
             }
 
             Section("Renderer Counters") {
-                MetricRow(title: "Parses", value: model.selectedExample.streamCounters.parseCount.formatted())
-                MetricRow(title: "Prepared blocks", value: model.selectedExample.renderCounters.renderPreparationCount.formatted())
-                MetricRow(title: "Inline prepares", value: model.selectedExample.renderCounters.prepareCount.formatted())
-                MetricRow(title: "Cache hits", value: model.selectedExample.cacheHitCount.formatted())
+                DemoMetricRow(title: "Parses", value: model.selectedExample.streamCounters.parseCount.formatted())
+                DemoMetricRow(title: "Prepared blocks", value: model.selectedExample.renderCounters.renderPreparationCount.formatted())
+                DemoMetricRow(title: "Inline prepares", value: model.selectedExample.renderCounters.prepareCount.formatted())
+                DemoMetricRow(title: "Cache hits", value: model.selectedExample.cacheHitCount.formatted())
             }
         }
         .listStyle(.sidebar)
@@ -80,45 +82,9 @@ private struct MarkdownDemoSidebar: View {
     }
 }
 
-private struct SidebarExampleButton: View {
-    var example: PreparedMarkdownExample
-    var isSelected: Bool
-    var action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            HStack(alignment: .top, spacing: 10) {
-                Image(systemName: example.systemImage)
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(isSelected ? Color.white : Color.accentColor)
-                    .frame(width: 22)
-
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(example.title)
-                        .font(.headline)
-                    Text(example.summary)
-                        .font(.caption)
-                        .foregroundStyle(isSelected ? Color.white.opacity(0.78) : Color.secondary)
-                        .lineLimit(2)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .foregroundStyle(isSelected ? Color.white : Color.primary)
-        .padding(.vertical, 6)
-        .padding(.horizontal, 8)
-        .background {
-            RoundedRectangle(cornerRadius: 7)
-                .fill(isSelected ? Color.accentColor : Color.clear)
-        }
-        .listRowInsets(EdgeInsets(top: 2, leading: 10, bottom: 2, trailing: 10))
-    }
-}
-
 private struct MarkdownExampleDetail: View {
     var example: PreparedMarkdownExample
+    @State private var showsInspector = false
 
     var body: some View {
         ZStack {
@@ -126,7 +92,7 @@ private struct MarkdownExampleDetail: View {
                 .ignoresSafeArea()
 
             VStack(alignment: .leading, spacing: 0) {
-                DetailHeader(example: example)
+                DetailHeader(example: example, showsInspector: $showsInspector)
 
                 Divider()
 
@@ -144,18 +110,26 @@ private struct MarkdownExampleDetail: View {
     @ViewBuilder
     private func detailBody(isWide: Bool) -> some View {
         if isWide {
-            HStack(alignment: .top, spacing: 24) {
-                DocumentSurface(example: example)
-                    .frame(maxWidth: .infinity, alignment: .topLeading)
+            VStack(alignment: .leading, spacing: 16) {
+                DemoAssertionStrip(assertions: example.assertions)
+                HStack(alignment: .top, spacing: 24) {
+                    DocumentSurface(example: example)
+                        .frame(maxWidth: .infinity, alignment: .topLeading)
 
-                DocumentInspectorPanel(example: example)
-                    .frame(width: 300)
+                    if showsInspector {
+                        DocumentInspectorPanel(example: example)
+                            .frame(width: 300)
+                    }
+                }
             }
             .frame(maxWidth: .infinity, alignment: .topLeading)
         } else {
             VStack(alignment: .leading, spacing: 18) {
+                DemoAssertionStrip(assertions: example.assertions)
                 DocumentSurface(example: example)
-                DocumentInspectorPanel(example: example)
+                if showsInspector {
+                    DocumentInspectorPanel(example: example)
+                }
             }
         }
     }
@@ -163,6 +137,7 @@ private struct MarkdownExampleDetail: View {
 
 private struct DetailHeader: View {
     var example: PreparedMarkdownExample
+    @Binding var showsInspector: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -172,14 +147,17 @@ private struct DetailHeader: View {
 
                 Spacer()
 
-                Text(example.badge)
-                    .font(.caption.weight(.semibold))
-                    .padding(.horizontal, 9)
-                    .padding(.vertical, 4)
-                    .background {
-                        Capsule().fill(Color.accentColor.opacity(0.14))
+                DemoAffordanceBar {
+                    DemoIconButton(
+                        title: showsInspector ? "Hide diagnostics" : "Show diagnostics",
+                        systemImage: "sidebar.right",
+                        isActive: showsInspector
+                    ) {
+                        showsInspector.toggle()
                     }
-                    .foregroundStyle(Color.accentColor)
+
+                    DemoStatusPill(text: example.badge)
+                }
             }
 
             Text(example.detail)
@@ -217,34 +195,14 @@ private struct DocumentSurface: View {
     var example: PreparedMarkdownExample
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack {
-                Label("Rendered Document", systemImage: "doc.text.magnifyingglass")
-                    .font(.headline)
-                Spacer()
-                Text("\(example.blockCount) blocks")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-            }
-
-            Divider()
-
-            MarkdownDocumentView(
-                preparedSnapshot: example.preparedSnapshot,
-                configuration: example.configuration
-            )
-            .frame(maxWidth: 920, alignment: .leading)
-        }
-        .padding(24)
-        .background {
-            RoundedRectangle(cornerRadius: 10)
-                .fill(DemoColors.documentBackground)
-        }
-        .overlay {
-            RoundedRectangle(cornerRadius: 10)
-                .stroke(DemoColors.pageStroke)
-        }
-        .shadow(color: Color.black.opacity(0.05), radius: 18, x: 0, y: 8)
+        MarkdownDocumentSurface(
+            title: "Rendered Document",
+            subtitle: "\(example.blockCount.formatted()) blocks prepared through the public document renderer.",
+            suggestedFilename: "\(example.id).md",
+            preparedSnapshot: example.preparedSnapshot,
+            configuration: example.configuration
+        )
+        .frame(maxWidth: 920, alignment: .leading)
     }
 }
 
@@ -252,9 +210,9 @@ private struct DocumentInspectorPanel: View {
     var example: PreparedMarkdownExample
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            InspectorSection(title: "Coverage") {
-                InspectorMetricGrid(
+        DemoInspectorPanel {
+            DemoInspectorSection(title: "Coverage") {
+                DemoMetricGrid(
                     metrics: [
                         ("Headings", example.sectionCount.formatted()),
                         ("Tables", example.tableCount.formatted()),
@@ -266,8 +224,8 @@ private struct DocumentInspectorPanel: View {
                 )
             }
 
-            InspectorSection(title: "Pipeline") {
-                InspectorMetricGrid(
+            DemoInspectorSection(title: "Pipeline") {
+                DemoMetricGrid(
                     metrics: [
                         ("Parse", example.streamCounters.parseCount.formatted()),
                         ("Tail", example.streamCounters.tailReparseCount.formatted()),
@@ -282,15 +240,7 @@ private struct DocumentInspectorPanel: View {
                 )
             }
 
-            InspectorSection(title: "Assertions") {
-                VStack(alignment: .leading, spacing: 8) {
-                    ForEach(example.assertions, id: \.self) { assertion in
-                        AssertionRow(text: assertion)
-                    }
-                }
-            }
-
-            InspectorSection(title: "Sections") {
+            DemoInspectorSection(title: "Sections") {
                 VStack(alignment: .leading, spacing: 8) {
                     ForEach(example.sections) { section in
                         HStack(spacing: 8) {
@@ -305,92 +255,6 @@ private struct DocumentInspectorPanel: View {
                     }
                 }
             }
-        }
-        .padding(18)
-        .background {
-            RoundedRectangle(cornerRadius: 10)
-                .fill(DemoColors.inspectorBackground)
-        }
-        .overlay {
-            RoundedRectangle(cornerRadius: 10)
-                .stroke(Color.primary.opacity(0.08))
-        }
-    }
-}
-
-private struct InspectorSection<Content: View>: View {
-    var title: String
-    @ViewBuilder var content: Content
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 9) {
-            Text(title)
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-                .textCase(.uppercase)
-            content
-        }
-    }
-}
-
-private struct InspectorMetricGrid: View {
-    var metrics: [(String, String)]
-
-    private let columns = [
-        GridItem(.flexible(), spacing: 8),
-        GridItem(.flexible(), spacing: 8)
-    ]
-
-    var body: some View {
-        LazyVGrid(columns: columns, alignment: .leading, spacing: 8) {
-            ForEach(metrics, id: \.0) { title, value in
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(value)
-                        .font(.headline.monospacedDigit())
-                    Text(title)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 8)
-                .background {
-                    RoundedRectangle(cornerRadius: 7)
-                        .fill(DemoColors.documentBackground)
-                }
-            }
-        }
-    }
-}
-
-private struct AssertionRow: View {
-    var text: String
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 8) {
-            Image(systemName: "checkmark.circle.fill")
-                .font(.caption)
-                .foregroundStyle(Color.green)
-                .frame(width: 16)
-            Text(text)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-    }
-}
-
-private struct MetricRow: View {
-    var title: String
-    var value: String
-
-    var body: some View {
-        HStack {
-            Text(title)
-            Spacer()
-            Text(value)
-                .fontDesign(.monospaced)
-                .foregroundStyle(.secondary)
         }
     }
 }
@@ -985,11 +849,4 @@ private struct MarkdownExample: Identifiable, Hashable {
 
         return parts.joined(separator: "\n\n")
     }
-}
-
-private enum DemoColors {
-    static let windowBackground = Color(nsColor: .windowBackgroundColor)
-    static let documentBackground = Color(nsColor: .textBackgroundColor)
-    static let inspectorBackground = Color(nsColor: .controlBackgroundColor)
-    static let pageStroke = Color(nsColor: .separatorColor).opacity(0.45)
 }

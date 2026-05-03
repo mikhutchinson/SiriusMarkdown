@@ -31,9 +31,14 @@ public final class MarkdownRenderSession: ObservableObject {
 
         var sessionConfiguration = configuration
         sessionConfiguration.diagnosticsRecorder = renderDiagnosticsRecorder
-        sessionConfiguration.copyProvider = MarkdownCopyProvider { [sourceCopyStore] range in
-            sourceCopyStore.markdown(in: range)
-        }
+        sessionConfiguration.copyProvider = MarkdownCopyProvider(
+            markdown: { [sourceCopyStore] range in
+                sourceCopyStore.markdown(in: range)
+            },
+            documentMarkdown: { [sourceCopyStore] in
+                sourceCopyStore.markdown
+            }
+        )
         self.configuration = sessionConfiguration
 
         let snapshot = stream.snapshot()
@@ -107,6 +112,12 @@ private final class MarkdownMutableSourceCopyStore: @unchecked Sendable {
     func removeAll() {
         lock.withLock {
             source.removeAll(keepingCapacity: true)
+        }
+    }
+
+    var markdown: String {
+        lock.withLock {
+            source
         }
     }
 

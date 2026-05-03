@@ -4,12 +4,12 @@ Native, streaming-first Markdown rendering for Apple platforms—designed for lo
 
 ## Overview
 
-> Product status: the packaged chat and document presets use proposal-contained prepared-line rendering, the default code highlighter is language-aware for explicit supported fences, and the release gate includes strict required-group Swift-vs-Pretext fixture comparison plus AppKit render probes for document, compact chat, multilingual, inline-attribute, overflow, hard-break, long-word, finite-column containment, and code-highlighting output.
+> Product status: the packaged chat and document presets use proposal-contained prepared-line rendering, the default code highlighter is language-aware for explicit supported fences, document/code affordances are generic and source-backed, and the release gate includes strict required-group Swift-vs-Pretext fixture comparison plus AppKit render probes for document, document affordance chrome, compact chat, multilingual, inline-attribute, overflow, hard-break, long-word, finite-column containment, and code-highlighting output.
 
 - **`swift-markdown`** (`Markdown` product) provides parsing semantics; SiriusMarkdown converts the AST to **`MarkdownBlock`** and **`MarkdownInlineRun`** value types.
 - **`MarkdownStream`** stores append-only UTF-8, incrementally scans safe seal points, reparses only the **mutable tail**, and exposes **`MarkdownSnapshot`** plus source-backed copy slices.
 - **`SiriusMarkdown`** is the app-facing umbrella module. Import **`SiriusMarkdownCore`** or **`SiriusMarkdownSwiftUI`** directly only when you need a narrower dependency.
-- **`SiriusMarkdownSwiftUI`** renders prepared snapshots with **`MarkdownRenderSession`**, **`MarkdownDocumentView`**, **`StreamingMarkdownView`**, **`MarkdownTheme`**, and **`MarkdownRendererConfiguration`** (policies, optional link/copy actions, pluggable language-aware code highlighting, image decisions, selection/copy, and math rendering).
+- **`SiriusMarkdownSwiftUI`** renders prepared snapshots with **`MarkdownRenderSession`**, **`MarkdownDocumentView`**, **`MarkdownDocumentSurface`**, **`StreamingMarkdownView`**, **`MarkdownTheme`**, and **`MarkdownRendererConfiguration`** (policies, optional link/copy/export actions, pluggable language-aware code highlighting, image decisions, selection/copy, and math rendering).
 - **`SiriusMarkdownMath`** is an optional product with a native math renderer. The core path remains source-preserving and renderer-agnostic.
 
 ```swift
@@ -22,14 +22,20 @@ stream.finish()
 let snapshot = stream.snapshot()
 let configuration = MarkdownRendererConfiguration.document
 let prepared = configuration.prepare(snapshot: snapshot)
-MarkdownDocumentView(preparedSnapshot: prepared, configuration: configuration)
+MarkdownDocumentSurface(
+    title: "Hello",
+    preparedSnapshot: prepared,
+    configuration: configuration
+)
 ```
 
 For live updates, append to the stream (or rebuild snapshots from your pipeline) and pass the latest snapshot into **`StreamingMarkdownView`** or **`MarkdownDocumentView`**.
 
 In production paths, prefer **`MarkdownRenderSession`** or keep **`MarkdownRendererConfiguration`** alive in your model layer and call **`prepare(snapshot:)`** before SwiftUI evaluates renderer bodies. Prepared snapshots carry policy-gated inline text, measured inline content, image decisions, highlighted code, rendered math, HTML policy decisions, table cells, list items, selection/copy source ranges, and host-boundary ordering. The compatibility `snapshot:` view initializers are deprecated because they hide this work at the view boundary.
 
-The default `MarkdownCodeHighlighter` normalizes info strings such as `language-swift`, `py`, `js`, `ts`, `yml`, `objc`, and `cpp` before calling the embedded grammar backend. Supported explicit languages are highlighted during render preparation, while plaintext, nohighlight, unlabeled, or unsupported fences stay plain. Code blocks render generic language-label and copy-code affordances by default; hosts can hide or tune those affordances through `MarkdownTheme.codeBlockAffordances`. Hosts can keep the same injection point and pass `PlainMarkdownCodeHighlighter` or any custom highlighter through `MarkdownRendererConfiguration`.
+The default `MarkdownCodeHighlighter` normalizes info strings such as `language-swift`, `py`, `js`, `ts`, `yml`, `objc`, and `cpp` before calling the embedded grammar backend. Supported explicit languages are highlighted during render preparation, while plaintext, nohighlight, unlabeled, or unsupported fences stay plain. Code blocks render generic language-label, copy, export, and collapse affordances by default; hosts can hide or tune those affordances through `MarkdownTheme.codeBlockAffordances`. Hosts can keep the same injection point and pass `PlainMarkdownCodeHighlighter` or any custom highlighter through `MarkdownRendererConfiguration`.
+
+`MarkdownDocumentSurface` is the package-owned document chrome for static reader surfaces. It wraps already-prepared content with optional copy, export/download, and collapse controls. `MarkdownCopyProvider` can expose exact full-document Markdown in addition to range slices, and `MarkdownAffordanceActionHandler` lets host apps replace pasteboard/export behavior without changing the renderer model or moving work into view bodies.
 
 Markdown tables are rendered as native SwiftUI structure, not as raw pipe text. Prepared table cells keep stable source-range identities and measured inline layout, while **`MarkdownTheme`** exposes table background, header, alternate-row, border, accent, corner-radius, and padding tokens so host apps can make tables visually distinct without replacing the parser or renderer.
 
@@ -68,7 +74,7 @@ final class TranscriptModel: ObservableObject {
 }
 ```
 
-SiriusMarkdown's default tests assert this contract through renderer preparation, diagnostics, an AppKit `MarkdownDocumentView` render probe, and strict Pretext comparison: large streaming transcripts must keep stable prepared item IDs, repeated preparation must hit inline/code/math caches, width changes must reuse measured inline content, and Pretext drift must fail instead of being hidden as a passing known issue.
+SiriusMarkdown's default tests assert this contract through renderer preparation, diagnostics, AppKit `MarkdownDocumentView` and `MarkdownDocumentSurface` render probes, and strict Pretext comparison: large streaming transcripts must keep stable prepared item IDs, repeated preparation must hit inline/code/math caches, width changes must reuse measured inline content, document collapse must preserve prepared identity, and Pretext drift must fail instead of being hidden as a passing known issue.
 
 `MarkdownRendererConfiguration.compactChat` and `.document` select `MarkdownInlineRenderingMode.preparedNativeLines`, so chat and document views render prepared attributed line slices inside the finite proposal supplied by the host. Direct custom configuration still defaults to `.systemText` as a compatibility fallback.
 
@@ -107,6 +113,7 @@ The binding renderer plan and contributor rules live in **`plan.md`** and **`AGE
 - ``SiriusMarkdownCore/MarkdownStream``
 - ``SiriusMarkdownCore/MarkdownHostBoundary``
 - ``SiriusMarkdownSwiftUI/MarkdownDocumentView``
+- ``SiriusMarkdownSwiftUI/MarkdownDocumentSurface``
 - ``SiriusMarkdownSwiftUI/StreamingMarkdownView``
 - ``SiriusMarkdownSwiftUI/MarkdownRenderSession``
 - ``SiriusMarkdownSwiftUI/MarkdownRendererConfiguration``
@@ -132,5 +139,8 @@ The binding renderer plan and contributor rules live in **`plan.md`** and **`AGE
 - ``SiriusMarkdownCore/MarkdownMathPolicy``
 - ``SiriusMarkdownCore/DefaultMarkdownPolicy``
 - ``SiriusMarkdownSwiftUI/MarkdownCopyProvider``
+- ``SiriusMarkdownSwiftUI/MarkdownDocumentAffordances``
+- ``SiriusMarkdownSwiftUI/MarkdownCodeBlockAffordances``
+- ``SiriusMarkdownSwiftUI/MarkdownAffordanceActionHandler``
 - ``SiriusMarkdownSwiftUI/MarkdownSelectionController``
 - ``SiriusMarkdownSwiftUI/MarkdownPreparedImage``

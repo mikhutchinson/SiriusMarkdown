@@ -108,6 +108,7 @@ public struct MarkdownRendererConfiguration: Sendable {
     public var mathPolicy: any MarkdownMathPolicy
     public var codeHighlighter: any MarkdownCodeHighlighter
     public var mathRenderer: any MarkdownMathRenderer
+    public var affordanceActionHandler: MarkdownAffordanceActionHandler
     public var preparationCache: MarkdownRenderPreparationCache
     public var diagnosticsRecorder: MarkdownDiagnosticsRecorder
 
@@ -124,6 +125,7 @@ public struct MarkdownRendererConfiguration: Sendable {
         mathPolicy: any MarkdownMathPolicy = DefaultMarkdownPolicy(),
         codeHighlighter: any MarkdownCodeHighlighter = DefaultMarkdownCodeHighlighter(),
         mathRenderer: any MarkdownMathRenderer = PlainMarkdownMathRenderer(),
+        affordanceActionHandler: MarkdownAffordanceActionHandler = .platformDefault,
         preparationCache: MarkdownRenderPreparationCache = MarkdownRenderPreparationCache(),
         diagnosticsRecorder: MarkdownDiagnosticsRecorder = MarkdownDiagnosticsRecorder()
     ) {
@@ -139,6 +141,7 @@ public struct MarkdownRendererConfiguration: Sendable {
         self.mathPolicy = mathPolicy
         self.codeHighlighter = codeHighlighter
         self.mathRenderer = mathRenderer
+        self.affordanceActionHandler = affordanceActionHandler
         self.preparationCache = preparationCache
         self.diagnosticsRecorder = diagnosticsRecorder
     }
@@ -155,6 +158,7 @@ public struct MarkdownRendererConfiguration: Sendable {
         mathPolicy: any MarkdownMathPolicy = DefaultMarkdownPolicy(),
         codeHighlighter: any MarkdownCodeHighlighter = DefaultMarkdownCodeHighlighter(),
         mathRenderer: any MarkdownMathRenderer = PlainMarkdownMathRenderer(),
+        affordanceActionHandler: MarkdownAffordanceActionHandler = .platformDefault,
         preparationCache: MarkdownRenderPreparationCache = MarkdownRenderPreparationCache(),
         diagnosticsRecorder: MarkdownDiagnosticsRecorder = MarkdownDiagnosticsRecorder()
     ) {
@@ -170,6 +174,7 @@ public struct MarkdownRendererConfiguration: Sendable {
         self.mathPolicy = mathPolicy
         self.codeHighlighter = codeHighlighter
         self.mathRenderer = mathRenderer
+        self.affordanceActionHandler = affordanceActionHandler
         self.preparationCache = preparationCache
         self.diagnosticsRecorder = diagnosticsRecorder
     }
@@ -914,6 +919,9 @@ public struct MarkdownBlockRenderPlan: Sendable, Equatable {
     public var codeAllowed: Bool?
     public var codeLanguageLabel: String?
     public var codeCopyButtonVisible: Bool
+    public var codeExportButtonVisible: Bool
+    public var codeCollapseButtonVisible: Bool
+    public var codeInitiallyCollapsed: Bool
     public var mathAllowed: Bool?
     public var htmlAllowed: Bool?
     public var policyDenialReason: String?
@@ -926,6 +934,9 @@ public struct MarkdownBlockRenderPlan: Sendable, Equatable {
         codeAllowed: Bool? = nil,
         codeLanguageLabel: String? = nil,
         codeCopyButtonVisible: Bool = false,
+        codeExportButtonVisible: Bool = false,
+        codeCollapseButtonVisible: Bool = false,
+        codeInitiallyCollapsed: Bool = false,
         mathAllowed: Bool? = nil,
         htmlAllowed: Bool? = nil,
         policyDenialReason: String? = nil
@@ -937,6 +948,9 @@ public struct MarkdownBlockRenderPlan: Sendable, Equatable {
         self.codeAllowed = codeAllowed
         self.codeLanguageLabel = codeLanguageLabel
         self.codeCopyButtonVisible = codeCopyButtonVisible
+        self.codeExportButtonVisible = codeExportButtonVisible
+        self.codeCollapseButtonVisible = codeCollapseButtonVisible
+        self.codeInitiallyCollapsed = codeInitiallyCollapsed
         self.mathAllowed = mathAllowed
         self.htmlAllowed = htmlAllowed
         self.policyDenialReason = policyDenialReason

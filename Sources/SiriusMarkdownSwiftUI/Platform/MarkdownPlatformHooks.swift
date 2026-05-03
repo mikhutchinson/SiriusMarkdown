@@ -18,6 +18,26 @@ public enum MarkdownPasteboard {
     }
 }
 
+public enum MarkdownDocumentExporter {
+    @MainActor
+    public static func export(_ payload: MarkdownExportPayload) {
+        #if os(macOS)
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = payload.suggestedFilename
+        panel.canCreateDirectories = true
+        panel.isExtensionHidden = false
+
+        guard panel.runModal() == .OK, let url = panel.url else {
+            return
+        }
+
+        try? payload.markdown.write(to: url, atomically: true, encoding: .utf8)
+        #else
+        MarkdownPasteboard.copy(payload.markdown)
+        #endif
+    }
+}
+
 public enum MarkdownURLOpener {
     @MainActor
     public static func open(_ destination: String) {

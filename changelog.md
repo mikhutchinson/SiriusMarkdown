@@ -1,8 +1,12 @@
 # Changelog
 
-## Unreleased
+## 0.4.0 - 2026-05-03
 
-- No unreleased changes.
+- Added `MarkdownDocumentSurface`, `MarkdownDocumentAffordances`, `MarkdownAffordanceActionHandler`, and full-document `MarkdownCopyProvider` support so static document surfaces can show generic copy, export, and collapse chrome without app-private concepts.
+- Expanded `MarkdownCodeBlockAffordances` with export and collapse controls while keeping language labels and copy-code behavior configurable through `MarkdownTheme`.
+- Added render-plan tests and an AppKit render probe for document-affordance chrome, including collapsed document state preserving prepared snapshot identity.
+- Added shared `Examples/DemoSupport` UI components and reworked the bundled demos into clearer product surfaces: renderer workbench, reader flagship, and streaming lab.
+- Centralized affordance SF Symbol rendering around `square.on.square`, `square.and.arrow.down.on.square`, and chevron collapse/expand icons so document and code chrome share optical alignment.
 
 ## 0.3.3 - 2026-05-02
 

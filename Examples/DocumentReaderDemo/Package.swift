@@ -14,14 +14,16 @@ let package = Package(
         )
     ],
     dependencies: [
-        .package(path: "../..")
+        .package(path: "../.."),
+        .package(path: "../DemoSupport")
     ],
     targets: [
         .executableTarget(
             name: "DocumentReaderDemo",
             dependencies: [
                 .product(name: "SiriusMarkdown", package: "SiriusMarkdown"),
-                .product(name: "SiriusMarkdownMath", package: "SiriusMarkdown")
+                .product(name: "SiriusMarkdownMath", package: "SiriusMarkdown"),
+                .product(name: "DemoSupport", package: "DemoSupport")
             ]
         )
     ]
