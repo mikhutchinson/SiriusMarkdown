@@ -4,6 +4,10 @@
 
 - No unreleased changes.
 
+## 0.3.2 - 2026-05-02
+
+- Corrected the MIT license copyright holder from generic project-contributor boilerplate to `Dr. Mikholae Hutchinson`.
+
 ## 0.3.1 - 2026-05-02
 
 - Semver: patch release on top of `v0.3.0`, adding public code-block affordance controls without changing the renderer architecture or SwiftPM platform floor.
