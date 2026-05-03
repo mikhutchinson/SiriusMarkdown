@@ -924,6 +924,40 @@ func documentSurfaceCollapsedPlanPreservesPreparedIdentityWithoutRepreparing() t
 }
 
 @Test
+@MainActor
+func documentSurfaceSupportsControlledCollapseBinding() throws {
+    let markdown = "# Controlled\n\nBody.\n"
+    var stream = MarkdownStream()
+    stream.append(markdown)
+    stream.finish()
+
+    var configuration = MarkdownRendererConfiguration.document
+    configuration.copyProvider = MarkdownCopyProvider(markdownSource: markdown)
+    let prepared = configuration.prepare(snapshot: stream.snapshot())
+
+    var collapsed = true
+    let binding = Binding(
+        get: { collapsed },
+        set: { collapsed = $0 }
+    )
+    _ = MarkdownDocumentSurface(
+        title: "Controlled",
+        suggestedFilename: "controlled.md",
+        preparedSnapshot: prepared,
+        configuration: configuration,
+        isCollapsed: binding,
+        onCollapseChanged: { collapsed = $0 }
+    )
+
+    let plan = MarkdownDocumentSurfaceRenderPlan(
+        preparedSnapshot: prepared,
+        configuration: configuration,
+        isCollapsed: binding.wrappedValue
+    )
+    #expect(plan.isCollapsed)
+}
+
+@Test
 func blockAccessibilityLabelsDescribeStructuredBlocks() throws {
     let heading = try firstBlock("## Title")
     let table = try firstBlock("| A | B |\n| - | - |\n| 1 | 2 |")

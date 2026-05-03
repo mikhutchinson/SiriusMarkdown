@@ -38,12 +38,18 @@ public struct MarkdownDocumentSurface<Content: View>: View {
     private var preparedSnapshot: MarkdownPreparedSnapshot
     private var configuration: MarkdownRendererConfiguration
     private var affordances: MarkdownDocumentAffordances
+    private var controlledCollapse: Binding<Bool>?
+    private var onCollapseChanged: (@MainActor (Bool) -> Void)?
     private var content: @MainActor () -> Content
 
-    @State private var isCollapsed: Bool
+    @State private var localIsCollapsed: Bool
 
     private var theme: MarkdownTheme {
         configuration.theme
+    }
+
+    private var isCollapsed: Bool {
+        controlledCollapse?.wrappedValue ?? localIsCollapsed
     }
 
     public init(
@@ -61,8 +67,33 @@ public struct MarkdownDocumentSurface<Content: View>: View {
         self.preparedSnapshot = preparedSnapshot
         self.configuration = configuration
         self.affordances = affordances
+        self.controlledCollapse = nil
+        self.onCollapseChanged = nil
         self.content = content
-        _isCollapsed = State(initialValue: affordances.startsCollapsed)
+        _localIsCollapsed = State(initialValue: affordances.startsCollapsed)
+    }
+
+    public init(
+        title: String? = nil,
+        subtitle: String? = nil,
+        suggestedFilename: String = "Document.md",
+        preparedSnapshot: MarkdownPreparedSnapshot,
+        configuration: MarkdownRendererConfiguration,
+        affordances: MarkdownDocumentAffordances = .default,
+        isCollapsed: Binding<Bool>,
+        onCollapseChanged: (@MainActor (Bool) -> Void)? = nil,
+        @ViewBuilder content: @escaping @MainActor () -> Content
+    ) {
+        self.title = title
+        self.subtitle = subtitle
+        self.suggestedFilename = suggestedFilename
+        self.preparedSnapshot = preparedSnapshot
+        self.configuration = configuration
+        self.affordances = affordances
+        self.controlledCollapse = isCollapsed
+        self.onCollapseChanged = onCollapseChanged
+        self.content = content
+        _localIsCollapsed = State(initialValue: isCollapsed.wrappedValue)
     }
 
     public var body: some View {
@@ -162,7 +193,7 @@ public struct MarkdownDocumentSurface<Content: View>: View {
                         accessibilityLabel: isCollapsed ? "Expand document" : "Collapse document",
                         help: isCollapsed ? "Expand document" : "Collapse document"
                     ) {
-                        isCollapsed.toggle()
+                        setCollapsed(!isCollapsed)
                     }
                 }
             }
@@ -200,6 +231,16 @@ public struct MarkdownDocumentSurface<Content: View>: View {
         .foregroundStyle(theme.secondaryTextColor)
         .accessibilityLabel(accessibilityLabel)
         .help(help)
+    }
+
+    @MainActor
+    private func setCollapsed(_ collapsed: Bool) {
+        if let controlledCollapse {
+            controlledCollapse.wrappedValue = collapsed
+        } else {
+            localIsCollapsed = collapsed
+        }
+        onCollapseChanged?(collapsed)
     }
 
     private func copyDocument() {
@@ -253,6 +294,35 @@ public extension MarkdownDocumentSurface where Content == MarkdownDocumentView {
         }
     }
 
+    init(
+        title: String? = nil,
+        subtitle: String? = nil,
+        suggestedFilename: String = "Document.md",
+        preparedSnapshot: MarkdownPreparedSnapshot,
+        configuration: MarkdownRendererConfiguration,
+        affordances: MarkdownDocumentAffordances = .default,
+        isCollapsed: Binding<Bool>,
+        onCollapseChanged: (@MainActor (Bool) -> Void)? = nil,
+        selectionController: MarkdownSelectionController? = nil
+    ) {
+        self.init(
+            title: title,
+            subtitle: subtitle,
+            suggestedFilename: suggestedFilename,
+            preparedSnapshot: preparedSnapshot,
+            configuration: configuration,
+            affordances: affordances,
+            isCollapsed: isCollapsed,
+            onCollapseChanged: onCollapseChanged
+        ) {
+            MarkdownDocumentView(
+                preparedSnapshot: preparedSnapshot,
+                configuration: configuration,
+                selectionController: selectionController
+            )
+        }
+    }
+
     init<HostBoundaryContent: View>(
         title: String? = nil,
         subtitle: String? = nil,
@@ -270,6 +340,37 @@ public extension MarkdownDocumentSurface where Content == MarkdownDocumentView {
             preparedSnapshot: preparedSnapshot,
             configuration: configuration,
             affordances: affordances
+        ) {
+            MarkdownDocumentView(
+                preparedSnapshot: preparedSnapshot,
+                configuration: configuration,
+                selectionController: selectionController,
+                hostBoundaryContent: hostBoundaryContent
+            )
+        }
+    }
+
+    init<HostBoundaryContent: View>(
+        title: String? = nil,
+        subtitle: String? = nil,
+        suggestedFilename: String = "Document.md",
+        preparedSnapshot: MarkdownPreparedSnapshot,
+        configuration: MarkdownRendererConfiguration,
+        affordances: MarkdownDocumentAffordances = .default,
+        isCollapsed: Binding<Bool>,
+        onCollapseChanged: (@MainActor (Bool) -> Void)? = nil,
+        selectionController: MarkdownSelectionController? = nil,
+        @ViewBuilder hostBoundaryContent: @escaping @MainActor (MarkdownHostBoundary) -> HostBoundaryContent
+    ) {
+        self.init(
+            title: title,
+            subtitle: subtitle,
+            suggestedFilename: suggestedFilename,
+            preparedSnapshot: preparedSnapshot,
+            configuration: configuration,
+            affordances: affordances,
+            isCollapsed: isCollapsed,
+            onCollapseChanged: onCollapseChanged
         ) {
             MarkdownDocumentView(
                 preparedSnapshot: preparedSnapshot,

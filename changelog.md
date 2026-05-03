@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.1 - 2026-05-03
+
+- Added controlled-collapse overloads for `MarkdownDocumentSurface`, letting host apps bind document collapse state and observe collapse changes while preserving the existing local-state initializers.
+
 ## 0.4.0 - 2026-05-03
 
 - Added `MarkdownDocumentSurface`, `MarkdownDocumentAffordances`, `MarkdownAffordanceActionHandler`, and full-document `MarkdownCopyProvider` support so static document surfaces can show generic copy, export, and collapse chrome without app-private concepts.
