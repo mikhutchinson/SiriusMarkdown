@@ -128,7 +128,35 @@ public struct MarkdownBlockView: View {
 
     @ViewBuilder
     private var codeBlockContent: some View {
-        if let code = preparedContent.code {
+        if let mermaid = preparedContent.mermaid {
+            VStack(alignment: .leading, spacing: 0) {
+                if showsCodeBlockHeader {
+                    codeBlockHeader
+                }
+                if !isCodeBlockCollapsed {
+                    ScrollView([.horizontal, .vertical]) {
+                        Text(verbatim: mermaid.ascii)
+                            .font(theme.codeFont)
+                            .foregroundStyle(theme.textColor)
+                            .textSelection(.enabled)
+                            .padding(.horizontal, 10)
+                            .padding(.top, showsCodeBlockHeader ? 4 : 10)
+                            .padding(.bottom, 10)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .accessibilityLabel("Mermaid diagram")
+                    }
+                } else {
+                    Text("\(Self.codeCopyText(for: block).utf8.count.formatted()) bytes hidden")
+                        .font(.caption)
+                        .foregroundStyle(theme.secondaryTextColor)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 8)
+                        .accessibilityLabel("Mermaid diagram collapsed")
+                }
+            }
+            .background(theme.codeBackground)
+            .clipShape(RoundedRectangle(cornerRadius: 6))
+        } else if let code = preparedContent.code {
             VStack(alignment: .leading, spacing: 0) {
                 if showsCodeBlockHeader {
                     codeBlockHeader
@@ -503,6 +531,7 @@ public struct MarkdownBlockView: View {
             )
         case .codeBlock:
             let codeText = MarkdownRendererConfiguration.codeText(for: block)
+            let language = MarkdownCodeLanguage(infoString: block.infoString)
             let decision = configuration.codePolicy.evaluateCodeBlock(
                 infoString: block.infoString,
                 code: codeText
@@ -511,6 +540,7 @@ public struct MarkdownBlockView: View {
             return MarkdownBlockRenderPlan(
                 kind: block.kind,
                 codeAllowed: codeAllowed,
+                mermaidRendered: codeAllowed && language.isMermaid && configuration.mermaidRenderer != nil,
                 codeLanguageLabel: codeAllowed && configuration.theme.codeBlockAffordances.showsLanguageLabel
                     ? Self.codeBlockLanguageLabel(for: block)
                     : nil,
@@ -552,7 +582,7 @@ public struct MarkdownBlockView: View {
         case .heading:
             return "Heading \(block.headingLevel ?? 0): \(block.inlines.map(\.text).joined())"
         case .codeBlock:
-            return "Code block"
+            return MarkdownCodeLanguage(infoString: block.infoString).isMermaid ? "Mermaid diagram" : "Code block"
         case .table:
             let columns = block.table?.header.count ?? 0
             let rows = block.table?.rows.count ?? 0

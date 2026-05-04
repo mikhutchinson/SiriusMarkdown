@@ -643,6 +643,15 @@ func codeLanguageProvidesGenericDisplayNames() {
 }
 
 @Test
+func codeLanguageRecognizesMermaidAsSpecialRendererLanguage() {
+    let mermaid = MarkdownCodeLanguage(infoString: "mermaid")
+    let swift = MarkdownCodeLanguage(infoString: "swift")
+
+    #expect(mermaid.isMermaid)
+    #expect(swift.isMermaid == false)
+}
+
+@Test
 func codeHighlightCacheKeysIncludeLanguagePaletteAndHighlighterIdentity() throws {
     let swiftBlock = try firstBlock("```swift\nlet x = 1\n```")
     let pythonBlock = try firstBlock("```python\nlet x = 1\n```")
@@ -691,6 +700,52 @@ func codeHighlightCacheKeysIncludeLanguagePaletteAndHighlighterIdentity() throws
     #expect(afterIdentityChange.codeHighlightCount == afterPaletteChange.codeHighlightCount + 1)
     #expect(highlighter.count == 3)
     #expect(changedIdentityHighlighter.count == 1)
+}
+
+@Test
+func mermaidPreparationCacheKeysIncludeRendererIdentityAndSupportOptOut() throws {
+    let mermaidBlock = try firstBlock("```mermaid\ngraph LR\nA[Start] --> B[Done]\n```")
+    let cache = MarkdownRenderPreparationCache()
+    let recorder = MarkdownDiagnosticsRecorder()
+    let renderer = IdentityMermaidRenderer(identity: "one", ascii: "diagram-one")
+    let baseConfiguration = MarkdownRendererConfiguration(
+        mermaidRenderer: renderer,
+        preparationCache: cache,
+        diagnosticsRecorder: recorder
+    )
+
+    let firstPrepared = baseConfiguration.prepare(block: mermaidBlock)
+    let afterFirst = recorder.snapshot()
+    let secondPrepared = baseConfiguration.prepare(block: mermaidBlock)
+    let afterCached = recorder.snapshot()
+
+    let changedIdentityRenderer = IdentityMermaidRenderer(identity: "two", ascii: "diagram-two")
+    let changedIdentityConfiguration = MarkdownRendererConfiguration(
+        mermaidRenderer: changedIdentityRenderer,
+        preparationCache: cache,
+        diagnosticsRecorder: recorder
+    )
+    let changedPrepared = changedIdentityConfiguration.prepare(block: mermaidBlock)
+    let afterIdentityChange = recorder.snapshot()
+
+    let disabledConfiguration = MarkdownRendererConfiguration(
+        mermaidRenderer: nil,
+        preparationCache: cache,
+        diagnosticsRecorder: recorder
+    )
+    let disabledPrepared = disabledConfiguration.prepare(block: mermaidBlock)
+
+    #expect(firstPrepared.mermaid?.ascii == "diagram-one")
+    #expect(secondPrepared.mermaid?.ascii == "diagram-one")
+    #expect(changedPrepared.mermaid?.ascii == "diagram-two")
+    #expect(afterFirst.mermaidRenderCount == 1)
+    #expect(afterCached.mermaidRenderCount == afterFirst.mermaidRenderCount)
+    #expect(afterCached.cacheHitCount == afterFirst.cacheHitCount + 1)
+    #expect(afterIdentityChange.mermaidRenderCount == afterCached.mermaidRenderCount + 1)
+    #expect(renderer.count == 1)
+    #expect(changedIdentityRenderer.count == 1)
+    #expect(disabledPrepared.mermaid == nil)
+    #expect(disabledPrepared.code != nil)
 }
 
 @Test
@@ -1206,6 +1261,30 @@ func preparedBlockContentMovesCodeAndMathRenderingOutOfBlockBody() throws {
 }
 
 @Test
+@MainActor
+func preparedBlockContentMovesMermaidRenderingOutOfBlockBody() throws {
+    let mermaidBlock = try firstBlock("```mermaid\ngraph LR\nA --> B\n```")
+    let renderer = CountingMermaidRenderer(ascii: "A -> B")
+    let configuration = MarkdownRendererConfiguration(mermaidRenderer: renderer)
+
+    _ = MarkdownBlockView.renderPlan(for: mermaidBlock, configuration: configuration)
+    #expect(renderer.count == 0)
+
+    let preparedMermaid = configuration.prepare(block: mermaidBlock)
+    #expect(renderer.count == 1)
+    _ = configuration.prepare(block: mermaidBlock)
+    #expect(renderer.count == 1)
+
+    _ = MarkdownBlockView(
+        block: mermaidBlock,
+        configuration: configuration,
+        preparedContent: preparedMermaid
+    )
+    #expect(renderer.count == 1)
+    #expect(preparedMermaid.mermaid?.ascii == "A -> B")
+}
+
+@Test
 func representativeDocumentPreparesStructuredRendererInputs() throws {
     var stream = MarkdownStream()
     stream.append(
@@ -1402,6 +1481,72 @@ private final class CountingMathRenderer: MarkdownMathRenderer, @unchecked Senda
             callCount += 1
         }
         return AttributedString(source)
+    }
+
+    var count: Int {
+        lock.withLock {
+            callCount
+        }
+    }
+}
+
+private final class CountingMermaidRenderer: MarkdownMermaidRenderer, @unchecked Sendable {
+    private let lock = NSLock()
+    private var callCount = 0
+    private let ascii: String
+
+    init(ascii: String) {
+        self.ascii = ascii
+    }
+
+    func renderedMermaid(
+        _ source: String,
+        sourceRange: MarkdownSourceRange?,
+        theme: MarkdownTheme
+    ) -> MarkdownPreparedMermaidDiagram? {
+        _ = theme
+        lock.withLock {
+            callCount += 1
+        }
+        return MarkdownPreparedMermaidDiagram(
+            source: source,
+            sourceRange: sourceRange,
+            ascii: ascii
+        )
+    }
+
+    var count: Int {
+        lock.withLock {
+            callCount
+        }
+    }
+}
+
+private final class IdentityMermaidRenderer: MarkdownMermaidRenderer, MarkdownMermaidRendererCacheIdentifying, @unchecked Sendable {
+    private let lock = NSLock()
+    private var callCount = 0
+    let mermaidRendererCacheIdentity: String
+    private let ascii: String
+
+    init(identity: String, ascii: String) {
+        self.mermaidRendererCacheIdentity = identity
+        self.ascii = ascii
+    }
+
+    func renderedMermaid(
+        _ source: String,
+        sourceRange: MarkdownSourceRange?,
+        theme: MarkdownTheme
+    ) -> MarkdownPreparedMermaidDiagram? {
+        _ = theme
+        lock.withLock {
+            callCount += 1
+        }
+        return MarkdownPreparedMermaidDiagram(
+            source: source,
+            sourceRange: sourceRange,
+            ascii: ascii
+        )
     }
 
     var count: Int {

@@ -183,6 +183,35 @@ func ProductInlineMathUsesConfiguredRenderer() throws {
     #expect(String(inline.attributed.characters).contains("math[x^2 + \\alpha]"))
 }
 
+@Test
+func ProductDefaultMermaidRendererPreparesDiagramsAndSupportsOptOut() throws {
+    var stream = MarkdownStream()
+    stream.append("```mermaid\ngraph LR\nA[Start] --> B[Done]\n```")
+    stream.finish()
+
+    let snapshot = stream.snapshot()
+    let block = try #require(snapshot.blocks.first)
+    let defaultConfiguration = MarkdownRendererConfiguration()
+    let defaultPrepared = defaultConfiguration.prepare(snapshot: snapshot)
+    let defaultContent = try #require(defaultPrepared.preparedContentByBlockID[block.id])
+    let defaultPlan = MarkdownBlockView.renderPlan(for: block, configuration: defaultConfiguration)
+
+    #expect(defaultContent.mermaid != nil)
+    #expect(defaultContent.code == nil)
+    #expect(defaultContent.mermaid?.ascii.contains("Start") == true)
+    #expect(defaultContent.mermaid?.ascii.contains("Done") == true)
+    #expect(defaultPlan.mermaidRendered)
+
+    let disabledConfiguration = MarkdownRendererConfiguration(mermaidRenderer: nil)
+    let disabledPrepared = disabledConfiguration.prepare(snapshot: snapshot)
+    let disabledContent = try #require(disabledPrepared.preparedContentByBlockID[block.id])
+    let disabledPlan = MarkdownBlockView.renderPlan(for: block, configuration: disabledConfiguration)
+
+    #expect(disabledContent.mermaid == nil)
+    #expect(disabledContent.code != nil)
+    #expect(disabledPlan.mermaidRendered == false)
+}
+
 private struct ProductInlineMathRenderer: MarkdownMathRenderer {
     func renderedMath(_ source: String, isBlock _: Bool) -> AttributedString {
         AttributedString("math[\(source)]")

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.3 - 2026-05-03
+
+- Added built-in Mermaid fence rendering through a bundled DOM-free JavaScript runtime executed with JavaScriptCore, keeping diagram preparation out of SwiftUI `body`.
+- Added deterministic Mermaid fallback behavior: hosts can disable Mermaid rendering through `MarkdownRendererConfiguration(mermaidRenderer: nil)`, and failed Mermaid preparation falls back to plain code blocks.
+- Added Mermaid preparation caching, diagnostics counters, native SwiftUI rendering coverage, and product/unit tests for default rendering, opt-out behavior, and cache reuse.
+
 ## 0.4.2 - 2026-05-03
 
 - Fixed prepared native-line containment for transcript-style inline code paths, shell commands, URLs, long identifiers, nested lists, block quotes, and table cells so visible prepared-line layout stays within the effective host column.

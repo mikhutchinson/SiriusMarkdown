@@ -9,6 +9,8 @@ public struct MarkdownDiagnosticsCounters: Sendable, Hashable {
     public var layoutCount: Int
     public var renderPreparationCount: Int
     public var codeHighlightCount: Int
+    public var mermaidRenderCount: Int
+    public var mermaidFallbackCount: Int
     public var mathRenderCount: Int
     public var widthRelayoutCount: Int
     public var boundaryScanCount: Int
@@ -30,6 +32,8 @@ public struct MarkdownDiagnosticsCounters: Sendable, Hashable {
         layoutCount: Int = 0,
         renderPreparationCount: Int = 0,
         codeHighlightCount: Int = 0,
+        mermaidRenderCount: Int = 0,
+        mermaidFallbackCount: Int = 0,
         mathRenderCount: Int = 0,
         widthRelayoutCount: Int = 0,
         boundaryScanCount: Int = 0,
@@ -50,6 +54,8 @@ public struct MarkdownDiagnosticsCounters: Sendable, Hashable {
         self.layoutCount = layoutCount
         self.renderPreparationCount = renderPreparationCount
         self.codeHighlightCount = codeHighlightCount
+        self.mermaidRenderCount = mermaidRenderCount
+        self.mermaidFallbackCount = mermaidFallbackCount
         self.mathRenderCount = mathRenderCount
         self.widthRelayoutCount = widthRelayoutCount
         self.boundaryScanCount = boundaryScanCount
@@ -109,6 +115,18 @@ public final class MarkdownDiagnosticsRecorder: @unchecked Sendable {
     public func recordCodeHighlight() {
         lock.withLock {
             counters.codeHighlightCount += 1
+        }
+    }
+
+    public func recordMermaidRender() {
+        lock.withLock {
+            counters.mermaidRenderCount += 1
+        }
+    }
+
+    public func recordMermaidFallback() {
+        lock.withLock {
+            counters.mermaidFallbackCount += 1
         }
     }
 

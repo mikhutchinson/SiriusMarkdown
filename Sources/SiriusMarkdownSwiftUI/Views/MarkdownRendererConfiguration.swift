@@ -107,6 +107,7 @@ public struct MarkdownRendererConfiguration: Sendable {
     public var codePolicy: any MarkdownCodePolicy
     public var mathPolicy: any MarkdownMathPolicy
     public var codeHighlighter: any MarkdownCodeHighlighter
+    public var mermaidRenderer: (any MarkdownMermaidRenderer)?
     public var mathRenderer: any MarkdownMathRenderer
     public var affordanceActionHandler: MarkdownAffordanceActionHandler
     public var preparationCache: MarkdownRenderPreparationCache
@@ -124,6 +125,7 @@ public struct MarkdownRendererConfiguration: Sendable {
         codePolicy: any MarkdownCodePolicy = DefaultMarkdownPolicy(),
         mathPolicy: any MarkdownMathPolicy = DefaultMarkdownPolicy(),
         codeHighlighter: any MarkdownCodeHighlighter = DefaultMarkdownCodeHighlighter(),
+        mermaidRenderer: (any MarkdownMermaidRenderer)? = DefaultMarkdownMermaidRenderer(),
         mathRenderer: any MarkdownMathRenderer = PlainMarkdownMathRenderer(),
         affordanceActionHandler: MarkdownAffordanceActionHandler = .platformDefault,
         preparationCache: MarkdownRenderPreparationCache = MarkdownRenderPreparationCache(),
@@ -140,6 +142,7 @@ public struct MarkdownRendererConfiguration: Sendable {
         self.codePolicy = codePolicy
         self.mathPolicy = mathPolicy
         self.codeHighlighter = codeHighlighter
+        self.mermaidRenderer = mermaidRenderer
         self.mathRenderer = mathRenderer
         self.affordanceActionHandler = affordanceActionHandler
         self.preparationCache = preparationCache
@@ -157,6 +160,7 @@ public struct MarkdownRendererConfiguration: Sendable {
         codePolicy: any MarkdownCodePolicy = DefaultMarkdownPolicy(),
         mathPolicy: any MarkdownMathPolicy = DefaultMarkdownPolicy(),
         codeHighlighter: any MarkdownCodeHighlighter = DefaultMarkdownCodeHighlighter(),
+        mermaidRenderer: (any MarkdownMermaidRenderer)? = DefaultMarkdownMermaidRenderer(),
         mathRenderer: any MarkdownMathRenderer = PlainMarkdownMathRenderer(),
         affordanceActionHandler: MarkdownAffordanceActionHandler = .platformDefault,
         preparationCache: MarkdownRenderPreparationCache = MarkdownRenderPreparationCache(),
@@ -173,6 +177,7 @@ public struct MarkdownRendererConfiguration: Sendable {
         self.codePolicy = codePolicy
         self.mathPolicy = mathPolicy
         self.codeHighlighter = codeHighlighter
+        self.mermaidRenderer = mermaidRenderer
         self.mathRenderer = mathRenderer
         self.affordanceActionHandler = affordanceActionHandler
         self.preparationCache = preparationCache
@@ -196,6 +201,14 @@ public struct MarkdownRendererConfiguration: Sendable {
             switch codePolicy.evaluateCodeBlock(infoString: block.infoString, code: code) {
             case .allow:
                 let language = MarkdownCodeLanguage(infoString: block.infoString)
+                if language.isMermaid,
+                   let mermaid = preparedMermaid(code, block: block)
+                {
+                    return MarkdownPreparedBlockContent(
+                        blockID: block.id,
+                        mermaid: mermaid
+                    )
+                }
                 let key = Self.codeCacheKey(
                     for: block,
                     code: code,
@@ -354,12 +367,45 @@ public struct MarkdownRendererConfiguration: Sendable {
         )
     }
 
+    private nonisolated static func mermaidCacheKey(
+        for block: MarkdownBlock,
+        code: String,
+        rendererIdentity: String,
+        themeIdentity: String
+    ) -> MarkdownCacheKey {
+        MarkdownCacheKey(
+            sourceRange: block.sourceRange,
+            contentHash: stableHash(code),
+            namespace: [
+                "rendered-mermaid:v1",
+                "renderer=\(rendererIdentity)",
+                "theme=\(themeIdentity)"
+            ].joined(separator: ":")
+        )
+    }
+
     private var codeHighlighterCacheIdentity: String {
         if let identifying = codeHighlighter as? any MarkdownCodeHighlighterCacheIdentifying {
             return identifying.codeHighlighterCacheIdentity
         }
 
         return String(reflecting: type(of: codeHighlighter))
+    }
+
+    private var mermaidRendererCacheIdentity: String {
+        guard let mermaidRenderer else {
+            return "disabled"
+        }
+
+        if let identifying = mermaidRenderer as? any MarkdownMermaidRendererCacheIdentifying {
+            return identifying.mermaidRendererCacheIdentity
+        }
+
+        return String(reflecting: type(of: mermaidRenderer))
+    }
+
+    private var mermaidThemeCacheIdentity: String {
+        return String(theme.hashValue)
     }
 
     private func shouldRecordCodeHighlight(language: MarkdownCodeLanguage) -> Bool {
@@ -396,6 +442,39 @@ public struct MarkdownRendererConfiguration: Sendable {
         }
 
         return codeHighlighter.highlightedCode(code, infoString: infoString)
+    }
+
+    private func preparedMermaid(
+        _ code: String,
+        block: MarkdownBlock
+    ) -> MarkdownPreparedMermaidDiagram? {
+        guard let mermaidRenderer else {
+            return nil
+        }
+
+        let key = Self.mermaidCacheKey(
+            for: block,
+            code: code,
+            rendererIdentity: mermaidRendererCacheIdentity,
+            themeIdentity: mermaidThemeCacheIdentity
+        )
+        if let cached = preparationCache.mermaid(forKey: key) {
+            diagnosticsRecorder.recordCacheHit()
+            return cached
+        }
+
+        diagnosticsRecorder.recordCacheMiss()
+        diagnosticsRecorder.recordMermaidRender()
+        let rendered = MarkdownDiagnostics().signpost("MermaidRender", category: "RenderPreparation") {
+            mermaidRenderer.renderedMermaid(code, sourceRange: block.sourceRange, theme: theme)
+        }
+        guard let rendered else {
+            diagnosticsRecorder.recordMermaidFallback()
+            return nil
+        }
+
+        preparationCache.insertMermaid(rendered, forKey: key)
+        return rendered
     }
 
     private func preparedInline(
@@ -708,11 +787,13 @@ public final class MarkdownRenderPreparationCache: @unchecked Sendable {
     private let lock = NSLock()
     private var inlineCache: BoundedMarkdownCache<MarkdownPreparedInlineContent>
     private var codeCache: BoundedMarkdownCache<AttributedString>
+    private var mermaidCache: BoundedMarkdownCache<MarkdownPreparedMermaidDiagram>
     private var mathCache: BoundedMarkdownCache<AttributedString>
 
     public init(capacity: Int = 256) {
         self.inlineCache = BoundedMarkdownCache(capacity: capacity)
         self.codeCache = BoundedMarkdownCache(capacity: capacity)
+        self.mermaidCache = BoundedMarkdownCache(capacity: capacity)
         self.mathCache = BoundedMarkdownCache(capacity: capacity)
     }
 
@@ -740,6 +821,18 @@ public final class MarkdownRenderPreparationCache: @unchecked Sendable {
         }
     }
 
+    public func mermaid(forKey key: MarkdownCacheKey) -> MarkdownPreparedMermaidDiagram? {
+        lock.withLock {
+            mermaidCache.value(forKey: key)
+        }
+    }
+
+    public func insertMermaid(_ mermaid: MarkdownPreparedMermaidDiagram, forKey key: MarkdownCacheKey) {
+        lock.withLock {
+            mermaidCache[key] = mermaid
+        }
+    }
+
     public func math(forKey key: MarkdownCacheKey) -> AttributedString? {
         lock.withLock {
             mathCache.value(forKey: key)
@@ -756,6 +849,7 @@ public final class MarkdownRenderPreparationCache: @unchecked Sendable {
         lock.withLock {
             inlineCache.removeAll()
             codeCache.removeAll()
+            mermaidCache.removeAll()
             mathCache.removeAll()
         }
     }
@@ -801,6 +895,7 @@ public struct MarkdownPreparedBlockContent: Sendable {
     public var inlineLayout: MarkdownPreparedInlineContent?
     public var listItems: [MarkdownPreparedListItem]
     public var table: MarkdownPreparedTableBlock?
+    public var mermaid: MarkdownPreparedMermaidDiagram?
     public var code: AttributedString?
     public var math: AttributedString?
     public var htmlAllowed: Bool?
@@ -812,6 +907,7 @@ public struct MarkdownPreparedBlockContent: Sendable {
         inlineLayout: MarkdownPreparedInlineContent? = nil,
         listItems: [MarkdownPreparedListItem] = [],
         table: MarkdownPreparedTableBlock? = nil,
+        mermaid: MarkdownPreparedMermaidDiagram? = nil,
         code: AttributedString? = nil,
         math: AttributedString? = nil,
         htmlAllowed: Bool? = nil,
@@ -822,6 +918,7 @@ public struct MarkdownPreparedBlockContent: Sendable {
         self.inlineLayout = inlineLayout
         self.listItems = listItems
         self.table = table
+        self.mermaid = mermaid
         self.code = code
         self.math = math
         self.htmlAllowed = htmlAllowed
@@ -917,6 +1014,7 @@ public struct MarkdownBlockRenderPlan: Sendable, Equatable {
     public var tableColumnCount: Int
     public var tableBodyRowCount: Int
     public var codeAllowed: Bool?
+    public var mermaidRendered: Bool
     public var codeLanguageLabel: String?
     public var codeCopyButtonVisible: Bool
     public var codeExportButtonVisible: Bool
@@ -932,6 +1030,7 @@ public struct MarkdownBlockRenderPlan: Sendable, Equatable {
         tableColumnCount: Int = 0,
         tableBodyRowCount: Int = 0,
         codeAllowed: Bool? = nil,
+        mermaidRendered: Bool = false,
         codeLanguageLabel: String? = nil,
         codeCopyButtonVisible: Bool = false,
         codeExportButtonVisible: Bool = false,
@@ -946,6 +1045,7 @@ public struct MarkdownBlockRenderPlan: Sendable, Equatable {
         self.tableColumnCount = tableColumnCount
         self.tableBodyRowCount = tableBodyRowCount
         self.codeAllowed = codeAllowed
+        self.mermaidRendered = mermaidRendered
         self.codeLanguageLabel = codeLanguageLabel
         self.codeCopyButtonVisible = codeCopyButtonVisible
         self.codeExportButtonVisible = codeExportButtonVisible
