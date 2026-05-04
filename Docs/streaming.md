@@ -76,4 +76,4 @@ Semantics always come from **`swift-markdown`** on each parsed slice; the scanne
 
 - `Docs/architecture.md` — module map and responsibilities.
 - `Docs/performance.md` — tail vs sealed parse counts and caches.
-- `plan.md` — full streaming and test expectations.
+- `Docs/native-renderer-scorecard.md` — product quality bar.

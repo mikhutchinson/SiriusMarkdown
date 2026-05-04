@@ -187,11 +187,11 @@ That wraps the release gate, Swift tests, Pretext golden parity, DocC conversion
 - Topic notes: `Docs/architecture.md`, `Docs/streaming.md`, `Docs/performance.md`
 - Native-renderer product gate: `Docs/native-renderer-scorecard.md`
 - Third-party credits: `NOTICE.md`
+- Contributing: `CONTRIBUTING.md`
+- Security policy: `SECURITY.md`
 
 ## Project tracking
 
-- `plan.md` — binding SiriusMarkdown Native Renderer Plan.
-- `AGENTS.md` — contributor and agent guardrails (architecture and testing expectations).
 - `changelog.md` — implementation slices.
 - `runbook.md` — build, test, and Pretext golden commands.
 - `bugfix.md` — defects recorded during implementation.

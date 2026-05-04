@@ -1,6 +1,6 @@
 # Architecture
 
-SiriusMarkdown is a Swift Package split into **Core**, **SwiftUI**, and **Pretext support**, matching `plan.md` and `AGENTS.md`: semantics come from `swift-markdown`; streaming keeps immutable sealed regions plus one mutable tail; SwiftUI renders **already parsed** models and must not parse Markdown or run expensive layout from `body`.
+SiriusMarkdown is a Swift Package split into **Core**, **SwiftUI**, and **Pretext support**: semantics come from `swift-markdown`; streaming keeps immutable sealed regions plus one mutable tail; SwiftUI renders **already parsed** models and must not parse Markdown or run expensive layout from `body`.
 
 ## Modules and layout (as implemented)
 
@@ -68,7 +68,7 @@ Host-native content between Markdown segments is modeled in Core via **`Markdown
 
 - **`MarkdownBoundaryScanner`** only decides **when** a suffix may be sealed; it does not replace `swift-markdown` block classification.
 - No WebKit on the core path; no row-hosted WebViews; avoid unbounded overlay fragments for links or selection.
-- Public APIs stay general-purpose (no private transcript/tool/runtime concepts); prefer names like `MarkdownStream`, `MarkdownSnapshot`, `MarkdownTheme`, `MarkdownRendererConfiguration`, policies, `InlineLayoutEngine`, `TextMeasurer`, as in `AGENTS.md`.
+- Public APIs stay general-purpose (no private transcript/tool/runtime concepts); prefer names like `MarkdownStream`, `MarkdownSnapshot`, `MarkdownTheme`, `MarkdownRendererConfiguration`, policies, `InlineLayoutEngine`, `TextMeasurer`.
 
 ## Verification shape
 
@@ -85,4 +85,4 @@ Renderer verification intentionally favors deterministic contracts over fragile 
 
 - `Docs/streaming.md` — seal algorithm and host boundaries.
 - `Docs/performance.md` — caches, diagnostics, measurement.
-- `plan.md`, `AGENTS.md` — authoritative plan and contributor rules.
+- `Docs/native-renderer-scorecard.md` — product quality bar.

@@ -1,6 +1,6 @@
 # Native Renderer Product Scorecard
 
-SiriusMarkdown should be chosen when the current checkout proves the product bar below without weakening the architecture in `AGENTS.md`.
+SiriusMarkdown should be chosen when the current checkout proves the product bar below without weakening the documented architecture.
 
 The goal is a native, streaming-first Markdown renderer for Apple applications: `swift-markdown` owns semantics, source storage stays append-only, sealed regions are immutable and cacheable, SwiftUI consumes prepared snapshots, width changes perform cheap layout only, and interaction remains bounded under long chat and document workloads.
 

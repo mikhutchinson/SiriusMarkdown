@@ -96,11 +96,11 @@ Platform availability matches **`Package.swift`** (e.g. macOS 13, iOS 16).
 
 Conceptual articles shipped beside this catalog:
 
-- `Docs/architecture.md` — module layout and boundaries vs `plan.md` / `AGENTS.md`
+- `Docs/architecture.md` — module layout and boundaries
 - `Docs/streaming.md` — sealing algorithm and host boundaries
 - `Docs/performance.md` — caches, diagnostics, prepare/layout contract
 
-The binding renderer plan and contributor rules live in **`plan.md`** and **`AGENTS.md`** at the repository root.
+Architecture rules and the product quality bar are documented in `Docs/architecture.md` and `Docs/native-renderer-scorecard.md`.
 
 ## Topics
 

@@ -4,7 +4,7 @@ This runbook is the local release authority for `SiriusMarkdown`. For the curren
 
 ## Build
 
-Before changing architecture or renderer behavior, read `plan.md` and `AGENTS.md`. `plan.md` is the implementation source of truth; `AGENTS.md` restates the repo-local guardrails for future agents.
+Before changing architecture or renderer behavior, review `Docs/architecture.md` and `AGENTS.md` (if present locally).
 
 ```sh
 swift build

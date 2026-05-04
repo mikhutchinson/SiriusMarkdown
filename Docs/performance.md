@@ -1,6 +1,6 @@
 # Performance
 
-The renderer contract (see `plan.md` and `AGENTS.md`) is architectural: SwiftUI **`body`** must not parse Markdown, run syntax highlighting over raw source, rebuild the full document model, or drive wrapping via heavy per-fragment **`sizeThatFits`** over raw markdown strings. Width-driven work should stay on the **cheap layout** side of the prepare/layout split.
+The renderer contract is architectural: SwiftUI **`body`** must not parse Markdown, run syntax highlighting over raw source, rebuild the full document model, or drive wrapping via heavy per-fragment **`sizeThatFits`** over raw markdown strings. Width-driven work should stay on the **cheap layout** side of the prepare/layout split.
 
 ## Streaming and parsing
 
@@ -56,4 +56,4 @@ Use **`MarkdownStream.diagnosticsCounters`** and **`InlineLayoutEngine.diagnosti
 
 - `Docs/architecture.md` — where caches and engines live.
 - `Docs/streaming.md` — what gets reparsed when appending.
-- `AGENTS.md` — testing and regression expectations.
+- `Docs/native-renderer-scorecard.md` — product quality bar.

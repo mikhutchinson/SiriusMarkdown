@@ -71,8 +71,7 @@
 ## v0.1.1 and earlier
 
 - Created the SiriusMarkdown package scaffold as a public MIT Swift package.
-- Added the verbatim renderer plan at `plan.md` for implementation tracking.
-- Added `AGENTS.md` as repo-local agent guidance so future work treats `plan.md` as binding project architecture.
+- Established the renderer plan and contributor guardrails for the project architecture.
 - Added initial core source-buffer, streaming, parser, model, policy, cache, diagnostics, inline-layout, SwiftUI-renderer, and Pretext-support surfaces.
 - Added a working Pretext golden smoke harness backed by `@chenglou/pretext` and a Node canvas shim.
 - Expanded Swift coverage to 167 runner-counted tests plus parameterized edge cases for streaming equivalence, stable block IDs, source byte/line maps, conservative and incremental boundary scanning, block and inline classification, structured AST conversion, policy handling, cache eviction, diagnostics, renderer behavior, prepared snapshots, large-transcript prepared item identity, repeated preparation cache reuse, source-backed copy, umbrella import ergonomics, strict Pretext fixture drift, CoreText-vs-Pretext font-profile measurement, and deterministic inline layout.
