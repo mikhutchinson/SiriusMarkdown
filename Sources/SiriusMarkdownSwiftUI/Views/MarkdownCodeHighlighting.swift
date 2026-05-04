@@ -305,6 +305,7 @@ private final class HighlightJavaScriptRuntime: @unchecked Sendable {
 #if canImport(JavaScriptCore)
     private var script: String?
     private var didLoadScript = false
+    private let group: JSContextGroupRef = JSContextGroupCreate()
     private var context: JSGlobalContextRef?
     private var highlightFunction: JSObjectRef?
 #endif
@@ -348,7 +349,7 @@ private final class HighlightJavaScriptRuntime: @unchecked Sendable {
         }
 
         guard let script = loadedScript(),
-              let context = JSGlobalContextCreate(nil),
+              let context = JSGlobalContextCreateInGroup(group, nil),
               Self.evaluate(script, in: context) != nil,
               let functionValue = Self.evaluate(Self.highlightFunctionScript, in: context),
               JSValueIsObject(context, functionValue)

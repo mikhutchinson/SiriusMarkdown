@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.4 - 2026-05-04
+
+- Fixed Mermaid SVG rendering failing in JavaScriptCore by shimming `self`, `window`, `global`, `setTimeout`, and `clearTimeout` onto `globalThis` before the bundled `beautiful-mermaid` runtime evaluates. The ELK layout engine embedded in the bundle resolves its global-object reference (`A`) from `window`, `global`, or `self`; none of these exist in bare JavaScriptCore, so `A.Math.max(...)` crashed with a `TypeError`. ASCII rendering was unaffected because it uses its own layout engine.
+- Added SVG output to `DefaultMarkdownMermaidRenderer`: `MarkdownPreparedMermaidDiagram.svg` is now populated alongside the existing ASCII representation when the bundled runtime succeeds. The SVG render function is loaded and cached alongside the ASCII function, so both results are produced in a single runtime initialization.
+- Hardened the JavaScriptCore environment shim with `Error.stackTraceLimit` lockdown and a relaxed `Buffer.toString()` signature to match the bundle's actual calling convention.
+- Fixed a JavaScriptCore crash (`EXC_BAD_ACCESS` in `JSRopeString::resolveToBuffer`) caused by the highlight and mermaid runtimes sharing the default JSC VM group. Under concurrent Swift Testing execution, both runtimes' `JSGlobalContextCreate(nil)` calls placed their contexts in the same VM, and simultaneous JS evaluation from different threads corrupted internal rope-string state. Both runtimes now create an isolated `JSContextGroupRef` with `JSContextGroupCreate()` and use `JSGlobalContextCreateInGroup` to prevent cross-runtime VM contention.
+
 ## 0.4.3 - 2026-05-03
 
 - Added built-in Mermaid fence rendering through a bundled DOM-free JavaScript runtime executed with JavaScriptCore, keeping diagram preparation out of SwiftUI `body`.

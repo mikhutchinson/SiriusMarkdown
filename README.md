@@ -10,7 +10,7 @@ The package is built around three principles:
 
 ## Status
 
-This checkout is the `0.4.3` public package release. The release gate is strict Swift-vs-Pretext layout comparison, required Pretext product fixture groups, and AppKit render probes for document, compact chat, transcript wrapping, multilingual, inline-attribute, overflow, hard-break, long-word, finite-column containment, wide-to-narrow resize, document affordance chrome, and language-aware code highlighting output. Fixture drift, missing groups, duplicate fixture names/groups, and trivial render output are release blockers.
+This checkout is the `0.4.4` public package release. The release gate is strict Swift-vs-Pretext layout comparison, required Pretext product fixture groups, and AppKit render probes for document, compact chat, transcript wrapping, multilingual, inline-attribute, overflow, hard-break, long-word, finite-column containment, wide-to-narrow resize, document affordance chrome, and language-aware code highlighting output. Fixture drift, missing groups, duplicate fixture names/groups, and trivial render output are release blockers.
 
 The current product claim is native SwiftUI Markdown rendering with prepared-line layout, streaming snapshots, bounded caches, safe default policies, language-aware default code highlighting, built-in Mermaid diagram rendering with deterministic plain-code fallback, generic document/code affordances, public chat/document presets, first-class H1-H6 heading typography through `MarkdownTheme.headings`, and containment-stable prepared native lines for transcript-style paths, commands, URLs, long identifiers, nested lists, quotes, and table cells. It is not a custom glyph renderer: `preparedNativeLines` slices prepared attributed line ranges and renders them with SwiftUI `Text(AttributedString)`.
 
@@ -25,7 +25,7 @@ In `Package.swift` (adjust the package URL to the published repository):
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/mikhutchinson/SiriusMarkdown.git", from: "0.4.3")
+    .package(url: "https://github.com/mikhutchinson/SiriusMarkdown.git", from: "0.4.4")
 ],
 targets: [
     .target(
@@ -49,7 +49,7 @@ For local development from a sibling checkout, use a path dependency instead:
 
 ## Renderer surface
 
-The default SwiftUI renderer includes native structured blocks for paragraphs, headings, quotes, lists, task lists, code blocks, built-in Mermaid diagram fences, math/HTML policy paths, and Markdown tables. Mermaid fences are recognized from ```` ```mermaid ```` info strings during preparation, rendered through a bundled JavaScript runtime off the SwiftUI hot path, and can be disabled by setting `MarkdownRendererConfiguration(mermaidRenderer: nil)` to fall back to plain code blocks. Tables are first-class renderer output: cells are prepared from the AST, column widths are derived from prepared inline measurements, wide tables stay horizontally contained, and visual treatment is controlled through `MarkdownTheme` table tokens rather than demo-only styling.
+The default SwiftUI renderer includes native structured blocks for paragraphs, headings, quotes, lists, task lists, code blocks, built-in Mermaid diagram fences, math/HTML policy paths, and Markdown tables. Mermaid fences are recognized from ```` ```mermaid ```` info strings during preparation, rendered through a bundled JavaScript runtime off the SwiftUI hot path, and can be disabled by setting `MarkdownRendererConfiguration(mermaidRenderer: nil)` to fall back to plain code blocks. The default renderer produces both an ASCII text diagram and an SVG string in `MarkdownPreparedMermaidDiagram`; hosts can use whichever representation fits their rendering surface. Tables are first-class renderer output: cells are prepared from the AST, column widths are derived from prepared inline measurements, wide tables stay horizontally contained, and visual treatment is controlled through `MarkdownTheme` table tokens rather than demo-only styling.
 
 Inline rendering has an explicit boundary. The packaged chat and document presets, `MarkdownRendererConfiguration.compactChat` and `.document`, use `MarkdownInlineRenderingMode.preparedNativeLines`: cached prepared layout results slice the attributed payload into proposal-contained prepared lines before SwiftUI renders them with `Text(AttributedString)`. Direct custom `MarkdownRendererConfiguration(...)` construction keeps `MarkdownInlineRenderingMode.systemText` as a compatibility fallback. Neither path parses, prepares policy/code/math work, or measures inline content in SwiftUI body.
 
@@ -248,12 +248,12 @@ bash Tools/product-check.sh
 
 ## Release
 
-`0.4.3` is ready to publish only when:
+`0.4.4` is ready to publish only when:
 
 - `README.md`, `NOTICE.md`, `changelog.md`, and `runbook.md` describe the current public package surface;
 - `bash Tools/product-check.sh` passes from the repository root;
 - `git diff --check` reports no whitespace errors;
 - `git remote -v` points at the intended public repository;
-- the release commit is tagged as `0.4.3` and pushed with tags.
+- the release commit is tagged as `0.4.4` and pushed with tags.
 
 Recommended release commands are documented in `runbook.md`.
