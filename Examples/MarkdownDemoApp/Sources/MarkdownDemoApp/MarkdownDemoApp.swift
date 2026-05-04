@@ -202,6 +202,7 @@ private struct DocumentSurface: View {
             preparedSnapshot: example.preparedSnapshot,
             configuration: example.configuration
         )
+        .id(example.id)
         .frame(maxWidth: 920, alignment: .leading)
     }
 }
@@ -422,21 +423,15 @@ private struct DocumentSection: Identifiable, Hashable {
 
     private static func systemImage(for title: String) -> String {
         switch title {
-        case "Overview":
-            return "doc.richtext"
-        case "Inline Policy Matrix":
+        case "Dense Inline Run":
             return "link.badge.plus"
-        case "Table Stress":
-            return "tablecells"
-        case "Wide Blocks":
-            return "rectangle.expand.vertical"
-        case "Multilingual Layout":
-            return "character.book.closed"
-        case "Math And HTML Policy":
-            return "function"
-        case "Long Document":
+        case "Renderer Priorities":
             return "text.alignleft"
-        case "Big Cached Document":
+        case "Cache Evidence":
+            return "externaldrive.badge.checkmark"
+        case "Closing Section":
+            return "text.justify.leading"
+        case "Cache Summary":
             return "externaldrive.badge.checkmark"
         default:
             return "text.justify.leading"
@@ -463,8 +458,6 @@ private struct MarkdownExample: Identifiable, Hashable {
             systemImage: "doc.richtext",
             badge: "Document",
             markdown: """
-            # Overview
-
             SiriusMarkdown renders native SwiftUI documents from prepared snapshots. The demo app intentionally uses the same public renderer path a host app would use, including inline math like $x^2 \\rightarrow y_1 + \\alpha$.
 
             $$
@@ -495,6 +488,14 @@ private struct MarkdownExample: Identifiable, Hashable {
             | SwiftUI | renders prepared snapshots |
             | Policy | safe defaults, host-controlled expansion |
 
+            ```mermaid
+            graph LR
+                A[Source] --> B[Stream]
+                B --> C[Snapshot]
+                C --> D[Prepare]
+                D --> E[Render]
+            ```
+
             [Swift Markdown](https://github.com/swiftlang/swift-markdown)
             """,
             assertions: [
@@ -511,8 +512,6 @@ private struct MarkdownExample: Identifiable, Hashable {
             systemImage: "link.badge.plus",
             badge: "Policy",
             markdown: """
-            # Inline Policy Matrix
-
             A single paragraph can mix **strong text**, *emphasis*, ~~strikethrough~~, `inline code`, a [safe HTTPS link](https://example.com/safe), a [relative link](/docs/local), and an unsafe [JavaScript link](javascript:alert('blocked')).
 
             The default image policy keeps remote images inert: ![Remote dashboard](https://example.com/dashboard.png)
@@ -544,8 +543,6 @@ private struct MarkdownExample: Identifiable, Hashable {
             systemImage: "tablecells",
             badge: "Tables",
             markdown: """
-            # Table Stress
-
             Tables matter in AI, docs, reports, and operational transcripts. The renderer should make them visually distinguishable without turning the whole document into a spreadsheet.
 
             | Scenario | Input Shape | Renderer Requirement | Evidence |
@@ -577,8 +574,6 @@ private struct MarkdownExample: Identifiable, Hashable {
             systemImage: "rectangle.expand.vertical",
             badge: "Overflow",
             markdown: """
-            # Wide Blocks
-
             Wide code should remain inspectable without forcing the entire document surface to grow.
 
             ```json
@@ -611,8 +606,6 @@ private struct MarkdownExample: Identifiable, Hashable {
             systemImage: "character.book.closed",
             badge: "Layout",
             markdown: """
-            # Multilingual Layout
-
             English, 日本語, 한국어, العربية, עברית, emoji 😀😎🚀, and CJK punctuation should all remain in one prepared document without parser-time special cases.
 
             Mixed direction text should wrap as a normal paragraph: Start with English, continue with العربية داخل الجملة, then return to English with `inline code` and a safe [reference](https://example.com/i18n).
@@ -644,8 +637,6 @@ private struct MarkdownExample: Identifiable, Hashable {
             systemImage: "function",
             badge: "Hooks",
             markdown: """
-            # Math And HTML Policy
-
             Math blocks are renderer hooks, not hardcoded app-private UI:
 
             $$
@@ -665,11 +656,19 @@ private struct MarkdownExample: Identifiable, Hashable {
             | Math block | rendered by configured math renderer |
             | Raw HTML | denied or inert unless policy allows it |
             | Code | explicit supported fences use the language-aware default; unknown and plaintext fences stay plain |
+
+            ```mermaid
+            graph TD
+                Parse --> Prepare
+                Prepare --> Render
+                Render --> Cache
+            ```
             """,
             assertions: [
                 "Math rendering is pluggable.",
                 "Raw HTML stays controlled by MarkdownHTMLPolicy.",
-                "Code highlighting remains pluggable, and plain rendering is still available through PlainMarkdownCodeHighlighter."
+                "Code highlighting remains pluggable, and plain rendering is still available through PlainMarkdownCodeHighlighter.",
+                "Mermaid fences are rendered through a bundled JavaScript runtime during preparation."
             ]
         ),
         MarkdownExample(
@@ -680,8 +679,6 @@ private struct MarkdownExample: Identifiable, Hashable {
             systemImage: "text.alignleft",
             badge: "Long Form",
             markdown: """
-            # Long Document
-
             SiriusMarkdown needs to feel at home in technical documents, not only short chat snippets. This sample uses longer paragraphs and repeated structure so the renderer has to maintain readable rhythm across a full page.
 
             ## Renderer Priorities
@@ -759,8 +756,6 @@ private struct MarkdownExample: Identifiable, Hashable {
     private static func bigCachedDocumentMarkdown(sectionCount: Int) -> String {
         var parts: [String] = [
             """
-            # Big Cached Document
-
             This generated document exists to make cache behavior visible at product scale. It repeats enough structure to exercise parser identity, prepared inline caching, highlighted code reuse, math rendering, table cell preparation, and width-specific layout caches.
 
             $$

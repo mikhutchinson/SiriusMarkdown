@@ -910,6 +910,110 @@ func transcriptLikePreparedNativeViewFittingWidthStaysWithinHostColumn() throws 
     #endif
 }
 
+@Test
+@MainActor
+func preparedNativeParagraphBlockInitialHostedLayoutDoesNotCollapseToZeroHeight() throws {
+    #if canImport(AppKit)
+    let block = try firstBlock("Wide code should remain inspectable without forcing the entire document surface to grow.")
+    let configuration = MarkdownRendererConfiguration.document
+    let prepared = configuration.prepare(block: block)
+    let width = CGFloat(320)
+    let hostingView = NSHostingView(
+        rootView: MarkdownBlockView(
+            block: block,
+            configuration: configuration,
+            preparedContent: prepared
+        )
+        .frame(width: width, alignment: .leading)
+    )
+    hostingView.frame = NSRect(origin: .zero, size: NSSize(width: width, height: 240))
+    hostingView.layoutSubtreeIfNeeded()
+
+    #expect(hostingView.fittingSize.height >= CGFloat(configuration.theme.paragraphLineHeight) - 1)
+    #endif
+}
+
+@Test
+@MainActor
+func preparedNativeParagraphRecomputesWhenPreparedContentChangesAtFixedWidth() throws {
+    #if canImport(AppKit)
+    let configuration = MarkdownRendererConfiguration.document
+    let initialBlock = try firstBlock("A single paragraph can mix **strong text**, *emphasis*, ~~strikethrough~~, `inline code`, a [safe HTTPS link](https://example.com/safe), a [relative link](/docs/local), and an unsafe [JavaScript link](javascript:alert('blocked')).")
+    let replacementBlock = try firstBlock("Wide code should remain inspectable without forcing the entire document surface to grow.")
+    let model = PreparedParagraphSwitchModel(
+        block: initialBlock,
+        preparedContent: configuration.prepare(block: initialBlock),
+        configuration: configuration
+    )
+    let width = CGFloat(620)
+    let hostingView = NSHostingView(
+        rootView: PreparedParagraphSwitchHost(model: model)
+            .frame(width: width, alignment: .leading)
+    )
+    hostingView.frame = NSRect(origin: .zero, size: NSSize(width: width, height: 300))
+    hostingView.layoutSubtreeIfNeeded()
+    let initialHeight = hostingView.fittingSize.height
+
+    model.update(
+        block: replacementBlock,
+        preparedContent: configuration.prepare(block: replacementBlock)
+    )
+    hostingView.layoutSubtreeIfNeeded()
+    let replacementHeight = hostingView.fittingSize.height
+
+    #expect(initialHeight > 0)
+    #expect(replacementHeight >= CGFloat(configuration.theme.paragraphLineHeight) - 1)
+    #endif
+}
+
+@Test
+@MainActor
+func documentSurfaceInitialHostedLayoutIncludesWideBlocksParagraphBeforeResize() {
+    #if canImport(AppKit)
+    let withParagraphMarkdown = """
+    Wide code should remain inspectable without forcing the entire document surface to grow.
+
+    ```json
+    {"renderer":"SiriusMarkdown","mode":"document","features":["native-swiftui","streaming-aware","prepared-inline-layout","bounded-caches","policy-hooks","host-boundaries"],"longValue":"abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz"}
+    ```
+
+    ```swift
+    let widthChange = "compact -> readable -> wide -> split view"
+    let invariant = "layout(preparedSegments, width) must not call parse(markdown)"
+    print(widthChange, invariant)
+    ```
+
+    | Case | Long Value |
+    | :--- | :--- |
+    | Cache key | sourceRange + contentHash + rendererConfiguration + theme font traits + policy-relevant inputs |
+    | Resize path | cheap layout over prepared segments without parsing, highlighting, or AST conversion |
+    | Render path | structured block views consume already prepared table cells, code text, math, and inline runs |
+    """
+    let withoutParagraphMarkdown = """
+    ```json
+    {"renderer":"SiriusMarkdown","mode":"document","features":["native-swiftui","streaming-aware","prepared-inline-layout","bounded-caches","policy-hooks","host-boundaries"],"longValue":"abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz"}
+    ```
+
+    ```swift
+    let widthChange = "compact -> readable -> wide -> split view"
+    let invariant = "layout(preparedSegments, width) must not call parse(markdown)"
+    print(widthChange, invariant)
+    ```
+
+    | Case | Long Value |
+    | :--- | :--- |
+    | Cache key | sourceRange + contentHash + rendererConfiguration + theme font traits + policy-relevant inputs |
+    | Resize path | cheap layout over prepared segments without parsing, highlighting, or AST conversion |
+    | Render path | structured block views consume already prepared table cells, code text, math, and inline runs |
+    """
+    let width = CGFloat(620)
+    let withParagraphHeight = hostedDocumentSurfaceHeight(markdown: withParagraphMarkdown, width: width)
+    let withoutParagraphHeight = hostedDocumentSurfaceHeight(markdown: withoutParagraphMarkdown, width: width)
+
+    #expect(withParagraphHeight > withoutParagraphHeight + 12)
+    #endif
+}
+
 func repeatedPreparationReusesInlineCodeAndMathCaches() throws {
     var stream = MarkdownStream()
     stream.append(
@@ -1406,6 +1510,64 @@ private func mirroredConfiguration(from view: MarkdownBlockView) -> MarkdownRend
         .first { $0.label == "configuration" }?
         .value as? MarkdownRendererConfiguration
 }
+
+#if canImport(AppKit)
+@MainActor
+private func hostedDocumentSurfaceHeight(markdown: String, width: CGFloat) -> CGFloat {
+    var stream = MarkdownStream()
+    stream.append(markdown)
+    stream.finish()
+
+    let configuration = MarkdownRendererConfiguration.document
+    let prepared = configuration.prepare(snapshot: stream.snapshot())
+    let view = MarkdownDocumentSurface(
+        title: "Rendered Document",
+        subtitle: "\(prepared.snapshot.blocks.count.formatted()) blocks prepared through the public document renderer.",
+        suggestedFilename: "wide-blocks.md",
+        preparedSnapshot: prepared,
+        configuration: configuration
+    )
+    .frame(width: width, alignment: .leading)
+    let hostingView = NSHostingView(rootView: view)
+    hostingView.frame = NSRect(origin: .zero, size: NSSize(width: width, height: 2_000))
+    hostingView.layoutSubtreeIfNeeded()
+    return hostingView.fittingSize.height
+}
+
+@MainActor
+private final class PreparedParagraphSwitchModel: ObservableObject {
+    @Published var block: MarkdownBlock
+    @Published var preparedContent: MarkdownPreparedBlockContent
+    let configuration: MarkdownRendererConfiguration
+
+    init(
+        block: MarkdownBlock,
+        preparedContent: MarkdownPreparedBlockContent,
+        configuration: MarkdownRendererConfiguration
+    ) {
+        self.block = block
+        self.preparedContent = preparedContent
+        self.configuration = configuration
+    }
+
+    func update(block: MarkdownBlock, preparedContent: MarkdownPreparedBlockContent) {
+        self.block = block
+        self.preparedContent = preparedContent
+    }
+}
+
+private struct PreparedParagraphSwitchHost: View {
+    @ObservedObject var model: PreparedParagraphSwitchModel
+
+    var body: some View {
+        MarkdownBlockView(
+            block: model.block,
+            configuration: model.configuration,
+            preparedContent: model.preparedContent
+        )
+    }
+}
+#endif
 
 private struct DenyCodePolicy: MarkdownCodePolicy {
     func evaluateCodeBlock(infoString: String?, code: String) -> MarkdownPolicyDecision {

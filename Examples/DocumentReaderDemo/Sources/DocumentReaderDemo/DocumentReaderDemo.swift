@@ -335,7 +335,7 @@ private struct DocumentSection: Identifiable, Hashable {
             }
 
             let headingText = block.inlines.map(\.text).joined()
-            let title = block.headingLevel == 1 ? "Overview" : headingText
+            let title = headingText
             return DocumentSection(
                 id: block.id,
                 title: title.isEmpty ? "Section" : title,
@@ -361,6 +361,8 @@ private struct DocumentSection: Identifiable, Hashable {
             return "tablecells"
         case "Formula Notes":
             return "function"
+        case "Diagram Notes":
+            return "arrow.triangle.branch"
         case "Cached Stress Appendix":
             return "externaldrive.badge.checkmark"
         default:
@@ -567,6 +569,18 @@ private enum DemoDocument {
     $$
 
     <aside>Raw HTML remains inert in the default public-reader policy.</aside>
+
+    ## Diagram Notes
+
+    Mermaid fences are rendered through a bundled JavaScript runtime during preparation, not in SwiftUI body. Hosts can disable Mermaid rendering by passing `mermaidRenderer: nil`.
+
+    ```mermaid
+    graph LR
+        A[Source] --> B[Stream]
+        B --> C[Snapshot]
+        C --> D[Prepare]
+        D --> E[Render]
+    ```
     """
 
     private static func cachedStressAppendix(sectionCount: Int) -> String {

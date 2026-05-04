@@ -270,6 +270,13 @@ public struct InlineRunsView: View {
     }
 }
 
+private struct PreparedInlineLayoutIdentity: Hashable {
+    var sourceRange: MarkdownSourceRange?
+    var naturalText: String
+    var fontSize: Double
+    var lineHeight: Double
+}
+
 private struct PreparedInlineTextView: View {
     var prepared: MarkdownPreparedInlineContent
     var fallbackAttributed: AttributedString
@@ -283,15 +290,25 @@ private struct PreparedInlineTextView: View {
     @State private var recordedNonFiniteFallback = false
     @State private var recordedClipping = false
 
+    private var layoutIdentity: PreparedInlineLayoutIdentity {
+        PreparedInlineLayoutIdentity(
+            sourceRange: prepared.prepared.sourceRange,
+            naturalText: prepared.prepared.naturalText,
+            fontSize: prepared.fontSize,
+            lineHeight: prepared.lineHeight
+        )
+    }
+
     @ViewBuilder
     var body: some View {
-        PreparedInlineProposalLayout {
-            widthReader
-            renderedText
-        }
+        renderedText
             .environment(\.openURL, openURLAction)
             .frame(maxWidth: .infinity, alignment: .leading)
+            .background(widthReader)
             .accessibilityValue(layoutResult.lines.isEmpty ? "" : "\(layoutResult.lines.count) prepared lines")
+            .onAppear {
+                refreshLayoutIfPossible()
+            }
             .onPreferenceChange(PreparedInlineWidthPreferenceKey.self) { width in
                 guard width.isFinite, width > 0 else {
                     if !recordedNonFiniteFallback {
@@ -303,18 +320,12 @@ private struct PreparedInlineTextView: View {
 
                 if abs(width - containerWidth) > 0.5 {
                     containerWidth = width
-                    let layoutWidth = max(1, Double(width) - Self.nativeLineSafetyInset)
-                    layoutResult = InlineRunsView.lineLayout(
-                        for: prepared,
-                        containerWidth: layoutWidth,
-                        allowsOverwideFallback: true
-                    )
-                    if !recordedClipping,
-                       layoutResult.lines.contains(where: { $0.width > Double(width) + 0.5 }) {
-                        recordedClipping = true
-                        prepared.layoutCache.recordNativeLineClipping()
-                    }
+                    refreshLayoutIfPossible()
                 }
+            }
+            .onChange(of: layoutIdentity) { _ in
+                layoutResult = InlineLayoutResult(lines: [], naturalWidth: 0, height: 0)
+                refreshLayoutIfPossible()
             }
     }
 
@@ -348,6 +359,26 @@ private struct PreparedInlineTextView: View {
                 value: proxy.size.width
             )
         }
+        .allowsHitTesting(false)
+    }
+
+    private func refreshLayoutIfPossible() {
+        guard containerWidth.isFinite, containerWidth > 0 else {
+            return
+        }
+
+        let layoutWidth = max(1, Double(containerWidth) - Self.nativeLineSafetyInset)
+        let refreshedLayout = InlineRunsView.lineLayout(
+            for: prepared,
+            containerWidth: layoutWidth,
+            allowsOverwideFallback: true
+        )
+        layoutResult = refreshedLayout
+        if !recordedClipping,
+           refreshedLayout.lines.contains(where: { $0.width > Double(containerWidth) + 0.5 }) {
+            recordedClipping = true
+            prepared.layoutCache.recordNativeLineClipping()
+        }
     }
 
     private var openURLAction: OpenURLAction {
@@ -374,72 +405,5 @@ private struct PreparedInlineWidthPreferenceKey: PreferenceKey {
         if next > 0 {
             value = next
         }
-    }
-}
-
-private struct PreparedInlineProposalLayout: Layout {
-    func sizeThatFits(
-        proposal: ProposedViewSize,
-        subviews: Subviews,
-        cache _: inout ()
-    ) -> CGSize {
-        guard let content = contentSubview(in: subviews) else {
-            return .zero
-        }
-
-        let proposedWidth = finiteWidth(from: proposal)
-        let childProposal = ProposedViewSize(width: proposedWidth, height: proposal.height)
-        let childSize = content.sizeThatFits(childProposal)
-        guard let proposedWidth else {
-            return CGSize(width: 0, height: childSize.height)
-        }
-        let width = proposedWidth
-        return CGSize(width: width, height: childSize.height)
-    }
-
-    func placeSubviews(
-        in bounds: CGRect,
-        proposal: ProposedViewSize,
-        subviews: Subviews,
-        cache _: inout ()
-    ) {
-        guard let content = contentSubview(in: subviews) else {
-            return
-        }
-
-        let proposedWidth = bounds.width.isFinite && bounds.width > 0
-            ? bounds.width
-            : finiteWidth(from: proposal)
-
-        if let probe = widthProbeSubview(in: subviews) {
-            probe.place(
-                at: bounds.origin,
-                proposal: ProposedViewSize(width: proposedWidth, height: bounds.height)
-            )
-        }
-
-        content.place(
-            at: bounds.origin,
-            proposal: ProposedViewSize(width: proposedWidth, height: bounds.height)
-        )
-    }
-
-    private func widthProbeSubview(in subviews: Subviews) -> LayoutSubview? {
-        subviews.first
-    }
-
-    private func contentSubview(in subviews: Subviews) -> LayoutSubview? {
-        guard subviews.count > 1 else {
-            return subviews.first
-        }
-
-        return subviews[1]
-    }
-
-    private func finiteWidth(from proposal: ProposedViewSize) -> CGFloat? {
-        guard let width = proposal.width, width.isFinite, width > 0 else {
-            return nil
-        }
-        return width
     }
 }

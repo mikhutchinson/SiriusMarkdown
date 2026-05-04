@@ -413,6 +413,7 @@ private struct TranscriptSurface: View {
                 ) { boundary in
                     HostBoundaryMarker(boundary: boundary)
                 }
+                .id(model.selectedCaseID)
                 .frame(maxWidth: 900, alignment: .leading)
             }
         }
@@ -555,7 +556,6 @@ private struct StreamingCase: Identifiable, Hashable {
             detail: "A compact chat answer streams through common assistant Markdown while counters show mutable tail reparses and sealed-region parses.",
             systemImage: "message.badge.waveform",
             steps: [
-                .append("# Streaming Transcript\n\n"),
                 .append("This transcript appends Markdown in small chunks while preserving stable block identity and inline math like $x^2 \\rightarrow y_1 + \\alpha$.\n\n"),
                 .append("- [ ] Parse only the mutable tail\n"),
                 .append("- [x] Keep sealed regions immutable\n\n"),
@@ -578,7 +578,6 @@ private struct StreamingCase: Identifiable, Hashable {
             detail: "The stream opens a Swift fence, appends several body chunks, and closes it late to demonstrate conservative sealing.",
             systemImage: "chevron.left.forwardslash.chevron.right",
             steps: [
-                .append("# Open Fence Tail\n\n"),
                 .append("The scanner should not seal this region while the code fence is still open.\n\n"),
                 .append("```swift\n"),
                 .append("let chunks = [\"alpha\", \"beta\", \"gamma\"]\n"),
@@ -598,7 +597,6 @@ private struct StreamingCase: Identifiable, Hashable {
             detail: "This case places native host markers between Markdown regions so the renderer shows the app-owned insertion points explicitly.",
             systemImage: "puzzlepiece.extension",
             steps: [
-                .append("# Host Boundary Stream\n\n"),
                 .append("Markdown before a native insertion should seal before the host-owned row appears.\n\n"),
                 .hostBoundary("lookup-result"),
                 .append("## Markdown After The Boundary\n\n"),
@@ -617,7 +615,6 @@ private struct StreamingCase: Identifiable, Hashable {
             detail: "Safe and unsafe destinations arrive in one stream so default public-package policy behavior is visible in the demo.",
             systemImage: "lock.shield",
             steps: [
-                .append("# Policy Stress\n\n"),
                 .append("Links stay policy-controlled while content streams:\n\n"),
                 .append("- [Safe link](https://example.com)\n"),
                 .append("- [Blocked JavaScript](javascript:alert('blocked'))\n"),
@@ -625,7 +622,8 @@ private struct StreamingCase: Identifiable, Hashable {
                 .append("$$\n"),
                 .append("layout(width) = preparedSegments \\rightarrow lines\n"),
                 .append("$$\n\n"),
-                .append("<aside>Raw HTML remains inert by default.</aside>\n"),
+                .append("<aside>Raw HTML remains inert by default.</aside>\n\n"),
+                .append("```mermaid\ngraph LR\n    A[Source] --> B[Stream]\n    B --> C[Render]\n```\n"),
                 .finish
             ]
         ),
@@ -636,7 +634,6 @@ private struct StreamingCase: Identifiable, Hashable {
             detail: "A denser transcript streams document-like content that should remain native, structured, and resize-stable.",
             systemImage: "doc.richtext",
             steps: [
-                .append("# Mixed Document Tail\n\n"),
                 .append("Nested lists, tables, and multilingual text should not destabilize row sizing.\n\n"),
                 .append("- Parent item\n"),
                 .append("  - Child item with `inline code`\n"),
@@ -659,7 +656,6 @@ private struct StreamingCase: Identifiable, Hashable {
             detail: "Wide rows stream into the compact chat renderer so code and tables can be inspected without layout collapse.",
             systemImage: "rectangle.expand.vertical",
             steps: [
-                .append("# Wide Content\n\n"),
                 .append("The renderer should contain wide blocks instead of letting them destabilize the transcript width.\n\n"),
                 .append("```json\n"),
                 .append("{\"renderer\":\"SiriusMarkdown\",\"mode\":\"streaming\",\"features\":[\"sealed-regions\",\"mutable-tail\",\"prepared-inline-layout\",\"bounded-caches\",\"host-boundaries\"]}\n"),
@@ -683,7 +679,6 @@ private struct StreamingCase: Identifiable, Hashable {
 
     private static func veryLongDocumentSteps(sectionCount: Int) -> [StreamingStep] {
         var steps: [StreamingStep] = [
-            .append("# Very Long Streaming Document\n\n"),
             .append("This generated stream is intentionally long. It repeatedly seals Markdown regions, keeps one mutable tail active, and forces prepared snapshots to grow while counters remain visible.\n\n"),
             .append("$$\nstreamedDocument = sealedRegions + mutableTail\n$$\n\n")
         ]
