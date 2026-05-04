@@ -6,6 +6,12 @@ import AppKit
 import UIKit
 #endif
 
+#if os(macOS)
+typealias PlatformImage = NSImage
+#elseif canImport(UIKit)
+typealias PlatformImage = UIImage
+#endif
+
 public enum MarkdownPasteboard {
     @MainActor
     public static func copy(_ string: String) {

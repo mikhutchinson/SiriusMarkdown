@@ -134,16 +134,37 @@ public struct MarkdownBlockView: View {
                     codeBlockHeader
                 }
                 if !isCodeBlockCollapsed {
-                    ScrollView([.horizontal, .vertical]) {
-                        Text(verbatim: mermaid.ascii)
-                            .font(theme.codeFont)
-                            .foregroundStyle(theme.textColor)
-                            .textSelection(.enabled)
-                            .padding(.horizontal, 10)
-                            .padding(.top, showsCodeBlockHeader ? 4 : 10)
-                            .padding(.bottom, 10)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .accessibilityLabel("Mermaid diagram")
+                    if let svg = mermaid.svg,
+                       let svgData = svg.data(using: .utf8),
+                       let image = PlatformImage(data: svgData) {
+                        ScrollView([.horizontal]) {
+                            #if canImport(AppKit) && !targetEnvironment(macCatalyst)
+                            Image(nsImage: image)
+                                .resizable()
+                                .aspectRatio(contentMode: .fit)
+                            #else
+                            Image(uiImage: image)
+                                .resizable()
+                                .aspectRatio(contentMode: .fit)
+                            #endif
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.top, showsCodeBlockHeader ? 4 : 10)
+                        .padding(.bottom, 10)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .accessibilityLabel("Mermaid diagram")
+                    } else {
+                        ScrollView([.horizontal, .vertical]) {
+                            Text(verbatim: mermaid.ascii)
+                                .font(theme.codeFont)
+                                .foregroundStyle(theme.textColor)
+                                .textSelection(.enabled)
+                                .padding(.horizontal, 10)
+                                .padding(.top, showsCodeBlockHeader ? 4 : 10)
+                                .padding(.bottom, 10)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .accessibilityLabel("Mermaid diagram")
+                        }
                     }
                 } else {
                     Text("\(Self.codeCopyText(for: block).utf8.count.formatted()) bytes hidden")
