@@ -10,7 +10,7 @@ The package is built around three principles:
 
 ## Status
 
-This checkout is the `0.4.4` public package release. The release gate is strict Swift-vs-Pretext layout comparison, required Pretext product fixture groups, and AppKit render probes for document, compact chat, transcript wrapping, multilingual, inline-attribute, overflow, hard-break, long-word, finite-column containment, wide-to-narrow resize, document affordance chrome, and language-aware code highlighting output. Fixture drift, missing groups, duplicate fixture names/groups, and trivial render output are release blockers.
+This checkout is the `0.4.5` public package release. The release gate is strict Swift-vs-Pretext layout comparison, required Pretext product fixture groups, and AppKit render probes for document, compact chat, transcript wrapping, multilingual, inline-attribute, overflow, hard-break, long-word, finite-column containment, wide-to-narrow resize, document affordance chrome, and language-aware code highlighting output. Fixture drift, missing groups, duplicate fixture names/groups, and trivial render output are release blockers.
 
 The current product claim is native SwiftUI Markdown rendering with prepared-line layout, streaming snapshots, bounded caches, safe default policies, language-aware default code highlighting, built-in Mermaid diagram rendering with deterministic plain-code fallback, generic document/code affordances, public chat/document presets, first-class H1-H6 heading typography through `MarkdownTheme.headings`, and containment-stable prepared native lines for transcript-style paths, commands, URLs, long identifiers, nested lists, quotes, and table cells. It is not a custom glyph renderer: `preparedNativeLines` slices prepared attributed line ranges and renders them with SwiftUI `Text(AttributedString)`.
 
@@ -25,7 +25,7 @@ In `Package.swift` (adjust the package URL to the published repository):
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/mikhutchinson/SiriusMarkdown.git", from: "0.4.4")
+    .package(url: "https://github.com/mikhutchinson/SiriusMarkdown.git", from: "0.4.5")
 ],
 targets: [
     .target(
@@ -248,12 +248,12 @@ bash Tools/product-check.sh
 
 ## Release
 
-`0.4.4` is ready to publish only when:
+`0.4.5` is ready to publish only when:
 
 - `README.md`, `NOTICE.md`, `changelog.md`, and `runbook.md` describe the current public package surface;
 - `bash Tools/product-check.sh` passes from the repository root;
 - `git diff --check` reports no whitespace errors;
 - `git remote -v` points at the intended public repository;
-- the release commit is tagged as `0.4.4` and pushed with tags.
+- the release commit is tagged as `0.4.5` and pushed with tags.
 
 Recommended release commands are documented in `runbook.md`.

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.5 - 2026-05-04
+
+- Fixed stale prepared-inline layout reuse when SwiftUI kept a view alive at the same width but swapped in different prepared content. `PreparedInlineTextView` now invalidates its cached layout when the prepared payload identity changes, so the first visible pass no longer depends on a later resize to recompute line layout.
+- Fixed `MarkdownDemoApp` and `StreamingTranscriptDemo` case switching to reset the rendered document/stream subtree identity when the selected example changes, preventing stale SwiftUI subtree reuse across different prepared documents or stream cases.
+- Fixed task-list checkbox alignment in the shared SwiftUI renderer by sizing task markers from paragraph metrics and placing them inside a paragraph line-height box, so checklist rows align consistently with the first text line in document-style rendering.
+- Expanded SwiftUI regression coverage for the initial-layout bug class with hosted AppKit tests that verify first-pass paragraph visibility and prepared-inline recomputation when prepared content changes at a fixed width.
+
 ## 0.4.4 - 2026-05-04
 
 - Fixed Mermaid SVG rendering failing in JavaScriptCore by shimming `self`, `window`, `global`, `setTimeout`, and `clearTimeout` onto `globalThis` before the bundled `beautiful-mermaid` runtime evaluates. The ELK layout engine embedded in the bundle resolves its global-object reference (`A`) from `window`, `global`, or `self`; none of these exist in bare JavaScriptCore, so `A.Math.max(...)` crashed with a `TypeError`. ASCII rendering was unaffected because it uses its own layout engine.

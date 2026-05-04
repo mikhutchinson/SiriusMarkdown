@@ -768,8 +768,9 @@ private struct MarkdownListItemRow: View {
     private var markerView: some View {
         if let taskState = item.taskState {
             Image(systemName: taskState == .checked ? "checkmark.square.fill" : "square")
-                .font(.system(size: 13, weight: .semibold))
+                .font(.system(size: taskMarkerFontSize, weight: .semibold))
                 .foregroundStyle(taskState == .checked ? Color.accentColor : theme.secondaryTextColor)
+                .frame(height: theme.paragraphLineHeight, alignment: .trailing)
         } else {
             Text(marker)
                 .font(theme.codeFont)
@@ -779,6 +780,10 @@ private struct MarkdownListItemRow: View {
 
     private var markerWidth: CGFloat {
         kind == .orderedList ? 34 : 28
+    }
+
+    private var taskMarkerFontSize: CGFloat {
+        CGFloat(min(max(theme.paragraphFontSize - 2, 12), 14))
     }
 }
 
