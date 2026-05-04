@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.2 - 2026-05-03
+
+- Fixed prepared native-line containment for transcript-style inline code paths, shell commands, URLs, long identifiers, nested lists, block quotes, and table cells so visible prepared-line layout stays within the effective host column.
+- Added package-owned transcript/path wrapping fixtures and a vendored MIT `linebreak` UAX #14 JavaScript oracle for Pretext golden validation, avoiding local-machine or private-project path data in public fixtures.
+- Added focused Swift tests and an AppKit transcript-wrapping render probe that reject overwide fitting widths and right-edge overflow for compact transcript content.
+
 ## 0.4.1 - 2026-05-03
 
 - Added controlled-collapse overloads for `MarkdownDocumentSurface`, letting host apps bind document collapse state and observe collapse changes while preserving the existing local-state initializers.

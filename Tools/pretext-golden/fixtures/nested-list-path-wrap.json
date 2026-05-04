@@ -1,0 +1,234 @@
+{
+  "name": "nested-list-path-wrap",
+  "group": "nested-list-path-wrap",
+  "description": "Nested list inline code paths use the effective list cell width and vendored UAX #14 break opportunities.",
+  "markdown": "- parent item\n  - `/var/tmp/example_render_pipeline/transcript_renderer_wrap_probe_20260503_211600.log`",
+  "oracleText": "/var/tmp/example_render_pipeline/transcript_renderer_wrap_probe_20260503_211600.log",
+  "containerWidth": 118,
+  "font": "16px Menlo",
+  "lineHeight": 20,
+  "whiteSpace": "pre-wrap",
+  "wordBreak": "normal",
+  "expected": {
+    "lineCount": 8,
+    "naturalWidth": 799.51,
+    "height": 160,
+    "segments": [
+      {
+        "text": "/",
+        "kind": "text",
+        "width": 9.63,
+        "byteRange": {
+          "lowerBound": 0,
+          "upperBound": 1
+        }
+      },
+      {
+        "text": "var",
+        "kind": "text",
+        "width": 28.9,
+        "byteRange": {
+          "lowerBound": 1,
+          "upperBound": 4
+        }
+      },
+      {
+        "text": "/",
+        "kind": "text",
+        "width": 9.63,
+        "byteRange": {
+          "lowerBound": 4,
+          "upperBound": 5
+        }
+      },
+      {
+        "text": "tmp",
+        "kind": "text",
+        "width": 28.9,
+        "byteRange": {
+          "lowerBound": 5,
+          "upperBound": 8
+        }
+      },
+      {
+        "text": "/",
+        "kind": "text",
+        "width": 9.63,
+        "byteRange": {
+          "lowerBound": 8,
+          "upperBound": 9
+        }
+      },
+      {
+        "text": "example_render_pipeline",
+        "kind": "text",
+        "width": 221.55,
+        "byteRange": {
+          "lowerBound": 9,
+          "upperBound": 32
+        }
+      },
+      {
+        "text": "/",
+        "kind": "text",
+        "width": 9.63,
+        "byteRange": {
+          "lowerBound": 32,
+          "upperBound": 33
+        }
+      },
+      {
+        "text": "transcript_renderer_wrap_probe_20260503_211600.",
+        "kind": "text",
+        "width": 452.74,
+        "byteRange": {
+          "lowerBound": 33,
+          "upperBound": 80
+        }
+      },
+      {
+        "text": "log",
+        "kind": "text",
+        "width": 28.9,
+        "byteRange": {
+          "lowerBound": 80,
+          "upperBound": 83
+        }
+      }
+    ],
+    "lines": [
+      {
+        "text": "/var/tmp/",
+        "width": 86.69,
+        "byteRange": {
+          "lowerBound": 0,
+          "upperBound": 9
+        },
+        "start": {
+          "segmentIndex": 0,
+          "graphemeIndex": 0
+        },
+        "end": {
+          "segmentIndex": 5,
+          "graphemeIndex": 0
+        }
+      },
+      {
+        "text": "example_rend",
+        "width": 115.56,
+        "byteRange": {
+          "lowerBound": 9,
+          "upperBound": 21
+        },
+        "start": {
+          "segmentIndex": 5,
+          "graphemeIndex": 0
+        },
+        "end": {
+          "segmentIndex": 5,
+          "graphemeIndex": 12
+        }
+      },
+      {
+        "text": "er_pipeline/",
+        "width": 115.56,
+        "byteRange": {
+          "lowerBound": 21,
+          "upperBound": 33
+        },
+        "start": {
+          "segmentIndex": 5,
+          "graphemeIndex": 12
+        },
+        "end": {
+          "segmentIndex": 7,
+          "graphemeIndex": 0
+        }
+      },
+      {
+        "text": "transcript_r",
+        "width": 115.56,
+        "byteRange": {
+          "lowerBound": 33,
+          "upperBound": 45
+        },
+        "start": {
+          "segmentIndex": 7,
+          "graphemeIndex": 0
+        },
+        "end": {
+          "segmentIndex": 7,
+          "graphemeIndex": 12
+        }
+      },
+      {
+        "text": "enderer_wrap",
+        "width": 115.56,
+        "byteRange": {
+          "lowerBound": 45,
+          "upperBound": 57
+        },
+        "start": {
+          "segmentIndex": 7,
+          "graphemeIndex": 12
+        },
+        "end": {
+          "segmentIndex": 7,
+          "graphemeIndex": 24
+        }
+      },
+      {
+        "text": "_probe_20260",
+        "width": 115.56,
+        "byteRange": {
+          "lowerBound": 57,
+          "upperBound": 69
+        },
+        "start": {
+          "segmentIndex": 7,
+          "graphemeIndex": 24
+        },
+        "end": {
+          "segmentIndex": 7,
+          "graphemeIndex": 36
+        }
+      },
+      {
+        "text": "503_211600.",
+        "width": 105.93,
+        "byteRange": {
+          "lowerBound": 69,
+          "upperBound": 80
+        },
+        "start": {
+          "segmentIndex": 7,
+          "graphemeIndex": 36
+        },
+        "end": {
+          "segmentIndex": 8,
+          "graphemeIndex": 0
+        }
+      },
+      {
+        "text": "log",
+        "width": 28.9,
+        "byteRange": {
+          "lowerBound": 80,
+          "upperBound": 83
+        },
+        "start": {
+          "segmentIndex": 8,
+          "graphemeIndex": 0
+        },
+        "end": {
+          "segmentIndex": 9,
+          "graphemeIndex": 0
+        }
+      }
+    ]
+  },
+  "expectedInlineKinds": [
+    "code"
+  ],
+  "expectedPreparedSegments": null
+}

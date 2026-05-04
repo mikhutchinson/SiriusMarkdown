@@ -128,6 +128,8 @@ private func parsedInlineRuns(for fixture: PretextFixture) throws -> [MarkdownIn
     switch fixture.group {
     case "list-cell-inline":
         return try #require(block.listItems.first?.inlines)
+    case "nested-list-path-wrap":
+        return try #require(block.listItems.first?.childItems.first?.inlines)
     case "table-cell-inline":
         return try #require(block.table?.rows.first?.first?.inlines)
     default:

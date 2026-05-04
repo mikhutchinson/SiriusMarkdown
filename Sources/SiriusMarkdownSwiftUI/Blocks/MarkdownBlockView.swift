@@ -44,7 +44,7 @@ public struct MarkdownBlockView: View {
             case .codeBlock:
                 codeBlockContent
             case .blockQuote:
-                HStack(alignment: .top, spacing: 8) {
+                MarkdownLeadingContentLayout(leadingWidth: 3, spacing: 8, stretchesLeadingToContentHeight: true) {
                     Rectangle()
                         .fill(theme.quoteAccent)
                         .frame(width: 3)
@@ -662,12 +662,12 @@ private struct MarkdownListItemRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
+            MarkdownLeadingContentLayout(leadingWidth: markerWidth, spacing: 8) {
                 markerView
                     .frame(width: markerWidth, alignment: .trailing)
                 listItemInlineView
-                .textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -731,6 +731,67 @@ private struct MarkdownListItemRow: View {
 
     private var markerWidth: CGFloat {
         kind == .orderedList ? 34 : 28
+    }
+}
+
+private struct MarkdownLeadingContentLayout: Layout {
+    var leadingWidth: CGFloat
+    var spacing: CGFloat
+    var stretchesLeadingToContentHeight: Bool = false
+
+    func sizeThatFits(
+        proposal: ProposedViewSize,
+        subviews: Subviews,
+        cache _: inout ()
+    ) -> CGSize {
+        guard subviews.count >= 2 else {
+            return subviews.first?.sizeThatFits(proposal) ?? .zero
+        }
+
+        let availableWidth = finiteWidth(from: proposal)
+        let contentWidth = availableWidth.map { max(0, $0 - leadingWidth - spacing) }
+        let leadingSize = subviews[0].sizeThatFits(
+            ProposedViewSize(width: leadingWidth, height: proposal.height)
+        )
+        let contentSize = subviews[1].sizeThatFits(
+            ProposedViewSize(width: contentWidth, height: proposal.height)
+        )
+        let height = max(leadingSize.height, contentSize.height)
+        let width = availableWidth ?? leadingWidth + spacing + contentSize.width
+        return CGSize(width: width, height: height)
+    }
+
+    func placeSubviews(
+        in bounds: CGRect,
+        proposal _: ProposedViewSize,
+        subviews: Subviews,
+        cache _: inout ()
+    ) {
+        guard subviews.count >= 2 else {
+            subviews.first?.place(
+                at: bounds.origin,
+                proposal: ProposedViewSize(width: bounds.width, height: bounds.height)
+            )
+            return
+        }
+
+        let contentWidth = max(0, bounds.width - leadingWidth - spacing)
+        let leadingHeight = stretchesLeadingToContentHeight ? bounds.height : nil
+        subviews[0].place(
+            at: bounds.origin,
+            proposal: ProposedViewSize(width: leadingWidth, height: leadingHeight)
+        )
+        subviews[1].place(
+            at: CGPoint(x: bounds.minX + leadingWidth + spacing, y: bounds.minY),
+            proposal: ProposedViewSize(width: contentWidth, height: bounds.height)
+        )
+    }
+
+    private func finiteWidth(from proposal: ProposedViewSize) -> CGFloat? {
+        guard let width = proposal.width, width.isFinite, width > 0 else {
+            return nil
+        }
+        return width
     }
 }
 

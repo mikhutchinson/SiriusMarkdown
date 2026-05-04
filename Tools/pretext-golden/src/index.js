@@ -2,6 +2,7 @@ import { readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createCanvas } from "@napi-rs/canvas";
 import { layoutWithLines, measureNaturalWidth, prepareWithSegments } from "@chenglou/pretext";
+import LineBreaker from "../vendor/linebreak/package/dist/module.mjs";
 
 const fixturesDir = new URL("../../../Sources/SiriusMarkdownPretextSupport/Fixtures/", import.meta.url);
 const mirrorFixturesDir = new URL("../fixtures/", import.meta.url);
@@ -20,11 +21,13 @@ const requiredProductGroups = new Set([
   "hard-breaks",
   "heading-font-profile",
   "image-placeholder",
+  "inline-code-path-wrap",
   "inline-math",
   "link-inline",
   "list-cell-inline",
   "long-word",
   "mixed-script",
+  "nested-list-path-wrap",
   "paragraph-wrap-medium",
   "paragraph-wrap-narrow",
   "paragraph-wrap-wide",
@@ -73,6 +76,7 @@ function main() {
   for (const entry of entries) {
     const fixture = entry.fixture;
     const expected = expectedLayout(fixture);
+    const lineBreakReport = validateUnicodeBreaks(fixture, expected);
 
     if (shouldUpdate) {
       fixture.expected = expected;
@@ -82,11 +86,93 @@ function main() {
 
     if (shouldCheck) {
       assertExpectedMatches(fixture.name, fixture.expected, expected);
+      if (lineBreakReport.length > 0) {
+        throw new Error(`${fixture.name} line breaks are not backed by vendored UAX #14 opportunities: ${lineBreakReport.join(", ")}`);
+      }
       assertMirrorMatches(entry.name, fixture);
     }
 
     console.log(`${fixture.name}: ${expected.lineCount} lines, ${expected.naturalWidth.toFixed(2)}px natural`);
   }
+}
+
+function validateUnicodeBreaks(fixture, expected) {
+  if (!fixture.group?.includes("wrap")) {
+    return [];
+  }
+
+  const oracleText = fixture.oracleText ?? fixture.markdown;
+  const opportunities = unicodeLineBreakOpportunities(oracleText);
+  const opportunityList = [...opportunities].sort((lhs, rhs) => lhs - rhs);
+  const failures = [];
+
+  for (const line of expected.lines.slice(0, -1)) {
+    const upper = line.byteRange.upperBound;
+    if (opportunities.has(upper)) {
+      continue;
+    }
+
+    if (isEmergencyOverwideSplit(oracleText, upper, opportunityList, fixture)) {
+      continue;
+    }
+
+    failures.push(`${line.text}@${upper}`);
+  }
+
+  return failures;
+}
+
+function isEmergencyOverwideSplit(text, byteOffset, opportunityList, fixture) {
+  const lowerBound = previousOpportunity(byteOffset, opportunityList);
+  const upperBound = nextOpportunity(byteOffset, opportunityList, Buffer.byteLength(text, "utf8"));
+  if (lowerBound === upperBound) {
+    return false;
+  }
+
+  const unbreakableRun = oracleTextFromByteRange(text, lowerBound, upperBound);
+  return measureTextWidth(unbreakableRun, fixture.font ?? defaultFont) > fixture.containerWidth + tolerance;
+}
+
+function previousOpportunity(byteOffset, opportunityList) {
+  let candidate = 0;
+  for (const opportunity of opportunityList) {
+    if (opportunity >= byteOffset) {
+      break;
+    }
+    candidate = opportunity;
+  }
+  return candidate;
+}
+
+function nextOpportunity(byteOffset, opportunityList, textByteLength) {
+  for (const opportunity of opportunityList) {
+    if (opportunity > byteOffset) {
+      return opportunity;
+    }
+  }
+  return textByteLength;
+}
+
+function measureTextWidth(text, font) {
+  const canvas = createCanvas(1, 1);
+  const context = canvas.getContext("2d");
+  context.font = font;
+  return context.measureText(text).width;
+}
+
+function unicodeLineBreakOpportunities(text) {
+  const opportunities = new Set();
+  const breaker = new LineBreaker(text);
+  let current;
+  while ((current = breaker.nextBreak())) {
+    opportunities.add(Buffer.byteLength(text.slice(0, current.position), "utf8"));
+  }
+  return opportunities;
+}
+
+function oracleTextFromByteRange(text, lowerBound, upperBound) {
+  const buffer = Buffer.from(text, "utf8");
+  return buffer.subarray(lowerBound, upperBound).toString("utf8");
 }
 
 function expectedLayout(fixture) {

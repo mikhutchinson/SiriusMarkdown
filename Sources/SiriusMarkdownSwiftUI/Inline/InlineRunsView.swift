@@ -169,7 +169,7 @@ public struct InlineRunsView: View {
     public nonisolated static func lineLayout(
         for prepared: MarkdownPreparedInlineContent,
         containerWidth: Double,
-        allowsOverwideFallback: Bool = false
+        allowsOverwideFallback: Bool = true
     ) -> InlineLayoutResult {
         prepared.layout(
             containerWidth: containerWidth,
@@ -303,9 +303,10 @@ private struct PreparedInlineTextView: View {
 
                 if abs(width - containerWidth) > 0.5 {
                     containerWidth = width
+                    let layoutWidth = max(1, Double(width) - Self.nativeLineSafetyInset)
                     layoutResult = InlineRunsView.lineLayout(
                         for: prepared,
-                        containerWidth: Double(width),
+                        containerWidth: layoutWidth,
                         allowsOverwideFallback: true
                     )
                     if !recordedClipping,
@@ -361,6 +362,8 @@ private struct PreparedInlineTextView: View {
             return .handled
         }
     }
+
+    private static let nativeLineSafetyInset: Double = 2
 }
 
 private struct PreparedInlineWidthPreferenceKey: PreferenceKey {
@@ -387,7 +390,10 @@ private struct PreparedInlineProposalLayout: Layout {
         let proposedWidth = finiteWidth(from: proposal)
         let childProposal = ProposedViewSize(width: proposedWidth, height: proposal.height)
         let childSize = content.sizeThatFits(childProposal)
-        let width = proposedWidth ?? childSize.width
+        guard let proposedWidth else {
+            return CGSize(width: 0, height: childSize.height)
+        }
+        let width = proposedWidth
         return CGSize(width: width, height: childSize.height)
     }
 

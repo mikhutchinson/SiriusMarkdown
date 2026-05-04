@@ -165,10 +165,16 @@ public struct MeasuredInlineSegment: Sendable, Hashable {
 public struct MeasuredInlineUnit: Sendable, Hashable {
     public var byteRange: Range<Int>
     public var width: Double
+    public var startsPreferredBreakUnit: Bool
 
-    public init(byteRange: Range<Int>, width: Double) {
+    public init(
+        byteRange: Range<Int>,
+        width: Double,
+        startsPreferredBreakUnit: Bool = false
+    ) {
         self.byteRange = byteRange
         self.width = width
+        self.startsPreferredBreakUnit = startsPreferredBreakUnit
     }
 }
 
@@ -563,10 +569,20 @@ public struct VariableWidthLineWalker<Measurer: InlineMeasuring>: Sendable {
         var lineStart = currentStart
         var width = currentWidth
         let units = measuredSegment.units.isEmpty
-            ? measuredUnits(for: measuredSegment.segment, fontSize: fontSize)
+            ? measuredUnits(
+                for: measuredSegment.segment,
+                fontSize: fontSize,
+                containerWidth: containerWidth
+            )
             : measuredSegment.units
 
         for unit in units {
+            if unit.startsPreferredBreakUnit, width > 0 {
+                lines.append(InlineLineRange(byteRange: lineStart..<unit.byteRange.lowerBound, width: width))
+                lineStart = unit.byteRange.lowerBound
+                width = 0
+            }
+
             if width > 0, width + unit.width > containerWidth {
                 lines.append(InlineLineRange(byteRange: lineStart..<unit.byteRange.lowerBound, width: width))
                 lineStart = unit.byteRange.lowerBound
@@ -579,11 +595,57 @@ public struct VariableWidthLineWalker<Measurer: InlineMeasuring>: Sendable {
         return (lines, lineStart, width)
     }
 
-    private func measuredUnits(for segment: PreparedInlineSegment, fontSize: Double) -> [MeasuredInlineUnit] {
+    private func measuredUnits(
+        for segment: PreparedInlineSegment,
+        fontSize: Double,
+        containerWidth: Double? = nil
+    ) -> [MeasuredInlineUnit] {
         guard !segment.isBreakOpportunity else {
             return []
         }
 
+        if let containerWidth, containerWidth.isFinite, containerWidth > 0 {
+            return measuredPreferredBreakUnits(
+                for: segment,
+                fontSize: fontSize,
+                containerWidth: containerWidth
+            )
+        }
+
+        return measuredGraphemeUnits(for: segment, fontSize: fontSize)
+    }
+
+    private func measuredPreferredBreakUnits(
+        for segment: PreparedInlineSegment,
+        fontSize: Double,
+        containerWidth: Double
+    ) -> [MeasuredInlineUnit] {
+        preferredBreakPieces(for: segment).enumerated().flatMap { index, piece -> [MeasuredInlineUnit] in
+            let pieceSegment = PreparedInlineSegment(
+                kind: segment.kind,
+                text: piece.text,
+                byteRange: piece.byteRange,
+                isHardBreak: false,
+                isBreakOpportunity: false
+            )
+            let width = measurer.width(of: pieceSegment, fontSize: fontSize)
+            guard width > containerWidth, piece.text.count > 1 else {
+                return [
+                    MeasuredInlineUnit(
+                        byteRange: piece.byteRange,
+                        width: width
+                    )
+                ]
+            }
+            var units = measuredGraphemeUnits(for: pieceSegment, fontSize: fontSize)
+            if index > 0, !units.isEmpty {
+                units[0].startsPreferredBreakUnit = true
+            }
+            return units
+        }
+    }
+
+    private func measuredGraphemeUnits(for segment: PreparedInlineSegment, fontSize: Double) -> [MeasuredInlineUnit] {
         var units: [MeasuredInlineUnit] = []
         var cursor = segment.byteRange.lowerBound
 
@@ -609,6 +671,50 @@ public struct VariableWidthLineWalker<Measurer: InlineMeasuring>: Sendable {
         }
 
         return units
+    }
+
+    private func preferredBreakPieces(
+        for segment: PreparedInlineSegment
+    ) -> [(text: String, byteRange: Range<Int>)] {
+        var pieces: [(String, Range<Int>)] = []
+        var current = ""
+        var currentStart: Int?
+        var cursor = segment.byteRange.lowerBound
+
+        func flush(upTo upper: Int) {
+            guard let start = currentStart, !current.isEmpty else {
+                return
+            }
+            pieces.append((current, start..<upper))
+            current.removeAll(keepingCapacity: true)
+            currentStart = nil
+        }
+
+        for character in segment.text {
+            let characterText = String(character)
+            let upper = cursor + characterText.utf8.count
+
+            if character == "/" || character == "\\" {
+                flush(upTo: cursor)
+                pieces.append((characterText, cursor..<upper))
+                cursor = upper
+                continue
+            }
+
+            if currentStart == nil {
+                currentStart = cursor
+            }
+            current.append(character)
+
+            if character == "-" || character == "." || character == ":" {
+                flush(upTo: upper)
+            }
+
+            cursor = upper
+        }
+
+        flush(upTo: cursor)
+        return pieces.isEmpty ? [(segment.text, segment.byteRange)] : pieces
     }
 }
 
@@ -799,7 +905,11 @@ public struct InlineLayoutEngine<Measurer: InlineMeasuring>: Sendable {
                 continue
             }
 
-            let key = overwideUnitCacheKey(for: measuredSegment, fontSize: measured.fontSize)
+            let key = overwideUnitCacheKey(
+                for: measuredSegment,
+                fontSize: measured.fontSize,
+                containerWidth: containerWidth
+            )
             if let cached = overwideUnitCache.value(forKey: key) {
                 diagnosticsRecorder.recordCacheHit()
                 updated.segments[index].units = cached
@@ -808,7 +918,11 @@ public struct InlineLayoutEngine<Measurer: InlineMeasuring>: Sendable {
 
             diagnosticsRecorder.recordCacheMiss()
             diagnosticsRecorder.recordOverwideUnitFallback()
-            let units = measuredUnits(for: measuredSegment.segment, fontSize: measured.fontSize)
+            let units = measuredUnits(
+                for: measuredSegment.segment,
+                fontSize: measured.fontSize,
+                containerWidth: containerWidth
+            )
             overwideUnitCache.insert(units, forKey: key)
             updated.segments[index].units = units
         }
@@ -866,7 +980,8 @@ public struct InlineLayoutEngine<Measurer: InlineMeasuring>: Sendable {
 
     private func overwideUnitCacheKey(
         for measuredSegment: MeasuredInlineSegment,
-        fontSize: Double
+        fontSize: Double,
+        containerWidth: Double
     ) -> MarkdownCacheKey {
         MarkdownCacheKey(
             sourceRange: MarkdownSourceRange(
@@ -875,7 +990,7 @@ public struct InlineLayoutEngine<Measurer: InlineMeasuring>: Sendable {
             ),
             contentHash: preparedSegmentHash(
                 measuredSegment.segment,
-                salt: "font:\(fontSize)|measurer:\(walker.measurer.measurementCacheKey)"
+                salt: "font:\(fontSize)|width:\(containerWidth)|measurer:\(walker.measurer.measurementCacheKey)"
             ),
             namespace: "overwide-inline-units"
         )
@@ -915,11 +1030,57 @@ public struct InlineLayoutEngine<Measurer: InlineMeasuring>: Sendable {
         return hash
     }
 
-    private func measuredUnits(for segment: PreparedInlineSegment, fontSize: Double) -> [MeasuredInlineUnit] {
+    private func measuredUnits(
+        for segment: PreparedInlineSegment,
+        fontSize: Double,
+        containerWidth: Double? = nil
+    ) -> [MeasuredInlineUnit] {
         guard !segment.isBreakOpportunity else {
             return []
         }
 
+        if let containerWidth, containerWidth.isFinite, containerWidth > 0 {
+            return measuredPreferredBreakUnits(
+                for: segment,
+                fontSize: fontSize,
+                containerWidth: containerWidth
+            )
+        }
+
+        return measuredGraphemeUnits(for: segment, fontSize: fontSize)
+    }
+
+    private func measuredPreferredBreakUnits(
+        for segment: PreparedInlineSegment,
+        fontSize: Double,
+        containerWidth: Double
+    ) -> [MeasuredInlineUnit] {
+        preferredBreakPieces(for: segment).enumerated().flatMap { index, piece -> [MeasuredInlineUnit] in
+            let pieceSegment = PreparedInlineSegment(
+                kind: segment.kind,
+                text: piece.text,
+                byteRange: piece.byteRange,
+                isHardBreak: false,
+                isBreakOpportunity: false
+            )
+            let width = walker.measurer.width(of: pieceSegment, fontSize: fontSize)
+            guard width > containerWidth, piece.text.count > 1 else {
+                return [
+                    MeasuredInlineUnit(
+                        byteRange: piece.byteRange,
+                        width: width
+                    )
+                ]
+            }
+            var units = measuredGraphemeUnits(for: pieceSegment, fontSize: fontSize)
+            if index > 0, !units.isEmpty {
+                units[0].startsPreferredBreakUnit = true
+            }
+            return units
+        }
+    }
+
+    private func measuredGraphemeUnits(for segment: PreparedInlineSegment, fontSize: Double) -> [MeasuredInlineUnit] {
         var units: [MeasuredInlineUnit] = []
         var cursor = segment.byteRange.lowerBound
 
@@ -945,6 +1106,50 @@ public struct InlineLayoutEngine<Measurer: InlineMeasuring>: Sendable {
         }
 
         return units
+    }
+
+    private func preferredBreakPieces(
+        for segment: PreparedInlineSegment
+    ) -> [(text: String, byteRange: Range<Int>)] {
+        var pieces: [(String, Range<Int>)] = []
+        var current = ""
+        var currentStart: Int?
+        var cursor = segment.byteRange.lowerBound
+
+        func flush(upTo upper: Int) {
+            guard let start = currentStart, !current.isEmpty else {
+                return
+            }
+            pieces.append((current, start..<upper))
+            current.removeAll(keepingCapacity: true)
+            currentStart = nil
+        }
+
+        for character in segment.text {
+            let characterText = String(character)
+            let upper = cursor + characterText.utf8.count
+
+            if character == "/" || character == "\\" {
+                flush(upTo: cursor)
+                pieces.append((characterText, cursor..<upper))
+                cursor = upper
+                continue
+            }
+
+            if currentStart == nil {
+                currentStart = cursor
+            }
+            current.append(character)
+
+            if character == "-" || character == "." || character == ":" {
+                flush(upTo: upper)
+            }
+
+            cursor = upper
+        }
+
+        flush(upTo: cursor)
+        return pieces.isEmpty ? [(segment.text, segment.byteRange)] : pieces
     }
 
     private func append(_ text: String, to initialHash: UInt64) -> UInt64 {

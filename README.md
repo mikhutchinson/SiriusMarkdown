@@ -10,9 +10,9 @@ The package is built around three principles:
 
 ## Status
 
-This checkout is the `0.4.1` public package release. The release gate is strict Swift-vs-Pretext layout comparison, required Pretext product fixture groups, and AppKit render probes for document, compact chat, multilingual, inline-attribute, overflow, hard-break, long-word, finite-column containment, wide-to-narrow resize, document affordance chrome, and language-aware code highlighting output. Fixture drift, missing groups, duplicate fixture names/groups, and trivial render output are release blockers.
+This checkout is the `0.4.2` public package release. The release gate is strict Swift-vs-Pretext layout comparison, required Pretext product fixture groups, and AppKit render probes for document, compact chat, transcript wrapping, multilingual, inline-attribute, overflow, hard-break, long-word, finite-column containment, wide-to-narrow resize, document affordance chrome, and language-aware code highlighting output. Fixture drift, missing groups, duplicate fixture names/groups, and trivial render output are release blockers.
 
-The current product claim is native SwiftUI Markdown rendering with prepared-line layout, streaming snapshots, bounded caches, safe default policies, language-aware default code highlighting, generic document/code affordances, public chat/document presets, first-class H1-H6 heading typography through `MarkdownTheme.headings`, and resize-stable prepared native lines. It is not a custom glyph renderer: `preparedNativeLines` slices prepared attributed line ranges and renders them with SwiftUI `Text(AttributedString)`.
+The current product claim is native SwiftUI Markdown rendering with prepared-line layout, streaming snapshots, bounded caches, safe default policies, language-aware default code highlighting, generic document/code affordances, public chat/document presets, first-class H1-H6 heading typography through `MarkdownTheme.headings`, and containment-stable prepared native lines for transcript-style paths, commands, URLs, long identifiers, nested lists, quotes, and table cells. It is not a custom glyph renderer: `preparedNativeLines` slices prepared attributed line ranges and renders them with SwiftUI `Text(AttributedString)`.
 
 ## Requirements
 
@@ -25,7 +25,7 @@ In `Package.swift` (adjust the package URL to the published repository):
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/mikhutchinson/SiriusMarkdown.git", from: "0.4.1")
+    .package(url: "https://github.com/mikhutchinson/SiriusMarkdown.git", from: "0.4.2")
 ],
 targets: [
     .target(
@@ -39,7 +39,7 @@ targets: [
 ]
 ```
 
-Runtime dependency: [swift-markdown](https://github.com/swiftlang/swift-markdown) (Markdown semantics). Third-party credits, including the Pretext golden oracle used by `Tools/pretext-golden`, are listed in `NOTICE.md`.
+Runtime dependency: [swift-markdown](https://github.com/swiftlang/swift-markdown) (Markdown semantics). Third-party credits, including the Pretext golden oracle and the vendored JavaScript Unicode line-breaking oracle used by `Tools/pretext-golden`, are listed in `NOTICE.md`.
 
 For local development from a sibling checkout, use a path dependency instead:
 
@@ -170,7 +170,7 @@ The release and product gates cover more than construction smoke tests:
 - renderer preparation does not eagerly populate per-character fallback measurements;
 - repeated preparation reuses inline/code/math caches and records diagnostics;
 - large transcripts keep stable prepared item IDs for 10,000 sealed blocks plus one active tail;
-- `Tools/RenderProbe` renders document, compact-chat, multilingual, inline-attribute, overflow, hard-break, long-word, and code-highlighting cases through AppKit and rejects blank, trivial, collapsed-spacing, clipped-wide, or misleading plain-fence output;
+- `Tools/RenderProbe` renders document, compact-chat, transcript-wrapping, multilingual, inline-attribute, overflow, hard-break, long-word, and code-highlighting cases through AppKit and rejects blank, trivial, collapsed-spacing, clipped-wide, or misleading plain-fence output;
 - strict Pretext golden fixtures compare Swift layout metrics against the JavaScript oracle with no known-drift whitelist, no duplicate fixture names/groups, and all required product groups present.
 
 Before a public tag, run:
@@ -248,12 +248,12 @@ bash Tools/product-check.sh
 
 ## Release
 
-`0.4.1` is ready to publish only when:
+`0.4.2` is ready to publish only when:
 
 - `README.md`, `NOTICE.md`, `changelog.md`, and `runbook.md` describe the current public package surface;
 - `bash Tools/product-check.sh` passes from the repository root;
 - `git diff --check` reports no whitespace errors;
 - `git remote -v` points at the intended public repository;
-- the release commit is tagged as `0.4.1` and pushed with tags.
+- the release commit is tagged as `0.4.2` and pushed with tags.
 
 Recommended release commands are documented in `runbook.md`.

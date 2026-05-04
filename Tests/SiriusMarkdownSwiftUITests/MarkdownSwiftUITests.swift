@@ -3,6 +3,9 @@ import SwiftUI
 import Testing
 import SiriusMarkdownCore
 import SiriusMarkdownSwiftUI
+#if canImport(AppKit)
+import AppKit
+#endif
 
 @Test
 @MainActor
@@ -737,6 +740,119 @@ func preparedNativeLineLayoutUsesOverwideFallbackForLongPlainWords() throws {
     #expect(result.lines.count > 1)
     #expect(result.lines.allSatisfy { $0.width <= 48.5 })
     #expect(recorder.snapshot().overwideUnitFallbackCount > 0)
+}
+
+@Test
+func preparedNativeLineLayoutWrapsInlineCodePathsByDefault() throws {
+    var stream = MarkdownStream()
+    stream.append("See `/opt/example/workspaces/sample-project/build-artifacts/transcript_renderer_wrap_probe.log`")
+    stream.finish()
+    let snapshot = stream.snapshot()
+    let recorder = MarkdownDiagnosticsRecorder()
+    let configuration = MarkdownRendererConfiguration(
+        inlineRenderingMode: .preparedNativeLines,
+        diagnosticsRecorder: recorder
+    )
+    let prepared = configuration.prepare(snapshot: snapshot)
+    let block = try #require(snapshot.blocks.first)
+    let inlineLayout = try #require(prepared.preparedContentByBlockID[block.id]?.inlineLayout)
+
+    let result = InlineRunsView.lineLayout(for: inlineLayout, containerWidth: 132)
+    let lines = InlineRunsView.attributedLines(for: inlineLayout, layout: result)
+
+    #expect(result.lines.count > 1)
+    #expect(result.lines.allSatisfy { $0.width <= 132.5 })
+    #expect(lines.map { String($0.characters) }.joined() == inlineLayout.prepared.naturalText)
+    #expect(lines.contains { line in line.runs.contains { $0.inlinePresentationIntent?.contains(.code) == true } })
+    #expect(recorder.snapshot().overwideUnitFallbackCount > 0)
+}
+
+@Test
+func nestedListAndQuoteInlinePathsStayWithinEffectiveContentWidth() throws {
+    let source = """
+    > Quote with `/opt/example/workspaces/sample-project/build-artifacts/transcript_renderer_wrap_probe.log`
+
+    - parent item
+      - `/var/tmp/example_render_pipeline/transcript_renderer_wrap_probe_20260503_211600.log`
+    """
+    var stream = MarkdownStream()
+    stream.append(source)
+    stream.finish()
+    let snapshot = stream.snapshot()
+    let configuration = MarkdownRendererConfiguration.compactChat
+    let prepared = configuration.prepare(snapshot: snapshot)
+    let quote = try #require(prepared.items.compactMap { item -> MarkdownPreparedBlockContent? in
+        guard case let .block(block, content) = item, block.kind == .blockQuote else {
+            return nil
+        }
+        return content
+    }.first)
+    let list = try #require(prepared.items.compactMap { item -> MarkdownPreparedBlockContent? in
+        guard case let .block(block, content) = item, block.kind == .unorderedList else {
+            return nil
+        }
+        return content
+    }.first)
+    let quoteInline = try #require(quote.inlineLayout)
+    let childInline = try #require(list.listItems.first?.childItems.first?.inlineLayout)
+
+    let quoteLayout = InlineRunsView.lineLayout(for: quoteInline, containerWidth: 205)
+    let childLayout = InlineRunsView.lineLayout(for: childInline, containerWidth: 118)
+
+    #expect(quoteLayout.lines.count > 1)
+    #expect(quoteLayout.lines.allSatisfy { $0.width <= 205.5 })
+    #expect(childLayout.lines.count > 1)
+    #expect(childLayout.lines.allSatisfy { $0.width <= 118.5 })
+}
+
+@Test
+func tableCellInlinePathsStayWithinCellContentWidth() throws {
+    var stream = MarkdownStream()
+    stream.append(
+        """
+        | Kind | Evidence |
+        | - | - |
+        | Log | `/var/tmp/example_render_pipeline/transcript_renderer_wrap_probe_20260503_211600.log` |
+        """
+    )
+    stream.finish()
+    let snapshot = stream.snapshot()
+    let configuration = MarkdownRendererConfiguration.document
+    let prepared = configuration.prepare(snapshot: snapshot)
+    let block = try #require(snapshot.blocks.first)
+    let table = try #require(prepared.preparedContentByBlockID[block.id]?.table)
+    let evidence = try #require(table.rows.first?.cells.dropFirst().first?.inlineLayout)
+
+    let result = InlineRunsView.lineLayout(for: evidence, containerWidth: 132)
+
+    #expect(result.lines.count > 1)
+    #expect(result.lines.allSatisfy { $0.width <= 132.5 })
+}
+
+@Test
+@MainActor
+func transcriptLikePreparedNativeViewFittingWidthStaysWithinHostColumn() throws {
+    #if canImport(AppKit)
+    let source = """
+    - File changed:
+      - `/opt/example/workspaces/sample-project/build-artifacts/transcript_renderer_wrap_probe.log`
+    - Verification command:
+      - `./.venv/bin/python experiment_honest_ensemble.py | tee /tmp/example_render_pipeline/transcript_renderer_wrap_probe_20260503_211600.log`
+    """
+    var stream = MarkdownStream()
+    stream.append(source)
+    stream.finish()
+    let configuration = MarkdownRendererConfiguration.compactChat
+    let prepared = configuration.prepare(snapshot: stream.snapshot())
+    let width = CGFloat(220)
+    let view = StreamingMarkdownView(preparedSnapshot: prepared, configuration: configuration)
+        .frame(width: width, alignment: .leading)
+    let hostingView = NSHostingView(rootView: view)
+    hostingView.frame = NSRect(origin: .zero, size: NSSize(width: width, height: 1_000))
+    hostingView.layoutSubtreeIfNeeded()
+
+    #expect(hostingView.fittingSize.width <= width + 1)
+    #endif
 }
 
 func repeatedPreparationReusesInlineCodeAndMathCaches() throws {

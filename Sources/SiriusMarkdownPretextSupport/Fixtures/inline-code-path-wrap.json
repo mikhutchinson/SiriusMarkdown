@@ -1,0 +1,295 @@
+{
+  "name": "inline-code-path-wrap",
+  "group": "inline-code-path-wrap",
+  "description": "Inline code paths use vendored UAX #14 break opportunities and overwide emergency layout in narrow columns.",
+  "markdown": "`/opt/example/workspaces/sample-project/build-artifacts/transcript_renderer_wrap_probe.log`",
+  "oracleText": "/opt/example/workspaces/sample-project/build-artifacts/transcript_renderer_wrap_probe.log",
+  "containerWidth": 132,
+  "font": "16px Menlo",
+  "lineHeight": 20,
+  "whiteSpace": "pre-wrap",
+  "wordBreak": "normal",
+  "expected": {
+    "lineCount": 9,
+    "naturalWidth": 857.32,
+    "height": 180,
+    "segments": [
+      {
+        "text": "/",
+        "kind": "text",
+        "width": 9.63,
+        "byteRange": {
+          "lowerBound": 0,
+          "upperBound": 1
+        }
+      },
+      {
+        "text": "opt",
+        "kind": "text",
+        "width": 28.9,
+        "byteRange": {
+          "lowerBound": 1,
+          "upperBound": 4
+        }
+      },
+      {
+        "text": "/",
+        "kind": "text",
+        "width": 9.63,
+        "byteRange": {
+          "lowerBound": 4,
+          "upperBound": 5
+        }
+      },
+      {
+        "text": "example",
+        "kind": "text",
+        "width": 67.43,
+        "byteRange": {
+          "lowerBound": 5,
+          "upperBound": 12
+        }
+      },
+      {
+        "text": "/",
+        "kind": "text",
+        "width": 9.63,
+        "byteRange": {
+          "lowerBound": 12,
+          "upperBound": 13
+        }
+      },
+      {
+        "text": "workspaces",
+        "kind": "text",
+        "width": 96.33,
+        "byteRange": {
+          "lowerBound": 13,
+          "upperBound": 23
+        }
+      },
+      {
+        "text": "/",
+        "kind": "text",
+        "width": 9.63,
+        "byteRange": {
+          "lowerBound": 23,
+          "upperBound": 24
+        }
+      },
+      {
+        "text": "sample-",
+        "kind": "text",
+        "width": 67.43,
+        "byteRange": {
+          "lowerBound": 24,
+          "upperBound": 31
+        }
+      },
+      {
+        "text": "project",
+        "kind": "text",
+        "width": 67.43,
+        "byteRange": {
+          "lowerBound": 31,
+          "upperBound": 38
+        }
+      },
+      {
+        "text": "/",
+        "kind": "text",
+        "width": 9.63,
+        "byteRange": {
+          "lowerBound": 38,
+          "upperBound": 39
+        }
+      },
+      {
+        "text": "build-",
+        "kind": "text",
+        "width": 57.8,
+        "byteRange": {
+          "lowerBound": 39,
+          "upperBound": 45
+        }
+      },
+      {
+        "text": "artifacts",
+        "kind": "text",
+        "width": 86.7,
+        "byteRange": {
+          "lowerBound": 45,
+          "upperBound": 54
+        }
+      },
+      {
+        "text": "/",
+        "kind": "text",
+        "width": 9.63,
+        "byteRange": {
+          "lowerBound": 54,
+          "upperBound": 55
+        }
+      },
+      {
+        "text": "transcript_renderer_wrap_probe.log",
+        "kind": "text",
+        "width": 327.52,
+        "byteRange": {
+          "lowerBound": 55,
+          "upperBound": 89
+        }
+      }
+    ],
+    "lines": [
+      {
+        "text": "/opt/example/",
+        "width": 125.22,
+        "byteRange": {
+          "lowerBound": 0,
+          "upperBound": 13
+        },
+        "start": {
+          "segmentIndex": 0,
+          "graphemeIndex": 0
+        },
+        "end": {
+          "segmentIndex": 5,
+          "graphemeIndex": 0
+        }
+      },
+      {
+        "text": "workspaces/",
+        "width": 105.96,
+        "byteRange": {
+          "lowerBound": 13,
+          "upperBound": 24
+        },
+        "start": {
+          "segmentIndex": 5,
+          "graphemeIndex": 0
+        },
+        "end": {
+          "segmentIndex": 7,
+          "graphemeIndex": 0
+        }
+      },
+      {
+        "text": "sample-",
+        "width": 67.43,
+        "byteRange": {
+          "lowerBound": 24,
+          "upperBound": 31
+        },
+        "start": {
+          "segmentIndex": 7,
+          "graphemeIndex": 0
+        },
+        "end": {
+          "segmentIndex": 8,
+          "graphemeIndex": 0
+        }
+      },
+      {
+        "text": "project/",
+        "width": 77.06,
+        "byteRange": {
+          "lowerBound": 31,
+          "upperBound": 39
+        },
+        "start": {
+          "segmentIndex": 8,
+          "graphemeIndex": 0
+        },
+        "end": {
+          "segmentIndex": 10,
+          "graphemeIndex": 0
+        }
+      },
+      {
+        "text": "build-",
+        "width": 57.8,
+        "byteRange": {
+          "lowerBound": 39,
+          "upperBound": 45
+        },
+        "start": {
+          "segmentIndex": 10,
+          "graphemeIndex": 0
+        },
+        "end": {
+          "segmentIndex": 11,
+          "graphemeIndex": 0
+        }
+      },
+      {
+        "text": "artifacts/",
+        "width": 96.33,
+        "byteRange": {
+          "lowerBound": 45,
+          "upperBound": 55
+        },
+        "start": {
+          "segmentIndex": 11,
+          "graphemeIndex": 0
+        },
+        "end": {
+          "segmentIndex": 13,
+          "graphemeIndex": 0
+        }
+      },
+      {
+        "text": "transcript_re",
+        "width": 125.19,
+        "byteRange": {
+          "lowerBound": 55,
+          "upperBound": 68
+        },
+        "start": {
+          "segmentIndex": 13,
+          "graphemeIndex": 0
+        },
+        "end": {
+          "segmentIndex": 13,
+          "graphemeIndex": 13
+        }
+      },
+      {
+        "text": "nderer_wrap_p",
+        "width": 125.19,
+        "byteRange": {
+          "lowerBound": 68,
+          "upperBound": 81
+        },
+        "start": {
+          "segmentIndex": 13,
+          "graphemeIndex": 13
+        },
+        "end": {
+          "segmentIndex": 13,
+          "graphemeIndex": 26
+        }
+      },
+      {
+        "text": "robe.log",
+        "width": 77.04,
+        "byteRange": {
+          "lowerBound": 81,
+          "upperBound": 89
+        },
+        "start": {
+          "segmentIndex": 13,
+          "graphemeIndex": 26
+        },
+        "end": {
+          "segmentIndex": 14,
+          "graphemeIndex": 0
+        }
+      }
+    ]
+  },
+  "expectedInlineKinds": [
+    "code"
+  ],
+  "expectedPreparedSegments": null
+}

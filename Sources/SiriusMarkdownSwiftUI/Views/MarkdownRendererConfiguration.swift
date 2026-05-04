@@ -631,7 +631,7 @@ public struct MarkdownPreparedInlineContent: Sendable {
 
     public func layout(
         containerWidth: Double,
-        allowsOverwideFallback: Bool = false
+        allowsOverwideFallback: Bool = true
     ) -> InlineLayoutResult {
         layout(
             options: InlineLayoutOptions(
@@ -645,7 +645,7 @@ public struct MarkdownPreparedInlineContent: Sendable {
 
     public func layout(
         options: InlineLayoutOptions,
-        allowsOverwideFallback: Bool = false
+        allowsOverwideFallback: Bool = true
     ) -> InlineLayoutResult {
         layoutCache.layout(
             measured,
@@ -680,7 +680,7 @@ public final class MarkdownInlineLayoutCache: @unchecked Sendable {
     public func layout(
         _ measured: MeasuredInlineContent,
         options: InlineLayoutOptions,
-        allowsOverwideFallback: Bool = false
+        allowsOverwideFallback: Bool = true
     ) -> InlineLayoutResult {
         lock.withLock {
             engine.layout(

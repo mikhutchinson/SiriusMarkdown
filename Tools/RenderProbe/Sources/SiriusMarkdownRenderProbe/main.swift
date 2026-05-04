@@ -10,6 +10,7 @@ struct SiriusMarkdownRenderProbe {
         let result = renderRepresentativeDocument()
         let nativeResult = renderRepresentativeNativeDocument()
         let chatResult = renderCompactChatTranscript()
+        let transcriptWrapResult = renderTranscriptWrappingProbe()
         let multilingualResult = renderMultilingualNativeDocument()
         let attributeResult = renderInlineAttributeCrossingProbe()
         let overflowResult = renderOverflowContainmentProbe()
@@ -24,6 +25,7 @@ struct SiriusMarkdownRenderProbe {
         assertRenderable("MarkdownDocumentView", result)
         assertRenderable("prepared native MarkdownDocumentView", nativeResult)
         assertRenderable("compact chat prepared native transcript", chatResult, minimumNonWhitePixels: 1_400)
+        assertRenderable("compact transcript wrapping prepared native transcript", transcriptWrapResult, minimumNonWhitePixels: 1_600)
         assertRenderable("multilingual prepared native document", multilingualResult, minimumNonWhitePixels: 1_200)
         assertRenderable("inline attribute crossing prepared native document", attributeResult)
         assertRenderable("code and table overflow prepared native document", overflowResult)
@@ -66,6 +68,22 @@ struct SiriusMarkdownRenderProbe {
         if containmentResult.darkRightmostX > containmentResult.maximumDarkRightmostX {
             fputs(
                 "error: prepared native containment probe leaked dark text to x=\(containmentResult.darkRightmostX); expected no normal inline text beyond x=\(containmentResult.maximumDarkRightmostX).\n",
+                stderr
+            )
+            exit(EXIT_FAILURE)
+        }
+
+        if transcriptWrapResult.darkRightmostX > transcriptWrapResult.maximumDarkRightmostX {
+            fputs(
+                "error: compact transcript wrapping probe leaked dark text to x=\(transcriptWrapResult.darkRightmostX); expected no normal inline text beyond x=\(transcriptWrapResult.maximumDarkRightmostX).\n",
+                stderr
+            )
+            exit(EXIT_FAILURE)
+        }
+
+        if transcriptWrapResult.fittingWidth > transcriptWrapResult.maximumFittingWidth {
+            fputs(
+                "error: compact transcript wrapping fitting width was \(transcriptWrapResult.fittingWidth); expected <= \(transcriptWrapResult.maximumFittingWidth).\n",
                 stderr
             )
             exit(EXIT_FAILURE)
@@ -114,6 +132,7 @@ struct SiriusMarkdownRenderProbe {
         print("MarkdownDocumentView render probe: \(result.nonWhitePixels) non-white pixels, \(result.distinctColorBuckets) color buckets")
         print("Prepared native document render probe: \(nativeResult.nonWhitePixels) non-white pixels, \(nativeResult.distinctColorBuckets) color buckets")
         print("Compact chat render probe: \(chatResult.nonWhitePixels) non-white pixels, \(chatResult.distinctColorBuckets) color buckets")
+        print("Compact transcript wrapping probe: dark text reached x=\(transcriptWrapResult.darkRightmostX), fitting width \(transcriptWrapResult.fittingWidth)")
         print("Multilingual render probe: \(multilingualResult.nonWhitePixels) non-white pixels, \(multilingualResult.distinctColorBuckets) color buckets")
         print("Inline attribute crossing probe: \(attributeResult.nonWhitePixels) non-white pixels, \(attributeResult.distinctColorBuckets) color buckets")
         print("Overflow containment probe: \(overflowResult.nonWhitePixels) non-white pixels, \(overflowResult.distinctColorBuckets) color buckets")
@@ -220,6 +239,55 @@ struct SiriusMarkdownRenderProbe {
             size: NSSize(width: 520, height: 260),
             outputPath: nil
         )
+    }
+
+    @MainActor
+    private static func renderTranscriptWrappingProbe() -> RenderResult {
+        let markdown =
+            """
+            - File changed:
+              - `/opt/example/workspaces/sample-project/build-artifacts/transcript_renderer_wrap_probe.log`
+            - Verification command:
+              - `./.venv/bin/python experiment_honest_ensemble.py | tee /tmp/example_render_pipeline/transcript_renderer_wrap_probe_20260503_211600.log`
+            - Evidence URL:
+              - `https://example.com/results/transcript-renderer-wrap-probe/2026/05/03/long_identifier_value`
+            > Quote with `/var/tmp/example_render_pipeline/transcript_renderer_wrap_probe_20260503_211600.log`
+            """
+        let configuration = MarkdownRendererConfiguration.compactChat
+        var stream = MarkdownStream()
+        stream.append(markdown)
+        stream.finish()
+        let prepared = configuration.prepare(snapshot: stream.snapshot())
+        let columnWidth = CGFloat(260)
+        let leadingInset = CGFloat(32)
+        let size = NSSize(width: 640, height: 420)
+        let document = StreamingMarkdownView(preparedSnapshot: prepared, configuration: configuration)
+            .frame(width: columnWidth, alignment: .leading)
+        let fittingView = NSHostingView(rootView: document)
+        fittingView.frame = NSRect(origin: .zero, size: NSSize(width: columnWidth, height: 1_000))
+        fittingView.layoutSubtreeIfNeeded()
+        let fittingWidth = fittingView.fittingSize.width
+
+        let root = HStack(spacing: 0) {
+            Color.white.frame(width: leadingInset)
+            StreamingMarkdownView(preparedSnapshot: prepared, configuration: configuration)
+                .frame(width: columnWidth, alignment: .leading)
+                .clipped()
+            Color.white
+        }
+        .frame(width: size.width, height: size.height, alignment: .topLeading)
+        .background(Color.white)
+        .environment(\.colorScheme, .light)
+
+        var result = renderHosted(
+            root,
+            size: size,
+            outputPath: ProcessInfo.processInfo.environment["SIRIUS_MARKDOWN_TRANSCRIPT_WRAP_PROBE_OUTPUT"]
+        )
+        result.maximumDarkRightmostX = Int(Double(leadingInset + columnWidth + 8) * result.pixelScale)
+        result.fittingWidth = fittingWidth
+        result.maximumFittingWidth = Double(columnWidth + 1)
+        return result
     }
 
     @MainActor
