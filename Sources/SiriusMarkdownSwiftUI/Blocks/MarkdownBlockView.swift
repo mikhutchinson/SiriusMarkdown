@@ -6,6 +6,7 @@ public struct MarkdownBlockView: View {
     private var configuration: MarkdownRendererConfiguration
     private var preparedContent: MarkdownPreparedBlockContent
     @State private var isCodeBlockCollapsed: Bool
+    @Environment(\.colorScheme) private var colorScheme
 
     private var theme: MarkdownTheme {
         configuration.theme
@@ -134,18 +135,14 @@ public struct MarkdownBlockView: View {
                     codeBlockHeader
                 }
                 if !isCodeBlockCollapsed {
-                    if let svg = mermaid.svg,
+                    if let svg = mermaid.svg(for: colorScheme),
                        let svgData = svg.data(using: .utf8),
                        let image = PlatformImage(data: svgData) {
                         ScrollView([.horizontal]) {
                             #if canImport(AppKit) && !targetEnvironment(macCatalyst)
                             Image(nsImage: image)
-                                .resizable()
-                                .aspectRatio(contentMode: .fit)
                             #else
                             Image(uiImage: image)
-                                .resizable()
-                                .aspectRatio(contentMode: .fit)
                             #endif
                         }
                         .padding(.horizontal, 10)
@@ -843,6 +840,15 @@ private struct MarkdownLeadingContentLayout: Layout {
             return nil
         }
         return width
+    }
+}
+
+private extension MarkdownPreparedMermaidDiagram {
+    func svg(for colorScheme: ColorScheme) -> String? {
+        if colorScheme == .dark {
+            return darkSVG ?? svg
+        }
+        return svg
     }
 }
 

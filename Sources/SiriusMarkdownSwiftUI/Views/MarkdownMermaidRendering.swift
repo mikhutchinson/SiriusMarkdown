@@ -22,17 +22,20 @@ public struct MarkdownPreparedMermaidDiagram: Sendable, Hashable {
     public var sourceRange: MarkdownSourceRange?
     public var ascii: String
     public var svg: String?
+    public var darkSVG: String?
 
     public init(
         source: String,
         sourceRange: MarkdownSourceRange?,
         ascii: String,
-        svg: String? = nil
+        svg: String? = nil,
+        darkSVG: String? = nil
     ) {
         self.source = source
         self.sourceRange = sourceRange
         self.ascii = ascii
         self.svg = svg
+        self.darkSVG = darkSVG
     }
 }
 
@@ -40,7 +43,7 @@ public struct DefaultMarkdownMermaidRenderer: MarkdownMermaidRenderer, MarkdownM
     public init() {}
 
     public var mermaidRendererCacheIdentity: String {
-        "siriusmarkdown.default.beautiful-mermaid.1.1.3"
+        "siriusmarkdown.default.beautiful-mermaid.1.1.4.resolved-svg"
     }
 
     public func renderedMermaid(
@@ -56,7 +59,8 @@ public struct DefaultMarkdownMermaidRenderer: MarkdownMermaidRenderer, MarkdownM
             source: source,
             sourceRange: sourceRange,
             ascii: result.ascii,
-            svg: result.svg
+            svg: result.svg,
+            darkSVG: result.darkSVG
         )
     }
 }
@@ -70,6 +74,205 @@ public extension MarkdownCodeLanguage {
 private struct MermaidJavaScriptResult: Sendable {
     var ascii: String
     var svg: String?
+    var darkSVG: String?
+}
+
+private struct MermaidSVGPalette: Sendable {
+    var background: String
+    var foreground: String
+    var line: String
+    var accent: String
+    var muted: String
+    var surface: String
+    var border: String
+    var transparent: Bool
+
+    static func light(theme: MarkdownTheme) -> MermaidSVGPalette {
+        MermaidSVGPalette(
+            background: "#F8FAFC",
+            foreground: "#1F2937",
+            line: "#94A3B8",
+            accent: hex(theme.syntaxHighlightingPalette.section, fallback: "#2563EB"),
+            muted: "#64748B",
+            surface: "#FFFFFF",
+            border: "#CBD5E1",
+            transparent: true
+        )
+    }
+
+    static func dark(theme: MarkdownTheme) -> MermaidSVGPalette {
+        MermaidSVGPalette(
+            background: "#2F3136",
+            foreground: "#F3F4F6",
+            line: "#9CA3AF",
+            accent: softenedAccent(theme.syntaxHighlightingPalette.section),
+            muted: "#A1A1AA",
+            surface: "#3A3D43",
+            border: "#62666F",
+            transparent: true
+        )
+    }
+
+    var javaScriptOptionsJSON: String {
+        let payload: [String: Any] = [
+            "bg": background,
+            "fg": foreground,
+            "line": line,
+            "accent": accent,
+            "muted": muted,
+            "surface": surface,
+            "border": border,
+            "transparent": transparent,
+            "font": "-apple-system, BlinkMacSystemFont, 'SF Pro Text'"
+        ]
+
+        guard let data = try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys]),
+              let string = String(data: data, encoding: .utf8)
+        else {
+            return "{}"
+        }
+        return string
+    }
+
+    var resolvedVariables: [String: String] {
+        [
+            "bg": background,
+            "fg": foreground,
+            "line": line,
+            "accent": accent,
+            "muted": muted,
+            "surface": surface,
+            "border": border,
+            "_text": foreground,
+            "_text-sec": muted,
+            "_text-muted": muted,
+            "_text-faint": Self.mix(foreground, 0.25, background, 0.75),
+            "_line": line,
+            "_arrow": accent,
+            "_node-fill": surface,
+            "_node-stroke": border,
+            "_group-fill": background,
+            "_group-hdr": Self.mix(foreground, 0.05, background, 0.95),
+            "_inner-stroke": Self.mix(foreground, 0.12, background, 0.88),
+            "_key-badge": Self.mix(foreground, 0.10, background, 0.90)
+        ]
+    }
+
+    private static func hex(_ color: MarkdownSyntaxHighlightingColor, fallback: String) -> String {
+        guard color.opacity > 0 else {
+            return fallback
+        }
+        return String(
+            format: "#%02X%02X%02X",
+            clampToByte(color.red),
+            clampToByte(color.green),
+            clampToByte(color.blue)
+        )
+    }
+
+    private static func softenedAccent(_ color: MarkdownSyntaxHighlightingColor) -> String {
+        let base = hex(color, fallback: "#60A5FA")
+        return mix(base, 0.55, "#FFFFFF", 0.45)
+    }
+
+    private static func clampToByte(_ value: Double) -> Int {
+        Int((min(1, max(0, value)) * 255).rounded())
+    }
+
+    private static func mix(_ first: String, _ firstWeight: Double, _ second: String, _ secondWeight: Double) -> String {
+        guard let a = RGB(hex: first), let b = RGB(hex: second) else {
+            return first
+        }
+
+        let total = firstWeight + secondWeight
+        guard total > 0 else {
+            return first
+        }
+
+        return String(
+            format: "#%02X%02X%02X",
+            clampToByte((Double(a.red) * firstWeight + Double(b.red) * secondWeight) / total / 255),
+            clampToByte((Double(a.green) * firstWeight + Double(b.green) * secondWeight) / total / 255),
+            clampToByte((Double(a.blue) * firstWeight + Double(b.blue) * secondWeight) / total / 255)
+        )
+    }
+
+    private struct RGB {
+        var red: Int
+        var green: Int
+        var blue: Int
+
+        init?(hex: String) {
+            let value = hex.trimmingCharacters(in: CharacterSet(charactersIn: "#"))
+            guard value.count == 6, let integer = Int(value, radix: 16) else {
+                return nil
+            }
+            red = (integer >> 16) & 0xFF
+            green = (integer >> 8) & 0xFF
+            blue = integer & 0xFF
+        }
+    }
+}
+
+private enum MermaidSVGPostProcessor {
+    static func rasterCompatibleSVG(_ svg: String, palette: MermaidSVGPalette) -> String {
+        var result = svg
+        for (variable, value) in palette.resolvedVariables.sorted(by: { $0.key.count > $1.key.count }) {
+            result = replacingCSSVariable(variable, with: value, in: result)
+        }
+        return result
+    }
+
+    private static func replacingCSSVariable(_ variable: String, with value: String, in input: String) -> String {
+        let needle = "var(--\(variable)"
+        var output = ""
+        var searchStart = input.startIndex
+
+        while let range = input[searchStart...].range(of: needle) {
+            output.append(contentsOf: input[searchStart..<range.lowerBound])
+            var cursor = range.upperBound
+            skipWhitespace(in: input, from: &cursor)
+
+            if cursor < input.endIndex, input[cursor] == ")" {
+                output.append(value)
+                searchStart = input.index(after: cursor)
+                continue
+            }
+
+            if cursor < input.endIndex, input[cursor] == "," {
+                cursor = input.index(after: cursor)
+                var depth = 1
+                while cursor < input.endIndex {
+                    if input[cursor] == "(" {
+                        depth += 1
+                    } else if input[cursor] == ")" {
+                        depth -= 1
+                        if depth == 0 {
+                            output.append(value)
+                            searchStart = input.index(after: cursor)
+                            break
+                        }
+                    }
+                    cursor = input.index(after: cursor)
+                }
+                if depth == 0 {
+                    continue
+                }
+            }
+
+            output.append(contentsOf: input[range.lowerBound..<range.upperBound])
+            searchStart = range.upperBound
+        }
+
+        output.append(contentsOf: input[searchStart...])
+        return output
+    }
+
+    private static func skipWhitespace(in string: String, from index: inout String.Index) {
+        while index < string.endIndex, string[index].isWhitespace {
+            index = string.index(after: index)
+        }
+    }
 }
 
 private final class MermaidJavaScriptRuntime: @unchecked Sendable {
@@ -93,7 +296,6 @@ private final class MermaidJavaScriptRuntime: @unchecked Sendable {
     }
 
     func render(source: String, theme: MarkdownTheme) -> MermaidJavaScriptResult? {
-        _ = theme
 #if canImport(JavaScriptCore)
         return lock.withLock {
             guard let runtime = ensureRuntime() else {
@@ -110,12 +312,29 @@ private final class MermaidJavaScriptRuntime: @unchecked Sendable {
             }
 
             var svg: String?
+            let lightPalette = MermaidSVGPalette.light(theme: theme)
             if let svgJSON = callRenderFunction(
                 runtime.svgFunction,
                 context: runtime.context,
-                source: source
+                source: source,
+                optionsJSON: lightPalette.javaScriptOptionsJSON
             ) {
-                svg = Self.decodeSVG(svgJSON)
+                svg = Self.decodeSVG(svgJSON).map {
+                    MermaidSVGPostProcessor.rasterCompatibleSVG($0, palette: lightPalette)
+                }
+            }
+
+            var darkSVG: String?
+            let darkPalette = MermaidSVGPalette.dark(theme: theme)
+            if let svgJSON = callRenderFunction(
+                runtime.svgFunction,
+                context: runtime.context,
+                source: source,
+                optionsJSON: darkPalette.javaScriptOptionsJSON
+            ) {
+                darkSVG = Self.decodeSVG(svgJSON).map {
+                    MermaidSVGPostProcessor.rasterCompatibleSVG($0, palette: darkPalette)
+                }
             }
 
             guard let asciiResult = ascii else {
@@ -127,7 +346,7 @@ private final class MermaidJavaScriptRuntime: @unchecked Sendable {
                 return nil
             }
 
-            return MermaidJavaScriptResult(ascii: trimmed, svg: svg)
+            return MermaidJavaScriptResult(ascii: trimmed, svg: svg, darkSVG: darkSVG)
         }
 #else
         return nil
@@ -197,7 +416,8 @@ private final class MermaidJavaScriptRuntime: @unchecked Sendable {
     private func callRenderFunction(
         _ function: JSObjectRef,
         context: JSGlobalContextRef,
-        source: String
+        source: String,
+        optionsJSON: String? = nil
     ) -> String? {
         guard let sourceString = Self.makeJSString(source) else {
             return nil
@@ -206,9 +426,22 @@ private final class MermaidJavaScriptRuntime: @unchecked Sendable {
             JSStringRelease(sourceString)
         }
 
-        let arguments: [JSValueRef?] = [
+        var arguments: [JSValueRef?] = [
             JSValueMakeString(context, sourceString)
         ]
+        var optionsString: JSStringRef?
+        if let optionsJSON {
+            optionsString = Self.makeJSString(optionsJSON)
+            if let optionsString {
+                arguments.append(JSValueMakeString(context, optionsString))
+            }
+        }
+        defer {
+            if let optionsString {
+                JSStringRelease(optionsString)
+            }
+        }
+
         var exception: JSValueRef?
         let result = arguments.withUnsafeBufferPointer { buffer in
             JSObjectCallAsFunction(
@@ -344,12 +577,16 @@ private final class MermaidJavaScriptRuntime: @unchecked Sendable {
 
     private static let svgRenderFunctionScript =
             """
-            (function(source) {
+            (function(source, optionsJSON) {
               if (typeof BeautifulMermaid === "undefined" || typeof BeautifulMermaid.renderMermaidSVG !== "function") {
                 return JSON.stringify({ supported: false, error: "SVG renderer unavailable." });
               }
               try {
-                var svg = BeautifulMermaid.renderMermaidSVG(source);
+                var options = {};
+                if (optionsJSON) {
+                  options = JSON.parse(optionsJSON);
+                }
+                var svg = BeautifulMermaid.renderMermaidSVG(source, options);
                 return JSON.stringify({ supported: true, svg: svg || "" });
               } catch (error) {
                 return JSON.stringify({ supported: false, error: String(error) });

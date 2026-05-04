@@ -7,6 +7,8 @@
 - Hardened the JavaScriptCore environment shim with `Error.stackTraceLimit` lockdown and a relaxed `Buffer.toString()` signature to match the bundle's actual calling convention.
 - Fixed a JavaScriptCore crash (`EXC_BAD_ACCESS` in `JSRopeString::resolveToBuffer`) caused by the highlight and mermaid runtimes sharing the default JSC VM group. Under concurrent Swift Testing execution, both runtimes' `JSGlobalContextCreate(nil)` calls placed their contexts in the same VM, and simultaneous JS evaluation from different threads corrupted internal rope-string state. Both runtimes now create an isolated `JSContextGroupRef` with `JSContextGroupCreate()` and use `JSGlobalContextCreateInGroup` to prevent cross-runtime VM contention.
 - Fixed `MarkdownBlockView` rendering Mermaid diagrams as ASCII box-drawing text instead of SVG. The block view now renders `MarkdownPreparedMermaidDiagram.svg` as a native platform image (`NSImage` on macOS, `UIImage` on iOS) when SVG output is available, with ASCII as the fallback when SVG is absent.
+- Fixed Mermaid SVG visibility on dark SwiftUI/AppKit surfaces by resolving SVG CSS variables into concrete light and dark color palettes during render preparation. `MarkdownPreparedMermaidDiagram` now carries `svg` and `darkSVG`, and `MarkdownBlockView` selects the correct prepared variant from `colorScheme` without reparsing or rerendering Mermaid in `body`.
+- Fixed small Mermaid diagrams being visually blown up inside transcript/code blocks by rendering SVG platform images at intrinsic size inside horizontal overflow containment instead of making every diagram resizable-to-fill.
 
 ## 0.4.3 - 2026-05-03
 

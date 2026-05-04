@@ -4,7 +4,7 @@ Native, streaming-first Markdown rendering for Apple platforms—designed for lo
 
 ## Overview
 
-> Product status: the packaged chat and document presets use proposal-contained prepared-line rendering, the default code highlighter is language-aware for explicit supported fences, document/code affordances are generic and source-backed, and the release gate includes strict required-group Swift-vs-Pretext fixture comparison plus AppKit render probes for document, document affordance chrome, compact chat, multilingual, inline-attribute, overflow, hard-break, long-word, finite-column containment, and code-highlighting output.
+> Product status: the packaged chat and document presets use proposal-contained prepared-line rendering, the default code highlighter is language-aware for explicit supported fences, Mermaid fences prepare concrete-color light/dark SVG output off the SwiftUI hot path, document/code affordances are generic and source-backed, and the release gate includes strict required-group Swift-vs-Pretext fixture comparison plus AppKit render probes for document, document affordance chrome, compact chat, multilingual, inline-attribute, overflow, hard-break, long-word, finite-column containment, and code-highlighting output.
 
 - **`swift-markdown`** (`Markdown` product) provides parsing semantics; SiriusMarkdown converts the AST to **`MarkdownBlock`** and **`MarkdownInlineRun`** value types.
 - **`MarkdownStream`** stores append-only UTF-8, incrementally scans safe seal points, reparses only the **mutable tail**, and exposes **`MarkdownSnapshot`** plus source-backed copy slices.
