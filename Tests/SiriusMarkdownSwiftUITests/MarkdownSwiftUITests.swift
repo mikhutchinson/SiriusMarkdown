@@ -2,7 +2,7 @@ import Foundation
 import SwiftUI
 import Testing
 import SiriusMarkdownCore
-import SiriusMarkdownSwiftUI
+@testable import SiriusMarkdownSwiftUI
 #if canImport(AppKit)
 import AppKit
 #endif
@@ -885,6 +885,41 @@ func tableCellInlinePathsStayWithinCellContentWidth() throws {
 }
 
 @Test
+func preparedNativeLineLayoutUsesPaintGuardForSiriusTranscriptCommand() throws {
+    let inlineLayout = try screenshotCommandInlineLayout()
+    let containerWidth = 420.0
+    let layoutWidth = InlineRunsView.nativeLineLayoutWidth(
+        for: inlineLayout,
+        containerWidth: containerWidth
+    )
+    let result = InlineRunsView.lineLayout(for: inlineLayout, containerWidth: layoutWidth)
+    let lines = InlineRunsView.attributedLines(for: inlineLayout, layout: result)
+    let renderedText = lines.map { String($0.characters) }.joined()
+
+    #expect(layoutWidth <= containerWidth - 3)
+    #expect(result.lines.count > 1)
+    #expect(result.lines.allSatisfy { $0.width <= layoutWidth + 0.5 })
+    #expect(renderedText.contains("created"))
+    #expect(renderedText == inlineLayout.prepared.naturalText)
+}
+
+@Test
+func siriusTranscriptStyleProfilesUseSystemMonospacedInlineCode() throws {
+    let theme = siriusTranscriptLikeTheme()
+    let configuration = MarkdownRendererConfiguration(
+        theme: theme,
+        inlineRenderingMode: .preparedNativeLines
+    )
+    let block = try firstBlock("Command `created` text")
+    let inlineLayout = try #require(configuration.prepare(block: block).inlineLayout)
+
+    #expect(theme.paragraphFontProfiles.code == .system(design: .monospaced))
+    #expect(theme.codeFontProfiles == MarkdownInlineFontProfiles(uniform: .system(design: .monospaced)))
+    #expect(inlineLayout.fontProfiles == theme.paragraphFontProfiles)
+    #expect(inlineLayout.fontSize == 12)
+}
+
+@Test
 @MainActor
 func transcriptLikePreparedNativeViewFittingWidthStaysWithinHostColumn() throws {
     #if canImport(AppKit)
@@ -907,6 +942,112 @@ func transcriptLikePreparedNativeViewFittingWidthStaysWithinHostColumn() throws 
     hostingView.layoutSubtreeIfNeeded()
 
     #expect(hostingView.fittingSize.width <= width + 1)
+    #endif
+}
+
+@Test
+@MainActor
+func siriusTranscriptCommandRenderedLineWidthsFitClippedFrame() throws {
+    #if canImport(AppKit)
+    let inlineLayout = try screenshotCommandInlineLayout()
+    let containerWidth = 420.0
+    let layoutWidth = InlineRunsView.nativeLineLayoutWidth(
+        for: inlineLayout,
+        containerWidth: containerWidth
+    )
+    let layout = InlineRunsView.lineLayout(for: inlineLayout, containerWidth: layoutWidth)
+    let renderedAttributed = InlineRunsView.renderingAttributedString(for: inlineLayout)
+    let renderedLines = InlineRunsView.attributedLines(
+        for: inlineLayout,
+        attributed: renderedAttributed,
+        layout: layout
+    )
+
+    #expect(renderedLines.map { String($0.characters) }.joined().contains("created"))
+    for line in renderedLines where !line.characters.isEmpty {
+        let renderedWidth = hostedNativeLineWidth(
+            line,
+            baseFont: siriusTranscriptLikeTheme().paragraphFont
+        )
+        #expect(Double(renderedWidth) <= containerWidth + 0.75)
+    }
+    #endif
+}
+
+@Test
+@MainActor
+func siriusTranscriptCommandHostedLayoutRecomputesAfterWidthNarrowing() throws {
+    #if canImport(AppKit)
+    let source = screenshotCommandMarkdown()
+    var stream = MarkdownStream()
+    stream.append(source)
+    stream.finish()
+
+    let configuration = MarkdownRendererConfiguration(
+        theme: siriusTranscriptLikeTheme(),
+        inlineRenderingMode: .preparedNativeLines
+    )
+    let prepared = configuration.prepare(snapshot: stream.snapshot())
+    let wideWidth = CGFloat(420)
+    let narrowWidth = CGFloat(260)
+    let view = StreamingMarkdownView(preparedSnapshot: prepared, configuration: configuration)
+
+    let hostingView = NSHostingView(
+        rootView: view.frame(width: wideWidth, alignment: .leading)
+    )
+    hostingView.frame = NSRect(origin: .zero, size: NSSize(width: wideWidth, height: 1_000))
+    hostingView.layoutSubtreeIfNeeded()
+    #expect(hostingView.fittingSize.width <= wideWidth + 1)
+
+    hostingView.rootView = view.frame(width: narrowWidth, alignment: .leading)
+    hostingView.frame = NSRect(origin: .zero, size: NSSize(width: narrowWidth, height: 1_000))
+    hostingView.layoutSubtreeIfNeeded()
+    #expect(hostingView.fittingSize.width <= narrowWidth + 1)
+    #endif
+}
+
+@Test
+@MainActor
+func preparedNativeResizeRenderKeepsPaintInsideNarrowedColumn() throws {
+    #if canImport(AppKit)
+    let configuration = MarkdownRendererConfiguration.document
+    var stream = MarkdownStream()
+    stream.append(resizeProbeMarkdown())
+    stream.finish()
+    let prepared = configuration.prepare(snapshot: stream.snapshot())
+    let initialWidth = CGFloat(560)
+    let finalWidth = CGFloat(220)
+    let model = TestPreparedNativeResizeProbeModel(columnWidth: initialWidth)
+    let root = TestPreparedNativeResizeProbeHarness(
+        model: model,
+        preparedSnapshot: prepared,
+        configuration: configuration
+    )
+    .frame(width: 360, height: 420, alignment: .topLeading)
+    .background(Color.white)
+    .environment(\.colorScheme, .light)
+
+    let hostingView = NSHostingView(rootView: root)
+    hostingView.frame = NSRect(origin: .zero, size: NSSize(width: 360, height: 420))
+    let window = NSWindow(
+        contentRect: hostingView.frame,
+        styleMask: [.borderless],
+        backing: .buffered,
+        defer: false
+    )
+    window.contentView = hostingView
+    window.orderFrontRegardless()
+    pumpLayout(hostingView)
+
+    model.columnWidth = finalWidth
+    pumpLayout(hostingView)
+
+    let bitmap = try #require(hostingView.bitmapImageRepForCachingDisplay(in: hostingView.bounds))
+    hostingView.cacheDisplay(in: hostingView.bounds, to: bitmap)
+    let scale = Double(bitmap.pixelsWide) / Double(hostingView.bounds.width)
+    let rightmost = darkRightmostX(in: bitmap)
+
+    #expect(rightmost <= Int(Double(finalWidth - 4) * scale))
     #endif
 }
 
@@ -1463,6 +1604,81 @@ private func firstBlock(_ markdown: String) throws -> MarkdownBlock {
     return try #require(stream.snapshot().blocks.first)
 }
 
+private func screenshotCommandMarkdown() -> String {
+    """
+    - Command used:
+      - `apple_mail(action="save_draft", subject="Regression test draft", body="This is a test draft created to check for regressions after the version bump.", visible=true, send_now=false, timeout_seconds=120)`
+    """
+}
+
+private func resizeProbeMarkdown() -> String {
+    """
+    Resize probe paragraph with abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz content that must rewrap when the host column shrinks.
+
+    - Resize list item with abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz content.
+    - Another item with [linked prepared native text](https://example.com) and `inline code` that should stay inside the narrowed column.
+    """
+}
+
+private func screenshotCommandInlineLayout() throws -> MarkdownPreparedInlineContent {
+    var stream = MarkdownStream()
+    stream.append(screenshotCommandMarkdown())
+    stream.finish()
+    let configuration = MarkdownRendererConfiguration(
+        theme: siriusTranscriptLikeTheme(),
+        inlineRenderingMode: .preparedNativeLines
+    )
+    let prepared = configuration.prepare(snapshot: stream.snapshot())
+    let list = try #require(prepared.items.compactMap { item -> MarkdownPreparedBlockContent? in
+        guard case let .block(block, content) = item,
+              block.kind == .unorderedList
+        else {
+            return nil
+        }
+        return content
+    }.first)
+    return try #require(list.listItems.first?.childItems.first?.inlineLayout)
+}
+
+private func siriusTranscriptLikeTheme() -> MarkdownTheme {
+    let paragraphProfiles = MarkdownInlineFontProfiles(
+        body: .system(),
+        emphasis: .system(),
+        strong: .system(weight: .bold),
+        code: .system(design: .monospaced),
+        math: .system(design: .monospaced),
+        imagePlaceholder: .system()
+    )
+    let codeProfiles = MarkdownInlineFontProfiles(uniform: .system(design: .monospaced))
+    let compactHeading = MarkdownTextStyle(
+        font: .system(size: 12, weight: .semibold),
+        fontSize: 12,
+        lineHeight: 16,
+        fontProfiles: MarkdownInlineFontProfiles(uniform: .system(weight: .semibold))
+    )
+
+    return MarkdownTheme(
+        paragraphFont: .system(size: 12),
+        codeFont: .system(size: 11, design: .monospaced),
+        codeBackground: Color.gray.opacity(0.12),
+        quoteAccent: Color.gray.opacity(0.55),
+        tableBackground: Color.gray.opacity(0.06),
+        tableHeaderBackground: Color.accentColor.opacity(0.08),
+        tableAlternateRowBackground: Color.gray.opacity(0.025),
+        tableCornerRadius: 6,
+        tableHorizontalCellPadding: 10,
+        tableVerticalCellPadding: 7,
+        blockSpacing: 8,
+        paragraphFontSize: 12,
+        paragraphLineHeight: 17,
+        codeFontSize: 11,
+        codeLineHeight: 16,
+        paragraphFontProfiles: paragraphProfiles,
+        codeFontProfiles: codeProfiles,
+        headings: .uniform(compactHeading)
+    )
+}
+
 private func testHeadingStyles() -> MarkdownHeadingStyles {
     MarkdownHeadingStyles(
         h1: MarkdownTextStyle(
@@ -1512,6 +1728,70 @@ private func mirroredConfiguration(from view: MarkdownBlockView) -> MarkdownRend
 }
 
 #if canImport(AppKit)
+@MainActor
+private final class TestPreparedNativeResizeProbeModel: ObservableObject {
+    @Published var columnWidth: CGFloat
+
+    init(columnWidth: CGFloat) {
+        self.columnWidth = columnWidth
+    }
+}
+
+private struct TestPreparedNativeResizeProbeHarness: View {
+    @ObservedObject var model: TestPreparedNativeResizeProbeModel
+    var preparedSnapshot: MarkdownPreparedSnapshot
+    var configuration: MarkdownRendererConfiguration
+
+    var body: some View {
+        HStack(spacing: 0) {
+            StreamingMarkdownView(preparedSnapshot: preparedSnapshot, configuration: configuration)
+                .frame(width: model.columnWidth, alignment: .leading)
+            Color.white
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+}
+
+@MainActor
+private func hostedNativeLineWidth(_ line: AttributedString, baseFont: Font) -> CGFloat {
+    let view = Text(line)
+        .font(baseFont)
+        .lineLimit(1)
+        .fixedSize(horizontal: true, vertical: true)
+    let hostingView = NSHostingView(rootView: view)
+    hostingView.frame = NSRect(origin: .zero, size: NSSize(width: 1_000, height: 80))
+    hostingView.layoutSubtreeIfNeeded()
+    return hostingView.fittingSize.width
+}
+
+@MainActor
+private func pumpLayout<V: View>(_ hostingView: NSHostingView<V>) {
+    for _ in 0..<6 {
+        hostingView.needsLayout = true
+        hostingView.layoutSubtreeIfNeeded()
+        hostingView.displayIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+    }
+}
+
+private func darkRightmostX(in bitmap: NSBitmapImageRep) -> Int {
+    var rightmost = 0
+    for y in 0..<bitmap.pixelsHigh {
+        for x in 0..<bitmap.pixelsWide {
+            guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB) else {
+                continue
+            }
+
+            if color.redComponent < 0.35,
+               color.greenComponent < 0.35,
+               color.blueComponent < 0.35 {
+                rightmost = max(rightmost, x)
+            }
+        }
+    }
+    return rightmost
+}
+
 @MainActor
 private func hostedDocumentSurfaceHeight(markdown: String, width: CGFloat) -> CGFloat {
     var stream = MarkdownStream()

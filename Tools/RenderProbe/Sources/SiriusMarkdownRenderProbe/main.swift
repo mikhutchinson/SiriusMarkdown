@@ -534,7 +534,7 @@ struct SiriusMarkdownRenderProbe {
         ) {
             model.columnWidth = finalColumnWidth
         }
-        result.maximumDarkRightmostX = Int(Double(leadingInset + finalColumnWidth + 8) * result.pixelScale)
+        result.maximumDarkRightmostX = Int(Double(leadingInset + finalColumnWidth - 4) * result.pixelScale)
         result.fittingWidth = fittingWidth
         result.maximumFittingWidth = Double(finalColumnWidth + 1)
         return result

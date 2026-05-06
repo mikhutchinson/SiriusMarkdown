@@ -161,9 +161,55 @@ public struct InlineRunsView: View {
         for prepared: MarkdownPreparedInlineContent,
         layout: InlineLayoutResult
     ) -> [AttributedString] {
-        return layout.lines.map {
-            attributedSlice(prepared.attributed, text: prepared.prepared.naturalText, byteRange: $0.byteRange)
+        attributedLines(for: prepared, attributed: prepared.attributed, layout: layout)
+    }
+
+    nonisolated static func attributedLines(
+        for prepared: MarkdownPreparedInlineContent,
+        attributed: AttributedString,
+        layout: InlineLayoutResult
+    ) -> [AttributedString] {
+        layout.lines.map {
+            attributedSlice(attributed, text: prepared.prepared.naturalText, byteRange: $0.byteRange)
         }
+    }
+
+    static func renderingAttributedString(for prepared: MarkdownPreparedInlineContent) -> AttributedString {
+        var rendered = prepared.attributed
+        var cursor = 0
+        let text = prepared.prepared.naturalText
+
+        for run in prepared.prepared.runs {
+            let upper = cursor + run.text.utf8.count
+            applyFont(
+                to: &rendered,
+                text: text,
+                byteRange: cursor..<upper,
+                kind: run.kind,
+                prepared: prepared
+            )
+            cursor = upper
+        }
+
+        return rendered
+    }
+
+    nonisolated static func nativeLineLayoutWidth(
+        for prepared: MarkdownPreparedInlineContent,
+        containerWidth: Double
+    ) -> Double {
+        guard containerWidth.isFinite, containerWidth > 0 else {
+            return 1
+        }
+        return max(1, containerWidth - nativeLinePaintGuard(for: prepared))
+    }
+
+    nonisolated static func nativeLinePaintGuard(for prepared: MarkdownPreparedInlineContent) -> Double {
+        max(3, min(8, ceil(prepared.fontSize * 0.22)))
+    }
+
+    nonisolated static func nativeLineSpacing(for prepared: MarkdownPreparedInlineContent) -> CGFloat {
+        max(0, CGFloat(prepared.lineHeight - prepared.fontSize) * 0.25)
     }
 
     public nonisolated static func lineLayout(
@@ -268,6 +314,84 @@ public struct InlineRunsView: View {
 
         return lower..<upper
     }
+
+    private static func applyFont(
+        to attributed: inout AttributedString,
+        text: String,
+        byteRange: Range<Int>,
+        kind: MarkdownInlineKind,
+        prepared: MarkdownPreparedInlineContent
+    ) {
+        guard !byteRange.isEmpty,
+              let stringRange = stringRange(forUTF8Range: byteRange, in: text)
+        else {
+            return
+        }
+
+        let lowerOffset = text.distance(from: text.startIndex, to: stringRange.lowerBound)
+        let upperOffset = text.distance(from: text.startIndex, to: stringRange.upperBound)
+        let characters = attributed.characters
+        guard lowerOffset <= upperOffset,
+              upperOffset <= characters.count
+        else {
+            return
+        }
+
+        let lower = characters.index(characters.startIndex, offsetBy: lowerOffset)
+        let upper = characters.index(characters.startIndex, offsetBy: upperOffset)
+        attributed[lower..<upper].font = swiftUIFont(
+            for: prepared.fontProfiles.profile(for: kind),
+            kind: kind,
+            size: prepared.fontSize
+        )
+    }
+
+    private static func swiftUIFont(
+        for profile: MarkdownFontProfile,
+        kind: MarkdownInlineKind,
+        size: Double
+    ) -> Font {
+        var font: Font
+        switch profile {
+        case let .system(weight, design):
+            font = .system(size: CGFloat(size), weight: swiftUIWeight(weight), design: swiftUIDesign(design))
+        case let .monospacedSystem(weight):
+            font = .system(size: CGFloat(size), weight: swiftUIWeight(weight), design: .monospaced)
+        case let .named(name, weight):
+            font = .custom(name, size: CGFloat(size)).weight(swiftUIWeight(weight))
+        }
+
+        if kind == .emphasis {
+            font = font.italic()
+        }
+        return font
+    }
+
+    private static func swiftUIWeight(_ weight: MarkdownFontWeight) -> Font.Weight {
+        switch weight {
+        case .regular:
+            return .regular
+        case .medium:
+            return .medium
+        case .semibold:
+            return .semibold
+        case .bold:
+            return .bold
+        }
+    }
+
+    private static func swiftUIDesign(_ design: MarkdownFontDesign) -> Font.Design {
+        switch design {
+        case .default:
+            return .default
+        case .serif:
+            return .serif
+        case .rounded:
+            return .rounded
+        case .monospaced:
+            return .monospaced
+        }
+    }
 }
 
 private struct PreparedInlineLayoutIdentity: Hashable {
@@ -301,10 +425,8 @@ private struct PreparedInlineTextView: View {
 
     @ViewBuilder
     var body: some View {
-        renderedText
+        renderSurface
             .environment(\.openURL, openURLAction)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(widthReader)
             .accessibilityValue(layoutResult.lines.isEmpty ? "" : "\(layoutResult.lines.count) prepared lines")
             .onAppear {
                 refreshLayoutIfPossible()
@@ -330,26 +452,48 @@ private struct PreparedInlineTextView: View {
     }
 
     @ViewBuilder
-    private var renderedText: some View {
-        if inlineRenderingMode == .preparedNativeLines,
-           containerWidth > 0,
-           !layoutResult.lines.isEmpty,
-           NativeInlineLineTextView.isSupported {
-            NativeInlineLineTextView(
-                prepared: prepared,
-                layoutResult: layoutResult,
-                fallbackAttributed: fallbackAttributed,
-                baseFont: baseFont,
-                theme: theme,
-                containerWidth: containerWidth
-            )
+    private var renderSurface: some View {
+        if canRenderNativeLines {
+            Color.clear
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(height: nativeLineSurfaceHeight, alignment: .topLeading)
+                .background(widthReader)
+                .overlay(alignment: .topLeading) {
+                    NativeInlineLineTextView(
+                        prepared: prepared,
+                        layoutResult: layoutResult,
+                        fallbackAttributed: fallbackAttributed,
+                        baseFont: baseFont,
+                        theme: theme,
+                        containerWidth: containerWidth
+                    )
+                }
         } else {
             Text(fallbackAttributed)
                 .font(baseFont)
                 .foregroundStyle(theme.textColor)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .clipped()
+                .background(widthReader)
         }
+    }
+
+    private var canRenderNativeLines: Bool {
+        inlineRenderingMode == .preparedNativeLines &&
+            containerWidth > 0 &&
+            !layoutResult.lines.isEmpty &&
+            NativeInlineLineTextView.isSupported
+    }
+
+    private var nativeLineSurfaceHeight: CGFloat {
+        let lineCount = layoutResult.lines.count
+        guard lineCount > 0 else {
+            return CGFloat(prepared.lineHeight)
+        }
+
+        let lineHeight = CGFloat(prepared.lineHeight)
+        let spacing = InlineRunsView.nativeLineSpacing(for: prepared)
+        return CGFloat(lineCount) * lineHeight + CGFloat(max(0, lineCount - 1)) * spacing
     }
 
     private var widthReader: some View {
@@ -367,7 +511,10 @@ private struct PreparedInlineTextView: View {
             return
         }
 
-        let layoutWidth = max(1, Double(containerWidth) - Self.nativeLineSafetyInset)
+        let layoutWidth = InlineRunsView.nativeLineLayoutWidth(
+            for: prepared,
+            containerWidth: Double(containerWidth)
+        )
         let refreshedLayout = InlineRunsView.lineLayout(
             for: prepared,
             containerWidth: layoutWidth,
@@ -375,7 +522,7 @@ private struct PreparedInlineTextView: View {
         )
         layoutResult = refreshedLayout
         if !recordedClipping,
-           refreshedLayout.lines.contains(where: { $0.width > Double(containerWidth) + 0.5 }) {
+           refreshedLayout.lines.contains(where: { $0.width > layoutWidth + 0.5 }) {
             recordedClipping = true
             prepared.layoutCache.recordNativeLineClipping()
         }
@@ -393,8 +540,6 @@ private struct PreparedInlineTextView: View {
             return .handled
         }
     }
-
-    private static let nativeLineSafetyInset: Double = 2
 }
 
 private struct PreparedInlineWidthPreferenceKey: PreferenceKey {

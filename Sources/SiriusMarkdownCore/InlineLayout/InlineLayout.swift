@@ -311,7 +311,7 @@ public struct CoreTextInlineMeasurer: InlineMeasuring {
             let base = systemFont(design: design, fontSize: fontSize)
             return apply(weight: weight, design: design, to: base, fontSize: fontSize)
         case let .monospacedSystem(weight):
-            let base = CTFontCreateWithName("Menlo" as CFString, fontSize, nil)
+            let base = systemFont(design: .default, fontSize: fontSize)
             return apply(weight: weight, design: .monospaced, to: base, fontSize: fontSize)
         }
     }
@@ -358,7 +358,8 @@ public struct CoreTextInlineMeasurer: InlineMeasuring {
         case .serif:
             return CTFontCreateWithName("Times" as CFString, fontSize, nil)
         case .monospaced:
-            return CTFontCreateWithName("Menlo" as CFString, fontSize, nil)
+            return CTFontCreateUIFontForLanguage(.system, CGFloat(fontSize), nil)
+                ?? CTFontCreateWithName("Helvetica" as CFString, fontSize, nil)
         case .default, .rounded:
             return CTFontCreateUIFontForLanguage(.system, CGFloat(fontSize), nil)
                 ?? CTFontCreateWithName("Helvetica" as CFString, fontSize, nil)

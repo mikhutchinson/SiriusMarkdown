@@ -12,7 +12,12 @@ struct NativeInlineLineTextView: View {
     static var isSupported: Bool { true }
 
     var body: some View {
-        let lines = InlineRunsView.attributedLines(for: prepared, layout: layoutResult)
+        let renderedAttributed = InlineRunsView.renderingAttributedString(for: prepared)
+        let lines = InlineRunsView.attributedLines(
+            for: prepared,
+            attributed: renderedAttributed,
+            layout: layoutResult
+        )
         let width = max(0, containerWidth)
 
         if lines.isEmpty {
@@ -45,6 +50,6 @@ struct NativeInlineLineTextView: View {
     }
 
     private var lineSpacing: CGFloat {
-        max(0, CGFloat(prepared.lineHeight - prepared.fontSize) * 0.25)
+        InlineRunsView.nativeLineSpacing(for: prepared)
     }
 }

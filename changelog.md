@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.6 - 2026-05-06
+
+- Fixed prepared native-line clipping where CoreText line measurement and SwiftUI `Text(AttributedString)` painting could drift by a few pixels, causing the final glyph of transcript-style inline code to be sheared by the containment clip.
+- Native prepared lines now apply explicit per-run SwiftUI font attributes derived from the same `MarkdownInlineFontProfiles` used for CoreText measurement, including body, emphasis, strong, inline code, math, and image placeholder runs.
+- Aligned system monospaced CoreText measurement with SwiftUI's system-monospaced rendering intent instead of hard-coding Menlo for `.monospacedSystem`.
+- Replaced the fixed native-line safety inset with a font-scaled paint guard used during prepared layout, preserving clipping as containment instead of normal fit behavior.
+- Prepared native-line views now size their rendered surface from the offered parent width and computed line height before overlaying native text, preventing stale wide line frames from polluting later width reads during host resizing.
+- Added screenshot-shaped transcript command regressions for line layout, actual AppKit-hosted line width, width-narrowing relayout reuse, and a rendered bitmap resize check that catches visible right-edge clipping.
+
 ## 0.4.5 - 2026-05-04
 
 - Fixed stale prepared-inline layout reuse when SwiftUI kept a view alive at the same width but swapped in different prepared content. `PreparedInlineTextView` now invalidates its cached layout when the prepared payload identity changes, so the first visible pass no longer depends on a later resize to recompute line layout.
