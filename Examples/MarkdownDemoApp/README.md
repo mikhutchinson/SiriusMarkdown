@@ -6,7 +6,7 @@ The app is a native macOS workbench for the public `SiriusMarkdown` renderer. It
 
 Demonstrated cases:
 
-- Overview document with task lists, quotes, code, and a contract table.
+- Overview document with task lists, quotes, code, Mermaid diagrams, and a contract table.
 - Inline policy matrix for safe links, unsafe links, remote images, emphasis, strikethrough, and inline code.
 - Table stress cases for dense rows, alignment, long cells, multilingual values, and horizontal containment.
 - Wide blocks with long code and wide table values.

@@ -14,7 +14,7 @@ Reader-focused behavior:
 - Toolbar actions for returning to the document top, toggling the inspector, and switching reading measure.
 - Calm page surface that keeps diagnostics out of the reading flow unless the inspector is opened.
 - Shared `DemoSupport` tokens, sidebar rows, icon buttons, metrics, and inspector surfaces used by the other bundled demos.
-- Reader sample content that still exercises links, denied images, task lists, multilingual text, code, tables, math, and raw-HTML policy behavior.
+- Reader sample content that still exercises links, denied images, task lists, multilingual text, code, Mermaid diagrams, tables, math, and raw-HTML policy behavior.
 
 For a **macOS `.app`**:
 
