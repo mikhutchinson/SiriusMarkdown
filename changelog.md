@@ -8,6 +8,7 @@
 - Kept Mermaid rendering on the existing bundled JavaScriptCore preparation path. This release does not replace `beautiful-mermaid`, does not add WebKit, and does not introduce a new Mermaid semantic engine.
 - Hardened prepared SVG output by stripping root-level Google-font imports, resolving light/dark CSS variables, and forcing local Apple/system font fallback before AppKit/UIKit image decoding.
 - Expanded unit and product coverage for Mermaid geometry parsing, cache reuse, render-plan controls, affordance opt-out, and nil-renderer fallback, and added an AppKit render probe for Mermaid diagram containment and toolbar pixels.
+- Hid decorative SF Symbol images inside package-owned Markdown affordance buttons from accessibility synthesis while preserving each button's explicit accessibility label and help text. This avoids forcing SwiftUI/AppKit to localize symbol descriptions for copy/export/collapse and Mermaid zoom controls during host updates.
 
 ## 0.4.6 - 2026-05-06
 

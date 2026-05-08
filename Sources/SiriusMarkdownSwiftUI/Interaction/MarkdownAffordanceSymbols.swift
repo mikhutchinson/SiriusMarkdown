@@ -29,5 +29,6 @@ struct MarkdownAffordanceIcon: View {
             .font(.system(size: size, weight: .semibold))
             .frame(width: 24, height: 24)
             .offset(y: MarkdownAffordanceSymbols.opticalYOffset(for: systemName))
+            .accessibilityHidden(true)
     }
 }
