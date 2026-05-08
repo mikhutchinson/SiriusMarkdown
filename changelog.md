@@ -9,6 +9,8 @@
 - Hardened prepared SVG output by stripping root-level Google-font imports, resolving light/dark CSS variables, and forcing local Apple/system font fallback before AppKit/UIKit image decoding.
 - Expanded unit and product coverage for Mermaid geometry parsing, cache reuse, render-plan controls, affordance opt-out, and nil-renderer fallback, and added an AppKit render probe for Mermaid diagram containment and toolbar pixels.
 - Hid decorative SF Symbol images inside package-owned Markdown affordance buttons from accessibility synthesis while preserving each button's explicit accessibility label and help text. This avoids forcing SwiftUI/AppKit to localize symbol descriptions for copy/export/collapse and Mermaid zoom controls during host updates.
+- Fixed a Sirius host hang profile dominated by SwiftUI `GraphHost` layout, `LayoutChildGeometries`, `StackLayout`, and `_FlexFrameLayout` while rendering prepared native lines. The renderer now joins prepared attributed line slices into one fixed-height `Text(AttributedString)` payload instead of building a `VStack`/`ForEach` child tree with one `Text` per prepared line, preserving the prepared-line contract while reducing SwiftUI layout work.
+- Debounced Mermaid diagram width preference updates so unchanged geometry does not trigger redundant SwiftUI state writes during layout passes.
 
 ## 0.4.6 - 2026-05-06
 

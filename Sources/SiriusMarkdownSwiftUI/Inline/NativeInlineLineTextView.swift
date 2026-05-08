@@ -13,43 +13,40 @@ struct NativeInlineLineTextView: View {
 
     var body: some View {
         let renderedAttributed = InlineRunsView.renderingAttributedString(for: prepared)
-        let lines = InlineRunsView.attributedLines(
+        let renderedLines = InlineRunsView.nativeLineAttributedString(
             for: prepared,
             attributed: renderedAttributed,
             layout: layoutResult
         )
         let width = max(0, containerWidth)
+        let height = nativeLineSurfaceHeight
 
-        if lines.isEmpty {
+        if renderedLines.characters.isEmpty {
             Text(fallbackAttributed)
                 .font(baseFont)
                 .foregroundStyle(theme.textColor)
-                .frame(width: width, alignment: .leading)
+                .frame(width: width, height: height, alignment: .topLeading)
                 .clipped()
         } else {
-            VStack(alignment: .leading, spacing: lineSpacing) {
-                ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
-                    let isEmpty = line.characters.isEmpty
-                    Text(isEmpty ? AttributedString(" ") : line)
-                        .font(baseFont)
-                        .foregroundStyle(theme.textColor)
-                        .lineLimit(1)
-                        .fixedSize(horizontal: true, vertical: true)
-                        .frame(width: width, alignment: .leading)
-                        .clipped()
-                        .frame(minHeight: CGFloat(prepared.lineHeight), alignment: .leading)
-                        .opacity(isEmpty ? 0 : 1)
-                        .accessibilityHidden(isEmpty)
-                }
-            }
-            .frame(width: width, alignment: .leading)
-            .clipped()
-            .accessibilityElement(children: .combine)
-            .accessibilityLabel(String(fallbackAttributed.characters))
+            Text(renderedLines)
+                .font(baseFont)
+                .foregroundStyle(theme.textColor)
+                .lineSpacing(lineSpacing)
+                .frame(width: width, height: height, alignment: .topLeading)
+                .clipped()
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel(String(fallbackAttributed.characters))
         }
     }
 
     private var lineSpacing: CGFloat {
         InlineRunsView.nativeLineSpacing(for: prepared)
+    }
+
+    private var nativeLineSurfaceHeight: CGFloat {
+        let lineCount = max(1, layoutResult.lines.count)
+        let lineHeight = CGFloat(prepared.lineHeight)
+        let spacing = lineSpacing
+        return CGFloat(lineCount) * lineHeight + CGFloat(max(0, lineCount - 1)) * spacing
     }
 }

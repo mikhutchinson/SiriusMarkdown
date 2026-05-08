@@ -232,7 +232,7 @@ struct MarkdownMermaidDiagramView: View {
         }
         .allowsHitTesting(false)
         .onPreferenceChange(MarkdownMermaidWidthPreferenceKey.self) { width in
-            if width.isFinite, width > 0 {
+            if width.isFinite, width > 0, abs(width - availableWidth) > 0.5 {
                 availableWidth = width
             }
         }

@@ -164,6 +164,26 @@ public struct InlineRunsView: View {
         attributedLines(for: prepared, attributed: prepared.attributed, layout: layout)
     }
 
+    nonisolated static func nativeLineAttributedString(
+        for prepared: MarkdownPreparedInlineContent,
+        attributed: AttributedString,
+        layout: InlineLayoutResult
+    ) -> AttributedString {
+        let lines = attributedLines(for: prepared, attributed: attributed, layout: layout)
+        guard !lines.isEmpty else {
+            return AttributedString("")
+        }
+
+        var result = AttributedString()
+        for (index, line) in lines.enumerated() {
+            if index > 0 {
+                result.append(AttributedString("\n"))
+            }
+            result.append(line.characters.isEmpty ? AttributedString(" ") : line)
+        }
+        return result
+    }
+
     nonisolated static func attributedLines(
         for prepared: MarkdownPreparedInlineContent,
         attributed: AttributedString,
@@ -174,7 +194,7 @@ public struct InlineRunsView: View {
         }
     }
 
-    static func renderingAttributedString(for prepared: MarkdownPreparedInlineContent) -> AttributedString {
+    nonisolated static func renderingAttributedString(for prepared: MarkdownPreparedInlineContent) -> AttributedString {
         var rendered = prepared.attributed
         var cursor = 0
         let text = prepared.prepared.naturalText
@@ -315,7 +335,7 @@ public struct InlineRunsView: View {
         return lower..<upper
     }
 
-    private static func applyFont(
+    private nonisolated static func applyFont(
         to attributed: inout AttributedString,
         text: String,
         byteRange: Range<Int>,
@@ -346,7 +366,7 @@ public struct InlineRunsView: View {
         )
     }
 
-    private static func swiftUIFont(
+    private nonisolated static func swiftUIFont(
         for profile: MarkdownFontProfile,
         kind: MarkdownInlineKind,
         size: Double
@@ -367,7 +387,7 @@ public struct InlineRunsView: View {
         return font
     }
 
-    private static func swiftUIWeight(_ weight: MarkdownFontWeight) -> Font.Weight {
+    private nonisolated static func swiftUIWeight(_ weight: MarkdownFontWeight) -> Font.Weight {
         switch weight {
         case .regular:
             return .regular
@@ -380,7 +400,7 @@ public struct InlineRunsView: View {
         }
     }
 
-    private static func swiftUIDesign(_ design: MarkdownFontDesign) -> Font.Design {
+    private nonisolated static func swiftUIDesign(_ design: MarkdownFontDesign) -> Font.Design {
         switch design {
         case .default:
             return .default

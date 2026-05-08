@@ -350,6 +350,33 @@ func preparedNativeLinesPreserveHardBreakLineSlices() throws {
 }
 
 @Test
+func preparedNativeLineRendererUsesSingleAttributedTextPayload() throws {
+    var stream = MarkdownStream()
+    stream.append("alpha beta gamma delta epsilon zeta eta theta")
+    stream.finish()
+    let snapshot = stream.snapshot()
+    let configuration = MarkdownRendererConfiguration(
+        inlineRenderingMode: .preparedNativeLines
+    )
+
+    let prepared = configuration.prepare(snapshot: snapshot)
+    let block = try #require(snapshot.blocks.first)
+    let inlineLayout = try #require(prepared.preparedContentByBlockID[block.id]?.inlineLayout)
+    let layout = InlineRunsView.lineLayout(for: inlineLayout, containerWidth: 92)
+    let renderedAttributed = InlineRunsView.renderingAttributedString(for: inlineLayout)
+    let renderedLines = InlineRunsView.nativeLineAttributedString(
+        for: inlineLayout,
+        attributed: renderedAttributed,
+        layout: layout
+    )
+    let renderedText = String(renderedLines.characters)
+
+    #expect(layout.lines.count > 1)
+    #expect(renderedText.contains("\n"))
+    #expect(renderedText.replacingOccurrences(of: "\n", with: "") == inlineLayout.prepared.naturalText)
+}
+
+@Test
 func preparedNativeLinesPreserveUTF8BoundariesAcrossLineSlices() throws {
     var stream = MarkdownStream()
     stream.append("English 日本語 العربية emoji 😀 code `値` tail")
