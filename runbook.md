@@ -1,6 +1,6 @@
 # Runbook
 
-This runbook is the local release authority for `SiriusMarkdown`. For the current public package release, use `0.4.6` as the tag and do not publish unless every release blocker below is clear.
+This runbook is the local release authority for `SiriusMarkdown`. For the current public package release, use `0.4.7` as the tag and do not publish unless every release blocker below is clear.
 
 ## Build
 
@@ -41,6 +41,7 @@ Layout and renderer acceptance for the current slice:
 - Renderer configuration must be protocol-driven for link, image, HTML, code, math, code highlighting, and math rendering hooks.
 - Default code highlighting must stay language-aware, pluggable, and conservative: explicit supported languages may be highlighted; plaintext, nohighlight, unlabeled, and unsupported fences should render plainly.
 - Document and code affordances must stay generic, source-backed, and replaceable. `MarkdownDocumentSurface` may own copy/export/collapse chrome, `MarkdownCodeBlockAffordances` may own code chrome visibility, and `MarkdownAffordanceActionHandler` may own platform actions; none of these APIs may hardcode private Sirius app concepts.
+- Mermaid rendering must stay package-owned and prepared before SwiftUI body evaluation. `DefaultMarkdownMermaidRenderer` may produce ASCII plus concrete-color SVG and prepared root geometry; `MarkdownBlockView` may render the prepared image in a bounded pan/zoom viewport with controls from `MarkdownTheme.mermaidAffordances`. Do not add WebKit, app-private Mermaid wrappers, or a second Mermaid semantic engine.
 - Heading typography must resolve H1-H6 through `MarkdownTheme.headings`. Visual SwiftUI `Font` and prepared-line CoreText measurement inputs (`fontSize`, `lineHeight`, `MarkdownInlineFontProfiles`) must come from the same `MarkdownTextStyle`; do not infer measurement profiles from arbitrary SwiftUI fonts.
 - Inline math detection must remain source-preserving and must not rewrite code spans, fenced code, or Markdown source before `swift-markdown` parsing.
 - Image handling must produce prepared decisions and placeholders by default; no network image fetch is allowed without an explicit host resolver.
@@ -68,7 +69,7 @@ Third-party credits for Pretext, the Node canvas shim, the vendored Unicode line
 bash Tools/release-check.sh
 ```
 
-The script first runs `Tools/RenderProbe`, which renders representative document, document-affordance, compact-chat, transcript-wrapping, multilingual, inline-attribute, overflow, hard-break, long-word, finite-column containment, wide-to-narrow resize, and code-highlighting cases through AppKit and rejects blank/trivial/collapsed/clipped/misleading output. It then runs Swift tests, including AppKit-hosted transcript command clipping regressions, test count, root build, macOS demo app bundling (`Examples/scripts/bundle-macos-demos.sh`), Pretext install/test, symbol graph generation, and warning-clean DocC conversion. Before cutting a release, update `changelog.md` and confirm `bugfix.md` records any defects found during the slice.
+The script first runs `Tools/RenderProbe`, which renders representative document, document-affordance, compact-chat, transcript-wrapping, multilingual, inline-attribute, overflow, hard-break, long-word, finite-column containment, wide-to-narrow resize, Mermaid diagram pan/zoom, and code-highlighting cases through AppKit and rejects blank/trivial/collapsed/clipped/misleading output. It then runs Swift tests, including AppKit-hosted transcript command clipping regressions, test count, root build, macOS demo app bundling (`Examples/scripts/bundle-macos-demos.sh`), Pretext install/test, symbol graph generation, and warning-clean DocC conversion. Before cutting a release, update `changelog.md` and confirm `bugfix.md` records any defects found during the slice.
 If this script fails, treat it as a real release blocker. Do not bypass the Pretext fixture comparison or the AppKit render probe to make a release check look green.
 
 ## Product Checks
@@ -81,7 +82,7 @@ Run this before claiming native-renderer product quality. It wraps the release g
 
 ## Public Release Checklist
 
-Use this checklist for `0.4.6`.
+Use this checklist for `0.4.7`.
 
 1. Confirm public hygiene:
 
@@ -116,18 +117,18 @@ Use this checklist for `0.4.6`.
 
    ```sh
    git add README.md runbook.md NOTICE.md changelog.md bugfix.md Docs Sources Tests Examples Tools Package.swift Package.resolved
-   git commit -m "Prepare SiriusMarkdown 0.4.6 release"
+   git commit -m "Prepare SiriusMarkdown 0.4.7 release"
    ```
 
 6. Tag and push:
 
    ```sh
-   git tag -a 0.4.6 -m "SiriusMarkdown 0.4.6"
+   git tag -a 0.4.7 -m "SiriusMarkdown 0.4.7"
    git push origin HEAD
-   git push origin 0.4.6
+   git push origin 0.4.7
    ```
 
-7. After pushing, create the public release notes from `changelog.md`. The release notes must keep the claim precise: native SwiftUI block rendering, prepared-line inline rendering, streaming snapshots, safe policies, language-aware default code highlighting, Pretext-backed layout gate, and demo/product probes. Do not claim a custom glyph renderer.
+7. After pushing, create the public release notes from `changelog.md`. The release notes must keep the claim precise: native SwiftUI block rendering, prepared-line inline rendering, streaming snapshots, safe policies, language-aware default code highlighting, package-owned Mermaid pan/zoom over prepared SVG/ASCII, Pretext-backed layout gate, and demo/product probes. Do not claim a custom glyph renderer, a new Mermaid semantic engine, or a WebKit renderer.
 
 ## Release Blockers
 

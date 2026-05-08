@@ -204,6 +204,51 @@ public struct MarkdownDocumentAffordances: Sendable, Hashable {
     )
 }
 
+public struct MarkdownMermaidDiagramAffordances: Sendable, Hashable {
+    public var showsToolbar: Bool
+    public var showsZoomControls: Bool
+    public var showsFitButton: Bool
+    public var showsResetButton: Bool
+    public var startsFittedToWidth: Bool
+    public var minimumScale: Double
+    public var maximumScale: Double
+    public var scaleStep: Double
+    public var minimumViewportHeight: CGFloat
+    public var maximumViewportHeight: CGFloat
+
+    public init(
+        showsToolbar: Bool = true,
+        showsZoomControls: Bool = true,
+        showsFitButton: Bool = true,
+        showsResetButton: Bool = true,
+        startsFittedToWidth: Bool = true,
+        minimumScale: Double = 0.5,
+        maximumScale: Double = 3.0,
+        scaleStep: Double = 0.2,
+        minimumViewportHeight: CGFloat = 120,
+        maximumViewportHeight: CGFloat = 420
+    ) {
+        self.showsToolbar = showsToolbar
+        self.showsZoomControls = showsZoomControls
+        self.showsFitButton = showsFitButton
+        self.showsResetButton = showsResetButton
+        self.startsFittedToWidth = startsFittedToWidth
+        self.minimumScale = minimumScale
+        self.maximumScale = maximumScale
+        self.scaleStep = scaleStep
+        self.minimumViewportHeight = minimumViewportHeight
+        self.maximumViewportHeight = maximumViewportHeight
+    }
+
+    public static let `default` = MarkdownMermaidDiagramAffordances()
+    public static let hidden = MarkdownMermaidDiagramAffordances(
+        showsToolbar: false,
+        showsZoomControls: false,
+        showsFitButton: false,
+        showsResetButton: false
+    )
+}
+
 public struct MarkdownTheme: Sendable, Hashable {
     public var paragraphFont: Font
     public var codeFont: Font
@@ -229,6 +274,7 @@ public struct MarkdownTheme: Sendable, Hashable {
     public var codeFontProfiles: MarkdownInlineFontProfiles
     public var syntaxHighlightingPalette: MarkdownSyntaxHighlightingPalette
     public var codeBlockAffordances: MarkdownCodeBlockAffordances
+    public var mermaidAffordances: MarkdownMermaidDiagramAffordances
 
     @available(*, deprecated, message: "Use headings.h3.font or MarkdownTheme.headings for per-level heading typography.")
     public var headingFont: Font {
@@ -373,14 +419,19 @@ public struct MarkdownTheme: Sendable, Hashable {
         self.codeFontProfiles = codeFontProfiles
         self.syntaxHighlightingPalette = syntaxHighlightingPalette
         self.codeBlockAffordances = .default
+        self.mermaidAffordances = .default
     }
 
     public static var compactChat: MarkdownTheme {
-        MarkdownTheme(blockSpacing: 6)
+        var theme = MarkdownTheme(blockSpacing: 6)
+        theme.mermaidAffordances.maximumViewportHeight = 280
+        return theme
     }
 
     public static var document: MarkdownTheme {
-        MarkdownTheme(blockSpacing: 12)
+        var theme = MarkdownTheme(blockSpacing: 12)
+        theme.mermaidAffordances.maximumViewportHeight = 520
+        return theme
     }
 
     public func headingStyle(for level: Int?) -> MarkdownTextStyle {

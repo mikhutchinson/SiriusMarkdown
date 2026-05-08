@@ -199,19 +199,70 @@ func ProductDefaultMermaidRendererPreparesDiagramsAndSupportsOptOut() throws {
     let defaultMermaid = try #require(defaultContent.mermaid)
     let lightSVG = try #require(defaultMermaid.svg)
     let darkSVG = try #require(defaultMermaid.darkSVG)
+    let geometry = try #require(defaultMermaid.geometry)
 
     #expect(defaultContent.code == nil)
     #expect(defaultMermaid.ascii.contains("Start"))
     #expect(defaultMermaid.ascii.contains("Done"))
+    #expect(geometry.width > 0)
+    #expect(geometry.height > 0)
     #expect(lightSVG.contains("Start"))
     #expect(lightSVG.contains("Done"))
     #expect(darkSVG.contains("Start"))
     #expect(darkSVG.contains("Done"))
+    #expect(lightSVG.contains("fonts.googleapis.com") == false)
+    #expect(darkSVG.contains("fonts.googleapis.com") == false)
     #expect(lightSVG.contains("var(") == false)
     #expect(darkSVG.contains("var(") == false)
     #expect(lightSVG.contains("#1F2937"))
     #expect(darkSVG.contains("#F3F4F6"))
     #expect(defaultPlan.mermaidRendered)
+
+    let preparedPlan = MarkdownBlockView.renderPlan(
+        for: block,
+        configuration: defaultConfiguration,
+        preparedContent: defaultContent
+    )
+    #expect(preparedPlan.mermaidRendered)
+    #expect(preparedPlan.mermaidHasGeometry)
+    #expect(preparedPlan.mermaidControlsVisible)
+    #expect(preparedPlan.mermaidZoomControlsVisible)
+    #expect(preparedPlan.mermaidFitButtonVisible)
+    #expect(preparedPlan.mermaidResetButtonVisible)
+    #expect(MarkdownTheme.compactChat.mermaidAffordances.maximumViewportHeight == 280)
+    #expect(MarkdownTheme.document.mermaidAffordances.maximumViewportHeight == 520)
+
+    var hiddenTheme = MarkdownTheme()
+    hiddenTheme.mermaidAffordances = .hidden
+    let hiddenPlan = MarkdownBlockView.renderPlan(
+        for: block,
+        configuration: MarkdownRendererConfiguration(theme: hiddenTheme),
+        preparedContent: defaultContent
+    )
+    #expect(hiddenPlan.mermaidRendered)
+    #expect(hiddenPlan.mermaidHasGeometry)
+    #expect(hiddenPlan.mermaidControlsVisible == false)
+    #expect(hiddenPlan.mermaidZoomControlsVisible == false)
+    #expect(hiddenPlan.mermaidFitButtonVisible == false)
+    #expect(hiddenPlan.mermaidResetButtonVisible == false)
+
+    var asciiOnlyContent = defaultContent
+    asciiOnlyContent.mermaid = MarkdownPreparedMermaidDiagram(
+        source: "graph LR\nA[Start] --> B[Done]",
+        sourceRange: block.sourceRange,
+        ascii: "Start -> Done"
+    )
+    let asciiOnlyPlan = MarkdownBlockView.renderPlan(
+        for: block,
+        configuration: defaultConfiguration,
+        preparedContent: asciiOnlyContent
+    )
+    #expect(asciiOnlyPlan.mermaidRendered)
+    #expect(asciiOnlyPlan.mermaidHasGeometry == false)
+    #expect(asciiOnlyPlan.mermaidControlsVisible == false)
+    #expect(asciiOnlyPlan.mermaidZoomControlsVisible == false)
+    #expect(asciiOnlyPlan.mermaidFitButtonVisible == false)
+    #expect(asciiOnlyPlan.mermaidResetButtonVisible == false)
 
     let disabledConfiguration = MarkdownRendererConfiguration(mermaidRenderer: nil)
     let disabledPrepared = disabledConfiguration.prepare(snapshot: snapshot)

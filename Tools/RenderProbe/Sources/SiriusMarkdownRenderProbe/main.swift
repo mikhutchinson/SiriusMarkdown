@@ -22,6 +22,7 @@ struct SiriusMarkdownRenderProbe {
         let resizeResult = renderPreparedNativeResizeProbe()
         let documentAffordanceResult = renderDocumentAffordanceProbe(collapsed: false)
         let collapsedDocumentAffordanceResult = renderDocumentAffordanceProbe(collapsed: true)
+        let mermaidResult = renderMermaidDiagramProbe()
         assertRenderable("MarkdownDocumentView", result)
         assertRenderable("prepared native MarkdownDocumentView", nativeResult)
         assertRenderable("compact chat prepared native transcript", chatResult, minimumNonWhitePixels: 1_400)
@@ -40,6 +41,12 @@ struct SiriusMarkdownRenderProbe {
         assertRenderable("prepared native resize document", resizeResult, minimumNonWhitePixels: 1_200)
         assertRenderable("document affordance surface", documentAffordanceResult, minimumNonWhitePixels: 2_600)
         assertRenderable("collapsed document affordance surface", collapsedDocumentAffordanceResult, minimumNonWhitePixels: 1_000)
+        assertRenderable(
+            "Mermaid diagram pan and zoom surface",
+            mermaidResult,
+            minimumNonWhitePixels: 4_000,
+            minimumDistinctColorBuckets: 6
+        )
 
         if widthResult.darkRightmostX < widthResult.minimumDarkRightmostX {
             fputs(
@@ -129,6 +136,22 @@ struct SiriusMarkdownRenderProbe {
             exit(EXIT_FAILURE)
         }
 
+        if mermaidResult.rightBandNonWhitePixels < 80 {
+            fputs(
+                "error: Mermaid diagram probe did not render visible toolbar/action pixels in the diagram surface; sampled \(mermaidResult.rightBandNonWhitePixels) non-white pixels in the right band.\n",
+                stderr
+            )
+            exit(EXIT_FAILURE)
+        }
+
+        if mermaidResult.fittingWidth > mermaidResult.maximumFittingWidth {
+            fputs(
+                "error: Mermaid diagram probe fitting width was \(mermaidResult.fittingWidth); expected <= \(mermaidResult.maximumFittingWidth) so diagrams stay contained instead of stretching the document.\n",
+                stderr
+            )
+            exit(EXIT_FAILURE)
+        }
+
         print("MarkdownDocumentView render probe: \(result.nonWhitePixels) non-white pixels, \(result.distinctColorBuckets) color buckets")
         print("Prepared native document render probe: \(nativeResult.nonWhitePixels) non-white pixels, \(nativeResult.distinctColorBuckets) color buckets")
         print("Compact chat render probe: \(chatResult.nonWhitePixels) non-white pixels, \(chatResult.distinctColorBuckets) color buckets")
@@ -144,6 +167,7 @@ struct SiriusMarkdownRenderProbe {
         print("Prepared native resize probe: dark text reached x=\(resizeResult.darkRightmostX), fitting width \(resizeResult.fittingWidth)")
         print("Document affordance surface probe: \(documentAffordanceResult.nonWhitePixels) non-white pixels, rightmost x=\(documentAffordanceResult.nonWhiteRightmostX)")
         print("Collapsed document affordance surface probe: \(collapsedDocumentAffordanceResult.nonWhitePixels) non-white pixels, rightmost x=\(collapsedDocumentAffordanceResult.nonWhiteRightmostX)")
+        print("Mermaid diagram probe: \(mermaidResult.nonWhitePixels) non-white pixels, \(mermaidResult.distinctColorBuckets) color buckets, right-band pixels=\(mermaidResult.rightBandNonWhitePixels), fitting width \(mermaidResult.fittingWidth)")
     }
 
     private static func assertRenderable(
@@ -589,6 +613,67 @@ struct SiriusMarkdownRenderProbe {
     }
 
     @MainActor
+    private static func renderMermaidDiagramProbe() -> RenderResult {
+        var configuration = MarkdownRendererConfiguration.document
+        configuration.theme.mermaidAffordances.maximumViewportHeight = 220
+        let markdown =
+            """
+            # Mermaid Probe
+
+            ```mermaid
+            graph LR
+              A[Start] --> B[Validate]
+              B --> C[Render]
+              C --> D[Done]
+            ```
+
+            ```mermaid
+            graph LR
+              Source[Session transcript] --> Parser[Markdown stream]
+              Parser --> Mermaid[Prepared Mermaid SVG]
+              Mermaid --> Viewport[Bounded pan and zoom viewport]
+              Viewport --> Transcript[SiriusAgent transcript]
+              Source --> Memory[Session recap]
+              Memory --> Mermaid
+            ```
+
+            ```mermaid
+            sequenceDiagram
+              participant User
+              participant Sirius
+              participant Renderer
+              User->>Sirius: ask for plan
+              Sirius->>Renderer: prepare markdown
+              Renderer-->>Sirius: diagram with controls
+              Sirius-->>User: inline transcript result
+            ```
+            """
+        let size = NSSize(width: 640, height: 560)
+        var stream = MarkdownStream()
+        stream.append(markdown)
+        stream.finish()
+        let prepared = configuration.prepare(snapshot: stream.snapshot())
+        let document = MarkdownDocumentView(preparedSnapshot: prepared, configuration: configuration)
+            .frame(width: size.width, height: size.height)
+            .background(Color.white)
+            .environment(\.colorScheme, .light)
+
+        let fittingView = NSHostingView(rootView: document)
+        fittingView.frame = NSRect(origin: .zero, size: size)
+        fittingView.layoutSubtreeIfNeeded()
+        let fittingWidth = fittingView.fittingSize.width
+
+        var result = renderHosted(
+            document,
+            size: size,
+            outputPath: ProcessInfo.processInfo.environment["SIRIUS_MARKDOWN_MERMAID_PROBE_OUTPUT"]
+        )
+        result.fittingWidth = fittingWidth
+        result.maximumFittingWidth = 680
+        return result
+    }
+
+    @MainActor
     private static func renderDocument(
         markdown: String,
         configuration: MarkdownRendererConfiguration = .document,
@@ -663,6 +748,7 @@ struct SiriusMarkdownRenderProbe {
             nonWhiteRightmostX: sample.nonWhiteRightmostX,
             darkRightmostX: sample.darkRightmostX,
             wideDarkColumnGaps: sample.wideDarkColumnGaps,
+            rightBandNonWhitePixels: sample.rightBandNonWhitePixels,
             pixelScale: pixelScale
         )
     }
@@ -672,7 +758,9 @@ struct SiriusMarkdownRenderProbe {
         var colorBuckets = Set<Int>()
         var nonWhiteRightmostX = 0
         var darkRightmostX = 0
+        var rightBandNonWhitePixels = 0
         var darkColumnCounts = Array(repeating: 0, count: bitmap.pixelsWide)
+        let rightBandStart = Int(Double(bitmap.pixelsWide) * 0.72)
 
         for y in 0..<bitmap.pixelsHigh {
             for x in 0..<bitmap.pixelsWide {
@@ -686,6 +774,9 @@ struct SiriusMarkdownRenderProbe {
                 if red < 0.96 || green < 0.96 || blue < 0.96 {
                     nonWhitePixels += 1
                     nonWhiteRightmostX = max(nonWhiteRightmostX, x)
+                    if x >= rightBandStart {
+                        rightBandNonWhitePixels += 1
+                    }
                     let bucket =
                         (Int(red * 15) << 8) |
                         (Int(green * 15) << 4) |
@@ -710,7 +801,8 @@ struct SiriusMarkdownRenderProbe {
             distinctColorBuckets: colorBuckets.count,
             nonWhiteRightmostX: nonWhiteRightmostX,
             darkRightmostX: darkRightmostX,
-            wideDarkColumnGaps: wideBlankRunCount(darkColumns, minimumWidth: minimumGapWidth)
+            wideDarkColumnGaps: wideBlankRunCount(darkColumns, minimumWidth: minimumGapWidth),
+            rightBandNonWhitePixels: rightBandNonWhitePixels
         )
     }
 
@@ -792,6 +884,7 @@ private struct RenderResult {
     var nonWhiteRightmostX: Int
     var darkRightmostX: Int
     var wideDarkColumnGaps: Int
+    var rightBandNonWhitePixels: Int
     var pixelScale = 1.0
     var maximumDarkRightmostX = Int.max
     var fittingWidth = 0.0
@@ -809,4 +902,5 @@ private struct PixelSample {
     var nonWhiteRightmostX: Int
     var darkRightmostX: Int
     var wideDarkColumnGaps: Int
+    var rightBandNonWhitePixels: Int
 }

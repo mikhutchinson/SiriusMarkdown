@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.7 - 2026-05-08
+
+- Added prepared Mermaid SVG geometry to `MarkdownPreparedMermaidDiagram` with public `MarkdownMermaidDiagramGeometry` and `MarkdownMermaidViewBox` types. Geometry is extracted during Mermaid preparation from root SVG dimensions or viewBox data, so SwiftUI does not parse SVG from `body`.
+- Added `MarkdownMermaidDiagramAffordances` and `MarkdownTheme.mermaidAffordances` so package-owned Mermaid controls can be tuned by hosts. The compact chat preset caps Mermaid viewport height lower, while the document preset allows taller diagram surfaces.
+- Replaced the inline Mermaid image branch with a dedicated bounded pan/zoom diagram view. SVG diagrams now render in a two-axis scroll viewport with zoom out, zoom in, fit, and reset controls, while ASCII fallback remains deterministic when SVG is unavailable or image decoding fails.
+- Kept Mermaid rendering on the existing bundled JavaScriptCore preparation path. This release does not replace `beautiful-mermaid`, does not add WebKit, and does not introduce a new Mermaid semantic engine.
+- Hardened prepared SVG output by stripping root-level Google-font imports, resolving light/dark CSS variables, and forcing local Apple/system font fallback before AppKit/UIKit image decoding.
+- Expanded unit and product coverage for Mermaid geometry parsing, cache reuse, render-plan controls, affordance opt-out, and nil-renderer fallback, and added an AppKit render probe for Mermaid diagram containment and toolbar pixels.
+
 ## 0.4.6 - 2026-05-06
 
 - Fixed prepared native-line clipping where CoreText line measurement and SwiftUI `Text(AttributedString)` painting could drift by a few pixels, causing the final glyph of transcript-style inline code to be sheared by the containment clip.

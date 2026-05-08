@@ -135,34 +135,15 @@ public struct MarkdownBlockView: View {
                     codeBlockHeader
                 }
                 if !isCodeBlockCollapsed {
-                    if let svg = mermaid.svg(for: colorScheme),
-                       let svgData = svg.data(using: .utf8),
-                       let image = PlatformImage(data: svgData) {
-                        ScrollView([.horizontal]) {
-                            #if canImport(AppKit) && !targetEnvironment(macCatalyst)
-                            Image(nsImage: image)
-                            #else
-                            Image(uiImage: image)
-                            #endif
-                        }
-                        .padding(.horizontal, 10)
-                        .padding(.top, showsCodeBlockHeader ? 4 : 10)
-                        .padding(.bottom, 10)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .accessibilityLabel("Mermaid diagram")
-                    } else {
-                        ScrollView([.horizontal, .vertical]) {
-                            Text(verbatim: mermaid.ascii)
-                                .font(theme.codeFont)
-                                .foregroundStyle(theme.textColor)
-                                .textSelection(.enabled)
-                                .padding(.horizontal, 10)
-                                .padding(.top, showsCodeBlockHeader ? 4 : 10)
-                                .padding(.bottom, 10)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .accessibilityLabel("Mermaid diagram")
-                        }
-                    }
+                    MarkdownMermaidDiagramView(
+                        mermaid: mermaid,
+                        colorScheme: colorScheme,
+                        theme: theme,
+                        baseFont: theme.codeFont
+                    )
+                    .padding(.horizontal, 10)
+                    .padding(.top, showsCodeBlockHeader ? 4 : 10)
+                    .padding(.bottom, 10)
                 } else {
                     Text("\(Self.codeCopyText(for: block).utf8.count.formatted()) bytes hidden")
                         .font(.caption)
@@ -538,6 +519,14 @@ public struct MarkdownBlockView: View {
         for block: MarkdownBlock,
         configuration: MarkdownRendererConfiguration = .compactChat
     ) -> MarkdownBlockRenderPlan {
+        renderPlan(for: block, configuration: configuration, preparedContent: nil)
+    }
+
+    public nonisolated static func renderPlan(
+        for block: MarkdownBlock,
+        configuration: MarkdownRendererConfiguration = .compactChat,
+        preparedContent: MarkdownPreparedBlockContent?
+    ) -> MarkdownBlockRenderPlan {
         switch block.kind {
         case .unorderedList, .orderedList, .taskList:
             return MarkdownBlockRenderPlan(kind: block.kind, listItemCount: block.listItems.count)
@@ -555,10 +544,19 @@ public struct MarkdownBlockView: View {
                 code: codeText
             )
             let codeAllowed = policyAllowed(decision)
+            let mermaidRendered = codeAllowed && language.isMermaid && configuration.mermaidRenderer != nil
+            let mermaidHasGeometry = preparedContent?.mermaid?.geometry != nil
+            let mermaidAffordances = configuration.theme.mermaidAffordances
+            let mermaidControlsVisible = mermaidRendered && mermaidHasGeometry && mermaidAffordances.showsToolbar
             return MarkdownBlockRenderPlan(
                 kind: block.kind,
                 codeAllowed: codeAllowed,
-                mermaidRendered: codeAllowed && language.isMermaid && configuration.mermaidRenderer != nil,
+                mermaidRendered: mermaidRendered,
+                mermaidControlsVisible: mermaidControlsVisible,
+                mermaidZoomControlsVisible: mermaidControlsVisible && mermaidAffordances.showsZoomControls,
+                mermaidFitButtonVisible: mermaidControlsVisible && mermaidAffordances.showsFitButton,
+                mermaidResetButtonVisible: mermaidControlsVisible && mermaidAffordances.showsResetButton,
+                mermaidHasGeometry: mermaidHasGeometry,
                 codeLanguageLabel: codeAllowed && configuration.theme.codeBlockAffordances.showsLanguageLabel
                     ? Self.codeBlockLanguageLabel(for: block)
                     : nil,
@@ -845,15 +843,6 @@ private struct MarkdownLeadingContentLayout: Layout {
             return nil
         }
         return width
-    }
-}
-
-private extension MarkdownPreparedMermaidDiagram {
-    func svg(for colorScheme: ColorScheme) -> String? {
-        if colorScheme == .dark {
-            return darkSVG ?? svg
-        }
-        return svg
     }
 }
 

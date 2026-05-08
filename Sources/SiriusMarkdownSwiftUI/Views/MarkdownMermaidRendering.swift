@@ -23,19 +23,48 @@ public struct MarkdownPreparedMermaidDiagram: Sendable, Hashable {
     public var ascii: String
     public var svg: String?
     public var darkSVG: String?
+    public var geometry: MarkdownMermaidDiagramGeometry?
 
     public init(
         source: String,
         sourceRange: MarkdownSourceRange?,
         ascii: String,
         svg: String? = nil,
-        darkSVG: String? = nil
+        darkSVG: String? = nil,
+        geometry: MarkdownMermaidDiagramGeometry? = nil
     ) {
         self.source = source
         self.sourceRange = sourceRange
         self.ascii = ascii
         self.svg = svg
         self.darkSVG = darkSVG
+        self.geometry = geometry
+    }
+}
+
+public struct MarkdownMermaidDiagramGeometry: Sendable, Hashable {
+    public var width: Double
+    public var height: Double
+    public var viewBox: MarkdownMermaidViewBox?
+
+    public init(width: Double, height: Double, viewBox: MarkdownMermaidViewBox? = nil) {
+        self.width = width
+        self.height = height
+        self.viewBox = viewBox
+    }
+}
+
+public struct MarkdownMermaidViewBox: Sendable, Hashable {
+    public var minX: Double
+    public var minY: Double
+    public var width: Double
+    public var height: Double
+
+    public init(minX: Double, minY: Double, width: Double, height: Double) {
+        self.minX = minX
+        self.minY = minY
+        self.width = width
+        self.height = height
     }
 }
 
@@ -60,7 +89,8 @@ public struct DefaultMarkdownMermaidRenderer: MarkdownMermaidRenderer, MarkdownM
             sourceRange: sourceRange,
             ascii: result.ascii,
             svg: result.svg,
-            darkSVG: result.darkSVG
+            darkSVG: result.darkSVG,
+            geometry: result.geometry
         )
     }
 }
@@ -75,6 +105,7 @@ private struct MermaidJavaScriptResult: Sendable {
     var ascii: String
     var svg: String?
     var darkSVG: String?
+    var geometry: MarkdownMermaidDiagramGeometry?
 }
 
 private struct MermaidSVGPalette: Sendable {
@@ -216,10 +247,32 @@ private struct MermaidSVGPalette: Sendable {
 
 private enum MermaidSVGPostProcessor {
     static func rasterCompatibleSVG(_ svg: String, palette: MermaidSVGPalette) -> String {
-        var result = svg
+        var result = removingRemoteFontImports(from: svg)
         for (variable, value) in palette.resolvedVariables.sorted(by: { $0.key.count > $1.key.count }) {
             result = replacingCSSVariable(variable, with: value, in: result)
         }
+        return forcingLocalSystemFonts(in: result)
+    }
+
+    private static func removingRemoteFontImports(from svg: String) -> String {
+        svg
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .filter { !$0.contains("fonts.googleapis.com") }
+            .joined(separator: "\n")
+    }
+
+    private static func forcingLocalSystemFonts(in svg: String) -> String {
+        let localFontRule = """
+          text, .mono {
+            font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
+          }
+        """
+        guard let styleEnd = svg.range(of: "</style>") else {
+            return svg
+        }
+
+        var result = svg
+        result.insert(contentsOf: "\n\(localFontRule)\n", at: styleEnd.lowerBound)
         return result
     }
 
@@ -272,6 +325,103 @@ private enum MermaidSVGPostProcessor {
         while index < string.endIndex, string[index].isWhitespace {
             index = string.index(after: index)
         }
+    }
+}
+
+enum MermaidSVGGeometryParser {
+    static func geometry(in svg: String) -> MarkdownMermaidDiagramGeometry? {
+        guard let rootTag = rootSVGTag(in: svg) else {
+            return nil
+        }
+
+        let viewBox = attribute("viewBox", in: rootTag)
+            .flatMap(parseViewBox)
+        let width = attribute("width", in: rootTag)
+            .flatMap(parseDimension)
+        let height = attribute("height", in: rootTag)
+            .flatMap(parseDimension)
+
+        if let width, let height, isValidDimension(width), isValidDimension(height) {
+            return MarkdownMermaidDiagramGeometry(width: width, height: height, viewBox: viewBox)
+        }
+
+        guard let viewBox,
+              isValidDimension(viewBox.width),
+              isValidDimension(viewBox.height)
+        else {
+            return nil
+        }
+
+        return MarkdownMermaidDiagramGeometry(
+            width: viewBox.width,
+            height: viewBox.height,
+            viewBox: viewBox
+        )
+    }
+
+    private static func rootSVGTag(in svg: String) -> String? {
+        guard let start = svg.range(of: "<svg", options: [.caseInsensitive]),
+              let end = svg[start.lowerBound...].firstIndex(of: ">")
+        else {
+            return nil
+        }
+
+        return String(svg[start.lowerBound...end])
+    }
+
+    private static func attribute(_ name: String, in tag: String) -> String? {
+        let pattern = #"\b"# + NSRegularExpression.escapedPattern(for: name) + #"[\s]*=[\s]*(["'])(.*?)\1"#
+        guard let expression = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
+            return nil
+        }
+
+        let range = NSRange(tag.startIndex..<tag.endIndex, in: tag)
+        guard let match = expression.firstMatch(in: tag, options: [], range: range),
+              match.numberOfRanges >= 3,
+              let valueRange = Range(match.range(at: 2), in: tag)
+        else {
+            return nil
+        }
+
+        return String(tag[valueRange])
+    }
+
+    private static func parseDimension(_ rawValue: String) -> Double? {
+        var value = rawValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if value.hasSuffix("px") {
+            value.removeLast(2)
+            value = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        guard let parsed = Double(value), isValidDimension(parsed) else {
+            return nil
+        }
+        return parsed
+    }
+
+    private static func parseViewBox(_ rawValue: String) -> MarkdownMermaidViewBox? {
+        let parts = rawValue
+            .replacingOccurrences(of: ",", with: " ")
+            .split(whereSeparator: \.isWhitespace)
+            .compactMap { Double($0) }
+
+        guard parts.count == 4,
+              isValidDimension(parts[2]),
+              isValidDimension(parts[3])
+        else {
+            return nil
+        }
+
+        return MarkdownMermaidViewBox(
+            minX: parts[0],
+            minY: parts[1],
+            width: parts[2],
+            height: parts[3]
+        )
+    }
+
+    private static func isValidDimension(_ value: Double) -> Bool {
+        value.isFinite && value > 0
     }
 }
 
@@ -337,6 +487,9 @@ private final class MermaidJavaScriptRuntime: @unchecked Sendable {
                 }
             }
 
+            let geometry = svg.flatMap(MermaidSVGGeometryParser.geometry)
+                ?? darkSVG.flatMap(MermaidSVGGeometryParser.geometry)
+
             guard let asciiResult = ascii else {
                 return nil
             }
@@ -346,7 +499,12 @@ private final class MermaidJavaScriptRuntime: @unchecked Sendable {
                 return nil
             }
 
-            return MermaidJavaScriptResult(ascii: trimmed, svg: svg, darkSVG: darkSVG)
+            return MermaidJavaScriptResult(
+                ascii: trimmed,
+                svg: svg,
+                darkSVG: darkSVG,
+                geometry: geometry
+            )
         }
 #else
         return nil

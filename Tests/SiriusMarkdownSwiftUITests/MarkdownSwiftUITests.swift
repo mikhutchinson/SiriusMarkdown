@@ -652,6 +652,46 @@ func codeLanguageRecognizesMermaidAsSpecialRendererLanguage() {
 }
 
 @Test
+func mermaidSVGGeometryParserHandlesDimensionsViewBoxAndInvalidValues() throws {
+    let sized = try #require(MermaidSVGGeometryParser.geometry(
+        in: #"<svg viewBox="0 0 271.18 116.9" width="271.18" height="116.9"></svg>"#
+    ))
+    #expect(sized.width == 271.18)
+    #expect(sized.height == 116.9)
+    #expect(sized.viewBox?.width == 271.18)
+    #expect(sized.viewBox?.height == 116.9)
+
+    let pxSized = try #require(MermaidSVGGeometryParser.geometry(
+        in: #"<svg width="300px" height="160px"></svg>"#
+    ))
+    #expect(pxSized.width == 300)
+    #expect(pxSized.height == 160)
+
+    let viewBoxOnly = try #require(MermaidSVGGeometryParser.geometry(
+        in: #"<svg viewBox="-10 -20 480 240"></svg>"#
+    ))
+    #expect(viewBoxOnly.width == 480)
+    #expect(viewBoxOnly.height == 240)
+    #expect(viewBoxOnly.viewBox?.minX == -10)
+    #expect(viewBoxOnly.viewBox?.minY == -20)
+
+    let invalidSVGs = [
+        #"<svg width="0" height="160"></svg>"#,
+        #"<svg width="-1" height="160"></svg>"#,
+        #"<svg width="NaN" height="160"></svg>"#,
+        #"<svg width="Infinity" height="160"></svg>"#,
+        #"<svg width="100%" height="160"></svg>"#,
+        #"<svg viewBox="0 0 0 120"></svg>"#,
+        #"<svg viewBox="0 0 120 -4"></svg>"#,
+        #"<not-svg width="120" height="80"></not-svg>"#
+    ]
+
+    for invalid in invalidSVGs {
+        #expect(MermaidSVGGeometryParser.geometry(in: invalid) == nil)
+    }
+}
+
+@Test
 func codeHighlightCacheKeysIncludeLanguagePaletteAndHighlighterIdentity() throws {
     let swiftBlock = try firstBlock("```swift\nlet x = 1\n```")
     let pythonBlock = try firstBlock("```python\nlet x = 1\n```")

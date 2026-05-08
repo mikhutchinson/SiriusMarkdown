@@ -1015,6 +1015,11 @@ public struct MarkdownBlockRenderPlan: Sendable, Equatable {
     public var tableBodyRowCount: Int
     public var codeAllowed: Bool?
     public var mermaidRendered: Bool
+    public var mermaidControlsVisible: Bool
+    public var mermaidZoomControlsVisible: Bool
+    public var mermaidFitButtonVisible: Bool
+    public var mermaidResetButtonVisible: Bool
+    public var mermaidHasGeometry: Bool
     public var codeLanguageLabel: String?
     public var codeCopyButtonVisible: Bool
     public var codeExportButtonVisible: Bool
@@ -1031,6 +1036,11 @@ public struct MarkdownBlockRenderPlan: Sendable, Equatable {
         tableBodyRowCount: Int = 0,
         codeAllowed: Bool? = nil,
         mermaidRendered: Bool = false,
+        mermaidControlsVisible: Bool = false,
+        mermaidZoomControlsVisible: Bool = false,
+        mermaidFitButtonVisible: Bool = false,
+        mermaidResetButtonVisible: Bool = false,
+        mermaidHasGeometry: Bool = false,
         codeLanguageLabel: String? = nil,
         codeCopyButtonVisible: Bool = false,
         codeExportButtonVisible: Bool = false,
@@ -1046,6 +1056,11 @@ public struct MarkdownBlockRenderPlan: Sendable, Equatable {
         self.tableBodyRowCount = tableBodyRowCount
         self.codeAllowed = codeAllowed
         self.mermaidRendered = mermaidRendered
+        self.mermaidControlsVisible = mermaidControlsVisible
+        self.mermaidZoomControlsVisible = mermaidZoomControlsVisible
+        self.mermaidFitButtonVisible = mermaidFitButtonVisible
+        self.mermaidResetButtonVisible = mermaidResetButtonVisible
+        self.mermaidHasGeometry = mermaidHasGeometry
         self.codeLanguageLabel = codeLanguageLabel
         self.codeCopyButtonVisible = codeCopyButtonVisible
         self.codeExportButtonVisible = codeExportButtonVisible

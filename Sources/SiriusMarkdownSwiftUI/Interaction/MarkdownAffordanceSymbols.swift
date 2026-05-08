@@ -5,6 +5,10 @@ enum MarkdownAffordanceSymbols {
     static let export = "square.and.arrow.down.on.square"
     static let collapse = "chevron.up"
     static let expand = "chevron.down"
+    static let zoomOut = "minus.magnifyingglass"
+    static let zoomIn = "plus.magnifyingglass"
+    static let fit = "arrow.up.left.and.arrow.down.right"
+    static let reset = "arrow.counterclockwise"
 
     static func opticalYOffset(for symbolName: String) -> CGFloat {
         switch symbolName {

@@ -4,7 +4,7 @@ Native, streaming-first Markdown rendering for Apple platforms—designed for lo
 
 ## Overview
 
-> Product status: the packaged chat and document presets use proposal-contained prepared-line rendering, the default code highlighter is language-aware for explicit supported fences, Mermaid fences prepare concrete-color light/dark SVG output off the SwiftUI hot path, document/code affordances are generic and source-backed, and the release gate includes strict required-group Swift-vs-Pretext fixture comparison, AppKit render probes for document, document affordance chrome, compact chat, transcript wrapping, multilingual, inline-attribute, overflow, hard-break, long-word, finite-column containment, wide-to-narrow resize, and code-highlighting output, plus AppKit-hosted transcript command clipping regressions.
+> Product status: the packaged chat and document presets use proposal-contained prepared-line rendering, the default code highlighter is language-aware for explicit supported fences, Mermaid fences prepare concrete-color light/dark SVG output and geometry off the SwiftUI hot path, Mermaid diagrams render in a bounded package-owned pan/zoom viewport, document/code affordances are generic and source-backed, and the release gate includes strict required-group Swift-vs-Pretext fixture comparison, AppKit render probes for document, document affordance chrome, compact chat, transcript wrapping, multilingual, inline-attribute, overflow, hard-break, long-word, finite-column containment, wide-to-narrow resize, Mermaid diagram pan/zoom, and code-highlighting output, plus AppKit-hosted transcript command clipping regressions.
 
 - **`swift-markdown`** (`Markdown` product) provides parsing semantics; SiriusMarkdown converts the AST to **`MarkdownBlock`** and **`MarkdownInlineRun`** value types.
 - **`MarkdownStream`** stores append-only UTF-8, incrementally scans safe seal points, reparses only the **mutable tail**, and exposes **`MarkdownSnapshot`** plus source-backed copy slices.
@@ -34,6 +34,8 @@ For live updates, append to the stream (or rebuild snapshots from your pipeline)
 In production paths, prefer **`MarkdownRenderSession`** or keep **`MarkdownRendererConfiguration`** alive in your model layer and call **`prepare(snapshot:)`** before SwiftUI evaluates renderer bodies. Prepared snapshots carry policy-gated inline text, measured inline content, image decisions, highlighted code, rendered math, HTML policy decisions, table cells, list items, selection/copy source ranges, and host-boundary ordering. The compatibility `snapshot:` view initializers are deprecated because they hide this work at the view boundary.
 
 The default `MarkdownCodeHighlighter` normalizes info strings such as `language-swift`, `py`, `js`, `ts`, `yml`, `objc`, and `cpp` before calling the embedded grammar backend. Supported explicit languages are highlighted during render preparation, while plaintext, nohighlight, unlabeled, or unsupported fences stay plain. Code blocks render generic language-label, copy, export, and collapse affordances by default; hosts can hide or tune those affordances through `MarkdownTheme.codeBlockAffordances`. Hosts can keep the same injection point and pass `PlainMarkdownCodeHighlighter` or any custom highlighter through `MarkdownRendererConfiguration`.
+
+Mermaid fences are prepared by `MarkdownMermaidRenderer` before SwiftUI body evaluation. The default renderer still uses the bundled DOM-free `beautiful-mermaid` runtime through JavaScriptCore and produces deterministic ASCII fallback plus light/dark SVG strings; it also extracts root SVG geometry and strips remote font imports during preparation. `MarkdownBlockView` renders the prepared SVG as a platform image inside a bounded two-axis pan/zoom viewport with package-owned zoom out, zoom in, fit, and reset controls. Tune those controls with `MarkdownTheme.mermaidAffordances` or disable Mermaid rendering entirely with `MarkdownRendererConfiguration(mermaidRenderer: nil)`. This is not a new Mermaid semantic engine and not a WebKit surface.
 
 `MarkdownDocumentSurface` is the package-owned document chrome for static reader surfaces. It wraps already-prepared content with optional copy, export/download, and collapse controls. `MarkdownCopyProvider` can expose exact full-document Markdown in addition to range slices, and `MarkdownAffordanceActionHandler` lets host apps replace pasteboard/export behavior without changing the renderer model or moving work into view bodies.
 
@@ -120,6 +122,9 @@ Architecture rules and the product quality bar are documented in `Docs/architect
 - ``SiriusMarkdownSwiftUI/MarkdownPreparedSnapshot``
 - ``SiriusMarkdownSwiftUI/MarkdownPreparedBlockContent``
 - ``SiriusMarkdownSwiftUI/MarkdownTheme``
+- ``SiriusMarkdownSwiftUI/MarkdownMermaidDiagramAffordances``
+- ``SiriusMarkdownSwiftUI/MarkdownMermaidDiagramGeometry``
+- ``SiriusMarkdownSwiftUI/MarkdownMermaidViewBox``
 
 ### Layout and measurement
 
@@ -141,6 +146,9 @@ Architecture rules and the product quality bar are documented in `Docs/architect
 - ``SiriusMarkdownSwiftUI/MarkdownCopyProvider``
 - ``SiriusMarkdownSwiftUI/MarkdownDocumentAffordances``
 - ``SiriusMarkdownSwiftUI/MarkdownCodeBlockAffordances``
+- ``SiriusMarkdownSwiftUI/MarkdownMermaidRenderer``
+- ``SiriusMarkdownSwiftUI/DefaultMarkdownMermaidRenderer``
+- ``SiriusMarkdownSwiftUI/MarkdownPreparedMermaidDiagram``
 - ``SiriusMarkdownSwiftUI/MarkdownAffordanceActionHandler``
 - ``SiriusMarkdownSwiftUI/MarkdownSelectionController``
 - ``SiriusMarkdownSwiftUI/MarkdownPreparedImage``

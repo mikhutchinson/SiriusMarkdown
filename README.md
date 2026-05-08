@@ -10,9 +10,9 @@ The package is built around three principles:
 
 ## Status
 
-This checkout is the `0.4.6` public package release. The release gate is strict Swift-vs-Pretext layout comparison, required Pretext product fixture groups, AppKit render probes for document, compact chat, transcript wrapping, multilingual, inline-attribute, overflow, hard-break, long-word, finite-column containment, wide-to-narrow resize, document affordance chrome, and language-aware code highlighting output, plus AppKit-hosted transcript command clipping regressions. Fixture drift, missing groups, duplicate fixture names/groups, and trivial render output are release blockers.
+This checkout is the `0.4.7` public package release. The release gate is strict Swift-vs-Pretext layout comparison, required Pretext product fixture groups, AppKit render probes for document, compact chat, transcript wrapping, multilingual, inline-attribute, overflow, hard-break, long-word, finite-column containment, wide-to-narrow resize, document affordance chrome, Mermaid diagram pan/zoom, and language-aware code highlighting output, plus AppKit-hosted transcript command clipping regressions. Fixture drift, missing groups, duplicate fixture names/groups, and trivial render output are release blockers.
 
-The current product claim is native SwiftUI Markdown rendering with prepared-line layout, streaming snapshots, bounded caches, safe default policies, language-aware default code highlighting, built-in Mermaid diagram rendering with deterministic plain-code fallback, generic document/code affordances, public chat/document presets, first-class H1-H6 heading typography through `MarkdownTheme.headings`, and containment-stable prepared native lines for transcript-style paths, commands, URLs, long identifiers, nested lists, quotes, table cells, and glyph-bound paint drift. It is not a custom glyph renderer: `preparedNativeLines` slices prepared attributed line ranges and renders them with SwiftUI `Text(AttributedString)`.
+The current product claim is native SwiftUI Markdown rendering with prepared-line layout, streaming snapshots, bounded caches, safe default policies, language-aware default code highlighting, built-in Mermaid diagram rendering with package-owned inline pan/zoom controls and deterministic plain-code fallback, generic document/code affordances, public chat/document presets, first-class H1-H6 heading typography through `MarkdownTheme.headings`, and containment-stable prepared native lines for transcript-style paths, commands, URLs, long identifiers, nested lists, quotes, table cells, and glyph-bound paint drift. It is not a custom glyph renderer: `preparedNativeLines` slices prepared attributed line ranges and renders them with SwiftUI `Text(AttributedString)`.
 
 ## Requirements
 
@@ -25,7 +25,7 @@ In `Package.swift` (adjust the package URL to the published repository):
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/mikhutchinson/SiriusMarkdown.git", from: "0.4.6")
+    .package(url: "https://github.com/mikhutchinson/SiriusMarkdown.git", from: "0.4.7")
 ],
 targets: [
     .target(
@@ -49,7 +49,7 @@ For local development from a sibling checkout, use a path dependency instead:
 
 ## Renderer surface
 
-The default SwiftUI renderer includes native structured blocks for paragraphs, headings, quotes, lists, task lists, code blocks, built-in Mermaid diagram fences, math/HTML policy paths, and Markdown tables. Mermaid fences are recognized from ```` ```mermaid ```` info strings during preparation, rendered through a bundled JavaScript runtime off the SwiftUI hot path, and can be disabled by setting `MarkdownRendererConfiguration(mermaidRenderer: nil)` to fall back to plain code blocks. The default renderer produces ASCII text plus raster-compatible light and dark SVG strings in `MarkdownPreparedMermaidDiagram.svg` and `.darkSVG`; the SVG colors are resolved during preparation so AppKit/UIKit image decoding does not depend on runtime CSS variable support. `MarkdownBlockView` selects the prepared variant for the active color scheme and keeps diagrams at intrinsic size inside horizontal overflow containment. Tables are first-class renderer output: cells are prepared from the AST, column widths are derived from prepared inline measurements, wide tables stay horizontally contained, and visual treatment is controlled through `MarkdownTheme` table tokens rather than demo-only styling.
+The default SwiftUI renderer includes native structured blocks for paragraphs, headings, quotes, lists, task lists, code blocks, built-in Mermaid diagram fences, math/HTML policy paths, and Markdown tables. Mermaid fences are recognized from ```` ```mermaid ```` info strings during preparation, rendered through a bundled JavaScript runtime off the SwiftUI hot path, and can be disabled by setting `MarkdownRendererConfiguration(mermaidRenderer: nil)` to fall back to plain code blocks. The default renderer produces ASCII text plus raster-compatible light and dark SVG strings in `MarkdownPreparedMermaidDiagram.svg` and `.darkSVG`, along with prepared root SVG geometry when available; the SVG colors and local font fallback are resolved during preparation so AppKit/UIKit image decoding does not depend on runtime CSS variable support or network font imports. `MarkdownBlockView` selects the prepared variant for the active color scheme and renders diagrams in a bounded two-axis pan/zoom viewport with package-owned zoom out, zoom in, fit, and reset controls from `MarkdownTheme.mermaidAffordances`. This is still prepared SVG/ASCII from the bundled Mermaid renderer, not a new Mermaid semantic engine and not WebKit. Tables are first-class renderer output: cells are prepared from the AST, column widths are derived from prepared inline measurements, wide tables stay horizontally contained, and visual treatment is controlled through `MarkdownTheme` table tokens rather than demo-only styling.
 
 Inline rendering has an explicit boundary. The packaged chat and document presets, `MarkdownRendererConfiguration.compactChat` and `.document`, use `MarkdownInlineRenderingMode.preparedNativeLines`: cached prepared layout results slice the attributed payload into proposal-contained prepared lines before SwiftUI renders them with `Text(AttributedString)`. Direct custom `MarkdownRendererConfiguration(...)` construction keeps `MarkdownInlineRenderingMode.systemText` as a compatibility fallback. Neither path parses, prepares policy/code/math work, or measures inline content in SwiftUI body.
 
@@ -81,7 +81,7 @@ let documentTheme = MarkdownTheme(
 )
 ```
 
-Code highlighting remains pluggable through `MarkdownCodeHighlighter`, but the shipped default is now language-aware on Apple platforms with JavaScriptCore. `DefaultMarkdownCodeHighlighter` normalizes fence info strings and aliases, highlights explicit supported languages through a pinned embedded `highlight.js` common build, and renders plaintext, nohighlight, unlabeled, or unsupported fences plainly. Mermaid fences are routed before syntax highlighting through `MarkdownMermaidRenderer`, whose shipped default uses a bundled DOM-free `beautiful-mermaid` runtime to prepare native diagram text and concrete-color SVG output without WebKit. Hosts that want Mermaid fences to stay plain can disable that path with `mermaidRenderer: nil`. Code blocks also include generic SwiftUI chrome for the normalized language label, copy, export, and collapse controls; hosts can hide or tune those affordances through `MarkdownTheme.codeBlockAffordances`. Hosts that want no highlighting can still inject `PlainMarkdownCodeHighlighter`.
+Code highlighting remains pluggable through `MarkdownCodeHighlighter`, but the shipped default is now language-aware on Apple platforms with JavaScriptCore. `DefaultMarkdownCodeHighlighter` normalizes fence info strings and aliases, highlights explicit supported languages through a pinned embedded `highlight.js` common build, and renders plaintext, nohighlight, unlabeled, or unsupported fences plainly. Mermaid fences are routed before syntax highlighting through `MarkdownMermaidRenderer`, whose shipped default uses a bundled DOM-free `beautiful-mermaid` runtime to prepare native diagram text and concrete-color SVG output without WebKit. Hosts that want Mermaid fences to stay plain can disable that path with `mermaidRenderer: nil`, and hosts that want tighter or looser diagram chrome can tune `MarkdownTheme.mermaidAffordances`. Code blocks also include generic SwiftUI chrome for the normalized language label, copy, export, and collapse controls; hosts can hide or tune those affordances through `MarkdownTheme.codeBlockAffordances`. Hosts that want no highlighting can still inject `PlainMarkdownCodeHighlighter`.
 
 Document chrome is generic and source-backed. `MarkdownDocumentSurface` wraps prepared document content with optional copy, export/download, and collapse controls while keeping parsing, highlighting, and layout preparation outside SwiftUI body evaluation. Source comes from `MarkdownCopyProvider`, and behavior is replaceable through `MarkdownAffordanceActionHandler`:
 
@@ -170,7 +170,7 @@ The release and product gates cover more than construction smoke tests:
 - renderer preparation does not eagerly populate per-character fallback measurements;
 - repeated preparation reuses inline/code/mermaid/math caches and records diagnostics;
 - large transcripts keep stable prepared item IDs for 10,000 sealed blocks plus one active tail;
-- `Tools/RenderProbe` renders document, compact-chat, transcript-wrapping, multilingual, inline-attribute, overflow, hard-break, long-word, and code-highlighting cases through AppKit and rejects blank, trivial, collapsed-spacing, clipped-wide, or misleading plain-fence output;
+- `Tools/RenderProbe` renders document, compact-chat, transcript-wrapping, multilingual, inline-attribute, overflow, hard-break, long-word, Mermaid diagram pan/zoom, and code-highlighting cases through AppKit and rejects blank, trivial, collapsed-spacing, clipped-wide, or misleading plain-fence output;
 - strict Pretext golden fixtures compare Swift layout metrics against the JavaScript oracle with no known-drift whitelist, no duplicate fixture names/groups, and all required product groups present.
 
 Before a public tag, run:
@@ -248,12 +248,12 @@ bash Tools/product-check.sh
 
 ## Release
 
-`0.4.6` is ready to publish only when:
+`0.4.7` is ready to publish only when:
 
 - `README.md`, `NOTICE.md`, `changelog.md`, and `runbook.md` describe the current public package surface;
 - `bash Tools/product-check.sh` passes from the repository root;
 - `git diff --check` reports no whitespace errors;
 - `git remote -v` points at the intended public repository;
-- the release commit is tagged as `0.4.6` and pushed with tags.
+- the release commit is tagged as `0.4.7` and pushed with tags.
 
 Recommended release commands are documented in `runbook.md`.
