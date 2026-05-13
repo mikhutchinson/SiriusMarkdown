@@ -98,9 +98,10 @@ public struct DefaultMarkdownImageResolver: MarkdownImageResolver {
 public struct MarkdownRendererConfiguration: Sendable {
     public var theme: MarkdownTheme
     public var inlineRenderingMode: MarkdownInlineRenderingMode
-    /// Native SwiftUI text selection policy. Enabled by default, but
-    /// applied only at renderer roots to avoid per-fragment selection
-    /// overlay growth.
+    /// Native SwiftUI text selection policy. Disabled by default because
+    /// macOS 26 samples show SwiftUI's private selection overlay can spin
+    /// the main thread in complex renderer trees. Copy affordances and
+    /// `MarkdownSelectionController` remain available without that overlay.
     public var nativeTextSelection: MarkdownNativeTextSelection
     public var linkAction: MarkdownLinkAction?
     public var copyProvider: MarkdownCopyProvider?
@@ -120,7 +121,7 @@ public struct MarkdownRendererConfiguration: Sendable {
     public init(
         theme: MarkdownTheme = .compactChat,
         inlineRenderingMode: MarkdownInlineRenderingMode = .systemText,
-        nativeTextSelection: MarkdownNativeTextSelection = .enabled,
+        nativeTextSelection: MarkdownNativeTextSelection = .disabled,
         linkAction: MarkdownLinkAction? = nil,
         copyProvider: MarkdownCopyProvider? = nil,
         linkPolicy: any MarkdownLinkPolicy = DefaultMarkdownPolicy(),
@@ -174,7 +175,7 @@ public struct MarkdownRendererConfiguration: Sendable {
     ) {
         self.theme = theme
         self.inlineRenderingMode = .systemText
-        self.nativeTextSelection = .enabled
+        self.nativeTextSelection = .disabled
         self.linkAction = linkAction
         self.copyProvider = copyProvider
         self.linkPolicy = linkPolicy

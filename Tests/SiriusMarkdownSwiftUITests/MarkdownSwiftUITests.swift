@@ -268,9 +268,10 @@ func packagedPresetsUsePreparedNativeLinesWhileRawConfigKeepsCompatibilityFallba
     #expect(MarkdownRendererConfiguration.document.inlineRenderingMode == .preparedNativeLines)
     #expect(MarkdownRendererConfiguration().inlineRenderingMode == .systemText)
     #expect(MarkdownRendererConfiguration(inlineRenderingMode: .systemText).inlineRenderingMode == .systemText)
-    #expect(MarkdownRendererConfiguration.compactChat.nativeTextSelection == .enabled)
-    #expect(MarkdownRendererConfiguration.document.nativeTextSelection == .enabled)
-    #expect(MarkdownRendererConfiguration().nativeTextSelection == .enabled)
+    #expect(MarkdownRendererConfiguration.compactChat.nativeTextSelection == .disabled)
+    #expect(MarkdownRendererConfiguration.document.nativeTextSelection == .disabled)
+    #expect(MarkdownRendererConfiguration().nativeTextSelection == .disabled)
+    #expect(MarkdownRendererConfiguration(nativeTextSelection: .enabled).nativeTextSelection == .enabled)
     #expect(MarkdownRendererConfiguration(nativeTextSelection: .disabled).nativeTextSelection == .disabled)
 
     let block = MarkdownBlock(
@@ -286,7 +287,7 @@ func packagedPresetsUsePreparedNativeLinesWhileRawConfigKeepsCompatibilityFallba
 }
 
 @Test
-func nativeTextSelectionIsBoundedAtRendererRoots() throws {
+func nativeTextSelectionDoesNotAttachPerFragmentSwiftUIOverlay() throws {
     let root = packageRootURL()
     let blockView = try String(
         contentsOf: root.appending(path: "Sources/SiriusMarkdownSwiftUI/Blocks/MarkdownBlockView.swift"),
