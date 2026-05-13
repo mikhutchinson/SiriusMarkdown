@@ -1,15 +1,21 @@
 # Changelog
 
+## 0.4.10 - 2026-05-13
+
+- Documented the SwiftUI native text-selection hang as unresolved rather than fixed. The current mitigation keeps `MarkdownRendererConfiguration.nativeTextSelection` defaulted to `.disabled` so SiriusMarkdown does not mount SwiftUI's private `SelectionOverlay` path by default.
+- Added public doc and doc-comment breadcrumbs for future debugging: sample Sirius and look for `GraphHost.flushTransactions` -> `SelectionOverlay.updateNSView` -> `NSTextField setFont:` / `_invalidateEffectiveFont` if the hang returns.
+- Clarified that this mitigation only controls SwiftUI's explicit native-selection overlay. Source-backed copy affordances, `MarkdownSelectionController`, and any host/AppKit selection behavior outside that overlay are separate.
+
 ## 0.4.9 - 2026-05-13
 
-- Fixed the follow-up Sirius hang sample where root-scoping `.textSelection(.enabled)` was still enough to drive SwiftUI's private `SelectionOverlay.updateNSView` loop through AppKit `NSTextField` font and intrinsic-size invalidation.
+- Mitigated the follow-up Sirius hang sample where root-scoping `.textSelection(.enabled)` was still enough to drive SwiftUI's private `SelectionOverlay.updateNSView` loop through AppKit `NSTextField` font and intrinsic-size invalidation.
 - Changed `MarkdownRendererConfiguration.nativeTextSelection` to default to `.disabled`, keeping source-backed copy affordances and `MarkdownSelectionController` available without mounting SwiftUI's private selection overlay in host views.
 - Kept `.enabled` as an explicit host opt-in for consumers that can tolerate SwiftUI's native selection overlay on their target macOS/runtime mix.
 - Updated regression coverage so packaged presets and raw configurations use the safe selection policy by default while still proving the opt-in remains available.
 
 ## 0.4.8 - 2026-05-13
 
-- Fixed a Sirius host hang profile where the main thread spun in SwiftUI's private `SelectionOverlay.updateNSView` path and AppKit repeatedly invalidated `NSTextField` font/layout state while flushing `GraphHost` transactions.
+- Bounded the first observed Sirius host hang profile where the main thread spun in SwiftUI's private `SelectionOverlay.updateNSView` path and AppKit repeatedly invalidated `NSTextField` font/layout state while flushing `GraphHost` transactions.
 - Kept native text selection enabled by default, but bounded the SwiftUI selection modifier to renderer roots (`MarkdownDocumentView`, `StreamingMarkdownView`, and `MarkdownDocumentSurface`) instead of attaching `.textSelection(.enabled)` to every paragraph, list item, table cell, code block, math block, HTML fallback, policy denial, and Mermaid ASCII fallback.
 - Added `MarkdownNativeTextSelection` and `MarkdownRendererConfiguration.nativeTextSelection` so hosts can explicitly opt out where needed without changing the default selectable Markdown behavior.
 - Added regression coverage that rejects per-block selection modifiers and proves the renderer roots remain the only SwiftUI native-selection activation points.

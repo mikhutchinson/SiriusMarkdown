@@ -167,6 +167,16 @@ The release and product gates cover more than construction smoke tests:
 - inline math is detected source-preservingly while code spans and fences remain excluded;
 - image runs produce prepared placeholder/resolution decisions, with no remote image loading by default;
 - selection/copy is bounded at the block level instead of using unbounded per-fragment overlays;
+- SwiftUI native text selection remains an explicit opt-in through
+  `MarkdownRendererConfiguration.nativeTextSelection`. It defaults to
+  `.disabled` while an unresolved macOS 26/Sirius hang is traceable to
+  SwiftUI's private `SelectionOverlay.updateNSView` path under
+  `GraphHost.flushTransactions`. If that hang returns, sample the host and
+  look for `SelectionOverlay.updateNSView` followed by AppKit
+  `NSTextField setFont:` / `_invalidateEffectiveFont` / `updateCell`.
+  This switch only controls the explicit SwiftUI overlay; source-backed
+  copy affordances, `MarkdownSelectionController`, and host/AppKit selection
+  behavior outside that overlay are separate.
 - renderer preparation does not eagerly populate per-character fallback measurements;
 - repeated preparation reuses inline/code/mermaid/math caches and records diagnostics;
 - large transcripts keep stable prepared item IDs for 10,000 sealed blocks plus one active tail;

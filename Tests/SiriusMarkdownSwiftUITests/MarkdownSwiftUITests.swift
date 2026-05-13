@@ -314,6 +314,27 @@ func nativeTextSelectionDoesNotAttachPerFragmentSwiftUIOverlay() throws {
 }
 
 @Test
+func nativeTextSelectionDocsTrackUnresolvedSelectionOverlayHang() throws {
+    let root = packageRootURL()
+    let docComment = try String(
+        contentsOf: root.appending(path: "Sources/SiriusMarkdownSwiftUI/Interaction/MarkdownNativeTextSelection.swift"),
+        encoding: .utf8
+    )
+    let readme = try String(contentsOf: root.appending(path: "README.md"), encoding: .utf8)
+    let runbook = try String(contentsOf: root.appending(path: "runbook.md"), encoding: .utf8)
+    let bugfix = try String(contentsOf: root.appending(path: "bugfix.md"), encoding: .utf8)
+    let combined = [docComment, readme, runbook, bugfix].joined(separator: "\n")
+
+    #expect(combined.contains("unresolved"))
+    #expect(combined.contains("nativeTextSelection"))
+    #expect(combined.contains("SelectionOverlay.updateNSView"))
+    #expect(combined.contains("GraphHost.flushTransactions"))
+    #expect(combined.contains("NSTextField setFont:"))
+    #expect(combined.contains("_invalidateEffectiveFont"))
+    #expect(combined.contains("MarkdownSelectionController"))
+}
+
+@Test
 func preparedNativeLinesPreserveInlineAttributesAcrossLineSlices() throws {
     var stream = MarkdownStream()
     stream.append("alpha [linked text](https://example.com) and `code value` after")

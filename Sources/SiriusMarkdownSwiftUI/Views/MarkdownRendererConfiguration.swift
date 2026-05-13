@@ -98,10 +98,13 @@ public struct DefaultMarkdownImageResolver: MarkdownImageResolver {
 public struct MarkdownRendererConfiguration: Sendable {
     public var theme: MarkdownTheme
     public var inlineRenderingMode: MarkdownInlineRenderingMode
-    /// Native SwiftUI text selection policy. Disabled by default because
-    /// macOS 26 samples show SwiftUI's private selection overlay can spin
-    /// the main thread in complex renderer trees. Copy affordances and
-    /// `MarkdownSelectionController` remain available without that overlay.
+    /// Native SwiftUI text selection policy.
+    ///
+    /// Disabled by default while an unresolved macOS 26/Sirius hang remains
+    /// traceable to SwiftUI's private `SelectionOverlay.updateNSView` path
+    /// under `GraphHost.flushTransactions`. Copy affordances and
+    /// `MarkdownSelectionController` remain available without mounting that
+    /// overlay.
     public var nativeTextSelection: MarkdownNativeTextSelection
     public var linkAction: MarkdownLinkAction?
     public var copyProvider: MarkdownCopyProvider?

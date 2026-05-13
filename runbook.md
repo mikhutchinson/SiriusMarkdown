@@ -46,6 +46,15 @@ Layout and renderer acceptance for the current slice:
 - Inline math detection must remain source-preserving and must not rewrite code spans, fenced code, or Markdown source before `swift-markdown` parsing.
 - Image handling must produce prepared decisions and placeholders by default; no network image fetch is allowed without an explicit host resolver.
 - Selection/copy must stay block/range bounded and source-backed. Do not add per-fragment overlays for links, images, or selection.
+- SwiftUI native text selection is currently an unresolved host-risk path, not a
+  solved renderer bug. Keep `MarkdownRendererConfiguration.nativeTextSelection`
+  defaulted to `.disabled` unless a host explicitly opts in after profiling its
+  target OS. If a Sirius-style hang returns, sample the process and check for
+  `GraphHost.flushTransactions` -> `SelectionOverlay.updateNSView` -> AppKit
+  `NSTextField setFont:` / `_invalidateEffectiveFont` / `updateCell`. Do not
+  describe disabling this overlay as disabling all text selection: source-backed
+  copy affordances, `MarkdownSelectionController`, and host/AppKit selection
+  behavior outside SwiftUI's explicit overlay are separate.
 - Lists, task lists, tables, code blocks, math blocks, and HTML blocks must keep structured render paths. Do not collapse them back to `Text(block.text)` except as an explicit policy-denied or missing-structure fallback.
 - Renderer tests must assert behavior through render plans, prepared snapshots, inline payload helpers, diagnostics counters, and large-transcript prepared item identity. `Tools/RenderProbe` owns the `MarkdownDocumentView` AppKit pixel check so Swift Testing helper crashes do not excuse dropping document-render coverage.
 - Repeated preparation of the same snapshot should reuse inline/code/math caches and record cache hits without incrementing prepare, highlighting, or math-render counters.
