@@ -67,6 +67,7 @@ public struct MarkdownDocumentView: View {
             .padding()
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .markdownNativeTextSelection(configuration.nativeTextSelection)
         .onAppear {
             selectionController?.updateSnapshot(preparedSnapshot.snapshot)
         }
@@ -165,6 +166,7 @@ public struct StreamingMarkdownView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .markdownNativeTextSelection(configuration.nativeTextSelection)
         .onAppear {
             selectionController?.updateSnapshot(preparedSnapshot.snapshot)
         }

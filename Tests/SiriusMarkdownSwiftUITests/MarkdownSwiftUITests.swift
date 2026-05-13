@@ -268,6 +268,10 @@ func packagedPresetsUsePreparedNativeLinesWhileRawConfigKeepsCompatibilityFallba
     #expect(MarkdownRendererConfiguration.document.inlineRenderingMode == .preparedNativeLines)
     #expect(MarkdownRendererConfiguration().inlineRenderingMode == .systemText)
     #expect(MarkdownRendererConfiguration(inlineRenderingMode: .systemText).inlineRenderingMode == .systemText)
+    #expect(MarkdownRendererConfiguration.compactChat.nativeTextSelection == .enabled)
+    #expect(MarkdownRendererConfiguration.document.nativeTextSelection == .enabled)
+    #expect(MarkdownRendererConfiguration().nativeTextSelection == .enabled)
+    #expect(MarkdownRendererConfiguration(nativeTextSelection: .disabled).nativeTextSelection == .disabled)
 
     let block = MarkdownBlock(
         id: MarkdownBlockID("block-default-mode"),
@@ -279,6 +283,33 @@ func packagedPresetsUsePreparedNativeLinesWhileRawConfigKeepsCompatibilityFallba
     let view = MarkdownBlockView(block: block)
     let configuration = try #require(mirroredConfiguration(from: view))
     #expect(configuration.inlineRenderingMode == .preparedNativeLines)
+}
+
+@Test
+func nativeTextSelectionIsBoundedAtRendererRoots() throws {
+    let root = packageRootURL()
+    let blockView = try String(
+        contentsOf: root.appending(path: "Sources/SiriusMarkdownSwiftUI/Blocks/MarkdownBlockView.swift"),
+        encoding: .utf8
+    )
+    let mermaidView = try String(
+        contentsOf: root.appending(path: "Sources/SiriusMarkdownSwiftUI/Blocks/MarkdownMermaidDiagramView.swift"),
+        encoding: .utf8
+    )
+    let documentView = try String(
+        contentsOf: root.appending(path: "Sources/SiriusMarkdownSwiftUI/Views/MarkdownDocumentView.swift"),
+        encoding: .utf8
+    )
+    let surfaceView = try String(
+        contentsOf: root.appending(path: "Sources/SiriusMarkdownSwiftUI/Views/MarkdownDocumentSurface.swift"),
+        encoding: .utf8
+    )
+
+    #expect(!blockView.contains(".textSelection(.enabled)"))
+    #expect(!blockView.contains(".markdownNativeTextSelection("))
+    #expect(!mermaidView.contains(".textSelection(.enabled)"))
+    #expect(documentView.occurrences(of: ".markdownNativeTextSelection(configuration.nativeTextSelection)") == 2)
+    #expect(surfaceView.occurrences(of: ".markdownNativeTextSelection(configuration.nativeTextSelection)") == 1)
 }
 
 @Test
@@ -2028,6 +2059,20 @@ private final class CountingMermaidRenderer: MarkdownMermaidRenderer, @unchecked
         lock.withLock {
             callCount
         }
+    }
+}
+
+private func packageRootURL(filePath: String = #filePath) -> URL {
+    URL(fileURLWithPath: filePath)
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+}
+
+private extension String {
+    func occurrences(of needle: String) -> Int {
+        guard !needle.isEmpty else { return 0 }
+        return components(separatedBy: needle).count - 1
     }
 }
 

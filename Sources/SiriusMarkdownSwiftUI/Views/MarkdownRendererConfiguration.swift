@@ -98,6 +98,10 @@ public struct DefaultMarkdownImageResolver: MarkdownImageResolver {
 public struct MarkdownRendererConfiguration: Sendable {
     public var theme: MarkdownTheme
     public var inlineRenderingMode: MarkdownInlineRenderingMode
+    /// Native SwiftUI text selection policy. Enabled by default, but
+    /// applied only at renderer roots to avoid per-fragment selection
+    /// overlay growth.
+    public var nativeTextSelection: MarkdownNativeTextSelection
     public var linkAction: MarkdownLinkAction?
     public var copyProvider: MarkdownCopyProvider?
     public var linkPolicy: any MarkdownLinkPolicy
@@ -116,6 +120,7 @@ public struct MarkdownRendererConfiguration: Sendable {
     public init(
         theme: MarkdownTheme = .compactChat,
         inlineRenderingMode: MarkdownInlineRenderingMode = .systemText,
+        nativeTextSelection: MarkdownNativeTextSelection = .enabled,
         linkAction: MarkdownLinkAction? = nil,
         copyProvider: MarkdownCopyProvider? = nil,
         linkPolicy: any MarkdownLinkPolicy = DefaultMarkdownPolicy(),
@@ -133,6 +138,7 @@ public struct MarkdownRendererConfiguration: Sendable {
     ) {
         self.theme = theme
         self.inlineRenderingMode = inlineRenderingMode
+        self.nativeTextSelection = nativeTextSelection
         self.linkAction = linkAction
         self.copyProvider = copyProvider
         self.linkPolicy = linkPolicy
@@ -168,6 +174,7 @@ public struct MarkdownRendererConfiguration: Sendable {
     ) {
         self.theme = theme
         self.inlineRenderingMode = .systemText
+        self.nativeTextSelection = .enabled
         self.linkAction = linkAction
         self.copyProvider = copyProvider
         self.linkPolicy = linkPolicy

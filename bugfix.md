@@ -6,6 +6,7 @@
 
 ## Fixed
 
+- Fixed unbounded SwiftUI native text-selection overlays in the SwiftUI renderer. A Sirius hang sample showed the main thread saturated under `GraphHost.flushTransactions` -> private `SelectionOverlay.updateNSView` -> AppKit `NSTextField` font/intrinsic-size invalidation. The package now keeps Markdown text selectable by default, but applies native selection once at renderer roots instead of per rendered fragment, list item, table cell, and fallback text surface. `MarkdownRendererConfiguration.nativeTextSelection` remains available for explicit host opt-out, and SwiftUI tests now guard against per-block selection modifiers returning.
 - Replaced the decorative `swift-markdown` parser call with an AST-to-render-model converter. Block kinds, headings, task list state, ordered-list starts, table cells/alignments, inline runs, code info strings, and HTML blocks now come from `swift-markdown` instead of the earlier line/delimiter classifier.
 - Fixed parser identity to satisfy the streaming contract: active-tail IDs stay stable while appending and survive sealing, while deterministic `contentHash` values are stored separately for cache keys.
 - Fixed table cell conversion to expose semantic cell text and inline runs instead of raw pipe-padding source text.

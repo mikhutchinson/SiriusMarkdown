@@ -109,6 +109,7 @@ public struct MarkdownDocumentSurface<Content: View>: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
+        .markdownNativeTextSelection(configuration.nativeTextSelection)
         .background(theme.tableBackground)
         .clipShape(RoundedRectangle(cornerRadius: 8))
         .overlay {
@@ -151,7 +152,6 @@ public struct MarkdownDocumentSurface<Content: View>: View {
                         .font(.headline)
                         .foregroundStyle(theme.textColor)
                         .lineLimit(2)
-                        .textSelection(.enabled)
                 }
 
                 if let subtitle {
@@ -160,7 +160,6 @@ public struct MarkdownDocumentSurface<Content: View>: View {
                         .foregroundStyle(theme.secondaryTextColor)
                         .lineLimit(3)
                         .fixedSize(horizontal: false, vertical: true)
-                        .textSelection(.enabled)
                 }
             }
 

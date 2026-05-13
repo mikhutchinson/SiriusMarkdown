@@ -108,7 +108,6 @@ struct MarkdownMermaidDiagramView: View {
             Text(verbatim: mermaid.ascii)
                 .font(baseFont)
                 .foregroundStyle(theme.textColor)
-                .textSelection(.enabled)
                 .padding(8)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }

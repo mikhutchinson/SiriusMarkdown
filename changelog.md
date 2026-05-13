@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.8 - 2026-05-13
+
+- Fixed a Sirius host hang profile where the main thread spun in SwiftUI's private `SelectionOverlay.updateNSView` path and AppKit repeatedly invalidated `NSTextField` font/layout state while flushing `GraphHost` transactions.
+- Kept native text selection enabled by default, but bounded the SwiftUI selection modifier to renderer roots (`MarkdownDocumentView`, `StreamingMarkdownView`, and `MarkdownDocumentSurface`) instead of attaching `.textSelection(.enabled)` to every paragraph, list item, table cell, code block, math block, HTML fallback, policy denial, and Mermaid ASCII fallback.
+- Added `MarkdownNativeTextSelection` and `MarkdownRendererConfiguration.nativeTextSelection` so hosts can explicitly opt out where needed without changing the default selectable Markdown behavior.
+- Added regression coverage that rejects per-block selection modifiers and proves the renderer roots remain the only SwiftUI native-selection activation points.
+
 ## 0.4.7 - 2026-05-08
 
 - Added prepared Mermaid SVG geometry to `MarkdownPreparedMermaidDiagram` with public `MarkdownMermaidDiagramGeometry` and `MarkdownMermaidViewBox` types. Geometry is extracted during Mermaid preparation from root SVG dimensions or viewBox data, so SwiftUI does not parse SVG from `body`.

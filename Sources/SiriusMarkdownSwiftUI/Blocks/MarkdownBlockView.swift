@@ -94,7 +94,6 @@ public struct MarkdownBlockView: View {
                 linkAction: configuration.linkAction,
                 inlineRenderingMode: configuration.inlineRenderingMode
             )
-            .textSelection(.enabled)
             .frame(maxWidth: .infinity, alignment: .leading)
         } else if let inline = preparedContent.inline {
             InlineRunsView(
@@ -104,13 +103,11 @@ public struct MarkdownBlockView: View {
                 linkAction: configuration.linkAction,
                 inlineRenderingMode: configuration.inlineRenderingMode
             )
-            .textSelection(.enabled)
             .frame(maxWidth: .infinity, alignment: .leading)
         } else if block.inlines.isEmpty {
             Text(fallbackText)
                 .font(baseFont)
                 .foregroundStyle(theme.textColor)
-                .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
         } else {
             InlineRunsView(
@@ -122,7 +119,6 @@ public struct MarkdownBlockView: View {
                 linkPolicy: configuration.linkPolicy,
                 imagePolicy: configuration.imagePolicy
             )
-            .textSelection(.enabled)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
@@ -164,7 +160,6 @@ public struct MarkdownBlockView: View {
                     ScrollView(.horizontal) {
                         Text(code)
                             .font(theme.codeFont)
-                            .textSelection(.enabled)
                             .padding(.horizontal, 10)
                             .padding(.top, showsCodeBlockHeader ? 4 : 10)
                             .padding(.bottom, 10)
@@ -186,7 +181,6 @@ public struct MarkdownBlockView: View {
         } else {
             Text(MarkdownRendererConfiguration.codeText(for: block))
                 .font(theme.codeFont)
-                .textSelection(.enabled)
         }
     }
 
@@ -344,7 +338,6 @@ public struct MarkdownBlockView: View {
             Text(math)
                 .font(theme.codeFont)
                 .foregroundStyle(theme.textColor)
-                .textSelection(.enabled)
                 .padding(8)
                 .background(theme.codeBackground)
                 .clipShape(RoundedRectangle(cornerRadius: 6))
@@ -363,7 +356,6 @@ public struct MarkdownBlockView: View {
             Text(block.text)
                 .font(theme.codeFont)
                 .foregroundStyle(theme.secondaryTextColor)
-                .textSelection(.enabled)
         } else if let reason = preparedContent.policyDenialReason {
             policyDeniedView(reason: reason)
         } else {
@@ -411,7 +403,6 @@ public struct MarkdownBlockView: View {
                     .frame(width: 1)
             }
         }
-        .textSelection(.enabled)
     }
 
     private func tableRowBackground(rowIndex: Int, isHeader: Bool) -> Color {
@@ -473,7 +464,6 @@ public struct MarkdownBlockView: View {
         Text(reason)
             .font(theme.codeFont)
             .foregroundStyle(theme.secondaryTextColor)
-            .textSelection(.enabled)
             .padding(8)
             .background(theme.codeBackground)
             .clipShape(RoundedRectangle(cornerRadius: 6))
@@ -712,7 +702,6 @@ private struct MarkdownListItemRow: View {
                 markerView
                     .frame(width: markerWidth, alignment: .trailing)
                 listItemInlineView
-                    .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
