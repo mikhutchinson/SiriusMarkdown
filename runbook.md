@@ -1,6 +1,6 @@
 # Runbook
 
-This runbook is the local release authority for `SiriusMarkdown`. For the current public package release, use `0.4.13` as the tag and do not publish unless every release blocker below is clear.
+This runbook is the local release authority for `SiriusMarkdown`. For the current public package release, use `0.4.14` as the tag and do not publish unless every release blocker below is clear.
 
 ## Build
 
@@ -52,9 +52,13 @@ Layout and renderer acceptance for the current slice:
   package-owned selectable AppKit text leaves instead of SwiftUI's private
   `SelectionOverlay`; on other Apple platforms, the SwiftUI selection helper
   remains bounded. Selection must avoid document, scroll, stack, custom
-  leading-layout content, table-grid content, toolbar, Mermaid-control, and
-  host containers. The product gate's enabled-selection AppKit probe must keep
+  leading-layout containers, table-grid containers, toolbar, Mermaid-control,
+  and host containers, while list, quote, and table cell text leaves stay
+  selectable. The product gate's enabled-selection AppKit probe must keep
   passing and must observe selectable AppKit text leaves before a host opts in.
+  SwiftUI tests must prove list/quote/table leaves mount selectable
+  `NSTextView`s and that a hosted list leaf can select and copy through the
+  AppKit pasteboard path.
   If a Sirius-style hang returns, sample the process and check for
   `GraphHost.flushTransactions` ->
   `SelectionOverlay.updateNSView` -> AppKit `NSTextField setFont:` /
@@ -95,7 +99,7 @@ Run this before claiming native-renderer product quality. It wraps the release g
 
 ## Public Release Checklist
 
-Use this checklist for `0.4.13`.
+Use this checklist for `0.4.14`.
 
 1. Confirm public hygiene:
 
@@ -130,15 +134,15 @@ Use this checklist for `0.4.13`.
 
    ```sh
    git add README.md runbook.md NOTICE.md changelog.md bugfix.md Docs Sources Tests Examples Tools Package.swift Package.resolved
-   git commit -m "Prepare SiriusMarkdown 0.4.13 release"
+   git commit -m "Prepare SiriusMarkdown 0.4.14 release"
    ```
 
 6. Tag and push:
 
    ```sh
-   git tag -a 0.4.13 -m "SiriusMarkdown 0.4.13"
+   git tag -a 0.4.14 -m "SiriusMarkdown 0.4.14"
    git push origin HEAD
-   git push origin 0.4.13
+   git push origin 0.4.14
    ```
 
 7. After pushing, create the public release notes from `changelog.md`. The release notes must keep the claim precise: native SwiftUI block rendering, prepared-line inline rendering, streaming snapshots, safe policies, language-aware default code highlighting, package-owned Mermaid pan/zoom over prepared SVG/ASCII, explicit accessibility labels for package-owned affordance controls, Pretext-backed layout gate, and demo/product probes. Do not claim a custom glyph renderer, a new Mermaid semantic engine, or a WebKit renderer.

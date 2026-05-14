@@ -340,7 +340,12 @@ func nativeTextSelectionMountsOnlyBoundedTextLeaves() throws {
     #expect(blockView.contains("nativeTextSelection: selectionModeInsideCompositeGrid"))
     #expect(blockView.contains("private var selectionModeInsideLeadingLayout: MarkdownNativeTextSelection"))
     #expect(blockView.contains("private var selectionModeInsideCompositeGrid: MarkdownNativeTextSelection"))
-    #expect(blockView.occurrences(of: "\n        .disabled\n    }") >= 3)
+    #expect(blockView.occurrences(
+        of: "selectionModeInsideLeadingLayout: MarkdownNativeTextSelection {\n        configuration.nativeTextSelection\n    }"
+    ) == 2)
+    #expect(blockView.contains(
+        "selectionModeInsideCompositeGrid: MarkdownNativeTextSelection {\n        configuration.nativeTextSelection\n    }"
+    ))
     #expect(inlineRunsView.contains("nativeTextSelection: MarkdownNativeTextSelection = .disabled"))
     #expect(inlineRunsView.contains("MarkdownSelectableText("))
     #expect(inlineRunsView.contains("nativeTextSelection: nativeTextSelection"))
@@ -349,6 +354,8 @@ func nativeTextSelectionMountsOnlyBoundedTextLeaves() throws {
 }
 
 #if canImport(AppKit)
+@Suite(.serialized)
+struct MarkdownNativeTextSelectionAppKitTests {
 @Test
 @MainActor
 func enabledNativeTextSelectionMountsAppKitSelectableTextLeafOnMacOS() throws {
@@ -371,6 +378,98 @@ func enabledNativeTextSelectionMountsAppKitSelectableTextLeafOnMacOS() throws {
     #expect(textView.isSelectable)
     #expect(!textView.isEditable)
     #expect(textView.textContainerInset == .zero)
+}
+
+@Test
+@MainActor
+func enabledNativeTextSelectionReachesCompositeMarkdownLeavesOnMacOS() throws {
+    let markdown = """
+    > Quote selectable text
+
+    - List selectable text
+      - Nested selectable text
+
+    | Header |
+    | - |
+    | Table selectable text |
+    """
+    var stream = MarkdownStream()
+    stream.append(markdown)
+    stream.finish()
+
+    var configuration = MarkdownRendererConfiguration.document
+    configuration.nativeTextSelection = .enabled
+    let prepared = configuration.prepare(snapshot: stream.snapshot())
+    let view = MarkdownDocumentView(preparedSnapshot: prepared, configuration: configuration)
+        .frame(width: 520, height: 420, alignment: .topLeading)
+
+    let hostingView = NSHostingView(rootView: view)
+    hostingView.frame = NSRect(origin: .zero, size: NSSize(width: 520, height: 420))
+    let window = NSWindow(
+        contentRect: hostingView.frame,
+        styleMask: [.borderless],
+        backing: .buffered,
+        defer: false
+    )
+    window.contentView = hostingView
+    window.orderFrontRegardless()
+    defer { window.close() }
+    pumpLayout(hostingView)
+
+    let textViews = appKitTextViews(in: hostingView)
+    let renderedText = textViews.map(\.string).joined(separator: "\n")
+    let expectedLeaves = [
+        "Quote selectable text",
+        "List selectable text",
+        "Nested selectable text",
+        "Header",
+        "Table selectable text",
+    ]
+
+    #expect(textViews.count >= expectedLeaves.count)
+    for expected in expectedLeaves {
+        #expect(renderedText.contains(expected))
+        let leaf = try #require(textViews.first { $0.string.contains(expected) })
+        #expect(leaf.isSelectable)
+        #expect(!leaf.isEditable)
+    }
+}
+
+@Test
+@MainActor
+func enabledNativeTextSelectionCanSelectAndCopyListTextLeafOnMacOS() throws {
+    let markdown = "- List selectable text copy proof"
+    var stream = MarkdownStream()
+    stream.append(markdown)
+    stream.finish()
+
+    var configuration = MarkdownRendererConfiguration.compactChat
+    configuration.nativeTextSelection = .enabled
+    let prepared = configuration.prepare(snapshot: stream.snapshot())
+    let view = StreamingMarkdownView(preparedSnapshot: prepared, configuration: configuration)
+        .frame(width: 360, height: 160, alignment: .topLeading)
+
+    let hostingView = NSHostingView(rootView: view)
+    hostingView.frame = NSRect(origin: .zero, size: NSSize(width: 360, height: 160))
+    let window = NSWindow(
+        contentRect: hostingView.frame,
+        styleMask: [.borderless],
+        backing: .buffered,
+        defer: false
+    )
+    window.contentView = hostingView
+    window.orderFrontRegardless()
+    defer { window.close() }
+    pumpLayout(hostingView)
+
+    let textView = try #require(appKitTextViews(in: hostingView).first {
+        $0.string.contains("List selectable text copy proof")
+    })
+    let copied = try copySelectedText("List selectable text", from: textView)
+
+    #expect(textView.isSelectable)
+    #expect(copied == "List selectable text")
+}
 }
 #endif
 
@@ -1966,6 +2065,17 @@ private func appKitTextViews(in view: NSView) -> [NSTextView] {
         matches.append(contentsOf: appKitTextViews(in: subview))
     }
     return matches
+}
+
+@MainActor
+private func copySelectedText(_ text: String, from textView: NSTextView) throws -> String {
+    let range = (textView.string as NSString).range(of: text)
+    #expect(range.location != NSNotFound)
+    _ = textView.window?.makeFirstResponder(textView)
+    textView.setSelectedRange(range)
+    NSPasteboard.general.clearContents()
+    textView.copy(nil)
+    return try #require(NSPasteboard.general.string(forType: .string))
 }
 
 private func darkRightmostX(in bitmap: NSBitmapImageRep) -> Int {

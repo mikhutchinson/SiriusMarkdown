@@ -158,9 +158,10 @@ struct SiriusMarkdownRenderProbe {
             exit(EXIT_FAILURE)
         }
 
-        if selectionStressResult.selectableTextViewCount == 0 {
+        let minimumSelectionStressTextViewCount = 8
+        if selectionStressResult.selectableTextViewCount < minimumSelectionStressTextViewCount {
             fputs(
-                "error: enabled native text selection stress probe did not mount any selectable AppKit text leaves.\n",
+                "error: enabled native text selection stress probe mounted \(selectionStressResult.selectableTextViewCount) selectable AppKit text leaves; expected at least \(minimumSelectionStressTextViewCount) so list, quote, code, and table text leaves are covered.\n",
                 stderr
             )
             exit(EXIT_FAILURE)

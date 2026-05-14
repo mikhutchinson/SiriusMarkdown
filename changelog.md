@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.14 - 2026-05-13
+
+- Fixed the `0.4.13` route-level selection gap where list rows, block quotes, and table cells still passed `.disabled` into their text leaves, making large structured Markdown previews effectively non-selectable even though the AppKit leaf implementation existed.
+- Kept selection off the custom leading-layout and table-grid containers themselves, but now forwards `MarkdownRendererConfiguration.nativeTextSelection` to the bounded text leaves inside those composite structures.
+- Added serialized AppKit SwiftUI tests that verify enabled selection reaches list, nested-list, quote, and table text leaves and that a hosted list `NSTextView` can select and copy through the real pasteboard path.
+
 ## 0.4.13 - 2026-05-13
 
 - Replaced the macOS `.enabled` native-selection implementation with package-owned selectable AppKit text leaves, so SiriusMarkdown no longer mounts SwiftUI's private `SelectionOverlay` on macOS Markdown text during host view transitions.

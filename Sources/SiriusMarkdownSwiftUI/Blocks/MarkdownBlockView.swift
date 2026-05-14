@@ -537,15 +537,11 @@ public struct MarkdownBlockView: View {
     }
 
     private var selectionModeInsideLeadingLayout: MarkdownNativeTextSelection {
-        // Native SelectionOverlay can re-enter custom leading layouts during
-        // right-panel updates; keep those composite surfaces copy-only.
-        .disabled
+        configuration.nativeTextSelection
     }
 
     private var selectionModeInsideCompositeGrid: MarkdownNativeTextSelection {
-        // Table grids use fixed-width cell composition, which is not a stable
-        // native-selection leaf on macOS 26.
-        .disabled
+        configuration.nativeTextSelection
     }
 
     private var codeTextMetrics: (fontSize: Double, lineHeight: Double, fontProfile: MarkdownFontProfile) {
@@ -841,8 +837,7 @@ private struct MarkdownListItemRow: View {
     }
 
     private var selectionModeInsideLeadingLayout: MarkdownNativeTextSelection {
-        // List rows share the same custom leading-layout risk as block quotes.
-        .disabled
+        configuration.nativeTextSelection
     }
 
     private var marker: String {
