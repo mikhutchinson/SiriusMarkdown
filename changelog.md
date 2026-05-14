@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.13 - 2026-05-13
+
+- Replaced the macOS `.enabled` native-selection implementation with package-owned selectable AppKit text leaves, so SiriusMarkdown no longer mounts SwiftUI's private `SelectionOverlay` on macOS Markdown text during host view transitions.
+- Kept the public `MarkdownRendererConfiguration(nativeTextSelection: .enabled)` API source-compatible while routing prepared inline text, fallback inline text, code, math/HTML, and policy-denial text through bounded non-editable `NSTextView` leaves on macOS.
+- Extended tests and the AppKit render probe to prove `.textSelection(.enabled)` remains isolated to the non-macOS helper branch and that enabled-selection stress rendering actually mounts selectable AppKit text leaves.
+
 ## 0.4.12 - 2026-05-13
 
 - Fixed the remaining native-selection hang path reproduced in Sirius' right-panel DiffTree Markdown preview. A live sample showed SwiftUI back in `GraphHost.flushTransactions` -> `SelectionOverlay.updateNSView` -> AppKit `NSTextField` font invalidation with `MarkdownLeadingContentLayout` and prepared snapshot frames in the same graph.

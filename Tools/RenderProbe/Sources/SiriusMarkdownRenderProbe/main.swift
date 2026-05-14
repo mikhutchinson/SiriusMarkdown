@@ -158,6 +158,14 @@ struct SiriusMarkdownRenderProbe {
             exit(EXIT_FAILURE)
         }
 
+        if selectionStressResult.selectableTextViewCount == 0 {
+            fputs(
+                "error: enabled native text selection stress probe did not mount any selectable AppKit text leaves.\n",
+                stderr
+            )
+            exit(EXIT_FAILURE)
+        }
+
         print("MarkdownDocumentView render probe: \(result.nonWhitePixels) non-white pixels, \(result.distinctColorBuckets) color buckets")
         print("Prepared native document render probe: \(nativeResult.nonWhitePixels) non-white pixels, \(nativeResult.distinctColorBuckets) color buckets")
         print("Compact chat render probe: \(chatResult.nonWhitePixels) non-white pixels, \(chatResult.distinctColorBuckets) color buckets")
@@ -174,7 +182,7 @@ struct SiriusMarkdownRenderProbe {
         print("Document affordance surface probe: \(documentAffordanceResult.nonWhitePixels) non-white pixels, rightmost x=\(documentAffordanceResult.nonWhiteRightmostX)")
         print("Collapsed document affordance surface probe: \(collapsedDocumentAffordanceResult.nonWhitePixels) non-white pixels, rightmost x=\(collapsedDocumentAffordanceResult.nonWhiteRightmostX)")
         print("Mermaid diagram probe: \(mermaidResult.nonWhitePixels) non-white pixels, \(mermaidResult.distinctColorBuckets) color buckets, right-band pixels=\(mermaidResult.rightBandNonWhitePixels), fitting width \(mermaidResult.fittingWidth)")
-        print("Enabled native text selection stress probe: \(selectionStressResult.nonWhitePixels) non-white pixels, \(selectionStressResult.distinctColorBuckets) color buckets")
+        print("Enabled native text selection stress probe: \(selectionStressResult.nonWhitePixels) non-white pixels, \(selectionStressResult.distinctColorBuckets) color buckets, selectable AppKit text leaves=\(selectionStressResult.selectableTextViewCount)")
     }
 
     private static func assertRenderable(
@@ -719,7 +727,7 @@ struct SiriusMarkdownRenderProbe {
 
                     | Surface | Evidence |
                     | - | - |
-                    | Transcript | Native selection is mounted on bounded text leaves. |
+                    | Transcript | Native selection is mounted on bounded AppKit text leaves. |
                     | Path | `/private/tmp/sirius-selection-overlay-stress/abcdefghijklmnopqrstuvwxyz` |
 
                     """
@@ -735,7 +743,7 @@ struct SiriusMarkdownRenderProbe {
                     print(selectionMode)
                     ```
 
-                    > Quote text wraps after the width change while the selectable surface remains a concrete Text leaf.
+                    > Quote text wraps after the width change while the selectable surface avoids SwiftUI SelectionOverlay.
 
                     """
                 )
@@ -829,8 +837,25 @@ struct SiriusMarkdownRenderProbe {
             darkRightmostX: sample.darkRightmostX,
             wideDarkColumnGaps: sample.wideDarkColumnGaps,
             rightBandNonWhitePixels: sample.rightBandNonWhitePixels,
-            pixelScale: pixelScale
+            pixelScale: pixelScale,
+            selectableTextViewCount: selectableTextViewCount(in: hostingView)
         )
+    }
+
+    @MainActor
+    private static func selectableTextViewCount(in view: NSView) -> Int {
+        let localCount: Int
+        if let textView = view as? NSTextView,
+           textView.isSelectable,
+           !textView.isEditable {
+            localCount = 1
+        } else {
+            localCount = 0
+        }
+
+        return view.subviews.reduce(localCount) { count, subview in
+            count + selectableTextViewCount(in: subview)
+        }
     }
 
     @MainActor
@@ -1035,6 +1060,7 @@ private struct RenderResult {
     var wideDarkColumnGaps: Int
     var rightBandNonWhitePixels: Int
     var pixelScale = 1.0
+    var selectableTextViewCount = 0
     var maximumDarkRightmostX = Int.max
     var fittingWidth = 0.0
     var maximumFittingWidth = Double.infinity

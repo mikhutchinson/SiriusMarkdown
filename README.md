@@ -10,9 +10,9 @@ The package is built around three principles:
 
 ## Status
 
-This checkout is the `0.4.12` public package release. The release gate is strict Swift-vs-Pretext layout comparison, required Pretext product fixture groups, AppKit render probes for document, compact chat, transcript wrapping, multilingual, inline-attribute, overflow, hard-break, long-word, finite-column containment, wide-to-narrow resize, document affordance chrome, Mermaid diagram pan/zoom, enabled native text selection, and language-aware code highlighting output, plus AppKit-hosted transcript command clipping regressions. Fixture drift, missing groups, duplicate fixture names/groups, and trivial render output are release blockers.
+This checkout is the `0.4.13` public package release. The release gate is strict Swift-vs-Pretext layout comparison, required Pretext product fixture groups, AppKit render probes for document, compact chat, transcript wrapping, multilingual, inline-attribute, overflow, hard-break, long-word, finite-column containment, wide-to-narrow resize, document affordance chrome, Mermaid diagram pan/zoom, enabled native text selection, and language-aware code highlighting output, plus AppKit-hosted transcript command clipping regressions. Fixture drift, missing groups, duplicate fixture names/groups, and trivial render output are release blockers.
 
-The current product claim is native SwiftUI Markdown rendering with prepared-line layout, streaming snapshots, bounded caches, safe default policies, language-aware default code highlighting, built-in Mermaid diagram rendering with package-owned inline pan/zoom controls and deterministic plain-code fallback, generic document/code affordances with explicit accessibility labels, public chat/document presets, first-class H1-H6 heading typography through `MarkdownTheme.headings`, and containment-stable prepared native lines for transcript-style paths, commands, URLs, long identifiers, nested lists, quotes, table cells, and glyph-bound paint drift. It is not a custom glyph renderer: `preparedNativeLines` slices prepared attributed line ranges and renders them with SwiftUI `Text(AttributedString)`.
+The current product claim is native SwiftUI Markdown rendering with prepared-line layout, streaming snapshots, bounded caches, safe default policies, language-aware default code highlighting, built-in Mermaid diagram rendering with package-owned inline pan/zoom controls and deterministic plain-code fallback, generic document/code affordances with explicit accessibility labels, public chat/document presets, first-class H1-H6 heading typography through `MarkdownTheme.headings`, containment-stable prepared native lines for transcript-style paths, commands, URLs, long identifiers, nested lists, quotes, table cells, and glyph-bound paint drift, plus a macOS native-selection opt-in that uses bounded AppKit text leaves instead of SwiftUI's private `SelectionOverlay`. It is not a custom glyph renderer: `preparedNativeLines` slices prepared attributed line ranges and renders them natively while CoreText owns measurement.
 
 ## Requirements
 
@@ -25,7 +25,7 @@ In `Package.swift` (adjust the package URL to the published repository):
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/mikhutchinson/SiriusMarkdown.git", from: "0.4.12")
+    .package(url: "https://github.com/mikhutchinson/SiriusMarkdown.git", from: "0.4.13")
 ],
 targets: [
     .target(
@@ -167,14 +167,17 @@ The release and product gates cover more than construction smoke tests:
 - inline math is detected source-preservingly while code spans and fences remain excluded;
 - image runs produce prepared placeholder/resolution decisions, with no remote image loading by default;
 - selection/copy is bounded at the block level instead of using unbounded per-fragment overlays;
-- SwiftUI native text selection remains an explicit opt-in through
+- Native text selection remains an explicit opt-in through
   `MarkdownRendererConfiguration.nativeTextSelection`. It defaults to
-  `.disabled` for conservative package adoption, and `.enabled` now mounts
-  SwiftUI selection only on stable bounded text leaves instead of document,
-  scroll, stack, custom leading-layout content, table-grid content, toolbar,
-  Mermaid-control, or host containers. The AppKit render probe stress-renders
-  `.enabled` through streaming appends, width changes, tables, links, code, and
-  prepared native lines with a watchdog.
+  `.disabled` for conservative package adoption. On macOS, `.enabled` now
+  mounts package-owned selectable AppKit text leaves instead of SwiftUI's
+  private `SelectionOverlay`; on other Apple platforms the SwiftUI selection
+  helper remains bounded to stable text leaves. Selection is still kept off
+  document, scroll, stack, custom leading-layout content, table-grid content,
+  toolbar, Mermaid-control, and host containers. The AppKit render probe
+  stress-renders `.enabled` through streaming appends, width changes, tables,
+  links, code, and prepared native lines with a watchdog and verifies selectable
+  AppKit text leaves are present.
   If a regression returns, sample the host and look for
   `GraphHost.flushTransactions` -> `SelectionOverlay.updateNSView` ->
   `NSTextField setFont:` / `_invalidateEffectiveFont` / `updateCell`.
@@ -259,12 +262,12 @@ bash Tools/product-check.sh
 
 ## Release
 
-`0.4.12` is ready to publish only when:
+`0.4.13` is ready to publish only when:
 
 - `README.md`, DocC, `Docs/architecture.md`, `Docs/native-renderer-scorecard.md`, `NOTICE.md`, `changelog.md`, `bugfix.md`, and `runbook.md` describe the current public package surface;
 - `bash Tools/product-check.sh` passes from the repository root;
 - `git diff --check` reports no whitespace errors;
 - `git remote -v` points at the intended public repository;
-- the release commit is tagged as `0.4.12` and pushed with tags.
+- the release commit is tagged as `0.4.13` and pushed with tags.
 
 Recommended release commands are documented in `runbook.md`.

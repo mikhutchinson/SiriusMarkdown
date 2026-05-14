@@ -116,11 +116,14 @@ public struct MarkdownBlockView: View {
             )
             .frame(maxWidth: .infinity, alignment: .leading)
         } else if block.inlines.isEmpty {
-            Text(fallbackText)
-                .font(baseFont)
-                .foregroundStyle(theme.textColor)
+            selectableText(
+                AttributedString(fallbackText),
+                font: baseFont,
+                textColor: theme.textColor,
+                selectionMode: selectionMode,
+                metrics: fallbackTextMetrics
+            )
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .markdownNativeTextSelection(selectionMode)
         } else {
             InlineRunsView(
                 runs: block.inlines,
@@ -133,6 +136,41 @@ public struct MarkdownBlockView: View {
                 imagePolicy: configuration.imagePolicy
             )
             .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private func selectableText(
+        _ attributed: AttributedString,
+        font: Font,
+        textColor: Color,
+        selectionMode: MarkdownNativeTextSelection,
+        metrics: (fontSize: Double, lineHeight: Double, fontProfile: MarkdownFontProfile),
+        lineSpacing: CGFloat = 0,
+        wraps: Bool = true
+    ) -> some View {
+        MarkdownSelectableText(
+            attributed: attributed,
+            font: font,
+            fontSize: metrics.fontSize,
+            lineHeight: metrics.lineHeight,
+            fontProfile: metrics.fontProfile,
+            textColor: textColor,
+            linkAction: configuration.linkAction,
+            nativeTextSelection: selectionMode,
+            lineSpacing: lineSpacing,
+            wraps: wraps
+        )
+    }
+
+    private var fallbackTextMetrics: (fontSize: Double, lineHeight: Double, fontProfile: MarkdownFontProfile) {
+        switch block.kind {
+        case .heading:
+            let style = theme.headingStyle(for: block.headingLevel)
+            return (style.fontSize, style.lineHeight, style.fontProfiles.body)
+        case .codeBlock, .htmlBlock, .mathBlock:
+            return (theme.codeFontSize, theme.codeLineHeight, theme.codeFontProfiles.body)
+        default:
+            return (theme.paragraphFontSize, theme.paragraphLineHeight, theme.paragraphFontProfiles.body)
         }
     }
 
@@ -171,13 +209,18 @@ public struct MarkdownBlockView: View {
                 }
                 if !isCodeBlockCollapsed {
                     ScrollView(.horizontal) {
-                        Text(code)
-                            .font(theme.codeFont)
+                        selectableText(
+                            code,
+                            font: theme.codeFont,
+                            textColor: theme.textColor,
+                            selectionMode: configuration.nativeTextSelection,
+                            metrics: codeTextMetrics,
+                            wraps: false
+                        )
                             .padding(.horizontal, 10)
                             .padding(.top, showsCodeBlockHeader ? 4 : 10)
                             .padding(.bottom, 10)
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .markdownNativeTextSelection(configuration.nativeTextSelection)
                     }
                 } else {
                     Text("\(Self.codeCopyText(for: block).utf8.count.formatted()) bytes hidden")
@@ -193,9 +236,14 @@ public struct MarkdownBlockView: View {
         } else if let reason = preparedContent.policyDenialReason {
             policyDeniedView(reason: reason)
         } else {
-            Text(MarkdownRendererConfiguration.codeText(for: block))
-                .font(theme.codeFont)
-                .markdownNativeTextSelection(configuration.nativeTextSelection)
+            selectableText(
+                AttributedString(MarkdownRendererConfiguration.codeText(for: block)),
+                font: theme.codeFont,
+                textColor: theme.textColor,
+                selectionMode: configuration.nativeTextSelection,
+                metrics: codeTextMetrics,
+                wraps: false
+            )
         }
     }
 
@@ -350,30 +398,39 @@ public struct MarkdownBlockView: View {
     @ViewBuilder
     private var mathBlockContent: some View {
         if let math = preparedContent.math {
-            Text(math)
-                .font(theme.codeFont)
-                .foregroundStyle(theme.textColor)
-                .markdownNativeTextSelection(configuration.nativeTextSelection)
+            selectableText(
+                math,
+                font: theme.codeFont,
+                textColor: theme.textColor,
+                selectionMode: configuration.nativeTextSelection,
+                metrics: codeTextMetrics
+            )
                 .padding(8)
                 .background(theme.codeBackground)
                 .clipShape(RoundedRectangle(cornerRadius: 6))
         } else if let reason = preparedContent.policyDenialReason {
             policyDeniedView(reason: reason)
         } else {
-            Text(MarkdownRendererConfiguration.mathText(for: block))
-                .font(theme.codeFont)
-                .foregroundStyle(theme.textColor)
-                .markdownNativeTextSelection(configuration.nativeTextSelection)
+            selectableText(
+                AttributedString(MarkdownRendererConfiguration.mathText(for: block)),
+                font: theme.codeFont,
+                textColor: theme.textColor,
+                selectionMode: configuration.nativeTextSelection,
+                metrics: codeTextMetrics
+            )
         }
     }
 
     @ViewBuilder
     private var htmlBlockContent: some View {
         if preparedContent.htmlAllowed == true {
-            Text(block.text)
-                .font(theme.codeFont)
-                .foregroundStyle(theme.secondaryTextColor)
-                .markdownNativeTextSelection(configuration.nativeTextSelection)
+            selectableText(
+                AttributedString(block.text),
+                font: theme.codeFont,
+                textColor: theme.secondaryTextColor,
+                selectionMode: configuration.nativeTextSelection,
+                metrics: codeTextMetrics
+            )
         } else if let reason = preparedContent.policyDenialReason {
             policyDeniedView(reason: reason)
         } else {
@@ -491,11 +548,18 @@ public struct MarkdownBlockView: View {
         .disabled
     }
 
+    private var codeTextMetrics: (fontSize: Double, lineHeight: Double, fontProfile: MarkdownFontProfile) {
+        (theme.codeFontSize, theme.codeLineHeight, theme.codeFontProfiles.body)
+    }
+
     private func policyDeniedView(reason: String) -> some View {
-        Text(reason)
-            .font(theme.codeFont)
-            .foregroundStyle(theme.secondaryTextColor)
-            .markdownNativeTextSelection(configuration.nativeTextSelection)
+        selectableText(
+            AttributedString(reason),
+            font: theme.codeFont,
+            textColor: theme.secondaryTextColor,
+            selectionMode: configuration.nativeTextSelection,
+            metrics: codeTextMetrics
+        )
             .padding(8)
             .background(theme.codeBackground)
             .clipShape(RoundedRectangle(cornerRadius: 6))

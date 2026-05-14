@@ -23,19 +23,33 @@ struct NativeInlineLineTextView: View {
         let height = nativeLineSurfaceHeight
 
         if renderedLines.characters.isEmpty {
-            Text(fallbackAttributed)
-                .font(baseFont)
-                .foregroundStyle(theme.textColor)
+            MarkdownSelectableText(
+                attributed: fallbackAttributed,
+                font: baseFont,
+                fontSize: prepared.fontSize,
+                lineHeight: prepared.lineHeight,
+                fontProfile: prepared.fontProfiles.body,
+                textColor: theme.textColor,
+                nativeTextSelection: nativeTextSelection,
+                lineSpacing: lineSpacing,
+                wraps: false
+            )
                 .frame(width: width, height: height, alignment: .topLeading)
                 .clipped()
-                .markdownNativeTextSelection(nativeTextSelection)
         } else {
-            Text(renderedLines)
-                .foregroundStyle(theme.textColor)
-                .lineSpacing(lineSpacing)
+            MarkdownSelectableText(
+                attributed: renderedLines,
+                font: baseFont,
+                fontSize: prepared.fontSize,
+                lineHeight: prepared.lineHeight,
+                fontProfile: prepared.fontProfiles.body,
+                textColor: theme.textColor,
+                nativeTextSelection: nativeTextSelection,
+                lineSpacing: lineSpacing,
+                wraps: false
+            )
                 .frame(width: width, height: height, alignment: .topLeading)
                 .clipped()
-                .markdownNativeTextSelection(nativeTextSelection)
                 .accessibilityElement(children: .combine)
                 .accessibilityLabel(String(fallbackAttributed.characters))
         }

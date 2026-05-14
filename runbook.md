@@ -1,6 +1,6 @@
 # Runbook
 
-This runbook is the local release authority for `SiriusMarkdown`. For the current public package release, use `0.4.12` as the tag and do not publish unless every release blocker below is clear.
+This runbook is the local release authority for `SiriusMarkdown`. For the current public package release, use `0.4.13` as the tag and do not publish unless every release blocker below is clear.
 
 ## Build
 
@@ -46,13 +46,16 @@ Layout and renderer acceptance for the current slice:
 - Inline math detection must remain source-preserving and must not rewrite code spans, fenced code, or Markdown source before `swift-markdown` parsing.
 - Image handling must produce prepared decisions and placeholders by default; no network image fetch is allowed without an explicit host resolver.
 - Selection/copy must stay block/range bounded and source-backed. Do not add per-fragment overlays for links, images, or selection.
-- SwiftUI native text selection must stay bounded to stable text leaves. Keep
+- Native text selection must stay bounded to stable text leaves. Keep
   `MarkdownRendererConfiguration.nativeTextSelection` defaulted to `.disabled`
-  for conservative package adoption, but `.enabled` must work by avoiding
-  document, scroll, stack, custom leading-layout content, table-grid content,
-  toolbar, Mermaid-control, and host containers. The product gate's
-  enabled-selection AppKit probe must keep passing before a host opts in. If a
-  Sirius-style hang returns, sample the process and check for
+  for conservative package adoption. On macOS, `.enabled` must work by using
+  package-owned selectable AppKit text leaves instead of SwiftUI's private
+  `SelectionOverlay`; on other Apple platforms, the SwiftUI selection helper
+  remains bounded. Selection must avoid document, scroll, stack, custom
+  leading-layout content, table-grid content, toolbar, Mermaid-control, and
+  host containers. The product gate's enabled-selection AppKit probe must keep
+  passing and must observe selectable AppKit text leaves before a host opts in.
+  If a Sirius-style hang returns, sample the process and check for
   `GraphHost.flushTransactions` ->
   `SelectionOverlay.updateNSView` -> AppKit `NSTextField setFont:` /
   `_invalidateEffectiveFont` / `updateCell`.
@@ -92,7 +95,7 @@ Run this before claiming native-renderer product quality. It wraps the release g
 
 ## Public Release Checklist
 
-Use this checklist for `0.4.12`.
+Use this checklist for `0.4.13`.
 
 1. Confirm public hygiene:
 
@@ -127,15 +130,15 @@ Use this checklist for `0.4.12`.
 
    ```sh
    git add README.md runbook.md NOTICE.md changelog.md bugfix.md Docs Sources Tests Examples Tools Package.swift Package.resolved
-   git commit -m "Prepare SiriusMarkdown 0.4.12 release"
+   git commit -m "Prepare SiriusMarkdown 0.4.13 release"
    ```
 
 6. Tag and push:
 
    ```sh
-   git tag -a 0.4.12 -m "SiriusMarkdown 0.4.12"
+   git tag -a 0.4.13 -m "SiriusMarkdown 0.4.13"
    git push origin HEAD
-   git push origin 0.4.12
+   git push origin 0.4.13
    ```
 
 7. After pushing, create the public release notes from `changelog.md`. The release notes must keep the claim precise: native SwiftUI block rendering, prepared-line inline rendering, streaming snapshots, safe policies, language-aware default code highlighting, package-owned Mermaid pan/zoom over prepared SVG/ASCII, explicit accessibility labels for package-owned affordance controls, Pretext-backed layout gate, and demo/product probes. Do not claim a custom glyph renderer, a new Mermaid semantic engine, or a WebKit renderer.

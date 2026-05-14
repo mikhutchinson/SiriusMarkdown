@@ -326,13 +326,15 @@ func nativeTextSelectionMountsOnlyBoundedTextLeaves() throws {
     }
 
     #expect(helper.occurrences(of: ".textSelection(.enabled)") == 1)
+    #expect(helper.contains("#if os(macOS)"))
     #expect(directSelectionOffenders.isEmpty)
     #expect(!blockView.contains(".textSelection(.enabled)"))
     #expect(!mermaidView.contains(".textSelection(.enabled)"))
     #expect(!mermaidView.contains(".markdownNativeTextSelection("))
     #expect(!documentView.contains(".markdownNativeTextSelection("))
     #expect(!surfaceView.contains(".markdownNativeTextSelection("))
-    #expect(blockView.contains(".markdownNativeTextSelection(configuration.nativeTextSelection)"))
+    #expect(blockView.contains("MarkdownSelectableText("))
+    #expect(blockView.contains("selectionMode: configuration.nativeTextSelection"))
     #expect(blockView.contains("nativeTextSelection: selectionMode"))
     #expect(blockView.contains("nativeTextSelection: selectionModeInsideLeadingLayout"))
     #expect(blockView.contains("nativeTextSelection: selectionModeInsideCompositeGrid"))
@@ -340,9 +342,37 @@ func nativeTextSelectionMountsOnlyBoundedTextLeaves() throws {
     #expect(blockView.contains("private var selectionModeInsideCompositeGrid: MarkdownNativeTextSelection"))
     #expect(blockView.occurrences(of: "\n        .disabled\n    }") >= 3)
     #expect(inlineRunsView.contains("nativeTextSelection: MarkdownNativeTextSelection = .disabled"))
-    #expect(inlineRunsView.contains(".markdownNativeTextSelection(nativeTextSelection)"))
-    #expect(nativeLineTextView.contains(".markdownNativeTextSelection(nativeTextSelection)"))
+    #expect(inlineRunsView.contains("MarkdownSelectableText("))
+    #expect(inlineRunsView.contains("nativeTextSelection: nativeTextSelection"))
+    #expect(nativeLineTextView.contains("MarkdownSelectableText("))
+    #expect(nativeLineTextView.contains("wraps: false"))
 }
+
+#if canImport(AppKit)
+@Test
+@MainActor
+func enabledNativeTextSelectionMountsAppKitSelectableTextLeafOnMacOS() throws {
+    let view = MarkdownSelectableText(
+        attributed: AttributedString("Selectable native text"),
+        font: .body,
+        fontSize: 16,
+        lineHeight: 22,
+        fontProfile: .system(),
+        textColor: .primary,
+        nativeTextSelection: .enabled
+    )
+    .frame(width: 240, alignment: .leading)
+
+    let hostingView = NSHostingView(rootView: view)
+    hostingView.frame = NSRect(origin: .zero, size: NSSize(width: 240, height: 80))
+    pumpLayout(hostingView)
+
+    let textView = try #require(appKitTextViews(in: hostingView).first)
+    #expect(textView.isSelectable)
+    #expect(!textView.isEditable)
+    #expect(textView.textContainerInset == .zero)
+}
+#endif
 
 @Test
 func nativeTextSelectionDocsTrackBoundedEnabledSelectionPath() throws {
@@ -1924,6 +1954,18 @@ private func pumpLayout<V: View>(_ hostingView: NSHostingView<V>) {
         hostingView.displayIfNeeded()
         RunLoop.main.run(until: Date().addingTimeInterval(0.02))
     }
+}
+
+@MainActor
+private func appKitTextViews(in view: NSView) -> [NSTextView] {
+    var matches: [NSTextView] = []
+    if let textView = view as? NSTextView {
+        matches.append(textView)
+    }
+    for subview in view.subviews {
+        matches.append(contentsOf: appKitTextViews(in: subview))
+    }
+    return matches
 }
 
 private func darkRightmostX(in bitmap: NSBitmapImageRep) -> Int {

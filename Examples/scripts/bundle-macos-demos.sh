@@ -44,6 +44,10 @@ bundle_one() {
     return 1
   }
 
+  # Keep demo builds honest when the root package adds or removes source files:
+  # nested SwiftPM packages can otherwise reuse a stale dependency source list.
+  rm -rf "${pkg}/.build"
+
   # Build and resolve path in two steps: `--show-bin-path` alone can print the
   # destination before the linked executable exists on a cold package build.
   swift build --package-path "${pkg}" -c release

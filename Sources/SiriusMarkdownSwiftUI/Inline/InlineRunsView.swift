@@ -86,20 +86,16 @@ public struct InlineRunsView: View {
                 nativeTextSelection: nativeTextSelection
             )
         } else {
-            Text(attributed)
-            .font(baseFont)
-            .foregroundStyle(theme.textColor)
-            .markdownNativeTextSelection(nativeTextSelection)
-            .environment(\.openURL, OpenURLAction { url in
-                if let linkAction {
-                    linkAction.open(url.absoluteString)
-                } else {
-                    Task { @MainActor in
-                        MarkdownURLOpener.open(url.absoluteString)
-                    }
-                }
-                return .handled
-            })
+            MarkdownSelectableText(
+                attributed: attributed,
+                font: baseFont,
+                fontSize: theme.paragraphFontSize,
+                lineHeight: theme.paragraphLineHeight,
+                fontProfile: theme.paragraphFontProfiles.body,
+                textColor: theme.textColor,
+                linkAction: linkAction,
+                nativeTextSelection: nativeTextSelection
+            )
         }
     }
 
@@ -513,12 +509,18 @@ private struct PreparedInlineTextView: View {
                     )
                 }
         } else {
-            Text(fallbackAttributed)
-                .font(baseFont)
-                .foregroundStyle(theme.textColor)
+            MarkdownSelectableText(
+                attributed: fallbackAttributed,
+                font: baseFont,
+                fontSize: prepared.fontSize,
+                lineHeight: prepared.lineHeight,
+                fontProfile: prepared.fontProfiles.body,
+                textColor: theme.textColor,
+                linkAction: linkAction,
+                nativeTextSelection: nativeTextSelection
+            )
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .clipped()
-                .markdownNativeTextSelection(nativeTextSelection)
                 .background(widthReader)
         }
     }
