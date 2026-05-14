@@ -23,6 +23,7 @@ struct SiriusMarkdownRenderProbe {
         let documentAffordanceResult = renderDocumentAffordanceProbe(collapsed: false)
         let collapsedDocumentAffordanceResult = renderDocumentAffordanceProbe(collapsed: true)
         let mermaidResult = renderMermaidDiagramProbe()
+        let selectionStressResult = renderNativeTextSelectionStressProbe()
         assertRenderable("MarkdownDocumentView", result)
         assertRenderable("prepared native MarkdownDocumentView", nativeResult)
         assertRenderable("compact chat prepared native transcript", chatResult, minimumNonWhitePixels: 1_400)
@@ -46,6 +47,11 @@ struct SiriusMarkdownRenderProbe {
             mermaidResult,
             minimumNonWhitePixels: 4_000,
             minimumDistinctColorBuckets: 6
+        )
+        assertRenderable(
+            "enabled native text selection stress surface",
+            selectionStressResult,
+            minimumNonWhitePixels: 2_400
         )
 
         if widthResult.darkRightmostX < widthResult.minimumDarkRightmostX {
@@ -168,6 +174,7 @@ struct SiriusMarkdownRenderProbe {
         print("Document affordance surface probe: \(documentAffordanceResult.nonWhitePixels) non-white pixels, rightmost x=\(documentAffordanceResult.nonWhiteRightmostX)")
         print("Collapsed document affordance surface probe: \(collapsedDocumentAffordanceResult.nonWhitePixels) non-white pixels, rightmost x=\(collapsedDocumentAffordanceResult.nonWhiteRightmostX)")
         print("Mermaid diagram probe: \(mermaidResult.nonWhitePixels) non-white pixels, \(mermaidResult.distinctColorBuckets) color buckets, right-band pixels=\(mermaidResult.rightBandNonWhitePixels), fitting width \(mermaidResult.fittingWidth)")
+        print("Enabled native text selection stress probe: \(selectionStressResult.nonWhitePixels) non-white pixels, \(selectionStressResult.distinctColorBuckets) color buckets")
     }
 
     private static func assertRenderable(
@@ -674,6 +681,79 @@ struct SiriusMarkdownRenderProbe {
     }
 
     @MainActor
+    private static func renderNativeTextSelectionStressProbe() -> RenderResult {
+        withWatchdog("enabled native text selection stress probe", timeout: 18) {
+            var configuration = MarkdownRendererConfiguration.compactChat
+            configuration.nativeTextSelection = .enabled
+            let initialColumnWidth = CGFloat(520)
+            let finalColumnWidth = CGFloat(300)
+            let size = NSSize(width: 720, height: 620)
+            let model = NativeTextSelectionStressProbeModel(
+                configuration: configuration,
+                columnWidth: initialColumnWidth
+            )
+
+            model.append(
+                """
+                Assistant stream with [a link](https://example.com), **strong text**, `inline code`, and a long path `/tmp/sirius/selection-overlay/stress/probe/transcript-renderer.log`.
+
+                - Streaming list item with enough text to wrap across prepared native lines while selection is enabled.
+                  - Nested child item with `inline code` and a URL https://example.com/native-selection/probe.
+
+                """
+            )
+
+            let root = NativeTextSelectionStressProbeHarness(model: model)
+                .frame(width: size.width, height: size.height, alignment: .topLeading)
+                .background(Color.white)
+                .environment(\.colorScheme, .light)
+
+            return renderHosted(
+                root,
+                size: size,
+                outputPath: ProcessInfo.processInfo.environment["SIRIUS_MARKDOWN_SELECTION_STRESS_PROBE_OUTPUT"]
+            ) {
+                model.columnWidth = CGFloat(560)
+                model.append(
+                    """
+
+                    | Surface | Evidence |
+                    | - | - |
+                    | Transcript | Native selection is mounted on bounded text leaves. |
+                    | Path | `/private/tmp/sirius-selection-overlay-stress/abcdefghijklmnopqrstuvwxyz` |
+
+                    """
+                )
+                RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+
+                model.columnWidth = finalColumnWidth
+                model.append(
+                    """
+
+                    ```swift
+                    let selectionMode = MarkdownRendererConfiguration(nativeTextSelection: .enabled)
+                    print(selectionMode)
+                    ```
+
+                    > Quote text wraps after the width change while the selectable surface remains a concrete Text leaf.
+
+                    """
+                )
+                RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+
+                model.appendHostBoundary(id: "selection-stress-native-boundary")
+                model.append(
+                    """
+
+                    Final streamed tail after a host boundary with `code`, [link](https://example.com/final), and enough words to trigger another prepared-line layout pass.
+                    """
+                )
+                model.finish()
+            }
+        }
+    }
+
+    @MainActor
     private static func renderDocument(
         markdown: String,
         configuration: MarkdownRendererConfiguration = .document,
@@ -751,6 +831,24 @@ struct SiriusMarkdownRenderProbe {
             rightBandNonWhitePixels: sample.rightBandNonWhitePixels,
             pixelScale: pixelScale
         )
+    }
+
+    @MainActor
+    private static func withWatchdog<T>(
+        _ label: String,
+        timeout: TimeInterval,
+        _ work: () -> T
+    ) -> T {
+        let timer = DispatchSource.makeTimerSource(queue: DispatchQueue.global(qos: .userInitiated))
+        timer.schedule(deadline: .now() + timeout)
+        timer.setEventHandler {
+            fputs("error: \(label) exceeded \(timeout)s; treating this as a main-thread stall\n", stderr)
+            exit(EXIT_FAILURE)
+        }
+        timer.resume()
+        let result = work()
+        timer.cancel()
+        return result
     }
 
     private static func sampleRenderedPixels(_ bitmap: NSBitmapImageRep, pixelScale: Double) -> PixelSample {
@@ -872,6 +970,57 @@ private struct PreparedNativeResizeProbeHarness: View {
                 configuration: configuration
             )
             .frame(width: model.columnWidth, alignment: .leading)
+            Color.white
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+}
+
+@MainActor
+private final class NativeTextSelectionStressProbeModel: ObservableObject {
+    @Published var preparedSnapshot: MarkdownPreparedSnapshot
+    @Published var columnWidth: CGFloat
+    let configuration: MarkdownRendererConfiguration
+    private var stream = MarkdownStream()
+
+    init(configuration: MarkdownRendererConfiguration, columnWidth: CGFloat) {
+        self.configuration = configuration
+        self.columnWidth = columnWidth
+        self.preparedSnapshot = configuration.prepare(snapshot: stream.snapshot())
+    }
+
+    func append(_ markdown: String) {
+        stream.append(markdown)
+        refresh()
+    }
+
+    func appendHostBoundary(id: String) {
+        stream.appendHostBoundary(id: MarkdownHostBoundaryID(id))
+        refresh()
+    }
+
+    func finish() {
+        stream.finish()
+        refresh()
+    }
+
+    private func refresh() {
+        preparedSnapshot = configuration.prepare(snapshot: stream.snapshot())
+    }
+}
+
+private struct NativeTextSelectionStressProbeHarness: View {
+    @ObservedObject var model: NativeTextSelectionStressProbeModel
+
+    var body: some View {
+        HStack(spacing: 0) {
+            Color.white.frame(width: 28)
+            StreamingMarkdownView(
+                preparedSnapshot: model.preparedSnapshot,
+                configuration: model.configuration
+            )
+            .frame(width: model.columnWidth, alignment: .leading)
+            .clipped()
             Color.white
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)

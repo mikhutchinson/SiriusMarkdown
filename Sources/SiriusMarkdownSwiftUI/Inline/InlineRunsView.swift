@@ -14,6 +14,7 @@ public struct InlineRunsView: View {
     private var baseFont: Font
     private var linkAction: MarkdownLinkAction?
     private var inlineRenderingMode: MarkdownInlineRenderingMode
+    private var nativeTextSelection: MarkdownNativeTextSelection
 
     public init(
         runs: [MarkdownInlineRun],
@@ -21,6 +22,7 @@ public struct InlineRunsView: View {
         baseFont: Font? = nil,
         linkAction: MarkdownLinkAction? = nil,
         inlineRenderingMode: MarkdownInlineRenderingMode = .systemText,
+        nativeTextSelection: MarkdownNativeTextSelection = .disabled,
         linkPolicy: any MarkdownLinkPolicy = DefaultMarkdownPolicy(),
         imagePolicy: any MarkdownImagePolicy = DefaultMarkdownPolicy()
     ) {
@@ -34,6 +36,7 @@ public struct InlineRunsView: View {
         self.baseFont = baseFont ?? theme.paragraphFont
         self.linkAction = linkAction
         self.inlineRenderingMode = inlineRenderingMode
+        self.nativeTextSelection = nativeTextSelection
     }
 
     public init(
@@ -41,7 +44,8 @@ public struct InlineRunsView: View {
         theme: MarkdownTheme = .compactChat,
         baseFont: Font? = nil,
         linkAction: MarkdownLinkAction? = nil,
-        inlineRenderingMode: MarkdownInlineRenderingMode = .systemText
+        inlineRenderingMode: MarkdownInlineRenderingMode = .systemText,
+        nativeTextSelection: MarkdownNativeTextSelection = .disabled
     ) {
         self.attributed = attributed
         self.prepared = nil
@@ -49,6 +53,7 @@ public struct InlineRunsView: View {
         self.baseFont = baseFont ?? theme.paragraphFont
         self.linkAction = linkAction
         self.inlineRenderingMode = inlineRenderingMode
+        self.nativeTextSelection = nativeTextSelection
     }
 
     public init(
@@ -56,7 +61,8 @@ public struct InlineRunsView: View {
         theme: MarkdownTheme = .compactChat,
         baseFont: Font? = nil,
         linkAction: MarkdownLinkAction? = nil,
-        inlineRenderingMode: MarkdownInlineRenderingMode = .systemText
+        inlineRenderingMode: MarkdownInlineRenderingMode = .systemText,
+        nativeTextSelection: MarkdownNativeTextSelection = .disabled
     ) {
         self.attributed = prepared.attributed
         self.prepared = prepared
@@ -64,6 +70,7 @@ public struct InlineRunsView: View {
         self.baseFont = baseFont ?? theme.paragraphFont
         self.linkAction = linkAction
         self.inlineRenderingMode = inlineRenderingMode
+        self.nativeTextSelection = nativeTextSelection
     }
 
     @ViewBuilder
@@ -75,12 +82,14 @@ public struct InlineRunsView: View {
                 theme: theme,
                 baseFont: baseFont,
                 linkAction: linkAction,
-                inlineRenderingMode: inlineRenderingMode
+                inlineRenderingMode: inlineRenderingMode,
+                nativeTextSelection: nativeTextSelection
             )
         } else {
             Text(attributed)
             .font(baseFont)
             .foregroundStyle(theme.textColor)
+            .markdownNativeTextSelection(nativeTextSelection)
             .environment(\.openURL, OpenURLAction { url in
                 if let linkAction {
                     linkAction.open(url.absoluteString)
@@ -428,6 +437,7 @@ private struct PreparedInlineTextView: View {
     var baseFont: Font
     var linkAction: MarkdownLinkAction?
     var inlineRenderingMode: MarkdownInlineRenderingMode
+    var nativeTextSelection: MarkdownNativeTextSelection
 
     @State private var containerWidth: CGFloat = 0
     @State private var layoutResult = InlineLayoutResult(lines: [], naturalWidth: 0, height: 0)
@@ -485,7 +495,8 @@ private struct PreparedInlineTextView: View {
                         fallbackAttributed: fallbackAttributed,
                         baseFont: baseFont,
                         theme: theme,
-                        containerWidth: containerWidth
+                        containerWidth: containerWidth,
+                        nativeTextSelection: nativeTextSelection
                     )
                 }
         } else {
@@ -494,6 +505,7 @@ private struct PreparedInlineTextView: View {
                 .foregroundStyle(theme.textColor)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .clipped()
+                .markdownNativeTextSelection(nativeTextSelection)
                 .background(widthReader)
         }
     }

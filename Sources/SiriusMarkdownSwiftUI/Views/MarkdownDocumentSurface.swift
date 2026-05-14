@@ -109,7 +109,6 @@ public struct MarkdownDocumentSurface<Content: View>: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
-        .markdownNativeTextSelection(configuration.nativeTextSelection)
         .background(theme.tableBackground)
         .clipShape(RoundedRectangle(cornerRadius: 8))
         .overlay {

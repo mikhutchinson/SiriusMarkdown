@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.11 - 2026-05-13
+
+- Fixed `MarkdownRendererConfiguration(nativeTextSelection: .enabled)` so SwiftUI native selection is mounted only on bounded Markdown text leaves instead of document, scroll, stack, table-row, toolbar, Mermaid-control, or host containers.
+- Kept the public default `.disabled` for conservative package adoption while proving the opt-in path with an AppKit render-probe stress case covering streaming appends, width changes, tables, links, code, and prepared native lines.
+- Strengthened static guards so the only direct `.textSelection(.enabled)` call remains inside the package-owned helper and renderer roots cannot reintroduce selection overlays.
+
 ## 0.4.10 - 2026-05-13
 
 - Documented the SwiftUI native text-selection hang as unresolved rather than fixed. The current mitigation keeps `MarkdownRendererConfiguration.nativeTextSelection` defaulted to `.disabled` so SiriusMarkdown does not mount SwiftUI's private `SelectionOverlay` path by default.

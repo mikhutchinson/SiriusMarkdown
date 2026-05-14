@@ -287,8 +287,12 @@ func packagedPresetsUsePreparedNativeLinesWhileRawConfigKeepsCompatibilityFallba
 }
 
 @Test
-func nativeTextSelectionDoesNotAttachPerFragmentSwiftUIOverlay() throws {
+func nativeTextSelectionMountsOnlyBoundedTextLeaves() throws {
     let root = packageRootURL()
+    let helper = try String(
+        contentsOf: root.appending(path: "Sources/SiriusMarkdownSwiftUI/Interaction/MarkdownNativeTextSelection.swift"),
+        encoding: .utf8
+    )
     let blockView = try String(
         contentsOf: root.appending(path: "Sources/SiriusMarkdownSwiftUI/Blocks/MarkdownBlockView.swift"),
         encoding: .utf8
@@ -305,16 +309,38 @@ func nativeTextSelectionDoesNotAttachPerFragmentSwiftUIOverlay() throws {
         contentsOf: root.appending(path: "Sources/SiriusMarkdownSwiftUI/Views/MarkdownDocumentSurface.swift"),
         encoding: .utf8
     )
+    let inlineRunsView = try String(
+        contentsOf: root.appending(path: "Sources/SiriusMarkdownSwiftUI/Inline/InlineRunsView.swift"),
+        encoding: .utf8
+    )
+    let nativeLineTextView = try String(
+        contentsOf: root.appending(path: "Sources/SiriusMarkdownSwiftUI/Inline/NativeInlineLineTextView.swift"),
+        encoding: .utf8
+    )
+    let sourceFiles = try swiftSourceFiles(under: root.appending(path: "Sources/SiriusMarkdownSwiftUI"))
+    let directSelectionOffenders = try sourceFiles.filter { file in
+        guard file.lastPathComponent != "MarkdownNativeTextSelection.swift" else {
+            return false
+        }
+        return try String(contentsOf: file, encoding: .utf8).contains(".textSelection(.enabled)")
+    }
 
+    #expect(helper.occurrences(of: ".textSelection(.enabled)") == 1)
+    #expect(directSelectionOffenders.isEmpty)
     #expect(!blockView.contains(".textSelection(.enabled)"))
-    #expect(!blockView.contains(".markdownNativeTextSelection("))
     #expect(!mermaidView.contains(".textSelection(.enabled)"))
-    #expect(documentView.occurrences(of: ".markdownNativeTextSelection(configuration.nativeTextSelection)") == 2)
-    #expect(surfaceView.occurrences(of: ".markdownNativeTextSelection(configuration.nativeTextSelection)") == 1)
+    #expect(!mermaidView.contains(".markdownNativeTextSelection("))
+    #expect(!documentView.contains(".markdownNativeTextSelection("))
+    #expect(!surfaceView.contains(".markdownNativeTextSelection("))
+    #expect(blockView.contains(".markdownNativeTextSelection(configuration.nativeTextSelection)"))
+    #expect(blockView.contains("nativeTextSelection: configuration.nativeTextSelection"))
+    #expect(inlineRunsView.contains("nativeTextSelection: MarkdownNativeTextSelection = .disabled"))
+    #expect(inlineRunsView.contains(".markdownNativeTextSelection(nativeTextSelection)"))
+    #expect(nativeLineTextView.contains(".markdownNativeTextSelection(nativeTextSelection)"))
 }
 
 @Test
-func nativeTextSelectionDocsTrackUnresolvedSelectionOverlayHang() throws {
+func nativeTextSelectionDocsTrackBoundedEnabledSelectionPath() throws {
     let root = packageRootURL()
     let docComment = try String(
         contentsOf: root.appending(path: "Sources/SiriusMarkdownSwiftUI/Interaction/MarkdownNativeTextSelection.swift"),
@@ -325,13 +351,14 @@ func nativeTextSelectionDocsTrackUnresolvedSelectionOverlayHang() throws {
     let bugfix = try String(contentsOf: root.appending(path: "bugfix.md"), encoding: .utf8)
     let combined = [docComment, readme, runbook, bugfix].joined(separator: "\n")
 
-    #expect(combined.contains("unresolved"))
     #expect(combined.contains("nativeTextSelection"))
+    #expect(combined.contains("bounded text leaves"))
     #expect(combined.contains("SelectionOverlay.updateNSView"))
     #expect(combined.contains("GraphHost.flushTransactions"))
     #expect(combined.contains("NSTextField setFont:"))
     #expect(combined.contains("_invalidateEffectiveFont"))
     #expect(combined.contains("MarkdownSelectionController"))
+    #expect(combined.contains("enabled-selection AppKit"))
 }
 
 @Test
@@ -2089,6 +2116,26 @@ private func packageRootURL(filePath: String = #filePath) -> URL {
         .deletingLastPathComponent()
         .deletingLastPathComponent()
         .deletingLastPathComponent()
+}
+
+private func swiftSourceFiles(under root: URL) throws -> [URL] {
+    guard let enumerator = FileManager.default.enumerator(
+        at: root,
+        includingPropertiesForKeys: [.isRegularFileKey],
+        options: [.skipsHiddenFiles]
+    ) else {
+        return []
+    }
+
+    return try enumerator.compactMap { entry in
+        guard let url = entry as? URL,
+              url.pathExtension == "swift"
+        else {
+            return nil
+        }
+        let values = try url.resourceValues(forKeys: [.isRegularFileKey])
+        return values.isRegularFile == true ? url : nil
+    }
 }
 
 private extension String {

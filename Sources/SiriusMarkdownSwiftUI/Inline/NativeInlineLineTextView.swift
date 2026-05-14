@@ -8,6 +8,7 @@ struct NativeInlineLineTextView: View {
     var baseFont: Font
     var theme: MarkdownTheme
     var containerWidth: CGFloat
+    var nativeTextSelection: MarkdownNativeTextSelection
 
     static var isSupported: Bool { true }
 
@@ -27,13 +28,14 @@ struct NativeInlineLineTextView: View {
                 .foregroundStyle(theme.textColor)
                 .frame(width: width, height: height, alignment: .topLeading)
                 .clipped()
+                .markdownNativeTextSelection(nativeTextSelection)
         } else {
             Text(renderedLines)
-                .font(baseFont)
                 .foregroundStyle(theme.textColor)
                 .lineSpacing(lineSpacing)
                 .frame(width: width, height: height, alignment: .topLeading)
                 .clipped()
+                .markdownNativeTextSelection(nativeTextSelection)
                 .accessibilityElement(children: .combine)
                 .accessibilityLabel(String(fallbackAttributed.characters))
         }

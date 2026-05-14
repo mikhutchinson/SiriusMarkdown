@@ -92,7 +92,8 @@ public struct MarkdownBlockView: View {
                 theme: theme,
                 baseFont: baseFont,
                 linkAction: configuration.linkAction,
-                inlineRenderingMode: configuration.inlineRenderingMode
+                inlineRenderingMode: configuration.inlineRenderingMode,
+                nativeTextSelection: configuration.nativeTextSelection
             )
             .frame(maxWidth: .infinity, alignment: .leading)
         } else if let inline = preparedContent.inline {
@@ -101,7 +102,8 @@ public struct MarkdownBlockView: View {
                 theme: theme,
                 baseFont: baseFont,
                 linkAction: configuration.linkAction,
-                inlineRenderingMode: configuration.inlineRenderingMode
+                inlineRenderingMode: configuration.inlineRenderingMode,
+                nativeTextSelection: configuration.nativeTextSelection
             )
             .frame(maxWidth: .infinity, alignment: .leading)
         } else if block.inlines.isEmpty {
@@ -109,6 +111,7 @@ public struct MarkdownBlockView: View {
                 .font(baseFont)
                 .foregroundStyle(theme.textColor)
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .markdownNativeTextSelection(configuration.nativeTextSelection)
         } else {
             InlineRunsView(
                 runs: block.inlines,
@@ -116,6 +119,7 @@ public struct MarkdownBlockView: View {
                 baseFont: baseFont,
                 linkAction: configuration.linkAction,
                 inlineRenderingMode: configuration.inlineRenderingMode,
+                nativeTextSelection: configuration.nativeTextSelection,
                 linkPolicy: configuration.linkPolicy,
                 imagePolicy: configuration.imagePolicy
             )
@@ -164,6 +168,7 @@ public struct MarkdownBlockView: View {
                             .padding(.top, showsCodeBlockHeader ? 4 : 10)
                             .padding(.bottom, 10)
                             .frame(maxWidth: .infinity, alignment: .leading)
+                            .markdownNativeTextSelection(configuration.nativeTextSelection)
                     }
                 } else {
                     Text("\(Self.codeCopyText(for: block).utf8.count.formatted()) bytes hidden")
@@ -181,6 +186,7 @@ public struct MarkdownBlockView: View {
         } else {
             Text(MarkdownRendererConfiguration.codeText(for: block))
                 .font(theme.codeFont)
+                .markdownNativeTextSelection(configuration.nativeTextSelection)
         }
     }
 
@@ -338,6 +344,7 @@ public struct MarkdownBlockView: View {
             Text(math)
                 .font(theme.codeFont)
                 .foregroundStyle(theme.textColor)
+                .markdownNativeTextSelection(configuration.nativeTextSelection)
                 .padding(8)
                 .background(theme.codeBackground)
                 .clipShape(RoundedRectangle(cornerRadius: 6))
@@ -347,6 +354,7 @@ public struct MarkdownBlockView: View {
             Text(MarkdownRendererConfiguration.mathText(for: block))
                 .font(theme.codeFont)
                 .foregroundStyle(theme.textColor)
+                .markdownNativeTextSelection(configuration.nativeTextSelection)
         }
     }
 
@@ -356,6 +364,7 @@ public struct MarkdownBlockView: View {
             Text(block.text)
                 .font(theme.codeFont)
                 .foregroundStyle(theme.secondaryTextColor)
+                .markdownNativeTextSelection(configuration.nativeTextSelection)
         } else if let reason = preparedContent.policyDenialReason {
             policyDeniedView(reason: reason)
         } else {
@@ -378,7 +387,8 @@ public struct MarkdownBlockView: View {
                     theme: theme,
                     baseFont: isHeader ? theme.paragraphFont.bold() : theme.paragraphFont,
                     linkAction: configuration.linkAction,
-                    inlineRenderingMode: configuration.inlineRenderingMode
+                    inlineRenderingMode: configuration.inlineRenderingMode,
+                    nativeTextSelection: configuration.nativeTextSelection
                 )
             } else {
                 InlineRunsView(
@@ -386,7 +396,8 @@ public struct MarkdownBlockView: View {
                     theme: theme,
                     baseFont: isHeader ? theme.paragraphFont.bold() : theme.paragraphFont,
                     linkAction: configuration.linkAction,
-                    inlineRenderingMode: configuration.inlineRenderingMode
+                    inlineRenderingMode: configuration.inlineRenderingMode,
+                    nativeTextSelection: configuration.nativeTextSelection
                 )
             }
         }
@@ -464,6 +475,7 @@ public struct MarkdownBlockView: View {
         Text(reason)
             .font(theme.codeFont)
             .foregroundStyle(theme.secondaryTextColor)
+            .markdownNativeTextSelection(configuration.nativeTextSelection)
             .padding(8)
             .background(theme.codeBackground)
             .clipShape(RoundedRectangle(cornerRadius: 6))
@@ -729,7 +741,8 @@ private struct MarkdownListItemRow: View {
                 theme: theme,
                 baseFont: theme.paragraphFont,
                 linkAction: configuration.linkAction,
-                inlineRenderingMode: configuration.inlineRenderingMode
+                inlineRenderingMode: configuration.inlineRenderingMode,
+                nativeTextSelection: configuration.nativeTextSelection
             )
         } else {
             InlineRunsView(
@@ -737,7 +750,8 @@ private struct MarkdownListItemRow: View {
                 theme: theme,
                 baseFont: theme.paragraphFont,
                 linkAction: configuration.linkAction,
-                inlineRenderingMode: configuration.inlineRenderingMode
+                inlineRenderingMode: configuration.inlineRenderingMode,
+                nativeTextSelection: configuration.nativeTextSelection
             )
         }
     }
