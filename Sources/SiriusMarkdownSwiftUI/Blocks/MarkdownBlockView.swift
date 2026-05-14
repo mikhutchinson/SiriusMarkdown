@@ -49,7 +49,11 @@ public struct MarkdownBlockView: View {
                     Rectangle()
                         .fill(theme.quoteAccent)
                         .frame(width: 3)
-                    inlineContent(baseFont: theme.paragraphFont, fallbackText: block.text)
+                    inlineContent(
+                        baseFont: theme.paragraphFont,
+                        fallbackText: block.text,
+                        nativeTextSelection: selectionModeInsideLeadingLayout
+                    )
                         .foregroundStyle(theme.secondaryTextColor)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -85,7 +89,12 @@ public struct MarkdownBlockView: View {
     }
 
     @ViewBuilder
-    private func inlineContent(baseFont: Font, fallbackText: String) -> some View {
+    private func inlineContent(
+        baseFont: Font,
+        fallbackText: String,
+        nativeTextSelection: MarkdownNativeTextSelection? = nil
+    ) -> some View {
+        let selectionMode = nativeTextSelection ?? configuration.nativeTextSelection
         if let inlineLayout = preparedContent.inlineLayout {
             InlineRunsView(
                 prepared: inlineLayout,
@@ -93,7 +102,7 @@ public struct MarkdownBlockView: View {
                 baseFont: baseFont,
                 linkAction: configuration.linkAction,
                 inlineRenderingMode: configuration.inlineRenderingMode,
-                nativeTextSelection: configuration.nativeTextSelection
+                nativeTextSelection: selectionMode
             )
             .frame(maxWidth: .infinity, alignment: .leading)
         } else if let inline = preparedContent.inline {
@@ -103,7 +112,7 @@ public struct MarkdownBlockView: View {
                 baseFont: baseFont,
                 linkAction: configuration.linkAction,
                 inlineRenderingMode: configuration.inlineRenderingMode,
-                nativeTextSelection: configuration.nativeTextSelection
+                nativeTextSelection: selectionMode
             )
             .frame(maxWidth: .infinity, alignment: .leading)
         } else if block.inlines.isEmpty {
@@ -111,7 +120,7 @@ public struct MarkdownBlockView: View {
                 .font(baseFont)
                 .foregroundStyle(theme.textColor)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .markdownNativeTextSelection(configuration.nativeTextSelection)
+                .markdownNativeTextSelection(selectionMode)
         } else {
             InlineRunsView(
                 runs: block.inlines,
@@ -119,7 +128,7 @@ public struct MarkdownBlockView: View {
                 baseFont: baseFont,
                 linkAction: configuration.linkAction,
                 inlineRenderingMode: configuration.inlineRenderingMode,
-                nativeTextSelection: configuration.nativeTextSelection,
+                nativeTextSelection: selectionMode,
                 linkPolicy: configuration.linkPolicy,
                 imagePolicy: configuration.imagePolicy
             )
@@ -388,7 +397,7 @@ public struct MarkdownBlockView: View {
                     baseFont: isHeader ? theme.paragraphFont.bold() : theme.paragraphFont,
                     linkAction: configuration.linkAction,
                     inlineRenderingMode: configuration.inlineRenderingMode,
-                    nativeTextSelection: configuration.nativeTextSelection
+                    nativeTextSelection: selectionModeInsideCompositeGrid
                 )
             } else {
                 InlineRunsView(
@@ -397,11 +406,10 @@ public struct MarkdownBlockView: View {
                     baseFont: isHeader ? theme.paragraphFont.bold() : theme.paragraphFont,
                     linkAction: configuration.linkAction,
                     inlineRenderingMode: configuration.inlineRenderingMode,
-                    nativeTextSelection: configuration.nativeTextSelection
+                    nativeTextSelection: selectionModeInsideCompositeGrid
                 )
             }
         }
-        .font(isHeader ? theme.paragraphFont.bold() : theme.paragraphFont)
         .foregroundStyle(theme.textColor)
         .padding(.horizontal, theme.tableHorizontalCellPadding)
         .padding(.vertical, theme.tableVerticalCellPadding)
@@ -469,6 +477,18 @@ public struct MarkdownBlockView: View {
         case .right:
             return .trailing
         }
+    }
+
+    private var selectionModeInsideLeadingLayout: MarkdownNativeTextSelection {
+        // Native SelectionOverlay can re-enter custom leading layouts during
+        // right-panel updates; keep those composite surfaces copy-only.
+        .disabled
+    }
+
+    private var selectionModeInsideCompositeGrid: MarkdownNativeTextSelection {
+        // Table grids use fixed-width cell composition, which is not a stable
+        // native-selection leaf on macOS 26.
+        .disabled
     }
 
     private func policyDeniedView(reason: String) -> some View {
@@ -742,7 +762,7 @@ private struct MarkdownListItemRow: View {
                 baseFont: theme.paragraphFont,
                 linkAction: configuration.linkAction,
                 inlineRenderingMode: configuration.inlineRenderingMode,
-                nativeTextSelection: configuration.nativeTextSelection
+                nativeTextSelection: selectionModeInsideLeadingLayout
             )
         } else {
             InlineRunsView(
@@ -751,9 +771,14 @@ private struct MarkdownListItemRow: View {
                 baseFont: theme.paragraphFont,
                 linkAction: configuration.linkAction,
                 inlineRenderingMode: configuration.inlineRenderingMode,
-                nativeTextSelection: configuration.nativeTextSelection
+                nativeTextSelection: selectionModeInsideLeadingLayout
             )
         }
+    }
+
+    private var selectionModeInsideLeadingLayout: MarkdownNativeTextSelection {
+        // List rows share the same custom leading-layout risk as block quotes.
+        .disabled
     }
 
     private var marker: String {

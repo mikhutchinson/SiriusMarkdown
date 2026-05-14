@@ -8,16 +8,17 @@ import SwiftUI
 /// invalidated AppKit `NSTextField` font/layout state while `GraphHost`
 /// flushed transactions. The default stays `.disabled` as a conservative
 /// public-package default. When enabled, SiriusMarkdown applies native
-/// selection only to bounded text leaves instead of document, scroll, stack,
-/// toolbar, table-row, Mermaid-control, or host containers.
+    /// selection only to stable bounded text leaves instead of document, scroll,
+    /// stack, custom leading-layout, table-grid, toolbar, Mermaid-control, or
+    /// host containers.
 public enum MarkdownNativeTextSelection: Sendable, Hashable {
     /// Render Markdown text without SwiftUI's native text-selection
     /// overlay. This remains the conservative package default. Copy
     /// affordances and `MarkdownSelectionController` remain available where
     /// configured.
     case disabled
-    /// Render Markdown text with native SwiftUI selection enabled on bounded
-    /// text leaves.
+    /// Render Markdown text with native SwiftUI selection enabled on stable
+    /// bounded text leaves.
     ///
     /// If a selection regression returns, sample the process and look for
     /// `GraphHost.flushTransactions` -> `SelectionOverlay.updateNSView` ->

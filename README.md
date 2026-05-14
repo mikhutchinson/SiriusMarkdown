@@ -10,7 +10,7 @@ The package is built around three principles:
 
 ## Status
 
-This checkout is the `0.4.11` public package release. The release gate is strict Swift-vs-Pretext layout comparison, required Pretext product fixture groups, AppKit render probes for document, compact chat, transcript wrapping, multilingual, inline-attribute, overflow, hard-break, long-word, finite-column containment, wide-to-narrow resize, document affordance chrome, Mermaid diagram pan/zoom, enabled native text selection, and language-aware code highlighting output, plus AppKit-hosted transcript command clipping regressions. Fixture drift, missing groups, duplicate fixture names/groups, and trivial render output are release blockers.
+This checkout is the `0.4.12` public package release. The release gate is strict Swift-vs-Pretext layout comparison, required Pretext product fixture groups, AppKit render probes for document, compact chat, transcript wrapping, multilingual, inline-attribute, overflow, hard-break, long-word, finite-column containment, wide-to-narrow resize, document affordance chrome, Mermaid diagram pan/zoom, enabled native text selection, and language-aware code highlighting output, plus AppKit-hosted transcript command clipping regressions. Fixture drift, missing groups, duplicate fixture names/groups, and trivial render output are release blockers.
 
 The current product claim is native SwiftUI Markdown rendering with prepared-line layout, streaming snapshots, bounded caches, safe default policies, language-aware default code highlighting, built-in Mermaid diagram rendering with package-owned inline pan/zoom controls and deterministic plain-code fallback, generic document/code affordances with explicit accessibility labels, public chat/document presets, first-class H1-H6 heading typography through `MarkdownTheme.headings`, and containment-stable prepared native lines for transcript-style paths, commands, URLs, long identifiers, nested lists, quotes, table cells, and glyph-bound paint drift. It is not a custom glyph renderer: `preparedNativeLines` slices prepared attributed line ranges and renders them with SwiftUI `Text(AttributedString)`.
 
@@ -25,7 +25,7 @@ In `Package.swift` (adjust the package URL to the published repository):
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/mikhutchinson/SiriusMarkdown.git", from: "0.4.11")
+    .package(url: "https://github.com/mikhutchinson/SiriusMarkdown.git", from: "0.4.12")
 ],
 targets: [
     .target(
@@ -170,10 +170,11 @@ The release and product gates cover more than construction smoke tests:
 - SwiftUI native text selection remains an explicit opt-in through
   `MarkdownRendererConfiguration.nativeTextSelection`. It defaults to
   `.disabled` for conservative package adoption, and `.enabled` now mounts
-  SwiftUI selection only on bounded text leaves instead of document, scroll,
-  stack, table-row, toolbar, Mermaid-control, or host containers. The AppKit
-  render probe stress-renders `.enabled` through streaming appends, width
-  changes, tables, links, code, and prepared native lines with a watchdog.
+  SwiftUI selection only on stable bounded text leaves instead of document,
+  scroll, stack, custom leading-layout content, table-grid content, toolbar,
+  Mermaid-control, or host containers. The AppKit render probe stress-renders
+  `.enabled` through streaming appends, width changes, tables, links, code, and
+  prepared native lines with a watchdog.
   If a regression returns, sample the host and look for
   `GraphHost.flushTransactions` -> `SelectionOverlay.updateNSView` ->
   `NSTextField setFont:` / `_invalidateEffectiveFont` / `updateCell`.
@@ -258,12 +259,12 @@ bash Tools/product-check.sh
 
 ## Release
 
-`0.4.11` is ready to publish only when:
+`0.4.12` is ready to publish only when:
 
 - `README.md`, DocC, `Docs/architecture.md`, `Docs/native-renderer-scorecard.md`, `NOTICE.md`, `changelog.md`, `bugfix.md`, and `runbook.md` describe the current public package surface;
 - `bash Tools/product-check.sh` passes from the repository root;
 - `git diff --check` reports no whitespace errors;
 - `git remote -v` points at the intended public repository;
-- the release commit is tagged as `0.4.11` and pushed with tags.
+- the release commit is tagged as `0.4.12` and pushed with tags.
 
 Recommended release commands are documented in `runbook.md`.

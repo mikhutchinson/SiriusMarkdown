@@ -186,9 +186,9 @@ public struct InlineRunsView: View {
         var result = AttributedString()
         for (index, line) in lines.enumerated() {
             if index > 0 {
-                result.append(AttributedString("\n"))
+                result.append(defaultFontAttributedString("\n", prepared: prepared))
             }
-            result.append(line.characters.isEmpty ? AttributedString(" ") : line)
+            result.append(line.characters.isEmpty ? defaultFontAttributedString(" ", prepared: prepared) : line)
         }
         return result
     }
@@ -373,6 +373,19 @@ public struct InlineRunsView: View {
             kind: kind,
             size: prepared.fontSize
         )
+    }
+
+    private nonisolated static func defaultFontAttributedString(
+        _ string: String,
+        prepared: MarkdownPreparedInlineContent
+    ) -> AttributedString {
+        var attributed = AttributedString(string)
+        attributed.font = swiftUIFont(
+            for: prepared.fontProfiles.profile(for: .text),
+            kind: .text,
+            size: prepared.fontSize
+        )
+        return attributed
     }
 
     private nonisolated static func swiftUIFont(

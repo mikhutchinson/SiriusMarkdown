@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.12 - 2026-05-13
+
+- Fixed the remaining native-selection hang path reproduced in Sirius' right-panel DiffTree Markdown preview. A live sample showed SwiftUI back in `GraphHost.flushTransactions` -> `SelectionOverlay.updateNSView` -> AppKit `NSTextField` font invalidation with `MarkdownLeadingContentLayout` and prepared snapshot frames in the same graph.
+- Kept `MarkdownRendererConfiguration(nativeTextSelection: .enabled)` available for stable Markdown text leaves, but prevents SwiftUI native selection from mounting inside custom leading layouts and composite table grids where the private selection overlay can re-enter layout.
+- Filled prepared native-line separator and blank-line glyphs with explicit font attributes so selectable attributed payloads do not contain unowned font runs.
+
 ## 0.4.11 - 2026-05-13
 
 - Fixed `MarkdownRendererConfiguration(nativeTextSelection: .enabled)` so SwiftUI native selection is mounted only on bounded Markdown text leaves instead of document, scroll, stack, table-row, toolbar, Mermaid-control, or host containers.
