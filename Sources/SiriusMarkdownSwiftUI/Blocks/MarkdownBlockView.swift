@@ -649,26 +649,21 @@ public struct MarkdownBlockView: View {
                 policyDenialReason: denialReason(decision)
             )
         case .mathBlock:
+            let mathDecision = configuration.mathPolicy.evaluateMath(
+                MarkdownRendererConfiguration.mathText(for: block),
+                isBlock: true
+            )
             return MarkdownBlockRenderPlan(
                 kind: block.kind,
-                mathAllowed: policyAllowed(
-                    configuration.mathPolicy.evaluateMath(
-                        MarkdownRendererConfiguration.mathText(for: block),
-                        isBlock: true
-                    )
-                ),
-                policyDenialReason: denialReason(
-                    configuration.mathPolicy.evaluateMath(
-                        MarkdownRendererConfiguration.mathText(for: block),
-                        isBlock: true
-                    )
-                )
+                mathAllowed: policyAllowed(mathDecision),
+                policyDenialReason: denialReason(mathDecision)
             )
         case .htmlBlock:
+            let htmlDecision = configuration.htmlPolicy.evaluateHTML(block.text)
             return MarkdownBlockRenderPlan(
                 kind: block.kind,
-                htmlAllowed: policyAllowed(configuration.htmlPolicy.evaluateHTML(block.text)),
-                policyDenialReason: denialReason(configuration.htmlPolicy.evaluateHTML(block.text))
+                htmlAllowed: policyAllowed(htmlDecision),
+                policyDenialReason: denialReason(htmlDecision)
             )
         default:
             return MarkdownBlockRenderPlan(kind: block.kind)

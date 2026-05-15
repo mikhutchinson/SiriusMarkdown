@@ -25,8 +25,9 @@ func MarkdownRenderSessionPreparesSnapshotsAndSourceBackedCopy() throws {
 @Test
 @MainActor
 func MarkdownSelectionControllerCopiesBoundedSourceBackedSelection() throws {
+    let source = "# Title\n\nFirst paragraph.\n\nSecond paragraph.\n\n"
     let session = MarkdownRenderSession(configuration: .document)
-    session.append("# Title\n\nFirst paragraph.\n\nSecond paragraph.\n\n")
+    session.append(source)
     session.finish()
 
     let controller = MarkdownSelectionController(maximumSelectedBlockCount: 2)
@@ -42,10 +43,92 @@ func MarkdownSelectionControllerCopiesBoundedSourceBackedSelection() throws {
     let selectedText = controller.selectedPlainText(in: session.preparedSnapshot)
 
     #expect(controller.selectedBlockIDs.count == 2)
-    #expect(selectedMarkdown.contains("# Title"))
-    #expect(selectedMarkdown.contains("First paragraph"))
-    #expect(selectedMarkdown.contains("Second paragraph") == false)
+    #expect(controller.selectedSourceRanges.count == 1)
+    #expect(selectedMarkdown == "# Title\n\nFirst paragraph.")
     #expect(selectedText.contains("Title"))
+}
+
+@Test
+@MainActor
+func MarkdownSelectionControllerCopiesExactPartialAndNonContiguousSourceRanges() throws {
+    let source = "Alpha beta gamma.\n\nSecond paragraph.\n\nThird paragraph.\n"
+    let session = MarkdownRenderSession(configuration: .document)
+    session.append(source)
+    session.finish()
+
+    let first = try #require(session.snapshot.blocks.first)
+    let last = try #require(session.snapshot.blocks.last)
+    let controller = MarkdownSelectionController()
+    controller.updateSnapshot(session.snapshot)
+
+    controller.selectSourceRanges(
+        [sourceRange(of: "beta gamma", in: source)],
+        selectedBlockIDs: [first.id]
+    )
+    #expect(controller.selectedMarkdown(in: session.preparedSnapshot, copyProvider: session.configuration.copyProvider) == "beta gamma")
+
+    controller.selectSourceRanges(
+        [
+            sourceRange(of: "Third paragraph.", in: source),
+            sourceRange(of: "Alpha", in: source),
+        ],
+        selectedBlockIDs: [last.id, first.id]
+    )
+    #expect(controller.selectedSourceRanges.map(\.byteRange.lowerBound) == controller.selectedSourceRanges.map(\.byteRange.lowerBound).sorted())
+    #expect(controller.selectedMarkdown(in: session.preparedSnapshot, copyProvider: session.configuration.copyProvider) == "Alpha\nThird paragraph.")
+}
+
+@Test
+@MainActor
+func MarkdownSelectionControllerFallsBackToPlainTextWhenSourceIsUnavailable() throws {
+    let session = MarkdownRenderSession(configuration: .document)
+    session.append("Plain fallback paragraph.\n")
+    session.finish()
+
+    let block = try #require(session.snapshot.blocks.first)
+    let controller = MarkdownSelectionController()
+    controller.updateSnapshot(session.snapshot)
+    controller.select(block.id)
+
+    #expect(controller.selectedMarkdown(in: session.preparedSnapshot, copyProvider: nil) == "Plain fallback paragraph.")
+}
+
+@Test
+@MainActor
+func MarkdownSelectionSurvivesStreamingAppendAndWidthRelayoutWithoutExpensiveWork() throws {
+    let renderRecorder = MarkdownDiagnosticsRecorder()
+    let session = MarkdownRenderSession(
+        configuration: .document,
+        renderDiagnosticsRecorder: renderRecorder
+    )
+    session.append("# Title\n\nSelected paragraph wraps across visual lines for geometry.\n\n")
+
+    let controller = MarkdownSelectionController()
+    controller.updateSnapshot(session.snapshot)
+    let selectedBlock = try #require(session.snapshot.blocks.first)
+    controller.select(selectedBlock.id)
+    let selectedIDs = controller.selectedBlockIDs
+    let selectedRanges = controller.selectedSourceRanges
+
+    session.append("Active tail keeps streaming.\n")
+    controller.updateSnapshot(session.snapshot)
+
+    #expect(controller.selectedBlockIDs == selectedIDs)
+    #expect(controller.selectedSourceRanges == selectedRanges)
+
+    let preparedBlock = try #require(session.preparedSnapshot.preparedContentByBlockID[selectedBlock.id])
+    let inline = try #require(preparedBlock.inlineLayout)
+    let before = renderRecorder.snapshot()
+    for width in [120.0, 180.0, 240.0] {
+        _ = InlineRunsView.lineLayout(for: inline, containerWidth: width)
+    }
+    let after = renderRecorder.snapshot()
+
+    #expect(after.parseCount == before.parseCount)
+    #expect(after.prepareCount == before.prepareCount)
+    #expect(after.codeHighlightCount == before.codeHighlightCount)
+    #expect(after.mathRenderCount == before.mathRenderCount)
+    #expect(after.layoutCount >= before.layoutCount)
 }
 
 @Suite(.serialized)
@@ -83,6 +166,19 @@ struct MarkdownProductPerformanceTests {
         #expect(afterResize.mathRenderCount == afterPrepare.mathRenderCount)
         #expect(afterResize.layoutCount > afterPrepare.layoutCount)
     }
+}
+
+private func sourceRange(of substring: String, in source: String) -> MarkdownSourceRange {
+    guard let range = source.range(of: substring) else {
+        Issue.record("Missing substring \(substring)")
+        return MarkdownSourceRange(byteRange: 0..<0, lineRange: 1..<2)
+    }
+
+    let lower = source[..<range.lowerBound].utf8.count
+    let upper = source[..<range.upperBound].utf8.count
+    let line = source[..<range.lowerBound].filter { $0 == "\n" }.count + 1
+    let lineEnd = source[..<range.upperBound].filter { $0 == "\n" }.count + 2
+    return MarkdownSourceRange(byteRange: lower..<upper, lineRange: line..<lineEnd)
 }
 
 @Test

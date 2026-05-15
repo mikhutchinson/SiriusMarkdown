@@ -99,7 +99,7 @@ public struct MarkdownBoundaryScanner: Sendable, Hashable {
             let nextLineStart = line.includesTerminatingNewline
                 ? line.byteRange.upperBound + 1
                 : line.byteRange.upperBound
-            let trimmed = line.text.trimmingCharacters(in: .whitespaces)
+            let trimmed = normalizedLineText(line.text).trimmingCharacters(in: .whitespaces)
 
             if let fence = state.openFence {
                 if closesFence(trimmed, fence: fence) {
@@ -212,5 +212,12 @@ public struct MarkdownBoundaryScanner: Sendable, Hashable {
 
         let next = line.index(after: index)
         return next < line.endIndex && line[next] == " "
+    }
+
+    private func normalizedLineText(_ line: String) -> String {
+        if line.last == "\r" {
+            return String(line.dropLast())
+        }
+        return line
     }
 }

@@ -24,6 +24,48 @@ func streamedParseMatchesStaticBlockText() {
 }
 
 @Test
+func crlfStreamedParseMatchesStaticParse() {
+    let markdown = [
+        "# Title",
+        "",
+        "Paragraph one.",
+        "",
+        "1. Item",
+        "",
+        "",
+        "```swift",
+        "let x = 1",
+        "```",
+        "",
+        "$$",
+        "x^2",
+        "$$",
+        "",
+        "<div>",
+        "raw",
+        "</div>",
+        "",
+    ].joined(separator: "\r\n")
+
+    var streamed = MarkdownStream()
+    for chunk in markdown.split(separator: "\r\n", omittingEmptySubsequences: false).map({ String($0) + "\r\n" }) {
+        streamed.append(chunk)
+    }
+    streamed.finish()
+
+    var oneShot = MarkdownStream()
+    oneShot.append(markdown)
+    oneShot.finish()
+
+    let streamedSnapshot = streamed.snapshot()
+    let oneShotSnapshot = oneShot.snapshot()
+
+    #expect(streamedSnapshot.blocks.map(\.kind) == oneShotSnapshot.blocks.map(\.kind))
+    #expect(streamedSnapshot.blocks.map(\.text) == oneShotSnapshot.blocks.map(\.text))
+    #expect(streamedSnapshot.blocks.allSatisfy { $0.isSealed })
+}
+
+@Test
 func activeTailKeepsStableBlockIDWhileAppending() {
     var stream = MarkdownStream()
     stream.append("A paragraph")

@@ -1,6 +1,6 @@
 # Runbook
 
-This runbook is the local release authority for `SiriusMarkdown`. For the current public package release, use `0.4.14` as the tag and do not publish unless every release blocker below is clear.
+This runbook is the local release authority for `SiriusMarkdown`. For the current public package release, use `0.4.15` as the tag and do not publish unless every release blocker below is clear.
 
 ## Build
 
@@ -18,10 +18,10 @@ swift test
 
 Current status: `swift test` must pass with strict Swift-vs-Pretext comparison enabled across the required product fixture groups. Missing groups, duplicate fixture names/groups, absent fixture metadata, or known-drift allowlists are release blockers.
 
-Count the Swift test functions reported by the runner:
+Count the Swift test functions reported by the runner and keep the release-gate discovery floor current:
 
 ```sh
-swift test list | wc -l
+swift test list
 ```
 
 Parser acceptance for the current slice:
@@ -30,7 +30,7 @@ Parser acceptance for the current slice:
 - `MarkdownBlock` IDs must be stable while appending to the active tail and after sealing. Do not include mutable upper bounds or content hashes in the identity. Use `contentHash` for cache keys.
 - The render model must expose parser-owned structure for task states, ordered-list starts, nested list items, table cells, table alignments, code info strings, HTML blocks, math blocks, and inline destinations.
 - Whole-document parse and streamed parse must match for block IDs, kinds, and text across the chunk matrix.
-- Boundary scanner changes must preserve conservative handling for code fences, math fences, HTML blocks, loose-list ambiguity, and blank-line stability.
+- Boundary scanner changes must preserve conservative handling for code fences, math fences, HTML blocks, loose-list ambiguity, blank-line stability, and CRLF-vs-LF equivalence.
 
 Layout and renderer acceptance for the current slice:
 
@@ -39,23 +39,34 @@ Layout and renderer acceptance for the current slice:
 - SwiftUI `body` must not parse Markdown, syntax highlight, or run custom per-inline measurement/wrapping. `InlineRunsView` should consume prepared inline content with measured segments instead of installing a custom SwiftUI `Layout`.
 - Use `MarkdownRenderSession` or `MarkdownRendererConfiguration.prepare(snapshot:)` in model/controller code and pass `MarkdownPreparedSnapshot` into `MarkdownDocumentView` or `StreamingMarkdownView`. Deprecated direct `snapshot:` view initializers are compatibility shims, not the streaming/document path.
 - Renderer configuration must be protocol-driven for link, image, HTML, code, math, code highlighting, and math rendering hooks.
-- Default code highlighting must stay language-aware, pluggable, and conservative: explicit supported languages may be highlighted; plaintext, nohighlight, unlabeled, and unsupported fences should render plainly.
+- Default code highlighting must stay language-aware, pluggable, and conservative: explicit supported languages may be highlighted through the JavaScriptCore/highlight.js backend where available; plaintext, nohighlight, unlabeled, unsupported, unavailable-runtime, and failed-backend fences should render plainly.
 - Document and code affordances must stay generic, source-backed, and replaceable. `MarkdownDocumentSurface` may own copy/export/collapse chrome, `MarkdownCodeBlockAffordances` may own code chrome visibility, and `MarkdownAffordanceActionHandler` may own platform actions; none of these APIs may hardcode private Sirius app concepts. Shared affordance icons are decorative SF Symbols; accessibility labels and help text belong on the enclosing buttons.
 - Mermaid rendering must stay package-owned and prepared before SwiftUI body evaluation. `DefaultMarkdownMermaidRenderer` may produce ASCII plus concrete-color SVG and prepared root geometry; `MarkdownBlockView` may render the prepared image in a bounded pan/zoom viewport with controls from `MarkdownTheme.mermaidAffordances`. Mermaid zoom/fit/reset buttons must keep explicit accessibility labels while their decorative SF Symbol images stay hidden from accessibility synthesis. Do not add WebKit, app-private Mermaid wrappers, or a second Mermaid semantic engine.
 - Heading typography must resolve H1-H6 through `MarkdownTheme.headings`. Visual SwiftUI `Font` and prepared-line CoreText measurement inputs (`fontSize`, `lineHeight`, `MarkdownInlineFontProfiles`) must come from the same `MarkdownTextStyle`; do not infer measurement profiles from arbitrary SwiftUI fonts.
 - Inline math detection must remain source-preserving and must not rewrite code spans, fenced code, or Markdown source before `swift-markdown` parsing.
 - Image handling must produce prepared decisions and placeholders by default; no network image fetch is allowed without an explicit host resolver.
-- Selection/copy must stay block/range bounded and source-backed. Do not add per-fragment overlays for links, images, or selection.
-- Native text selection must stay bounded to stable text leaves. Keep
-  `MarkdownRendererConfiguration.nativeTextSelection` defaulted to `.disabled`
-  for conservative package adoption. On macOS, `.enabled` must work by using
+- Document selection must default on through
+  `MarkdownRendererConfiguration.documentSelection` for `compactChat`,
+  `document`, `MarkdownDocumentView`, `StreamingMarkdownView`, and
+  `MarkdownDocumentSurface`. If no host controller is supplied, the views must
+  create an internal `MarkdownSelectionController` and still support drag
+  selection, highlights, and Cmd-C source copy.
+- Selection/copy must stay range bounded and source-backed. Contiguous
+  selections copy one exact source slice; non-contiguous selections copy
+  ordered source slices deterministically; prepared plain text is only a
+  fallback when source is unavailable. Do not add unbounded per-fragment
+  overlays for links, images, or selection.
+- Native text selection must stay a separate compatibility knob bounded to
+  stable text leaves. Keep `MarkdownRendererConfiguration.nativeTextSelection`
+  defaulted to `.disabled`. On macOS, `.enabled` must work by using
   package-owned selectable AppKit text leaves instead of SwiftUI's private
   `SelectionOverlay`; on other Apple platforms, the SwiftUI selection helper
-  remains bounded. Selection must avoid document, scroll, stack, custom
-  leading-layout containers, table-grid containers, toolbar, Mermaid-control,
-  and host containers, while list, quote, and table cell text leaves stay
-  selectable. The product gate's enabled-selection AppKit probe must keep
-  passing and must observe selectable AppKit text leaves before a host opts in.
+  remains bounded. Native text selection must avoid document, scroll, stack,
+  custom leading-layout containers, table-grid containers, toolbar,
+  Mermaid-control, and host containers, while list, quote, and table cell text
+  leaves stay selectable. The product gate's enabled-selection AppKit probe
+  must keep passing and must observe selectable AppKit text leaves before a
+  host opts in.
   SwiftUI tests must prove list/quote/table leaves mount selectable
   `NSTextView`s and that a hosted list leaf can select and copy through the
   AppKit pasteboard path.
@@ -86,7 +97,7 @@ Third-party credits for Pretext, the Node canvas shim, the vendored Unicode line
 bash Tools/release-check.sh
 ```
 
-The script first runs `Tools/RenderProbe`, which renders representative document, document-affordance, compact-chat, transcript-wrapping, multilingual, inline-attribute, overflow, hard-break, long-word, finite-column containment, wide-to-narrow resize, Mermaid diagram pan/zoom, and code-highlighting cases through AppKit and rejects blank/trivial/collapsed/clipped/misleading output. It then runs Swift tests, including AppKit-hosted transcript command clipping regressions, test count, root build, macOS demo app bundling (`Examples/scripts/bundle-macos-demos.sh`), Pretext install/test, symbol graph generation, and warning-clean DocC conversion. Before cutting a release, update `changelog.md` and confirm `bugfix.md` records any defects found during the slice.
+The script first runs `Tools/RenderProbe`, which renders representative document, document-affordance, compact-chat, transcript-wrapping, multilingual, inline-attribute, overflow, hard-break, long-word, finite-column containment, wide-to-narrow resize, Mermaid diagram pan/zoom, and code-highlighting cases through AppKit and rejects blank/trivial/collapsed/clipped/misleading output. It then runs Swift tests, asserts the discovered test floor and required named regressions, runs the root build, resolves/builds a clean temporary SwiftPM consumer against the local package path, bundles macOS demos (`Examples/scripts/bundle-macos-demos.sh`), runs Pretext install/test, generates symbol graphs, and performs warning-clean DocC conversion. Before cutting a release, update `changelog.md` and confirm `bugfix.md` records any defects found during the slice.
 If this script fails, treat it as a real release blocker. Do not bypass the Pretext fixture comparison or the AppKit render probe to make a release check look green.
 
 ## Product Checks
@@ -99,7 +110,7 @@ Run this before claiming native-renderer product quality. It wraps the release g
 
 ## Public Release Checklist
 
-Use this checklist for `0.4.14`.
+Use this checklist for `0.4.15`.
 
 1. Confirm public hygiene:
 
@@ -134,15 +145,15 @@ Use this checklist for `0.4.14`.
 
    ```sh
    git add README.md runbook.md NOTICE.md changelog.md bugfix.md Docs Sources Tests Examples Tools Package.swift Package.resolved
-   git commit -m "Prepare SiriusMarkdown 0.4.14 release"
+   git commit -m "Prepare SiriusMarkdown 0.4.15 release"
    ```
 
 6. Tag and push:
 
    ```sh
-   git tag -a 0.4.14 -m "SiriusMarkdown 0.4.14"
+   git tag -a 0.4.15 -m "SiriusMarkdown 0.4.15"
    git push origin HEAD
-   git push origin 0.4.14
+   git push origin 0.4.15
    ```
 
 7. After pushing, create the public release notes from `changelog.md`. The release notes must keep the claim precise: native SwiftUI block rendering, prepared-line inline rendering, streaming snapshots, safe policies, language-aware default code highlighting, package-owned Mermaid pan/zoom over prepared SVG/ASCII, explicit accessibility labels for package-owned affordance controls, Pretext-backed layout gate, and demo/product probes. Do not claim a custom glyph renderer, a new Mermaid semantic engine, or a WebKit renderer.

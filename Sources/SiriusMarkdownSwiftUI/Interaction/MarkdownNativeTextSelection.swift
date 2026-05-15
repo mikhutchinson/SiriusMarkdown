@@ -1,7 +1,12 @@
 import SwiftUI
 
 /// Controls whether SiriusMarkdown installs native text selection for rendered
-/// Markdown text surfaces.
+/// Markdown text leaves.
+///
+/// This is a leaf-level compatibility knob. Cross-block document selection,
+/// drag highlights, and Cmd-C source copy are owned by
+/// `MarkdownRendererConfiguration.documentSelection` and do not require this
+/// setting to be enabled.
 ///
 /// Regression history: macOS 26 Sirius samples could peg the main thread
 /// when SwiftUI's private `SelectionOverlay.updateNSView` path repeatedly
@@ -16,9 +21,9 @@ import SwiftUI
 /// containers.
 public enum MarkdownNativeTextSelection: Sendable, Hashable {
     /// Render Markdown text without SwiftUI's native text-selection
-    /// overlay. This remains the conservative package default. Copy
-    /// affordances and `MarkdownSelectionController` remain available where
-    /// configured.
+    /// overlay. This remains the conservative leaf-selection default.
+    /// Document selection and `MarkdownSelectionController` remain available
+    /// through the separate document-selection layer.
     case disabled
     /// Render Markdown text with native selection enabled on stable bounded
     /// text leaves.

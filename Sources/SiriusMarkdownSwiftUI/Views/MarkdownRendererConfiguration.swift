@@ -96,16 +96,31 @@ public struct DefaultMarkdownImageResolver: MarkdownImageResolver {
 }
 
 public struct MarkdownRendererConfiguration: Sendable {
+    public enum DocumentSelection: Sendable, Hashable {
+        /// Install SiriusMarkdown's source-backed document selection layer.
+        case enabled
+        /// Disable document-level drag selection and package-owned Cmd-C copy.
+        case disabled
+    }
+
     public var theme: MarkdownTheme
     public var inlineRenderingMode: MarkdownInlineRenderingMode
-    /// Native SwiftUI text selection policy.
+    /// Native text leaf selection policy.
     ///
     /// Disabled by default while an unresolved macOS 26/Sirius hang remains
     /// traceable to SwiftUI's private `SelectionOverlay.updateNSView` path
     /// under `GraphHost.flushTransactions`. Copy affordances and
     /// `MarkdownSelectionController` remain available without mounting that
-    /// overlay.
+    /// overlay. Cross-block document selection is controlled separately by
+    /// `documentSelection`.
     public var nativeTextSelection: MarkdownNativeTextSelection
+    /// Source-backed cross-block selection owned by SiriusMarkdown.
+    ///
+    /// This is the default product selection path. It does not require
+    /// `nativeTextSelection` and does not mount SwiftUI's container-level
+    /// SwiftUI native-selection modifiers or private `SelectionOverlay`
+    /// surfaces.
+    public var documentSelection: DocumentSelection
     public var linkAction: MarkdownLinkAction?
     public var copyProvider: MarkdownCopyProvider?
     public var linkPolicy: any MarkdownLinkPolicy
@@ -125,6 +140,7 @@ public struct MarkdownRendererConfiguration: Sendable {
         theme: MarkdownTheme = .compactChat,
         inlineRenderingMode: MarkdownInlineRenderingMode = .systemText,
         nativeTextSelection: MarkdownNativeTextSelection = .disabled,
+        documentSelection: DocumentSelection = .enabled,
         linkAction: MarkdownLinkAction? = nil,
         copyProvider: MarkdownCopyProvider? = nil,
         linkPolicy: any MarkdownLinkPolicy = DefaultMarkdownPolicy(),
@@ -143,6 +159,7 @@ public struct MarkdownRendererConfiguration: Sendable {
         self.theme = theme
         self.inlineRenderingMode = inlineRenderingMode
         self.nativeTextSelection = nativeTextSelection
+        self.documentSelection = documentSelection
         self.linkAction = linkAction
         self.copyProvider = copyProvider
         self.linkPolicy = linkPolicy
@@ -179,6 +196,7 @@ public struct MarkdownRendererConfiguration: Sendable {
         self.theme = theme
         self.inlineRenderingMode = .systemText
         self.nativeTextSelection = .disabled
+        self.documentSelection = .enabled
         self.linkAction = linkAction
         self.copyProvider = copyProvider
         self.linkPolicy = linkPolicy
@@ -193,6 +211,47 @@ public struct MarkdownRendererConfiguration: Sendable {
         self.affordanceActionHandler = affordanceActionHandler
         self.preparationCache = preparationCache
         self.diagnosticsRecorder = diagnosticsRecorder
+    }
+
+    public init(
+        theme: MarkdownTheme = .compactChat,
+        inlineRenderingMode: MarkdownInlineRenderingMode = .systemText,
+        nativeTextSelection: MarkdownNativeTextSelection = .disabled,
+        linkAction: MarkdownLinkAction? = nil,
+        copyProvider: MarkdownCopyProvider? = nil,
+        linkPolicy: any MarkdownLinkPolicy = DefaultMarkdownPolicy(),
+        imagePolicy: any MarkdownImagePolicy = DefaultMarkdownPolicy(),
+        imageResolver: any MarkdownImageResolver = DefaultMarkdownImageResolver(),
+        htmlPolicy: any MarkdownHTMLPolicy = DefaultMarkdownPolicy(),
+        codePolicy: any MarkdownCodePolicy = DefaultMarkdownPolicy(),
+        mathPolicy: any MarkdownMathPolicy = DefaultMarkdownPolicy(),
+        codeHighlighter: any MarkdownCodeHighlighter = DefaultMarkdownCodeHighlighter(),
+        mermaidRenderer: (any MarkdownMermaidRenderer)? = DefaultMarkdownMermaidRenderer(),
+        mathRenderer: any MarkdownMathRenderer = PlainMarkdownMathRenderer(),
+        affordanceActionHandler: MarkdownAffordanceActionHandler = .platformDefault,
+        preparationCache: MarkdownRenderPreparationCache = MarkdownRenderPreparationCache(),
+        diagnosticsRecorder: MarkdownDiagnosticsRecorder = MarkdownDiagnosticsRecorder()
+    ) {
+        self.init(
+            theme: theme,
+            inlineRenderingMode: inlineRenderingMode,
+            nativeTextSelection: nativeTextSelection,
+            documentSelection: .enabled,
+            linkAction: linkAction,
+            copyProvider: copyProvider,
+            linkPolicy: linkPolicy,
+            imagePolicy: imagePolicy,
+            imageResolver: imageResolver,
+            htmlPolicy: htmlPolicy,
+            codePolicy: codePolicy,
+            mathPolicy: mathPolicy,
+            codeHighlighter: codeHighlighter,
+            mermaidRenderer: mermaidRenderer,
+            mathRenderer: mathRenderer,
+            affordanceActionHandler: affordanceActionHandler,
+            preparationCache: preparationCache,
+            diagnosticsRecorder: diagnosticsRecorder
+        )
     }
 
     public static var compactChat: MarkdownRendererConfiguration {

@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.15 - 2026-05-14
+
+- Added default-on SiriusMarkdown document selection through `MarkdownRendererConfiguration.documentSelection`, with internal controller creation for `MarkdownDocumentView`, `StreamingMarkdownView`, and `MarkdownDocumentSurface` when hosts do not inject a `MarkdownSelectionController`.
+- Extended `MarkdownSelectionController` with ordered source ranges and exact source-backed copy for whole-block, partial-line, contiguous multi-block, and deterministic non-contiguous selections. `nativeTextSelection` remains a separate disabled-by-default leaf compatibility knob.
+- Fixed CRLF streaming boundary handling for blank lines, code fences, math fences, and HTML blocks, and added streamed-vs-static CRLF equivalence coverage.
+- Denied protocol-relative `//host/path` links by default while preserving safe schemes, true relative links, and fragments.
+- Fixed `MarkdownBlockView.renderPlan` to evaluate math and HTML policies once per render-plan call.
+- Strengthened `Tools/release-check.sh` with required test discovery checks and a clean temporary SwiftPM consumer resolve/build against the local package path.
+
 ## 0.4.14 - 2026-05-13
 
 - Fixed the `0.4.13` route-level selection gap where list rows, block quotes, and table cells still passed `.disabled` into their text leaves, making large structured Markdown previews effectively non-selectable even though the AppKit leaf implementation existed.

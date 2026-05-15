@@ -40,6 +40,10 @@ public struct DefaultMarkdownPolicy:
             return .deny(reason: "Empty link destination.")
         }
 
+        if trimmed.hasPrefix("//") {
+            return .deny(reason: "Protocol-relative external URLs are disabled by default.")
+        }
+
         guard let url = URL(string: trimmed), let scheme = url.scheme?.lowercased() else {
             return .allow
         }

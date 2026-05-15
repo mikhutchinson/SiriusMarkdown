@@ -268,6 +268,10 @@ func packagedPresetsUsePreparedNativeLinesWhileRawConfigKeepsCompatibilityFallba
     #expect(MarkdownRendererConfiguration.document.inlineRenderingMode == .preparedNativeLines)
     #expect(MarkdownRendererConfiguration().inlineRenderingMode == .systemText)
     #expect(MarkdownRendererConfiguration(inlineRenderingMode: .systemText).inlineRenderingMode == .systemText)
+    #expect(MarkdownRendererConfiguration.compactChat.documentSelection == .enabled)
+    #expect(MarkdownRendererConfiguration.document.documentSelection == .enabled)
+    #expect(MarkdownRendererConfiguration().documentSelection == .enabled)
+    #expect(MarkdownRendererConfiguration(documentSelection: .disabled).documentSelection == .disabled)
     #expect(MarkdownRendererConfiguration.compactChat.nativeTextSelection == .disabled)
     #expect(MarkdownRendererConfiguration.document.nativeTextSelection == .disabled)
     #expect(MarkdownRendererConfiguration().nativeTextSelection == .disabled)
@@ -284,6 +288,36 @@ func packagedPresetsUsePreparedNativeLinesWhileRawConfigKeepsCompatibilityFallba
     let view = MarkdownBlockView(block: block)
     let configuration = try #require(mirroredConfiguration(from: view))
     #expect(configuration.inlineRenderingMode == .preparedNativeLines)
+}
+
+@Test
+func documentSelectionDefaultsToEnabledWhileNativeSelectionStaysLeafCompatibilityKnob() throws {
+    let root = packageRootURL()
+    let configuration = try String(
+        contentsOf: root.appending(path: "Sources/SiriusMarkdownSwiftUI/Views/MarkdownRendererConfiguration.swift"),
+        encoding: .utf8
+    )
+    let documentView = try String(
+        contentsOf: root.appending(path: "Sources/SiriusMarkdownSwiftUI/Views/MarkdownDocumentView.swift"),
+        encoding: .utf8
+    )
+    let surfaceView = try String(
+        contentsOf: root.appending(path: "Sources/SiriusMarkdownSwiftUI/Views/MarkdownDocumentSurface.swift"),
+        encoding: .utf8
+    )
+
+    #expect(configuration.contains("public enum DocumentSelection"))
+    #expect(configuration.contains("public var documentSelection: DocumentSelection"))
+    #expect(configuration.contains("documentSelection: DocumentSelection = .enabled"))
+    #expect(configuration.contains("nativeTextSelection: MarkdownNativeTextSelection = .disabled"))
+    #expect(documentView.contains("@StateObject private var internalSelectionController"))
+    #expect(documentView.contains("configuration.documentSelection == .enabled"))
+    #expect(documentView.contains("selectionController ?? internalSelectionController"))
+    #expect(documentView.contains("MarkdownDocumentSelectionLayer"))
+    #expect(documentView.contains("DragGesture(minimumDistance: 0)"))
+    #expect(documentView.contains("MarkdownDocumentSelectionKeyHandler"))
+    #expect(documentView.contains("selectSourceRanges"))
+    #expect(surfaceView.contains("selectionController: MarkdownSelectionController? = nil"))
 }
 
 @Test
@@ -469,6 +503,105 @@ func enabledNativeTextSelectionCanSelectAndCopyListTextLeafOnMacOS() throws {
 
     #expect(textView.isSelectable)
     #expect(copied == "List selectable text")
+}
+
+@Test
+@MainActor
+func defaultDocumentSelectionResolvesWrappedLineDragToExactSourceOnMacOS() throws {
+    let markdown = """
+    Wrapped paragraph selection starts here and continues with enough words to wrap across several prepared native visual lines in a narrow streaming transcript column.
+    """
+    var stream = MarkdownStream()
+    stream.append(markdown)
+    stream.finish()
+
+    var configuration = MarkdownRendererConfiguration.compactChat
+    configuration.copyProvider = MarkdownCopyProvider(markdownSource: markdown)
+    #expect(configuration.documentSelection == .enabled)
+    #expect(configuration.nativeTextSelection == .disabled)
+
+    let prepared = configuration.prepare(snapshot: stream.snapshot())
+    let block = try #require(stream.snapshot().blocks.first)
+    let content = try #require(prepared.preparedContentByBlockID[block.id])
+    let fragments = MarkdownDocumentSelectionFragment.fragments(
+        for: block,
+        preparedContent: content,
+        rect: CGRect(x: 0, y: 0, width: 180, height: 180)
+    ).sortedForTestSelection()
+    let first = try #require(fragments.first)
+    let last = try #require(fragments.last)
+    let selection = MarkdownDocumentSelectionFragment.selection(from: first, to: last, in: fragments)
+
+    let controller = MarkdownSelectionController()
+    controller.updateSnapshot(stream.snapshot())
+    controller.selectSourceRanges(selection.ranges, selectedBlockIDs: selection.blockIDs)
+
+    #expect(fragments.count > 1)
+    #expect(controller.selectedBlockIDs == [block.id])
+    #expect(controller.selectedSourceRanges == selection.ranges)
+    #expect(controller.selectedMarkdown(in: prepared, copyProvider: configuration.copyProvider) == markdown)
+}
+
+@Test
+@MainActor
+func defaultDocumentSelectionResolvesDragAndCmdCCopyAcrossBlockBoundariesOnMacOS() throws {
+    let markdown = """
+    Paragraph boundary selection.
+
+    - List item boundary selection.
+
+    > Quote boundary selection.
+
+    ```swift
+    let copied = "code boundary"
+    ```
+
+    | Region | Evidence |
+    | - | - |
+    | Table | cell boundary selection |
+    """
+    var stream = MarkdownStream()
+    stream.append(markdown)
+    stream.finish()
+
+    let controller = MarkdownSelectionController()
+    let copySpy = MarkdownCopySpy()
+    var configuration = MarkdownRendererConfiguration.document
+    configuration.copyProvider = MarkdownCopyProvider(markdownSource: markdown)
+    configuration.affordanceActionHandler = MarkdownAffordanceActionHandler { string in
+        copySpy.copied = string
+    }
+    #expect(configuration.documentSelection == .enabled)
+    #expect(configuration.nativeTextSelection == .disabled)
+
+    let snapshot = stream.snapshot()
+    let prepared = configuration.prepare(snapshot: snapshot)
+    let fragments = selectionFragments(for: snapshot, prepared: prepared, width: 560)
+    let first = try #require(fragments.first)
+    let last = try #require(fragments.last)
+    let selection = MarkdownDocumentSelectionFragment.selection(from: first, to: last, in: fragments)
+
+    controller.updateSnapshot(snapshot)
+    controller.selectSourceRanges(selection.ranges, selectedBlockIDs: selection.blockIDs)
+    let selectedMarkdown = controller.selectedMarkdown(in: prepared, copyProvider: configuration.copyProvider)
+    let selectedRange = try #require(selection.ranges.first)
+    let expectedMarkdown = try #require(configuration.copyProvider?.markdown(selectedRange))
+    let coordinator = MarkdownDocumentSelectionKeyHandler.Coordinator {
+        copySpy.copied = selectedMarkdown
+    }
+    let keyView = MarkdownDocumentSelectionKeyHandler.CopyKeyView()
+    keyView.coordinator = coordinator
+    keyView.keyDown(with: commandCEvent())
+
+    #expect(controller.selectedBlockIDs.count == snapshot.blocks.count)
+    #expect(controller.selectedSourceRanges.count == 1)
+    #expect(expectedMarkdown.contains("Paragraph boundary selection."))
+    #expect(expectedMarkdown.contains("List item boundary selection."))
+    #expect(expectedMarkdown.contains("Quote boundary selection."))
+    #expect(expectedMarkdown.contains("let copied = \"code boundary\""))
+    #expect(expectedMarkdown.contains("cell boundary selection"))
+    #expect(selectedMarkdown == expectedMarkdown)
+    #expect(copySpy.copied == expectedMarkdown)
 }
 }
 #endif
@@ -1697,6 +1830,29 @@ func blockRenderPlanUsesProtocolPoliciesForCodeMathAndHTML() throws {
 }
 
 @Test
+func blockRenderPlanEvaluatesMathAndHTMLPoliciesOnce() throws {
+    let math = try firstBlock("$$\nx^2\n$$")
+    let mathPolicy = CountingMathPolicy()
+    let deniedMath = MarkdownBlockView.renderPlan(
+        for: math,
+        configuration: MarkdownRendererConfiguration(mathPolicy: mathPolicy)
+    )
+    #expect(deniedMath.mathAllowed == false)
+    #expect(deniedMath.policyDenialReason == "counted math denied")
+    #expect(mathPolicy.count == 1)
+
+    let html = try firstBlock("<div>raw</div>")
+    let htmlPolicy = CountingHTMLPolicy()
+    let deniedHTML = MarkdownBlockView.renderPlan(
+        for: html,
+        configuration: MarkdownRendererConfiguration(htmlPolicy: htmlPolicy)
+    )
+    #expect(deniedHTML.htmlAllowed == false)
+    #expect(deniedHTML.policyDenialReason == "counted html denied")
+    #expect(htmlPolicy.count == 1)
+}
+
+@Test
 func codeBlockRenderPlanExposesLanguageAndCopyAffordance() throws {
     let code = try firstBlock("```language-swift\nlet x = 1\n```")
     let plan = MarkdownBlockView.renderPlan(for: code)
@@ -2056,6 +2212,64 @@ private func pumpLayout<V: View>(_ hostingView: NSHostingView<V>) {
 }
 
 @MainActor
+private final class MarkdownCopySpy {
+    var copied: String?
+}
+
+private func selectionFragments(
+    for snapshot: MarkdownSnapshot,
+    prepared: MarkdownPreparedSnapshot,
+    width: CGFloat
+) -> [MarkdownDocumentSelectionFragment] {
+    var offset: CGFloat = 0
+    var fragments: [MarkdownDocumentSelectionFragment] = []
+    for block in snapshot.blocks {
+        guard let content = prepared.preparedContentByBlockID[block.id] else {
+            continue
+        }
+        let rect = CGRect(x: 0, y: offset, width: width, height: 80)
+        fragments.append(contentsOf: MarkdownDocumentSelectionFragment.fragments(
+            for: block,
+            preparedContent: content,
+            rect: rect
+        ))
+        offset += 96
+    }
+    return fragments.sortedForTestSelection()
+}
+
+@MainActor
+private func commandCEvent() -> NSEvent {
+    guard let event = NSEvent.keyEvent(
+        with: .keyDown,
+        location: .zero,
+        modifierFlags: [.command],
+        timestamp: ProcessInfo.processInfo.systemUptime,
+        windowNumber: 0,
+        context: nil,
+        characters: "c",
+        charactersIgnoringModifiers: "c",
+        isARepeat: false,
+        keyCode: 8
+    ) else {
+        Issue.record("Unable to create command-C event")
+        fatalError("Unable to create command-C event")
+    }
+    return event
+}
+
+private extension Array where Element == MarkdownDocumentSelectionFragment {
+    func sortedForTestSelection() -> [MarkdownDocumentSelectionFragment] {
+        sorted {
+            if $0.sourceRange.byteRange.lowerBound == $1.sourceRange.byteRange.lowerBound {
+                return $0.sourceRange.byteRange.upperBound < $1.sourceRange.byteRange.upperBound
+            }
+            return $0.sourceRange.byteRange.lowerBound < $1.sourceRange.byteRange.lowerBound
+        }
+    }
+}
+
+@MainActor
 private func appKitTextViews(in view: NSView) -> [NSTextView] {
     var matches: [NSTextView] = []
     if let textView = view as? NSTextView {
@@ -2168,6 +2382,42 @@ private struct DenyMathPolicy: MarkdownMathPolicy {
 private struct AllowHTMLPolicy: MarkdownHTMLPolicy {
     func evaluateHTML(_ html: String) -> MarkdownPolicyDecision {
         .allow
+    }
+}
+
+private final class CountingMathPolicy: MarkdownMathPolicy, @unchecked Sendable {
+    private let lock = NSLock()
+    private var callCount = 0
+
+    func evaluateMath(_ source: String, isBlock: Bool) -> MarkdownPolicyDecision {
+        lock.withLock {
+            callCount += 1
+        }
+        return .deny(reason: "counted math denied")
+    }
+
+    var count: Int {
+        lock.withLock {
+            callCount
+        }
+    }
+}
+
+private final class CountingHTMLPolicy: MarkdownHTMLPolicy, @unchecked Sendable {
+    private let lock = NSLock()
+    private var callCount = 0
+
+    func evaluateHTML(_ html: String) -> MarkdownPolicyDecision {
+        lock.withLock {
+            callCount += 1
+        }
+        return .deny(reason: "counted html denied")
+    }
+
+    var count: Int {
+        lock.withLock {
+            callCount
+        }
     }
 }
 

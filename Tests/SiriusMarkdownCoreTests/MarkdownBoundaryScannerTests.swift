@@ -20,6 +20,38 @@ func scannerSealsAfterClosedFenceAndBlankLine() {
 }
 
 @Test
+func scannerTreatsCRLFBlankLinesLikeLF() {
+    let scanner = MarkdownBoundaryScanner()
+
+    var paragraph = MarkdownSourceBuffer()
+    paragraph.append("alpha\r\n\r\n")
+    #expect(scanner.safeSealUpperBound(in: paragraph, after: 0) == paragraph.byteCount)
+
+    var looseList = MarkdownSourceBuffer()
+    looseList.append("1. item\r\n\r\n")
+    #expect(scanner.safeSealUpperBound(in: looseList, after: 0) == nil)
+    looseList.append("\r\n")
+    #expect(scanner.safeSealUpperBound(in: looseList, after: 0) == looseList.byteCount)
+}
+
+@Test
+func scannerTreatsCRLFFencesMathAndHTMLLikeLF() {
+    let scanner = MarkdownBoundaryScanner()
+
+    var code = MarkdownSourceBuffer()
+    code.append("```swift\r\nlet x = 1\r\n```\r\n\r\n")
+    #expect(scanner.safeSealUpperBound(in: code, after: 0) == code.byteCount)
+
+    var math = MarkdownSourceBuffer()
+    math.append("$$\r\nx^2\r\n$$\r\n\r\n")
+    #expect(scanner.safeSealUpperBound(in: math, after: 0) == math.byteCount)
+
+    var html = MarkdownSourceBuffer()
+    html.append("<div>\r\nraw\r\n</div>\r\n\r\n")
+    #expect(scanner.safeSealUpperBound(in: html, after: 0) == html.byteCount)
+}
+
+@Test
 func scannerDoesNotSealOpenMathFence() {
     var buffer = MarkdownSourceBuffer()
     buffer.append("$$\nx^2\n\n")

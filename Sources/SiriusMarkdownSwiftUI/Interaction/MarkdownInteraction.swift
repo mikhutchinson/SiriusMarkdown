@@ -84,9 +84,12 @@ public struct MarkdownAffordanceActionHandler: Sendable {
 @MainActor
 public final class MarkdownSelectionController: ObservableObject {
     @Published public private(set) var selectedBlockIDs: [MarkdownBlockID] = []
+    @Published public private(set) var selectedSourceRanges: [MarkdownSourceRange] = []
 
     public var maximumSelectedBlockCount: Int
     private var blockOrder: [MarkdownBlockID] = []
+    private var sourceRangeByBlockID: [MarkdownBlockID: MarkdownSourceRange] = [:]
+    private var snapshotSourceLength: Int = 0
 
     public init(maximumSelectedBlockCount: Int = 512) {
         precondition(maximumSelectedBlockCount > 0)
@@ -95,8 +98,23 @@ public final class MarkdownSelectionController: ObservableObject {
 
     public func updateSnapshot(_ snapshot: MarkdownSnapshot) {
         blockOrder = snapshot.blocks.map(\.id)
+        sourceRangeByBlockID = Dictionary(uniqueKeysWithValues: snapshot.blocks.map { ($0.id, $0.sourceRange) })
+        snapshotSourceLength = snapshot.sourceLength
         let valid = Set(blockOrder)
         selectedBlockIDs.removeAll { !valid.contains($0) }
+        selectedSourceRanges.removeAll {
+            $0.byteRange.lowerBound < 0 ||
+                $0.byteRange.upperBound > snapshot.sourceLength ||
+                $0.byteRange.lowerBound > $0.byteRange.upperBound
+        }
+        if !selectedBlockIDs.isEmpty {
+            let hadSingleContiguousRange = selectedSourceRanges.count == 1
+            selectedSourceRanges = if hadSingleContiguousRange {
+                combinedRange(for: selectedBlockIDs).map { [$0] } ?? []
+            } else {
+                orderedRanges(for: selectedBlockIDs)
+            }
+        }
         trimSelectionIfNeeded()
     }
 
@@ -115,6 +133,7 @@ public final class MarkdownSelectionController: ObservableObject {
             selectedBlockIDs = [blockID]
         }
         sortSelectionInDocumentOrder()
+        selectedSourceRanges = orderedRanges(for: selectedBlockIDs)
         trimSelectionIfNeeded()
     }
 
@@ -127,11 +146,24 @@ public final class MarkdownSelectionController: ObservableObject {
 
         let range = min(lowerIndex, upperIndex)...max(lowerIndex, upperIndex)
         selectedBlockIDs = Array(blockOrder[range])
+        selectedSourceRanges = combinedRange(for: selectedBlockIDs).map { [$0] } ?? []
+        trimSelectionIfNeeded()
+    }
+
+    public func selectSourceRanges(
+        _ sourceRanges: [MarkdownSourceRange],
+        selectedBlockIDs blockIDs: [MarkdownBlockID] = []
+    ) {
+        let valid = Set(blockOrder)
+        selectedBlockIDs = blockIDs.filter { valid.contains($0) }
+        sortSelectionInDocumentOrder()
+        selectedSourceRanges = Self.orderedNonOverlappingRanges(sourceRanges)
         trimSelectionIfNeeded()
     }
 
     public func clearSelection() {
         selectedBlockIDs.removeAll()
+        selectedSourceRanges.removeAll()
     }
 
     public func isSelected(_ blockID: MarkdownBlockID) -> Bool {
@@ -142,10 +174,24 @@ public final class MarkdownSelectionController: ObservableObject {
         in preparedSnapshot: MarkdownPreparedSnapshot,
         copyProvider: MarkdownCopyProvider?
     ) -> String {
-        selectedBlocks(in: preparedSnapshot).compactMap { block in
-            copyProvider?.markdown(block.sourceRange)
+        guard let copyProvider else {
+            return selectedPlainText(in: preparedSnapshot)
         }
-        .joined(separator: "\n")
+
+        let ranges = effectiveSourceRanges(in: preparedSnapshot)
+        guard !ranges.isEmpty else {
+            return ""
+        }
+
+        var copied: [String] = []
+        copied.reserveCapacity(ranges.count)
+        for range in ranges {
+            guard let markdown = copyProvider.markdown(range) else {
+                return selectedPlainText(in: preparedSnapshot)
+            }
+            copied.append(markdown)
+        }
+        return copied.joined(separator: "\n")
     }
 
     public func selectedPlainText(in preparedSnapshot: MarkdownPreparedSnapshot) -> String {
@@ -178,6 +224,16 @@ public final class MarkdownSelectionController: ObservableObject {
         return preparedSnapshot.snapshot.blocks.filter { selected.contains($0.id) }
     }
 
+    private func effectiveSourceRanges(in preparedSnapshot: MarkdownPreparedSnapshot) -> [MarkdownSourceRange] {
+        if !selectedSourceRanges.isEmpty {
+            return Self.orderedNonOverlappingRanges(selectedSourceRanges)
+        }
+
+        return Self.orderedNonOverlappingRanges(
+            selectedBlocks(in: preparedSnapshot).map(\.sourceRange)
+        )
+    }
+
     private func sortSelectionInDocumentOrder() {
         let order = Dictionary(uniqueKeysWithValues: blockOrder.enumerated().map { ($0.element, $0.offset) })
         selectedBlockIDs.sort { (order[$0] ?? Int.max) < (order[$1] ?? Int.max) }
@@ -188,7 +244,60 @@ public final class MarkdownSelectionController: ObservableObject {
             return
         }
 
+        let hadSingleContiguousRange = selectedSourceRanges.count == 1
         selectedBlockIDs = Array(selectedBlockIDs.prefix(maximumSelectedBlockCount))
+        selectedSourceRanges = if hadSingleContiguousRange {
+            combinedRange(for: selectedBlockIDs).map { [$0] } ?? []
+        } else {
+            orderedRanges(for: selectedBlockIDs)
+        }
+    }
+
+    private func orderedRanges(for blockIDs: [MarkdownBlockID]) -> [MarkdownSourceRange] {
+        Self.orderedNonOverlappingRanges(blockIDs.compactMap { sourceRangeByBlockID[$0] })
+    }
+
+    private func combinedRange(for blockIDs: [MarkdownBlockID]) -> MarkdownSourceRange? {
+        let ranges = blockIDs.compactMap { sourceRangeByBlockID[$0] }
+        guard let lower = ranges.map(\.byteRange.lowerBound).min(),
+              let upper = ranges.map(\.byteRange.upperBound).max(),
+              lower < upper
+        else {
+            return nil
+        }
+        let lineLower = ranges.map(\.lineRange.lowerBound).min() ?? 1
+        let lineUpper = ranges.map(\.lineRange.upperBound).max() ?? (lineLower + 1)
+        return MarkdownSourceRange(byteRange: lower..<upper, lineRange: lineLower..<lineUpper)
+    }
+
+    private static func orderedNonOverlappingRanges(_ ranges: [MarkdownSourceRange]) -> [MarkdownSourceRange] {
+        let sorted = ranges
+            .filter { $0.byteRange.lowerBound <= $0.byteRange.upperBound }
+            .sorted {
+                if $0.byteRange.lowerBound == $1.byteRange.lowerBound {
+                    return $0.byteRange.upperBound < $1.byteRange.upperBound
+                }
+                return $0.byteRange.lowerBound < $1.byteRange.lowerBound
+            }
+
+        var merged: [MarkdownSourceRange] = []
+        for range in sorted {
+            guard let last = merged.last else {
+                merged.append(range)
+                continue
+            }
+
+            if range.byteRange.lowerBound <= last.byteRange.upperBound {
+                let mergedRange = MarkdownSourceRange(
+                    byteRange: last.byteRange.lowerBound..<max(last.byteRange.upperBound, range.byteRange.upperBound),
+                    lineRange: min(last.lineRange.lowerBound, range.lineRange.lowerBound)..<max(last.lineRange.upperBound, range.lineRange.upperBound)
+                )
+                merged[merged.count - 1] = mergedRange
+            } else {
+                merged.append(range)
+            }
+        }
+        return merged
     }
 
     private static func plainText(for block: MarkdownBlock) -> String {

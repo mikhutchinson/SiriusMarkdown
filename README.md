@@ -10,9 +10,9 @@ The package is built around three principles:
 
 ## Status
 
-This checkout is the `0.4.14` public package release. The release gate is strict Swift-vs-Pretext layout comparison, required Pretext product fixture groups, AppKit render probes for document, compact chat, transcript wrapping, multilingual, inline-attribute, overflow, hard-break, long-word, finite-column containment, wide-to-narrow resize, document affordance chrome, Mermaid diagram pan/zoom, enabled native text selection, and language-aware code highlighting output, plus AppKit-hosted transcript command clipping regressions. Fixture drift, missing groups, duplicate fixture names/groups, and trivial render output are release blockers.
+This checkout is the `0.4.15` public package release. The release gate is strict Swift-vs-Pretext layout comparison, required Pretext product fixture groups, AppKit render probes for document, compact chat, transcript wrapping, multilingual, inline-attribute, overflow, hard-break, long-word, finite-column containment, wide-to-narrow resize, document affordance chrome, Mermaid diagram pan/zoom, enabled native text selection, default-on document selection, and language-aware code highlighting output, plus AppKit-hosted transcript command clipping regressions and a clean local SwiftPM consumer build. Fixture drift, missing groups, duplicate fixture names/groups, missing required tests, and trivial render output are release blockers.
 
-The current product claim is native SwiftUI Markdown rendering with prepared-line layout, streaming snapshots, bounded caches, safe default policies, language-aware default code highlighting, built-in Mermaid diagram rendering with package-owned inline pan/zoom controls and deterministic plain-code fallback, generic document/code affordances with explicit accessibility labels, public chat/document presets, first-class H1-H6 heading typography through `MarkdownTheme.headings`, containment-stable prepared native lines for transcript-style paths, commands, URLs, long identifiers, nested lists, quotes, table cells, and glyph-bound paint drift, plus a macOS native-selection opt-in that uses bounded AppKit text leaves instead of SwiftUI's private `SelectionOverlay` and reaches list, quote, and table text content. It is not a custom glyph renderer: `preparedNativeLines` slices prepared attributed line ranges and renders them natively while CoreText owns measurement.
+The current product claim is native SwiftUI Markdown rendering with prepared-line layout, streaming snapshots, bounded caches, safe default policies, language-aware default code highlighting, built-in Mermaid diagram rendering with package-owned inline pan/zoom controls and deterministic plain-code fallback, generic document/code affordances with explicit accessibility labels, public chat/document presets, first-class H1-H6 heading typography through `MarkdownTheme.headings`, containment-stable prepared native lines for transcript-style paths, commands, URLs, long identifiers, nested lists, quotes, table cells, and glyph-bound paint drift, plus default-on source-backed document selection for cross-block drag highlights and Cmd-C. `nativeTextSelection` remains a separate macOS leaf-level compatibility opt-in that uses bounded AppKit text leaves instead of SwiftUI's private `SelectionOverlay`; it is not required for document selection. It is not a custom glyph renderer: `preparedNativeLines` slices prepared attributed line ranges and renders them natively while CoreText owns measurement.
 
 ## Requirements
 
@@ -25,7 +25,7 @@ In `Package.swift` (adjust the package URL to the published repository):
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/mikhutchinson/SiriusMarkdown.git", from: "0.4.14")
+    .package(url: "https://github.com/mikhutchinson/SiriusMarkdown.git", from: "0.4.15")
 ],
 targets: [
     .target(
@@ -81,9 +81,9 @@ let documentTheme = MarkdownTheme(
 )
 ```
 
-Code highlighting remains pluggable through `MarkdownCodeHighlighter`, but the shipped default is now language-aware on Apple platforms with JavaScriptCore. `DefaultMarkdownCodeHighlighter` normalizes fence info strings and aliases, highlights explicit supported languages through a pinned embedded `highlight.js` common build, and renders plaintext, nohighlight, unlabeled, or unsupported fences plainly. Mermaid fences are routed before syntax highlighting through `MarkdownMermaidRenderer`, whose shipped default uses a bundled DOM-free `beautiful-mermaid` runtime to prepare native diagram text and concrete-color SVG output without WebKit. Hosts that want Mermaid fences to stay plain can disable that path with `mermaidRenderer: nil`, and hosts that want tighter or looser diagram chrome can tune `MarkdownTheme.mermaidAffordances`. Code blocks also include generic SwiftUI chrome for the normalized language label, copy, export, and collapse controls; hosts can hide or tune those affordances through `MarkdownTheme.codeBlockAffordances`. All package-owned icon affordances keep labels on the enclosing button rather than asking SwiftUI to synthesize accessibility text from the SF Symbol image. Hosts that want no highlighting can still inject `PlainMarkdownCodeHighlighter`.
+Code highlighting remains pluggable through `MarkdownCodeHighlighter`, but the shipped default is now language-aware where JavaScriptCore is available. `DefaultMarkdownCodeHighlighter` normalizes fence info strings and aliases, highlights explicit supported languages through a pinned embedded `highlight.js` common build, and renders plaintext, nohighlight, unlabeled, unsupported, unavailable-runtime, or failed-backend fences plainly. Mermaid fences are routed before syntax highlighting through `MarkdownMermaidRenderer`, whose shipped default uses a bundled DOM-free `beautiful-mermaid` runtime to prepare native diagram text and concrete-color SVG output without WebKit. Hosts that want Mermaid fences to stay plain can disable that path with `mermaidRenderer: nil`, and hosts that want tighter or looser diagram chrome can tune `MarkdownTheme.mermaidAffordances`. Code blocks also include generic SwiftUI chrome for the normalized language label, copy, export, and collapse controls; hosts can hide or tune those affordances through `MarkdownTheme.codeBlockAffordances`. All package-owned icon affordances keep labels on the enclosing button rather than asking SwiftUI to synthesize accessibility text from the SF Symbol image. Hosts that want no highlighting can still inject `PlainMarkdownCodeHighlighter`.
 
-Document chrome is generic and source-backed. `MarkdownDocumentSurface` wraps prepared document content with optional copy, export/download, and collapse controls while keeping parsing, highlighting, and layout preparation outside SwiftUI body evaluation. Source comes from `MarkdownCopyProvider`, and behavior is replaceable through `MarkdownAffordanceActionHandler`:
+Document chrome and selection are generic and source-backed. `MarkdownDocumentSurface` wraps prepared document content with optional copy, export/download, and collapse controls while keeping parsing, highlighting, and layout preparation outside SwiftUI body evaluation. `MarkdownRendererConfiguration.documentSelection` defaults to `.enabled`, so `MarkdownDocumentView`, `StreamingMarkdownView`, and `MarkdownDocumentSurface` install SiriusMarkdown's document selection layer even when hosts do not provide a `MarkdownSelectionController`. Hosts can inject a controller for observation/control or set `documentSelection: .disabled` for hostile embeds. Source comes from `MarkdownCopyProvider`, and behavior is replaceable through `MarkdownAffordanceActionHandler`:
 
 ```swift
 let copyProvider = MarkdownCopyProvider(markdownSource: markdown)
@@ -166,13 +166,14 @@ The release and product gates cover more than construction smoke tests:
 - `MarkdownRenderSession` keeps streaming, copy, cache, and prepared-snapshot state out of SwiftUI view bodies;
 - inline math is detected source-preservingly while code spans and fences remain excluded;
 - image runs produce prepared placeholder/resolution decisions, with no remote image loading by default;
-- selection/copy is bounded at the block level instead of using unbounded per-fragment overlays;
-- Native text selection remains an explicit opt-in through
+- document selection defaults on for cross-block drag highlights and Cmd-C copy, using ordered source ranges through `MarkdownSelectionController` and `MarkdownCopyProvider`;
+- exact Markdown source copy wins for whole-block, partial-line, contiguous multi-block, and deterministic non-contiguous selection; prepared plain text is only a fallback when source is unavailable;
+- Native text selection remains a separate explicit leaf-level opt-in through
   `MarkdownRendererConfiguration.nativeTextSelection`. It defaults to
-  `.disabled` for conservative package adoption. On macOS, `.enabled` now
+  `.disabled`. On macOS, `.enabled` now
   mounts package-owned selectable AppKit text leaves instead of SwiftUI's
   private `SelectionOverlay`; on other Apple platforms the SwiftUI selection
-  helper remains bounded to stable text leaves. Selection is still kept off
+  helper remains bounded to stable text leaves. Native text selection is still kept off
   document, scroll, stack, custom leading-layout containers, table-grid
   containers, toolbar, Mermaid-control, and host containers, while list, quote,
   and table cell text leaves remain selectable. The AppKit render probe
@@ -186,6 +187,7 @@ The release and product gates cover more than construction smoke tests:
 - renderer preparation does not eagerly populate per-character fallback measurements;
 - repeated preparation reuses inline/code/mermaid/math caches and records diagnostics;
 - large transcripts keep stable prepared item IDs for 10,000 sealed blocks plus one active tail;
+- `Tools/release-check.sh` asserts the Swift test discovery floor, required regression tests, root build, clean local SwiftPM consumer resolve/build, demo bundling, Pretext golden tests, symbol graphs, DocC, and render probes;
 - `Tools/RenderProbe` renders document, compact-chat, transcript-wrapping, multilingual, inline-attribute, overflow, hard-break, long-word, Mermaid diagram pan/zoom, enabled native text selection, and code-highlighting cases through AppKit and rejects blank, trivial, collapsed-spacing, clipped-wide, stalled, or misleading plain-fence output;
 - strict Pretext golden fixtures compare Swift layout metrics against the JavaScript oracle with no known-drift whitelist, no duplicate fixture names/groups, and all required product groups present.
 
@@ -264,12 +266,12 @@ bash Tools/product-check.sh
 
 ## Release
 
-`0.4.14` is ready to publish only when:
+`0.4.15` is ready to publish only when:
 
 - `README.md`, DocC, `Docs/architecture.md`, `Docs/native-renderer-scorecard.md`, `NOTICE.md`, `changelog.md`, `bugfix.md`, and `runbook.md` describe the current public package surface;
 - `bash Tools/product-check.sh` passes from the repository root;
 - `git diff --check` reports no whitespace errors;
 - `git remote -v` points at the intended public repository;
-- the release commit is tagged as `0.4.14` and pushed with tags.
+- the release commit is tagged as `0.4.15` and pushed with tags.
 
 Recommended release commands are documented in `runbook.md`.
