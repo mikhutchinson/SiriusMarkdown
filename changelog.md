@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.16 - 2026-05-15
+
+- Fixed document-selection highlight geometry so rendered text leaves emit prepared-line fragments, drag endpoints map through CoreText/string offsets, and partial-line highlights no longer paint list gutters, quote gutters, table containers, parent rows, or trailing blank row width as selected text.
+
 ## 0.4.15 - 2026-05-14
 
 - Added default-on SiriusMarkdown document selection through `MarkdownRendererConfiguration.documentSelection`, with internal controller creation for `MarkdownDocumentView`, `StreamingMarkdownView`, and `MarkdownDocumentSurface` when hosts do not inject a `MarkdownSelectionController`.

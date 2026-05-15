@@ -6,6 +6,7 @@
 
 ## Fixed
 
+- Fixed default document-selection highlight geometry. The document selection layer now gets fragments from rendered text leaves, maps drag endpoints through prepared-line/CoreText offsets, and clips first/last-line highlights to selected glyph spans instead of painting parent list rows, quote/list gutters, table containers, or trailing blank row width.
 - Fixed the product selection default: SiriusMarkdown now installs a package-owned document selection layer by default for chat/document presets and document/streaming/surface views, creates an internal `MarkdownSelectionController` when hosts do not inject one, and supports cross-block drag highlights plus Cmd-C without requiring `nativeTextSelection`.
 - Fixed selection copy precision by adding ordered source ranges to `MarkdownSelectionController`. Whole-block, partial-line, contiguous multi-block, and deterministic non-contiguous selections now copy exact Markdown source through `MarkdownCopyProvider`, with prepared plain text only as a no-source fallback.
 - Fixed CRLF streaming boundary drift. `MarkdownBoundaryScanner` now normalizes line checks so CRLF blank lines, code fences, math fences, and HTML blocks follow the same conservative sealing behavior as LF input, with streamed/static CRLF equivalence coverage.

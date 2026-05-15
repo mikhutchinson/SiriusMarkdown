@@ -317,6 +317,8 @@ func documentSelectionDefaultsToEnabledWhileNativeSelectionStaysLeafCompatibilit
     #expect(documentView.contains("DragGesture(minimumDistance: 0)"))
     #expect(documentView.contains("MarkdownDocumentSelectionKeyHandler"))
     #expect(documentView.contains("selectSourceRanges"))
+    #expect(documentView.contains(".environment(\\.markdownDocumentSelectionContext"))
+    #expect(documentView.contains("emitsTextLeafSelectionFragments"))
     #expect(surfaceView.contains("selectionController: MarkdownSelectionController? = nil"))
 }
 
@@ -385,6 +387,45 @@ func nativeTextSelectionMountsOnlyBoundedTextLeaves() throws {
     #expect(inlineRunsView.contains("nativeTextSelection: nativeTextSelection"))
     #expect(nativeLineTextView.contains("MarkdownSelectableText("))
     #expect(nativeLineTextView.contains("wraps: false"))
+}
+
+@Test
+func defaultDocumentSelectionEmitsTextLeafRectsForListRows() throws {
+    let markdown = """
+    - List selection should be bounded to the text leaf instead of the full transcript row.
+    - A second wrapped list item proves row-width bands do not come from the parent list rect.
+    """
+    var stream = MarkdownStream()
+    stream.append(markdown)
+    stream.finish()
+
+    let configuration = MarkdownRendererConfiguration.compactChat
+    let snapshot = stream.snapshot()
+    let prepared = configuration.prepare(snapshot: snapshot)
+    let block = try #require(snapshot.blocks.first)
+    let content = try #require(prepared.preparedContentByBlockID[block.id])
+    let item = try #require(content.listItems.first)
+    let inlineLayout = try #require(item.inlineLayout)
+    let textLeafRect = CGRect(x: 36, y: 10, width: 260, height: 90)
+    let layout = inlineLayout.layout(
+        containerWidth: InlineRunsView.nativeLineLayoutWidth(
+            for: inlineLayout,
+            containerWidth: Double(textLeafRect.width)
+        ),
+        allowsOverwideFallback: true
+    )
+    let fragments = MarkdownDocumentSelectionFragment.inlineLineFragments(
+        blockID: block.id,
+        prepared: inlineLayout,
+        layout: layout,
+        rect: textLeafRect,
+        idPrefix: "text-leaf"
+    )
+
+    #expect(!fragments.isEmpty)
+    #expect(fragments.allSatisfy { $0.id.hasPrefix("text-leaf:") })
+    #expect(fragments.allSatisfy { $0.rect.minX == textLeafRect.minX })
+    #expect(fragments.allSatisfy { $0.rect.width < textLeafRect.width })
 }
 
 #if canImport(AppKit)
@@ -540,6 +581,39 @@ func defaultDocumentSelectionResolvesWrappedLineDragToExactSourceOnMacOS() throw
     #expect(controller.selectedBlockIDs == [block.id])
     #expect(controller.selectedSourceRanges == selection.ranges)
     #expect(controller.selectedMarkdown(in: prepared, copyProvider: configuration.copyProvider) == markdown)
+}
+
+@Test
+@MainActor
+func defaultDocumentSelectionClipsHighlightsToPartialPreparedLineRangesOnMacOS() throws {
+    let markdown = "Partial selection should paint only the selected glyph span, not the whole prepared line."
+    var stream = MarkdownStream()
+    stream.append(markdown)
+    stream.finish()
+
+    var configuration = MarkdownRendererConfiguration.compactChat
+    configuration.copyProvider = MarkdownCopyProvider(markdownSource: markdown)
+    let snapshot = stream.snapshot()
+    let prepared = configuration.prepare(snapshot: snapshot)
+    let block = try #require(snapshot.blocks.first)
+    let content = try #require(prepared.preparedContentByBlockID[block.id])
+    let fragment = try #require(MarkdownDocumentSelectionFragment.fragments(
+        for: block,
+        preparedContent: content,
+        rect: CGRect(x: 0, y: 0, width: 700, height: 80)
+    ).first { $0.textGeometry != nil })
+
+    let start = fragment.endpoint(at: CGPoint(x: fragment.rect.minX + fragment.rect.width * 0.25, y: fragment.rect.midY))
+    let end = fragment.endpoint(at: CGPoint(x: fragment.rect.minX + fragment.rect.width * 0.75, y: fragment.rect.midY))
+    let selection = MarkdownDocumentSelectionFragment.selection(from: start, to: end, in: [fragment])
+    let selectedRange = try #require(selection.ranges.first)
+    let highlight = try #require(fragment.highlightRects(for: selection.ranges).first)
+
+    #expect(selectedRange.byteRange.lowerBound > fragment.sourceRange.byteRange.lowerBound)
+    #expect(selectedRange.byteRange.upperBound < fragment.sourceRange.byteRange.upperBound)
+    #expect(highlight.rect.minX > fragment.rect.minX)
+    #expect(highlight.rect.maxX < fragment.rect.maxX)
+    #expect(highlight.rect.width < fragment.rect.width * 0.8)
 }
 
 @Test

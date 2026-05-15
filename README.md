@@ -10,9 +10,9 @@ The package is built around three principles:
 
 ## Status
 
-This checkout is the `0.4.15` public package release. The release gate is strict Swift-vs-Pretext layout comparison, required Pretext product fixture groups, AppKit render probes for document, compact chat, transcript wrapping, multilingual, inline-attribute, overflow, hard-break, long-word, finite-column containment, wide-to-narrow resize, document affordance chrome, Mermaid diagram pan/zoom, enabled native text selection, default-on document selection, and language-aware code highlighting output, plus AppKit-hosted transcript command clipping regressions and a clean local SwiftPM consumer build. Fixture drift, missing groups, duplicate fixture names/groups, missing required tests, and trivial render output are release blockers.
+This checkout is the `0.4.16` public package release. The release gate is strict Swift-vs-Pretext layout comparison, required Pretext product fixture groups, AppKit render probes for document, compact chat, transcript wrapping, multilingual, inline-attribute, overflow, hard-break, long-word, finite-column containment, wide-to-narrow resize, document affordance chrome, Mermaid diagram pan/zoom, enabled native text selection, default-on document selection, and language-aware code highlighting output, plus AppKit-hosted transcript command clipping regressions and a clean local SwiftPM consumer build. Fixture drift, missing groups, duplicate fixture names/groups, missing required tests, and trivial render output are release blockers.
 
-The current product claim is native SwiftUI Markdown rendering with prepared-line layout, streaming snapshots, bounded caches, safe default policies, language-aware default code highlighting, built-in Mermaid diagram rendering with package-owned inline pan/zoom controls and deterministic plain-code fallback, generic document/code affordances with explicit accessibility labels, public chat/document presets, first-class H1-H6 heading typography through `MarkdownTheme.headings`, containment-stable prepared native lines for transcript-style paths, commands, URLs, long identifiers, nested lists, quotes, table cells, and glyph-bound paint drift, plus default-on source-backed document selection for cross-block drag highlights and Cmd-C. `nativeTextSelection` remains a separate macOS leaf-level compatibility opt-in that uses bounded AppKit text leaves instead of SwiftUI's private `SelectionOverlay`; it is not required for document selection. It is not a custom glyph renderer: `preparedNativeLines` slices prepared attributed line ranges and renders them natively while CoreText owns measurement.
+The current product claim is native SwiftUI Markdown rendering with prepared-line layout, streaming snapshots, bounded caches, safe default policies, language-aware default code highlighting, built-in Mermaid diagram rendering with package-owned inline pan/zoom controls and deterministic plain-code fallback, generic document/code affordances with explicit accessibility labels, public chat/document presets, first-class H1-H6 heading typography through `MarkdownTheme.headings`, containment-stable prepared native lines for transcript-style paths, commands, URLs, long identifiers, nested lists, quotes, table cells, and glyph-bound paint, plus default-on source-backed document selection for cross-block drag highlights and Cmd-C. Document selection paint is emitted by rendered text leaves and clipped through prepared-line/CoreText offsets; it is not a parent row or block rectangle overlay. `nativeTextSelection` remains a separate macOS leaf-level compatibility opt-in that uses bounded AppKit text leaves instead of SwiftUI's private `SelectionOverlay`; it is not required for document selection. It is not a custom glyph renderer: `preparedNativeLines` slices prepared attributed line ranges and renders them natively while CoreText owns measurement.
 
 ## Requirements
 
@@ -25,7 +25,7 @@ In `Package.swift` (adjust the package URL to the published repository):
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/mikhutchinson/SiriusMarkdown.git", from: "0.4.15")
+    .package(url: "https://github.com/mikhutchinson/SiriusMarkdown.git", from: "0.4.16")
 ],
 targets: [
     .target(
@@ -168,6 +168,7 @@ The release and product gates cover more than construction smoke tests:
 - image runs produce prepared placeholder/resolution decisions, with no remote image loading by default;
 - document selection defaults on for cross-block drag highlights and Cmd-C copy, using ordered source ranges through `MarkdownSelectionController` and `MarkdownCopyProvider`;
 - exact Markdown source copy wins for whole-block, partial-line, contiguous multi-block, and deterministic non-contiguous selection; prepared plain text is only a fallback when source is unavailable;
+- document selection highlights are generated from text-leaf prepared line fragments and clipped with CoreText-backed string offsets for partial first/last lines, so list gutters, quote gutters, table grids, and trailing row width are not painted as selected text;
 - Native text selection remains a separate explicit leaf-level opt-in through
   `MarkdownRendererConfiguration.nativeTextSelection`. It defaults to
   `.disabled`. On macOS, `.enabled` now
@@ -266,12 +267,12 @@ bash Tools/product-check.sh
 
 ## Release
 
-`0.4.15` is ready to publish only when:
+`0.4.16` is ready to publish only when:
 
 - `README.md`, DocC, `Docs/architecture.md`, `Docs/native-renderer-scorecard.md`, `NOTICE.md`, `changelog.md`, `bugfix.md`, and `runbook.md` describe the current public package surface;
 - `bash Tools/product-check.sh` passes from the repository root;
 - `git diff --check` reports no whitespace errors;
 - `git remote -v` points at the intended public repository;
-- the release commit is tagged as `0.4.15` and pushed with tags.
+- the release commit is tagged as `0.4.16` and pushed with tags.
 
 Recommended release commands are documented in `runbook.md`.

@@ -448,6 +448,8 @@ private struct PreparedInlineTextView: View {
     var inlineRenderingMode: MarkdownInlineRenderingMode
     var nativeTextSelection: MarkdownNativeTextSelection
 
+    @Environment(\.markdownDocumentSelectionContext) private var documentSelectionContext
+
     @State private var containerWidth: CGFloat = 0
     @State private var layoutResult = InlineLayoutResult(lines: [], naturalWidth: 0, height: 0)
     @State private var recordedNonFiniteFallback = false
@@ -508,6 +510,7 @@ private struct PreparedInlineTextView: View {
                         nativeTextSelection: nativeTextSelection
                     )
                 }
+                .background(nativeLineSelectionFragmentsPreference)
         } else {
             MarkdownSelectableText(
                 attributed: fallbackAttributed,
@@ -522,6 +525,7 @@ private struct PreparedInlineTextView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .clipped()
                 .background(widthReader)
+                .background(fallbackSelectionFragmentPreference)
         }
     }
 
@@ -551,6 +555,63 @@ private struct PreparedInlineTextView: View {
             )
         }
         .allowsHitTesting(false)
+    }
+
+    private var nativeLineSelectionFragmentsPreference: some View {
+        GeometryReader { proxy in
+            Color.clear.preference(
+                key: MarkdownDocumentSelectionFragmentsKey.self,
+                value: nativeLineSelectionFragments(
+                    rect: proxy.frame(in: .named(markdownDocumentSelectionCoordinateSpaceName))
+                )
+            )
+        }
+        .allowsHitTesting(false)
+    }
+
+    private var fallbackSelectionFragmentPreference: some View {
+        GeometryReader { proxy in
+            Color.clear.preference(
+                key: MarkdownDocumentSelectionFragmentsKey.self,
+                value: fallbackSelectionFragments(
+                    rect: proxy.frame(in: .named(markdownDocumentSelectionCoordinateSpaceName))
+                )
+            )
+        }
+        .allowsHitTesting(false)
+    }
+
+    private func nativeLineSelectionFragments(rect: CGRect) -> [MarkdownDocumentSelectionFragment] {
+        guard let documentSelectionContext else {
+            return []
+        }
+        return MarkdownDocumentSelectionFragment.inlineLineFragments(
+            blockID: documentSelectionContext.blockID,
+            prepared: prepared,
+            layout: layoutResult,
+            rect: rect,
+            idPrefix: "text-leaf"
+        )
+    }
+
+    private func fallbackSelectionFragments(rect: CGRect) -> [MarkdownDocumentSelectionFragment] {
+        guard let documentSelectionContext,
+              let sourceRange = prepared.prepared.sourceRange,
+              rect.width.isFinite,
+              rect.height.isFinite,
+              rect.width > 0,
+              rect.height > 0
+        else {
+            return []
+        }
+        return [
+            MarkdownDocumentSelectionFragment.fallbackTextFragment(
+                blockID: documentSelectionContext.blockID,
+                sourceRange: sourceRange,
+                rect: rect,
+                idPrefix: "text-leaf-fallback"
+            )
+        ]
     }
 
     private func refreshLayoutIfPossible() {
