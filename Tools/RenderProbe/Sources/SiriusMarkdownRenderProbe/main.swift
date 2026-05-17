@@ -802,6 +802,7 @@ struct SiriusMarkdownRenderProbe {
             backing: .buffered,
             defer: false
         )
+        window.animationBehavior = .none
         window.contentView = hostingView
         window.orderFrontRegardless()
 
@@ -831,7 +832,7 @@ struct SiriusMarkdownRenderProbe {
 
         let pixelScale = Double(bitmap.pixelsWide) / Double(size.width)
         let sample = sampleRenderedPixels(bitmap, pixelScale: pixelScale)
-        return RenderResult(
+        let result = RenderResult(
             nonWhitePixels: sample.nonWhitePixels,
             distinctColorBuckets: sample.distinctColorBuckets,
             nonWhiteRightmostX: sample.nonWhiteRightmostX,
@@ -841,6 +842,12 @@ struct SiriusMarkdownRenderProbe {
             pixelScale: pixelScale,
             selectableTextViewCount: selectableTextViewCount(in: hostingView)
         )
+        window.orderOut(nil)
+        window.contentView = nil
+        for _ in 0..<3 {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+        }
+        return result
     }
 
     @MainActor

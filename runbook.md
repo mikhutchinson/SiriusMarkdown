@@ -1,6 +1,6 @@
 # Runbook
 
-This runbook is the local release authority for `SiriusMarkdown`. For the current public package release, use `0.4.16` as the tag and do not publish unless every release blocker below is clear.
+This runbook is the local release authority for `SiriusMarkdown`. For the current public package release, use `0.4.17` as the tag and do not publish unless every release blocker below is clear.
 
 ## Build
 
@@ -80,7 +80,8 @@ Layout and renderer acceptance for the current slice:
   `SelectionOverlay.updateNSView` -> AppKit `NSTextField setFont:` /
   `_invalidateEffectiveFont` / `updateCell`.
 - Lists, task lists, tables, code blocks, math blocks, and HTML blocks must keep structured render paths. Do not collapse them back to `Text(block.text)` except as an explicit policy-denied or missing-structure fallback.
-- Renderer tests must assert behavior through render plans, prepared snapshots, inline payload helpers, diagnostics counters, and large-transcript prepared item identity. `Tools/RenderProbe` owns the `MarkdownDocumentView` AppKit pixel check so Swift Testing helper crashes do not excuse dropping document-render coverage.
+- Renderer tests must assert behavior through render plans, prepared snapshots, lightweight prepared render identities, source-backed selection copy contexts, inline payload helpers, diagnostics counters, and large-transcript prepared item identity. `Tools/RenderProbe` owns the `MarkdownDocumentView` AppKit pixel check so Swift Testing helper crashes do not excuse dropping document-render coverage.
+- The full Swift suite runs serially in `Tools/release-check.sh` because the renderer tests host real SwiftUI/AppKit windows and text views; use `Tools/RenderProbe` for pixel-level AppKit coverage instead of forcing those windowed tests through parallel SwiftPM teardown.
 - Repeated preparation of the same snapshot should reuse inline/code/math caches and record cache hits without incrementing prepare, highlighting, or math-render counters.
 
 ## Pretext Golden Tool
@@ -115,7 +116,7 @@ Run this before claiming native-renderer product quality. It wraps the release g
 
 ## Public Release Checklist
 
-Use this checklist for `0.4.16`.
+Use this checklist for `0.4.17`.
 
 1. Confirm public hygiene:
 
@@ -150,15 +151,15 @@ Use this checklist for `0.4.16`.
 
    ```sh
    git add README.md runbook.md NOTICE.md changelog.md bugfix.md Docs Sources Tests Examples Tools Package.swift Package.resolved
-   git commit -m "Prepare SiriusMarkdown 0.4.16 release"
+   git commit -m "Prepare SiriusMarkdown 0.4.17 release"
    ```
 
 6. Tag and push:
 
    ```sh
-   git tag -a 0.4.16 -m "SiriusMarkdown 0.4.16"
+   git tag -a 0.4.17 -m "SiriusMarkdown 0.4.17"
    git push origin HEAD
-   git push origin 0.4.16
+   git push origin 0.4.17
    ```
 
 7. After pushing, create the public release notes from `changelog.md`. The release notes must keep the claim precise: native SwiftUI block rendering, prepared-line inline rendering, streaming snapshots, safe policies, language-aware default code highlighting, package-owned Mermaid pan/zoom over prepared SVG/ASCII, explicit accessibility labels for package-owned affordance controls, Pretext-backed layout gate, and demo/product probes. Do not claim a custom glyph renderer, a new Mermaid semantic engine, or a WebKit renderer.

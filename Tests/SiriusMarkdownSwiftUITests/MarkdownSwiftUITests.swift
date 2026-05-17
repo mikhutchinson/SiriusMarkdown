@@ -32,6 +32,23 @@ func documentViewCanBeConstructedFromSnapshot() {
 }
 
 @Test
+func preparedSnapshotExposesLightweightRenderItems() throws {
+    var stream = MarkdownStream()
+    stream.append("# Heading\n\nBody with **strong** text.\n")
+    stream.finish()
+
+    let configuration = MarkdownRendererConfiguration.compactChat
+    let prepared = configuration.prepare(snapshot: stream.snapshot())
+
+    #expect(prepared.renderItems.count == prepared.items.count)
+    #expect(prepared.itemIDs == prepared.renderItems.map(\.id))
+    for renderItem in prepared.renderItems {
+        let item = try #require(prepared.item(at: renderItem.itemIndex))
+        #expect(item.id == renderItem.id)
+    }
+}
+
+@Test
 func inlineRunsApplyLinkAndImagePolicies() {
     let linked = InlineRunsView.attributedString(
         for: [
@@ -323,6 +340,37 @@ func documentSelectionDefaultsToEnabledWhileNativeSelectionStaysLeafCompatibilit
 }
 
 @Test
+func documentSelectionLayoutUsesLightweightPreparedIdentities() throws {
+    let root = packageRootURL()
+    let configuration = try String(
+        contentsOf: root.appending(path: "Sources/SiriusMarkdownSwiftUI/Views/MarkdownRendererConfiguration.swift"),
+        encoding: .utf8
+    )
+    let documentView = try String(
+        contentsOf: root.appending(path: "Sources/SiriusMarkdownSwiftUI/Views/MarkdownDocumentView.swift"),
+        encoding: .utf8
+    )
+    let surfaceView = try String(
+        contentsOf: root.appending(path: "Sources/SiriusMarkdownSwiftUI/Views/MarkdownDocumentSurface.swift"),
+        encoding: .utf8
+    )
+    let selectionGeometry = try String(
+        contentsOf: root.appending(path: "Sources/SiriusMarkdownSwiftUI/Interaction/MarkdownDocumentSelectionGeometry.swift"),
+        encoding: .utf8
+    )
+
+    #expect(configuration.contains("public var renderItems: [MarkdownPreparedSnapshotRenderItem]"))
+    #expect(configuration.contains("public var itemIDs: [String]"))
+    #expect(configuration.contains("public struct MarkdownPreparedSnapshotRenderItem"))
+    #expect(documentView.occurrences(of: "ForEach(preparedSnapshot.renderItems)") == 2)
+    #expect(!documentView.contains("ForEach(preparedSnapshot.items)"))
+    #expect(surfaceView.contains("self.itemIDs = preparedSnapshot.itemIDs"))
+    #expect(selectionGeometry.contains("private var equalityFingerprint: Int"))
+    #expect(selectionGeometry.contains("makeEqualityFingerprint"))
+    #expect(selectionGeometry.contains("static func == (\n        lhs: MarkdownDocumentSelectionTextGeometry"))
+}
+
+@Test
 func nativeTextSelectionMountsOnlyBoundedTextLeaves() throws {
     let root = packageRootURL()
     let helper = try String(
@@ -486,9 +534,10 @@ func enabledNativeTextSelectionReachesCompositeMarkdownLeavesOnMacOS() throws {
         backing: .buffered,
         defer: false
     )
+    window.animationBehavior = .none
     window.contentView = hostingView
     window.orderFrontRegardless()
-    defer { window.close() }
+    defer { tearDownWindow(window) }
     pumpLayout(hostingView)
 
     let textViews = appKitTextViews(in: hostingView)
@@ -532,9 +581,10 @@ func enabledNativeTextSelectionCanSelectAndCopyListTextLeafOnMacOS() throws {
         backing: .buffered,
         defer: false
     )
+    window.animationBehavior = .none
     window.contentView = hostingView
     window.orderFrontRegardless()
-    defer { window.close() }
+    defer { tearDownWindow(window) }
     pumpLayout(hostingView)
 
     let textView = try #require(appKitTextViews(in: hostingView).first {
@@ -660,9 +710,13 @@ func defaultDocumentSelectionResolvesDragAndCmdCCopyAcrossBlockBoundariesOnMacOS
     let selectedMarkdown = controller.selectedMarkdown(in: prepared, copyProvider: configuration.copyProvider)
     let selectedRange = try #require(selection.ranges.first)
     let expectedMarkdown = try #require(configuration.copyProvider?.markdown(selectedRange))
-    let coordinator = MarkdownDocumentSelectionKeyHandler.Coordinator {
-        copySpy.copied = selectedMarkdown
-    }
+    let copyContext = MarkdownDocumentSelectionCopyContext(
+        selectionController: controller,
+        preparedSnapshot: prepared,
+        copyProvider: configuration.copyProvider,
+        affordanceActionHandler: configuration.affordanceActionHandler
+    )
+    let coordinator = MarkdownDocumentSelectionKeyHandler.Coordinator(copyContext: copyContext)
     let keyView = MarkdownDocumentSelectionKeyHandler.CopyKeyView()
     keyView.coordinator = coordinator
     keyView.keyDown(with: commandCEvent())
@@ -1523,8 +1577,10 @@ func preparedNativeResizeRenderKeepsPaintInsideNarrowedColumn() throws {
         backing: .buffered,
         defer: false
     )
+    window.animationBehavior = .none
     window.contentView = hostingView
     window.orderFrontRegardless()
+    defer { tearDownWindow(window) }
     pumpLayout(hostingView)
 
     model.columnWidth = finalWidth
@@ -2282,6 +2338,15 @@ private func pumpLayout<V: View>(_ hostingView: NSHostingView<V>) {
         hostingView.layoutSubtreeIfNeeded()
         hostingView.displayIfNeeded()
         RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+    }
+}
+
+@MainActor
+private func tearDownWindow(_ window: NSWindow) {
+    window.orderOut(nil)
+    window.contentView = nil
+    for _ in 0..<3 {
+        RunLoop.main.run(until: Date().addingTimeInterval(0.01))
     }
 }
 

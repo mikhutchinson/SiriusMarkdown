@@ -85,8 +85,8 @@ public struct MarkdownDocumentView: View {
     @ViewBuilder
     private func selectionDocumentContent(selectionController: MarkdownSelectionController?) -> some View {
         let content = LazyVStack(alignment: .leading, spacing: theme.blockSpacing) {
-            ForEach(preparedSnapshot.items) { item in
-                preparedItemView(item, selectionController: selectionController)
+            ForEach(preparedSnapshot.renderItems) { item in
+                preparedRenderItemView(item, selectionController: selectionController)
             }
         }
         .padding()
@@ -102,6 +102,16 @@ public struct MarkdownDocumentView: View {
             }
         } else {
             content
+        }
+    }
+
+    @ViewBuilder
+    private func preparedRenderItemView(
+        _ renderItem: MarkdownPreparedSnapshotRenderItem,
+        selectionController: MarkdownSelectionController?
+    ) -> some View {
+        if let item = preparedSnapshot.item(at: renderItem.itemIndex) {
+            preparedItemView(item, selectionController: selectionController)
         }
     }
 
@@ -213,8 +223,8 @@ public struct StreamingMarkdownView: View {
     @ViewBuilder
     private func selectionDocumentContent(selectionController: MarkdownSelectionController?) -> some View {
         let content = LazyVStack(alignment: .leading, spacing: theme.blockSpacing) {
-            ForEach(preparedSnapshot.items) { item in
-                preparedItemView(item, selectionController: selectionController)
+            ForEach(preparedSnapshot.renderItems) { item in
+                preparedRenderItemView(item, selectionController: selectionController)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -229,6 +239,16 @@ public struct StreamingMarkdownView: View {
             }
         } else {
             content
+        }
+    }
+
+    @ViewBuilder
+    private func preparedRenderItemView(
+        _ renderItem: MarkdownPreparedSnapshotRenderItem,
+        selectionController: MarkdownSelectionController?
+    ) -> some View {
+        if let item = preparedSnapshot.item(at: renderItem.itemIndex) {
+            preparedItemView(item, selectionController: selectionController)
         }
     }
 
@@ -324,9 +344,10 @@ private struct MarkdownDocumentSelectionLayer<Content: View>: View {
                 selectionHighlights
             }
             .background {
-                MarkdownDocumentSelectionKeyHandler(focusToken: focusToken) {
-                    copySelection()
-                }
+                MarkdownDocumentSelectionKeyHandler(
+                    focusToken: focusToken,
+                    copyContext: copyContext
+                )
                 .frame(width: 0, height: 0)
             }
             .contentShape(Rectangle())
@@ -404,38 +425,57 @@ private struct MarkdownDocumentSelectionLayer<Content: View>: View {
     }
 
     private func copySelection() {
-        let markdown = selectionController.selectedMarkdown(
-            in: preparedSnapshot,
-            copyProvider: configuration.copyProvider
-        )
-        guard !markdown.isEmpty else {
-            return
-        }
-        Task { @MainActor in
-            configuration.affordanceActionHandler.copyString(markdown)
-        }
+        copyContext.copySelection()
     }
 
     private func takeFocus() {
         focusToken &+= 1
+    }
+
+    private var copyContext: MarkdownDocumentSelectionCopyContext {
+        MarkdownDocumentSelectionCopyContext(
+            selectionController: selectionController,
+            preparedSnapshot: preparedSnapshot,
+            copyProvider: configuration.copyProvider,
+            affordanceActionHandler: configuration.affordanceActionHandler
+        )
+    }
+}
+
+struct MarkdownDocumentSelectionCopyContext {
+    var selectionController: MarkdownSelectionController
+    var preparedSnapshot: MarkdownPreparedSnapshot
+    var copyProvider: MarkdownCopyProvider?
+    var affordanceActionHandler: MarkdownAffordanceActionHandler
+
+    @MainActor
+    func copySelection() {
+        let markdown = selectionController.selectedMarkdown(
+            in: preparedSnapshot,
+            copyProvider: copyProvider
+        )
+        guard !markdown.isEmpty else {
+            return
+        }
+        affordanceActionHandler.copyString(markdown)
     }
 }
 
 #if os(macOS)
 struct MarkdownDocumentSelectionKeyHandler: NSViewRepresentable {
     var focusToken: Int
-    var copy: @MainActor () -> Void
+    var copyContext: MarkdownDocumentSelectionCopyContext
 
     func makeNSView(context: Context) -> CopyKeyView {
         let view = CopyKeyView()
         view.coordinator = context.coordinator
-        context.coordinator.copy = copy
+        context.coordinator.copyContext = copyContext
         context.coordinator.focusToken = focusToken
         return view
     }
 
     func updateNSView(_ nsView: CopyKeyView, context: Context) {
-        context.coordinator.copy = copy
+        context.coordinator.copyContext = copyContext
         if context.coordinator.focusToken != focusToken {
             context.coordinator.focusToken = focusToken
             DispatchQueue.main.async { [weak nsView] in
@@ -447,16 +487,25 @@ struct MarkdownDocumentSelectionKeyHandler: NSViewRepresentable {
         }
     }
 
+    static func dismantleNSView(_ nsView: CopyKeyView, coordinator _: Coordinator) {
+        nsView.coordinator = nil
+    }
+
     func makeCoordinator() -> Coordinator {
-        Coordinator(copy: copy)
+        Coordinator(copyContext: copyContext)
     }
 
     final class Coordinator {
-        var copy: @MainActor () -> Void
+        var copyContext: MarkdownDocumentSelectionCopyContext
         var focusToken = 0
 
-        init(copy: @escaping @MainActor () -> Void) {
-            self.copy = copy
+        init(copyContext: MarkdownDocumentSelectionCopyContext) {
+            self.copyContext = copyContext
+        }
+
+        @MainActor
+        func copySelection() {
+            copyContext.copySelection()
         }
     }
 
@@ -470,7 +519,7 @@ struct MarkdownDocumentSelectionKeyHandler: NSViewRepresentable {
         override func keyDown(with event: NSEvent) {
             if event.modifierFlags.contains(.command),
                event.charactersIgnoringModifiers?.lowercased() == "c" {
-                coordinator?.copy()
+                coordinator?.copySelection()
             } else {
                 super.keyDown(with: event)
             }
@@ -480,7 +529,7 @@ struct MarkdownDocumentSelectionKeyHandler: NSViewRepresentable {
 #else
 struct MarkdownDocumentSelectionKeyHandler: View {
     var focusToken: Int
-    var copy: @MainActor () -> Void
+    var copyContext: MarkdownDocumentSelectionCopyContext
 
     var body: some View {
         EmptyView()

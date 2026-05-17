@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.17 - 2026-05-17
+
+- Fixed a Sirius transcript layout storm where a live sample of the host app spent the main thread under SwiftUI `GraphHost.flushTransactions`, `LayoutChildGeometries`, nested stack/flex-frame layout, and `ForEachState` while copying `MarkdownPreparedSnapshotItem` / `MarkdownBlockID` values during prepared Markdown rendering.
+- Added lightweight `MarkdownPreparedSnapshotRenderItem` identities so `MarkdownDocumentView` and `StreamingMarkdownView` iterate small stable render records instead of using heavyweight prepared snapshot items as SwiftUI `ForEach` data.
+- Reduced default document-selection preference churn by giving selection text geometry a cached equality fingerprint, so SwiftUI preference comparisons do not repeatedly walk prepared source/font-run arrays during layout.
+- Fixed the document-selection Cmd-C AppKit bridge lifecycle by replacing the retained SwiftUI method closure with an explicit copy context and teardown hook, keeping `Tools/RenderProbe` stable with document selection still default-on.
+
 ## 0.4.16 - 2026-05-15
 
 - Fixed document-selection highlight geometry so rendered text leaves emit prepared-line fragments, drag endpoints map through CoreText/string offsets, and partial-line highlights no longer paint list gutters, quote gutters, table containers, parent rows, or trailing blank row width as selected text.

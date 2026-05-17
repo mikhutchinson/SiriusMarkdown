@@ -928,20 +928,35 @@ public final class MarkdownRenderPreparationCache: @unchecked Sendable {
 public struct MarkdownPreparedSnapshot: Sendable {
     public var snapshot: MarkdownSnapshot
     public var items: [MarkdownPreparedSnapshotItem]
+    public var renderItems: [MarkdownPreparedSnapshotRenderItem]
+    public var itemIDs: [String]
     public var preparedContentByBlockID: [MarkdownBlockID: MarkdownPreparedBlockContent]
 
     public init(
         snapshot: MarkdownSnapshot,
         items: [MarkdownPreparedSnapshotItem],
+        renderItems: [MarkdownPreparedSnapshotRenderItem]? = nil,
         preparedContentByBlockID: [MarkdownBlockID: MarkdownPreparedBlockContent]
     ) {
         self.snapshot = snapshot
         self.items = items
+        let resolvedRenderItems = renderItems ?? items.enumerated().map { index, item in
+            MarkdownPreparedSnapshotRenderItem(id: item.id, itemIndex: index)
+        }
+        self.renderItems = resolvedRenderItems
+        self.itemIDs = resolvedRenderItems.map(\.id)
         self.preparedContentByBlockID = preparedContentByBlockID
     }
 
     public subscript(blockID: MarkdownBlockID) -> MarkdownPreparedBlockContent? {
         preparedContentByBlockID[blockID]
+    }
+
+    public func item(at index: Int) -> MarkdownPreparedSnapshotItem? {
+        guard items.indices.contains(index) else {
+            return nil
+        }
+        return items[index]
     }
 }
 
@@ -956,6 +971,16 @@ public enum MarkdownPreparedSnapshotItem: Identifiable, Sendable {
         case let .hostBoundary(boundary):
             return "host:\(boundary.id.rawValue)"
         }
+    }
+}
+
+public struct MarkdownPreparedSnapshotRenderItem: Identifiable, Sendable, Hashable {
+    public var id: String
+    public var itemIndex: Int
+
+    public init(id: String, itemIndex: Int) {
+        self.id = id
+        self.itemIndex = itemIndex
     }
 }
 

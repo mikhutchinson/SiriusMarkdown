@@ -18,7 +18,7 @@ public struct MarkdownDocumentSurfaceRenderPlan: Sendable, Equatable {
     ) {
         let hasDocumentMarkdown = configuration.copyProvider?.hasDocumentMarkdown == true
         self.blockCount = preparedSnapshot.snapshot.blocks.count
-        self.itemIDs = preparedSnapshot.items.map(\.id)
+        self.itemIDs = preparedSnapshot.itemIDs
         self.snapshotGeneration = preparedSnapshot.snapshot.generation
         self.documentCopyButtonVisible = affordances.showsCopyButton && hasDocumentMarkdown
         self.documentExportButtonVisible = affordances.showsExportButton && hasDocumentMarkdown

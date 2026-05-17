@@ -41,6 +41,17 @@ struct MarkdownDocumentSelectionFragment: Identifiable, Equatable {
     var rect: CGRect
     var textGeometry: MarkdownDocumentSelectionTextGeometry? = nil
 
+    static func == (
+        lhs: MarkdownDocumentSelectionFragment,
+        rhs: MarkdownDocumentSelectionFragment
+    ) -> Bool {
+        lhs.id == rhs.id &&
+            lhs.blockID == rhs.blockID &&
+            lhs.sourceRange == rhs.sourceRange &&
+            lhs.rect == rhs.rect &&
+            lhs.textGeometry == rhs.textGeometry
+    }
+
     static func selection(
         from lower: MarkdownDocumentSelectionEndpoint,
         to upper: MarkdownDocumentSelectionEndpoint,
@@ -365,6 +376,7 @@ struct MarkdownDocumentSelectionTextGeometry: Equatable {
     var fontProfiles: MarkdownInlineFontProfiles
     var fontSize: Double
     var lineWidth: CGFloat
+    private var equalityFingerprint: Int
 
     init?(
         prepared: MarkdownPreparedInlineContent,
@@ -414,6 +426,26 @@ struct MarkdownDocumentSelectionTextGeometry: Equatable {
 
         self.sourceRuns = sourceRuns
         self.fontRuns = fontRuns
+        self.equalityFingerprint = Self.makeEqualityFingerprint(
+            visibleByteRange: visibleByteRange,
+            lineText: lineText,
+            sourceRuns: sourceRuns,
+            fontRuns: fontRuns,
+            fontProfiles: fontProfiles,
+            fontSize: fontSize,
+            lineWidth: lineWidth
+        )
+    }
+
+    static func == (
+        lhs: MarkdownDocumentSelectionTextGeometry,
+        rhs: MarkdownDocumentSelectionTextGeometry
+    ) -> Bool {
+        lhs.visibleByteRange == rhs.visibleByteRange &&
+            lhs.lineText == rhs.lineText &&
+            lhs.fontSize == rhs.fontSize &&
+            lhs.lineWidth == rhs.lineWidth &&
+            lhs.equalityFingerprint == rhs.equalityFingerprint
     }
 
     func sourceByteOffset(atX x: CGFloat) -> Int {
@@ -614,6 +646,37 @@ struct MarkdownDocumentSelectionTextGeometry: Equatable {
         }
 
         return lower..<upper
+    }
+
+    private static func makeEqualityFingerprint(
+        visibleByteRange: Range<Int>,
+        lineText: String,
+        sourceRuns: [MarkdownDocumentSelectionSourceRun],
+        fontRuns: [MarkdownDocumentSelectionFontRun],
+        fontProfiles: MarkdownInlineFontProfiles,
+        fontSize: Double,
+        lineWidth: CGFloat
+    ) -> Int {
+        var hasher = Hasher()
+        hasher.combine(visibleByteRange.lowerBound)
+        hasher.combine(visibleByteRange.upperBound)
+        hasher.combine(lineText)
+        hasher.combine(fontProfiles)
+        hasher.combine(fontSize)
+        hasher.combine(lineWidth)
+        hasher.combine(sourceRuns.count)
+        for run in sourceRuns {
+            hasher.combine(run.visibleByteRange.lowerBound)
+            hasher.combine(run.visibleByteRange.upperBound)
+            hasher.combine(run.sourceRange)
+        }
+        hasher.combine(fontRuns.count)
+        for run in fontRuns {
+            hasher.combine(run.visibleByteRange.lowerBound)
+            hasher.combine(run.visibleByteRange.upperBound)
+            hasher.combine(run.kind)
+        }
+        return hasher.finalize()
     }
 }
 
