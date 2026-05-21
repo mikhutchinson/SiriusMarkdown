@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.20 - 2026-05-21
+
+- Added source-line and source-range lookup helpers on `MarkdownSnapshot`, `MarkdownPreparedSnapshot`, and `MarkdownRenderSession` so host apps can resolve stable `MarkdownBlockID` scroll targets without open-coding block scans. Lookup is side-effect free and uses existing 1-based, half-open `MarkdownSourceRange.lineRange` semantics.
+- Added `MarkdownSourceRevealPolicy` with `.exactOnly` and `.nearestRenderedBlock` fallback for blank-line gaps and ranges that start between rendered blocks. Preview-friendly defaults use nearest-block resolution for line and top-scroll target lookup.
+- Added `MarkdownSelectionController.selectSourceLine(_:in:policy:)` and `selectSourceRange(_:in:policy:)` convenience over snapshots and prepared snapshots so preview reveal and highlight state stay package-owned.
+- Documented that `ScrollViewReader.scrollTo` must use `MarkdownBlockID` (matching `MarkdownBlockView.id(block.id)`), not `MarkdownPreparedSnapshotRenderItem.id` `"block:<raw>"` ForEach strings. `StreamingMarkdownView` remains scroll-container agnostic; host apps own scrolling.
+- Added Core, SwiftUI, and umbrella regression tests for CRLF input, multiline blocks, lists, code fences, tables, blank-line gaps, active-tail ID stability, session append/reset, and selection convenience.
+- Tightened `selectSourceLine` to use coherent block-level selection ranges, added byte-offset nearest fallback when line metadata is empty, and aligned release metadata and DocC symbol links for `0.4.20`.
+
 ## 0.4.19 - 2026-05-21
 
 - Hardened default document-selection geometry against host layout invalidation storms. Prepared native-line selection now caches per-line source geometry/fingerprints by prepared content and layout identity, so repeated parent invalidations or rect-only movement can still publish preferences without rebuilding rich text geometry.

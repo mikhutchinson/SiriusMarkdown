@@ -170,6 +170,58 @@ public final class MarkdownSelectionController: ObservableObject {
         selectedBlockIDs.contains(blockID)
     }
 
+    public func selectSourceLine(
+        _ line: Int,
+        in snapshot: MarkdownSnapshot,
+        policy: MarkdownSourceRevealPolicy = .nearestRenderedBlock
+    ) {
+        updateSnapshot(snapshot)
+        guard let block = snapshot.block(containingSourceLine: line, policy: policy) else {
+            return
+        }
+
+        // Block-level selection keeps byte and line ranges coherent without re-decoding source.
+        select(block.id)
+    }
+
+    public func selectSourceRange(
+        _ sourceRange: MarkdownSourceRange,
+        in snapshot: MarkdownSnapshot,
+        policy: MarkdownSourceRevealPolicy = .nearestRenderedBlock
+    ) {
+        updateSnapshot(snapshot)
+        let overlappingBlockIDs = snapshot.blockIDs(overlappingSourceRange: sourceRange, policy: .exactOnly)
+        if !overlappingBlockIDs.isEmpty {
+            selectSourceRanges([sourceRange], selectedBlockIDs: overlappingBlockIDs)
+            return
+        }
+
+        guard policy == .nearestRenderedBlock,
+              let blockID = snapshot.firstBlockID(overlappingSourceRange: sourceRange, policy: policy),
+              let block = snapshot.blocks.first(where: { $0.id == blockID })
+        else {
+            return
+        }
+
+        selectSourceRanges([block.sourceRange], selectedBlockIDs: [blockID])
+    }
+
+    public func selectSourceLine(
+        _ line: Int,
+        in preparedSnapshot: MarkdownPreparedSnapshot,
+        policy: MarkdownSourceRevealPolicy = .nearestRenderedBlock
+    ) {
+        selectSourceLine(line, in: preparedSnapshot.snapshot, policy: policy)
+    }
+
+    public func selectSourceRange(
+        _ sourceRange: MarkdownSourceRange,
+        in preparedSnapshot: MarkdownPreparedSnapshot,
+        policy: MarkdownSourceRevealPolicy = .nearestRenderedBlock
+    ) {
+        selectSourceRange(sourceRange, in: preparedSnapshot.snapshot, policy: policy)
+    }
+
     public func selectedMarkdown(
         in preparedSnapshot: MarkdownPreparedSnapshot,
         copyProvider: MarkdownCopyProvider?

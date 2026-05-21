@@ -80,6 +80,33 @@ SiriusMarkdown's default tests assert this contract through renderer preparation
 
 `MarkdownRendererConfiguration.compactChat` and `.document` select `MarkdownInlineRenderingMode.preparedNativeLines`, so chat and document views render prepared attributed line slices inside the finite proposal supplied by the host. Direct custom configuration still defaults to `.systemText` as a compatibility fallback.
 
+### Source navigation and reveal
+
+SiriusMarkdown resolves which rendered block corresponds to a source line or range. Host apps own scrolling: ``SiriusMarkdownSwiftUI/StreamingMarkdownView`` does not wrap a `ScrollView`, while ``SiriusMarkdownSwiftUI/MarkdownDocumentView`` owns its own internal scroll surface.
+
+Pass ``SiriusMarkdownCore/MarkdownBlockID`` to `ScrollViewReader.scrollTo(_:anchor:)`. That matches ``SiriusMarkdownSwiftUI/MarkdownBlockView``'s `.id(block.id)`. Do not pass ``SiriusMarkdownSwiftUI/MarkdownPreparedSnapshotRenderItem`` `.id` values (`"block:<raw>"` strings are for lightweight `ForEach` identity only).
+
+```swift
+ScrollViewReader { proxy in
+    StreamingMarkdownView(
+        preparedSnapshot: session.preparedSnapshot,
+        configuration: session.configuration,
+        selectionController: selectionController
+    )
+    .onChange(of: outlineLine) { line in
+        guard let line else { return }
+        if let blockID = session.blockID(containingSourceLine: line) {
+            selectionController.selectSourceLine(line, in: session.preparedSnapshot)
+            proxy.scrollTo(blockID, anchor: .top)
+        }
+    }
+}
+```
+
+Use ``SiriusMarkdownCore/MarkdownSourceRevealPolicy/exactOnly`` when a source line must lie inside a block range. The default ``SiriusMarkdownCore/MarkdownSourceRevealPolicy/nearestRenderedBlock`` resolves blank-line gaps and inter-block separators to the following rendered block (or the preceding block at end-of-document).
+
+``SiriusMarkdownSwiftUI/MarkdownSelectionController/selectSourceLine(_:in:policy:)`` selects the resolved block with coherent block-level source ranges so copy and highlight stay aligned. For byte-accurate partial-line selection, call ``SiriusMarkdownSwiftUI/MarkdownSelectionController/selectSourceRanges(_:selectedBlockIDs:)`` with explicit ranges from your source buffer.
+
 Production CoreText measurement defaults to system-profile font measurement, and measured/layout caches include the measurement profile. Pretext golden fixtures use explicit named profiles such as Helvetica, and hosts with custom fonts can align measurement by providing `MarkdownInlineFontProfiles` through `MarkdownTheme`. `preparedNativeLines` still renders through SwiftUI `Text(AttributedString)`; it is not a custom glyph renderer.
 
 ### Products
@@ -112,6 +139,8 @@ Architecture rules and the product quality bar are documented in `Docs/architect
 - ``SiriusMarkdownCore/MarkdownBlockKind``
 - ``SiriusMarkdownCore/MarkdownSnapshot``
 - ``SiriusMarkdownCore/MarkdownBlockID``
+- ``SiriusMarkdownCore/MarkdownSourceRange``
+- ``SiriusMarkdownCore/MarkdownSourceRevealPolicy``
 - ``SiriusMarkdownCore/MarkdownStream``
 - ``SiriusMarkdownCore/MarkdownHostBoundary``
 - ``SiriusMarkdownSwiftUI/MarkdownDocumentView``

@@ -10,7 +10,7 @@ The package is built around three principles:
 
 ## Status
 
-This checkout is the `0.4.19` public package release. The release gate is strict Swift-vs-Pretext layout comparison, required Pretext product fixture groups, AppKit render probes for document, compact chat, transcript wrapping, multilingual, inline-attribute, overflow, hard-break, long-word, finite-column containment, wide-to-narrow resize, document affordance chrome, Mermaid diagram pan/zoom, enabled native text selection, default-on document selection, document-selection invalidation-storm counters, and language-aware code highlighting output, plus AppKit-hosted transcript command clipping regressions and a clean local SwiftPM consumer build. Fixture drift, missing groups, duplicate fixture names/groups, missing required tests, and trivial render output are release blockers.
+This checkout is the `0.4.20` public package release. The release gate is strict Swift-vs-Pretext layout comparison, required Pretext product fixture groups, AppKit render probes for document, compact chat, transcript wrapping, multilingual, inline-attribute, overflow, hard-break, long-word, finite-column containment, wide-to-narrow resize, document affordance chrome, Mermaid diagram pan/zoom, enabled native text selection, default-on document selection, document-selection invalidation-storm counters, and language-aware code highlighting output, plus AppKit-hosted transcript command clipping regressions and a clean local SwiftPM consumer build. Fixture drift, missing groups, duplicate fixture names/groups, missing required tests, and trivial render output are release blockers.
 
 The current product claim is native SwiftUI Markdown rendering with prepared-line layout, streaming snapshots, bounded caches, safe default policies, language-aware default code highlighting, built-in Mermaid diagram rendering with package-owned inline pan/zoom controls and deterministic plain-code fallback, generic document/code affordances with explicit accessibility labels, public chat/document presets, first-class H1-H6 heading typography through `MarkdownTheme.headings`, containment-stable prepared native lines for transcript-style paths, commands, URLs, long identifiers, nested lists, quotes, table cells, and glyph-bound paint, plus default-on source-backed document selection for cross-block drag highlights and Cmd-C. Document selection paint is emitted by rendered text leaves and clipped through prepared-line/CoreText offsets; it is not a parent row or block rectangle overlay. `nativeTextSelection` remains a separate macOS leaf-level compatibility opt-in that uses bounded AppKit text leaves instead of SwiftUI's private `SelectionOverlay`; it is not required for document selection. It is not a custom glyph renderer: `preparedNativeLines` slices prepared attributed line ranges and renders them natively while CoreText owns measurement.
 
@@ -25,7 +25,7 @@ In `Package.swift` (adjust the package URL to the published repository):
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/mikhutchinson/SiriusMarkdown.git", from: "0.4.19")
+    .package(url: "https://github.com/mikhutchinson/SiriusMarkdown.git", from: "0.4.20")
 ],
 targets: [
     .target(
@@ -155,12 +155,40 @@ let configuration = MarkdownRendererConfiguration(
 
 The direct `snapshot:` view initializers remain for small compatibility cases, but they are deprecated because they hide preparation at the view boundary. Applications that stream or resize long content should keep preparation in their model layer.
 
+## Source navigation and reveal
+
+SiriusMarkdown resolves which rendered block corresponds to a source line or range. Host apps own scrolling because `StreamingMarkdownView` does not wrap a `ScrollView`; `MarkdownDocumentView` owns its own internal scroll surface.
+
+Pass `MarkdownBlockID` to `ScrollViewReader.scrollTo(_:anchor:)`. That matches `MarkdownBlockView.id(block.id)`. Do not pass `MarkdownPreparedSnapshotRenderItem.id` (`"block:<raw>"` strings used only for lightweight `ForEach` identity).
+
+```swift
+ScrollViewReader { proxy in
+    StreamingMarkdownView(
+        preparedSnapshot: session.preparedSnapshot,
+        configuration: session.configuration,
+        selectionController: selectionController
+    )
+    .onChange(of: outlineLine) { line in
+        guard let line else { return }
+        if let blockID = session.blockID(containingSourceLine: line) {
+            selectionController.selectSourceLine(line, in: session.preparedSnapshot)
+            proxy.scrollTo(blockID, anchor: .top)
+        }
+    }
+}
+```
+
+Use `MarkdownSourceRevealPolicy.exactOnly` when a source line must lie inside a block range. The default `.nearestRenderedBlock` resolves blank-line gaps and inter-block separators to the following rendered block (or the preceding block at end-of-document).
+
+`selectSourceLine` selects the resolved block with coherent block-level source ranges so copy and highlight stay aligned. For byte-accurate partial-line selection, call `selectSourceRanges(_:selectedBlockIDs:)` with explicit ranges from your source buffer.
+
 ## What the tests prove
 
 The release and product gates cover more than construction smoke tests:
 
 - streamed parse output matches whole-document parse output across chunk sizes;
 - block identity survives active-tail appends and tail-to-sealed transitions;
+- source-line and source-range lookup resolves stable `MarkdownBlockID` scroll targets with optional nearest-block fallback for blank-line gaps, without parsing or re-preparing in lookup paths;
 - conservative sealing avoids open fences, math, HTML, and loose-list ambiguity;
 - SwiftUI renderer inputs are prepared outside block bodies, including inline layout, language-aware code highlighting, built-in Mermaid rendering, math rendering, and policy decisions;
 - `MarkdownRenderSession` keeps streaming, copy, cache, and prepared-snapshot state out of SwiftUI view bodies;
@@ -267,12 +295,12 @@ bash Tools/product-check.sh
 
 ## Release
 
-`0.4.19` is ready to publish only when:
+`0.4.20` is ready to publish only when:
 
 - `README.md`, DocC, `Docs/architecture.md`, `Docs/native-renderer-scorecard.md`, `NOTICE.md`, `changelog.md`, `bugfix.md`, and `runbook.md` describe the current public package surface;
 - `bash Tools/product-check.sh` passes from the repository root;
 - `git diff --check` reports no whitespace errors;
 - `git remote -v` points at the intended public repository;
-- the release commit is tagged as `0.4.19` and pushed with tags.
+- the release commit is tagged as `0.4.20` and pushed with tags.
 
 Recommended release commands are documented in `runbook.md`.

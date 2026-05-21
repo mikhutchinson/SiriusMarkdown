@@ -99,6 +99,22 @@ public final class MarkdownRenderSession: ObservableObject {
     }
 }
 
+public extension MarkdownRenderSession {
+    func blockID(
+        containingSourceLine line: Int,
+        policy: MarkdownSourceRevealPolicy = .nearestRenderedBlock
+    ) -> MarkdownBlockID? {
+        snapshot.blockID(containingSourceLine: line, policy: policy)
+    }
+
+    func firstBlockID(
+        overlappingSourceRange sourceRange: MarkdownSourceRange,
+        policy: MarkdownSourceRevealPolicy = .nearestRenderedBlock
+    ) -> MarkdownBlockID? {
+        snapshot.firstBlockID(overlappingSourceRange: sourceRange, policy: policy)
+    }
+}
+
 private final class MarkdownMutableSourceCopyStore: @unchecked Sendable {
     private let lock = NSLock()
     private var source = ""
