@@ -559,10 +559,11 @@ private struct PreparedInlineTextView: View {
 
     private var nativeLineSelectionFragmentsPreference: some View {
         GeometryReader { proxy in
+            let rect = selectionPreferenceRect(from: proxy)
             Color.clear.preference(
                 key: MarkdownDocumentSelectionFragmentsKey.self,
                 value: nativeLineSelectionFragments(
-                    rect: proxy.frame(in: .named(markdownDocumentSelectionCoordinateSpaceName))
+                    rect: rect
                 )
             )
         }
@@ -571,14 +572,21 @@ private struct PreparedInlineTextView: View {
 
     private var fallbackSelectionFragmentPreference: some View {
         GeometryReader { proxy in
+            let rect = selectionPreferenceRect(from: proxy)
             Color.clear.preference(
                 key: MarkdownDocumentSelectionFragmentsKey.self,
                 value: fallbackSelectionFragments(
-                    rect: proxy.frame(in: .named(markdownDocumentSelectionCoordinateSpaceName))
+                    rect: rect
                 )
             )
         }
         .allowsHitTesting(false)
+    }
+
+    private func selectionPreferenceRect(from proxy: GeometryProxy) -> CGRect {
+        prepared.layoutCache.recordSelectionPreferenceBodyEvaluation()
+        prepared.layoutCache.recordSelectionFrameQuery()
+        return proxy.frame(in: .named(markdownDocumentSelectionCoordinateSpaceName))
     }
 
     private func nativeLineSelectionFragments(rect: CGRect) -> [MarkdownDocumentSelectionFragment] {

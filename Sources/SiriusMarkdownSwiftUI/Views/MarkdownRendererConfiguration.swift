@@ -807,6 +807,7 @@ public struct MarkdownPreparedInlineContent: Sendable {
 public final class MarkdownInlineLayoutCache: @unchecked Sendable {
     private let lock = NSLock()
     private var engine: InlineLayoutEngine<CoreTextInlineMeasurer>
+    private var selectionLineFragmentCache: BoundedMarkdownCache<[MarkdownDocumentSelectionLineFragmentTemplate]>
 
     public init(
         measurer: CoreTextInlineMeasurer = CoreTextInlineMeasurer(),
@@ -818,6 +819,7 @@ public final class MarkdownInlineLayoutCache: @unchecked Sendable {
             cacheCapacity: cacheCapacity,
             diagnosticsRecorder: diagnosticsRecorder
         )
+        self.selectionLineFragmentCache = BoundedMarkdownCache(capacity: cacheCapacity)
     }
 
     public var diagnosticsCounters: MarkdownDiagnosticsCounters {
@@ -850,6 +852,81 @@ public final class MarkdownInlineLayoutCache: @unchecked Sendable {
         lock.withLock {
             engine.diagnosticsRecorder.recordNativeLineClipping()
         }
+    }
+
+    func recordSelectionPreferenceBodyEvaluation() {
+        lock.withLock {
+            engine.diagnosticsRecorder.recordSelectionPreferenceBodyEvaluation()
+        }
+    }
+
+    func recordSelectionFrameQuery() {
+        lock.withLock {
+            engine.diagnosticsRecorder.recordSelectionFrameQuery()
+        }
+    }
+
+    func selectionLineFragmentTemplates(
+        blockID: MarkdownBlockID,
+        prepared: MarkdownPreparedInlineContent,
+        layout: InlineLayoutResult,
+        idPrefix: String
+    ) -> [MarkdownDocumentSelectionLineFragmentTemplate] {
+        let key = selectionLineFragmentCacheKey(
+            blockID: blockID,
+            prepared: prepared,
+            layout: layout,
+            idPrefix: idPrefix
+        )
+        return lock.withLock {
+            if let cached = selectionLineFragmentCache.value(forKey: key) {
+                engine.diagnosticsRecorder.recordSelectionLineFragmentCacheHit()
+                return cached
+            }
+
+            engine.diagnosticsRecorder.recordSelectionLineFragmentCacheMiss()
+            let templates = MarkdownDocumentSelectionFragment.makeInlineLineFragmentTemplates(
+                blockID: blockID,
+                prepared: prepared,
+                layout: layout,
+                idPrefix: idPrefix,
+                diagnosticsRecorder: engine.diagnosticsRecorder
+            )
+            if !templates.isEmpty {
+                selectionLineFragmentCache[key] = templates
+            }
+            return templates
+        }
+    }
+
+    private func selectionLineFragmentCacheKey(
+        blockID: MarkdownBlockID,
+        prepared: MarkdownPreparedInlineContent,
+        layout: InlineLayoutResult,
+        idPrefix: String
+    ) -> MarkdownCacheKey {
+        var hasher = Hasher()
+        hasher.combine(blockID)
+        hasher.combine(idPrefix)
+        hasher.combine(prepared.prepared.sourceRange)
+        hasher.combine(prepared.prepared.naturalText)
+        hasher.combine(prepared.prepared.runs)
+        hasher.combine(prepared.fontSize)
+        hasher.combine(prepared.lineHeight)
+        hasher.combine(prepared.fontProfiles)
+        hasher.combine(layout.lines)
+        hasher.combine(layout.naturalWidth)
+        hasher.combine(layout.height)
+        let fingerprint = UInt64(bitPattern: Int64(hasher.finalize()))
+        let sourceRange = prepared.prepared.sourceRange ?? MarkdownSourceRange(
+            byteRange: 0..<prepared.prepared.naturalText.utf8.count,
+            lineRange: 0..<0
+        )
+        return MarkdownCacheKey(
+            sourceRange: sourceRange,
+            contentHash: fingerprint,
+            namespace: "selection-line-fragments"
+        )
     }
 }
 

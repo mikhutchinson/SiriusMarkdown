@@ -160,32 +160,47 @@ struct MarkdownDocumentSelectionFragment: Identifiable, Equatable {
 
         let lineHeight = CGFloat(prepared.lineHeight)
         let spacing = InlineRunsView.nativeLineSpacing(for: prepared)
+        return prepared.layoutCache.selectionLineFragmentTemplates(
+            blockID: blockID,
+            prepared: prepared,
+            layout: layout,
+            idPrefix: idPrefix
+        ).map { template in
+            template.fragment(in: rect, lineHeight: lineHeight, spacing: spacing)
+        }
+    }
+
+    static func makeInlineLineFragmentTemplates(
+        blockID: MarkdownBlockID,
+        prepared: MarkdownPreparedInlineContent,
+        layout: InlineLayoutResult,
+        idPrefix: String,
+        diagnosticsRecorder: MarkdownDiagnosticsRecorder
+    ) -> [MarkdownDocumentSelectionLineFragmentTemplate] {
+        diagnosticsRecorder.recordInlineLineFragmentBuild(count: layout.lines.count)
         return layout.lines.enumerated().compactMap { index, line in
             guard let sourceRange = sourceRange(
                 for: line.consumedByteRange,
-                in: prepared
+                in: prepared,
+                diagnosticsRecorder: diagnosticsRecorder
             ) else {
                 return nil
             }
-            let y = rect.minY + CGFloat(index) * (lineHeight + spacing)
             let textGeometry = MarkdownDocumentSelectionTextGeometry(
                 prepared: prepared,
-                line: line
+                line: line,
+                diagnosticsRecorder: diagnosticsRecorder
             )
             let lineWidth = max(
                 1,
-                min(rect.width, CGFloat(max(line.width, 1)) + InlineRunsView.nativeLinePaintGuard(for: prepared))
+                CGFloat(max(line.width, 1)) + InlineRunsView.nativeLinePaintGuard(for: prepared)
             )
-            return MarkdownDocumentSelectionFragment(
+            return MarkdownDocumentSelectionLineFragmentTemplate(
                 id: "\(idPrefix):\(blockID.rawValue):line:\(index):\(sourceRange.byteRange.lowerBound)",
                 blockID: blockID,
                 sourceRange: sourceRange,
-                rect: CGRect(
-                    x: rect.minX,
-                    y: y,
-                    width: lineWidth,
-                    height: lineHeight
-                ),
+                lineIndex: index,
+                lineWidth: lineWidth,
                 textGeometry: textGeometry
             )
         }
@@ -317,7 +332,8 @@ struct MarkdownDocumentSelectionFragment: Identifiable, Equatable {
 
     private static func sourceRange(
         for relativeByteRange: Range<Int>,
-        in inlineLayout: MarkdownPreparedInlineContent
+        in inlineLayout: MarkdownPreparedInlineContent,
+        diagnosticsRecorder: MarkdownDiagnosticsRecorder? = nil
     ) -> MarkdownSourceRange? {
         guard !relativeByteRange.isEmpty else {
             return inlineLayout.prepared.sourceRange
@@ -339,6 +355,7 @@ struct MarkdownDocumentSelectionFragment: Identifiable, Equatable {
                     visibleByteRange: runRange,
                     sourceRange: sourceRange
                 )
+                diagnosticsRecorder?.recordSelectionSourceRunMapping(count: 2)
                 let absoluteLower = mapper.sourceByteOffset(forVisibleByteOffset: overlapLower)
                 let absoluteUpper = mapper.sourceByteOffset(forVisibleByteOffset: overlapUpper)
                 lower = min(lower ?? absoluteLower, absoluteLower)
@@ -368,7 +385,36 @@ struct MarkdownDocumentSelectionFragment: Identifiable, Equatable {
     }
 }
 
-struct MarkdownDocumentSelectionTextGeometry: Equatable {
+struct MarkdownDocumentSelectionLineFragmentTemplate: Sendable {
+    var id: String
+    var blockID: MarkdownBlockID
+    var sourceRange: MarkdownSourceRange
+    var lineIndex: Int
+    var lineWidth: CGFloat
+    var textGeometry: MarkdownDocumentSelectionTextGeometry?
+
+    func fragment(
+        in rect: CGRect,
+        lineHeight: CGFloat,
+        spacing: CGFloat
+    ) -> MarkdownDocumentSelectionFragment {
+        let y = rect.minY + CGFloat(lineIndex) * (lineHeight + spacing)
+        return MarkdownDocumentSelectionFragment(
+            id: id,
+            blockID: blockID,
+            sourceRange: sourceRange,
+            rect: CGRect(
+                x: rect.minX,
+                y: y,
+                width: min(rect.width, lineWidth),
+                height: lineHeight
+            ),
+            textGeometry: textGeometry
+        )
+    }
+}
+
+struct MarkdownDocumentSelectionTextGeometry: Equatable, Sendable {
     var visibleByteRange: Range<Int>
     var lineText: String
     var sourceRuns: [MarkdownDocumentSelectionSourceRun]
@@ -377,10 +423,12 @@ struct MarkdownDocumentSelectionTextGeometry: Equatable {
     var fontSize: Double
     var lineWidth: CGFloat
     private var equalityFingerprint: Int
+    private var diagnosticsRecorder: MarkdownDiagnosticsRecorder?
 
     init?(
         prepared: MarkdownPreparedInlineContent,
-        line: InlineLineRange
+        line: InlineLineRange,
+        diagnosticsRecorder: MarkdownDiagnosticsRecorder? = nil
     ) {
         guard !line.byteRange.isEmpty,
               let stringRange = Self.stringRange(
@@ -396,6 +444,8 @@ struct MarkdownDocumentSelectionTextGeometry: Equatable {
         self.fontProfiles = prepared.fontProfiles
         self.fontSize = prepared.fontSize
         self.lineWidth = CGFloat(max(line.width, 1))
+        self.diagnosticsRecorder = diagnosticsRecorder
+        diagnosticsRecorder?.recordSelectionTextGeometryInitialization()
 
         var sourceRuns: [MarkdownDocumentSelectionSourceRun] = []
         var fontRuns: [MarkdownDocumentSelectionFontRun] = []
@@ -426,6 +476,7 @@ struct MarkdownDocumentSelectionTextGeometry: Equatable {
 
         self.sourceRuns = sourceRuns
         self.fontRuns = fontRuns
+        diagnosticsRecorder?.recordSelectionFingerprintBuild()
         self.equalityFingerprint = Self.makeEqualityFingerprint(
             visibleByteRange: visibleByteRange,
             lineText: lineText,
@@ -571,6 +622,7 @@ struct MarkdownDocumentSelectionTextGeometry: Equatable {
         guard !lineText.isEmpty else {
             return nil
         }
+        diagnosticsRecorder?.recordSelectionCoreTextLineBuild()
 
         let attributed = NSMutableAttributedString(string: lineText)
         if fontRuns.isEmpty {
@@ -680,7 +732,7 @@ struct MarkdownDocumentSelectionTextGeometry: Equatable {
     }
 }
 
-struct MarkdownDocumentSelectionSourceRun: Equatable {
+struct MarkdownDocumentSelectionSourceRun: Equatable, Sendable {
     var visibleByteRange: Range<Int>
     var sourceRange: MarkdownSourceRange
 
@@ -709,7 +761,7 @@ struct MarkdownDocumentSelectionSourceRun: Equatable {
     }
 }
 
-struct MarkdownDocumentSelectionFontRun: Equatable {
+struct MarkdownDocumentSelectionFontRun: Equatable, Sendable {
     var visibleByteRange: Range<Int>
     var kind: MarkdownInlineKind
 }

@@ -19,6 +19,16 @@ public struct MarkdownDiagnosticsCounters: Sendable, Hashable {
     public var nonFiniteInlineProposalFallbackCount: Int
     public var overwideUnitFallbackCount: Int
     public var nativeLineClippingCount: Int
+    public var selectionPreferenceBodyEvaluationCount: Int
+    public var selectionFrameQueryCount: Int
+    public var inlineLineFragmentBuildCount: Int
+    public var selectionTextGeometryInitializationCount: Int
+    public var selectionFingerprintBuildCount: Int
+    public var selectionSourceRunMappingCount: Int
+    public var selectionPreferenceChangeCount: Int
+    public var selectionCoreTextLineBuildCount: Int
+    public var selectionLineFragmentCacheHitCount: Int
+    public var selectionLineFragmentCacheMissCount: Int
     public var cacheHitCount: Int
     public var cacheMissCount: Int
     public var sealedRegionCacheHitCount: Int
@@ -42,6 +52,16 @@ public struct MarkdownDiagnosticsCounters: Sendable, Hashable {
         nonFiniteInlineProposalFallbackCount: Int = 0,
         overwideUnitFallbackCount: Int = 0,
         nativeLineClippingCount: Int = 0,
+        selectionPreferenceBodyEvaluationCount: Int = 0,
+        selectionFrameQueryCount: Int = 0,
+        inlineLineFragmentBuildCount: Int = 0,
+        selectionTextGeometryInitializationCount: Int = 0,
+        selectionFingerprintBuildCount: Int = 0,
+        selectionSourceRunMappingCount: Int = 0,
+        selectionPreferenceChangeCount: Int = 0,
+        selectionCoreTextLineBuildCount: Int = 0,
+        selectionLineFragmentCacheHitCount: Int = 0,
+        selectionLineFragmentCacheMissCount: Int = 0,
         cacheHitCount: Int = 0,
         cacheMissCount: Int = 0,
         sealedRegionCacheHitCount: Int = 0,
@@ -64,6 +84,16 @@ public struct MarkdownDiagnosticsCounters: Sendable, Hashable {
         self.nonFiniteInlineProposalFallbackCount = nonFiniteInlineProposalFallbackCount
         self.overwideUnitFallbackCount = overwideUnitFallbackCount
         self.nativeLineClippingCount = nativeLineClippingCount
+        self.selectionPreferenceBodyEvaluationCount = selectionPreferenceBodyEvaluationCount
+        self.selectionFrameQueryCount = selectionFrameQueryCount
+        self.inlineLineFragmentBuildCount = inlineLineFragmentBuildCount
+        self.selectionTextGeometryInitializationCount = selectionTextGeometryInitializationCount
+        self.selectionFingerprintBuildCount = selectionFingerprintBuildCount
+        self.selectionSourceRunMappingCount = selectionSourceRunMappingCount
+        self.selectionPreferenceChangeCount = selectionPreferenceChangeCount
+        self.selectionCoreTextLineBuildCount = selectionCoreTextLineBuildCount
+        self.selectionLineFragmentCacheHitCount = selectionLineFragmentCacheHitCount
+        self.selectionLineFragmentCacheMissCount = selectionLineFragmentCacheMissCount
         self.cacheHitCount = cacheHitCount
         self.cacheMissCount = cacheMissCount
         self.sealedRegionCacheHitCount = sealedRegionCacheHitCount
@@ -165,6 +195,66 @@ public final class MarkdownDiagnosticsRecorder: @unchecked Sendable {
     public func recordNativeLineClipping() {
         lock.withLock {
             counters.nativeLineClippingCount += 1
+        }
+    }
+
+    public func recordSelectionPreferenceBodyEvaluation() {
+        lock.withLock {
+            counters.selectionPreferenceBodyEvaluationCount += 1
+        }
+    }
+
+    public func recordSelectionFrameQuery() {
+        lock.withLock {
+            counters.selectionFrameQueryCount += 1
+        }
+    }
+
+    public func recordInlineLineFragmentBuild(count: Int = 1) {
+        lock.withLock {
+            counters.inlineLineFragmentBuildCount += count
+        }
+    }
+
+    public func recordSelectionTextGeometryInitialization() {
+        lock.withLock {
+            counters.selectionTextGeometryInitializationCount += 1
+        }
+    }
+
+    public func recordSelectionFingerprintBuild() {
+        lock.withLock {
+            counters.selectionFingerprintBuildCount += 1
+        }
+    }
+
+    public func recordSelectionSourceRunMapping(count: Int = 1) {
+        lock.withLock {
+            counters.selectionSourceRunMappingCount += count
+        }
+    }
+
+    public func recordSelectionPreferenceChange() {
+        lock.withLock {
+            counters.selectionPreferenceChangeCount += 1
+        }
+    }
+
+    public func recordSelectionCoreTextLineBuild() {
+        lock.withLock {
+            counters.selectionCoreTextLineBuildCount += 1
+        }
+    }
+
+    public func recordSelectionLineFragmentCacheHit() {
+        lock.withLock {
+            counters.selectionLineFragmentCacheHitCount += 1
+        }
+    }
+
+    public func recordSelectionLineFragmentCacheMiss() {
+        lock.withLock {
+            counters.selectionLineFragmentCacheMissCount += 1
         }
     }
 

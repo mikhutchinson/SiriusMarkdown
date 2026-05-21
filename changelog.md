@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.19 - 2026-05-21
+
+- Hardened default document-selection geometry against host layout invalidation storms. Prepared native-line selection now caches per-line source geometry/fingerprints by prepared content and layout identity, so repeated parent invalidations or rect-only movement can still publish preferences without rebuilding rich text geometry.
+- Added strict selection-performance diagnostics and SwiftUI/AppKit regression tests covering disabled-selection negative control, enabled-selection host layout storms, invalidation-count scaling, distinct-width cache invalidation, rect-only movement, and repeated same-rect preference resolution.
+
 ## 0.4.18 - 2026-05-20
 
 - Fixed streaming fence sealing so code-fence closer candidates must have at most three leading spaces, enough matching backticks or tildes, and only whitespace after the marker run. Lines such as ` ``` not a closer` or four-space-indented marker content no longer seal a streamed code block early.

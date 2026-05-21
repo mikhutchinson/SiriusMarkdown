@@ -353,6 +353,7 @@ private struct MarkdownDocumentSelectionLayer<Content: View>: View {
             .contentShape(Rectangle())
             .simultaneousGesture(selectionGesture)
             .onPreferenceChange(MarkdownDocumentSelectionFragmentsKey.self) { value in
+                configuration.diagnosticsRecorder.recordSelectionPreferenceChange()
                 fragments = value.sortedForSelection()
             }
             .contextMenu {
