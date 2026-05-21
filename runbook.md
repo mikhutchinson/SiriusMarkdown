@@ -1,6 +1,6 @@
 # Runbook
 
-This runbook is the local release authority for `SiriusMarkdown`. For the current public package release, use `0.4.17` as the tag and do not publish unless every release blocker below is clear.
+This runbook is the local release authority for `SiriusMarkdown`. For the current public package release, use `0.4.18` as the tag and do not publish unless every release blocker below is clear.
 
 ## Build
 
@@ -122,7 +122,7 @@ Run this before claiming native-renderer product quality. It wraps the release g
 
 ## Public Release Checklist
 
-Use this checklist for `0.4.17`.
+Use this checklist for `0.4.18`.
 
 1. Confirm public hygiene:
 
@@ -157,15 +157,15 @@ Use this checklist for `0.4.17`.
 
    ```sh
    git add README.md runbook.md NOTICE.md changelog.md bugfix.md Docs Sources Tests Examples Tools Package.swift Package.resolved
-   git commit -m "Prepare SiriusMarkdown 0.4.17 release"
+   git commit -m "Prepare SiriusMarkdown 0.4.18 release"
    ```
 
 6. Tag and push:
 
    ```sh
-   git tag -a 0.4.17 -m "SiriusMarkdown 0.4.17"
+   git tag -a 0.4.18 -m "SiriusMarkdown 0.4.18"
    git push origin HEAD
-   git push origin 0.4.17
+   git push origin 0.4.18
    ```
 
 7. After pushing, create the public release notes from `changelog.md`. The release notes must keep the claim precise: native SwiftUI block rendering, prepared-line inline rendering, streaming snapshots, safe policies, language-aware default code highlighting, package-owned Mermaid pan/zoom over prepared SVG/ASCII, explicit accessibility labels for package-owned affordance controls, Pretext-backed layout gate, and demo/product probes. Do not claim a custom glyph renderer, a new Mermaid semantic engine, or a WebKit renderer.

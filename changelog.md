@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.18 - 2026-05-20
 
 - Fixed streaming fence sealing so code-fence closer candidates must have at most three leading spaces, enough matching backticks or tildes, and only whitespace after the marker run. Lines such as ` ``` not a closer` or four-space-indented marker content no longer seal a streamed code block early.
 - Fixed source-backed document-selection highlights for styled inline Markdown. Prepared-line fragments now map visible offsets through source runs, so full-line selections over emphasis, strong, links, and other delimiter-backed runs keep the full Markdown source range while clipping highlight paint to the rendered glyph span.
