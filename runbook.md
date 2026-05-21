@@ -31,6 +31,7 @@ Parser acceptance for the current slice:
 - The render model must expose parser-owned structure for task states, ordered-list starts, nested list items, table cells, table alignments, code info strings, HTML blocks, math blocks, and inline destinations.
 - Whole-document parse and streamed parse must match for block IDs, kinds, and text across the chunk matrix.
 - Boundary scanner changes must preserve conservative handling for code fences, math fences, HTML blocks, loose-list ambiguity, blank-line stability, and CRLF-vs-LF equivalence.
+- Code-fence close candidates must match CommonMark closer shape: no tabs or more than three leading spaces before the marker, at least the opening marker length, and only whitespace after the marker run. Trailing text or four-space-indented marker content inside a fence must not seal the stream.
 
 Layout and renderer acceptance for the current slice:
 
@@ -61,6 +62,11 @@ Layout and renderer acceptance for the current slice:
   text-leaf coordinates, and first/last-line highlights must clip through
   CoreText-backed string offsets so gutters, table grids, and trailing blank row
   width are not painted as selected text.
+- Prepared-line selection fragments must map visible byte offsets back through
+  source runs before forming source ranges. Styled inline Markdown such as
+  emphasis, strong, links, images, and math may have visible text shorter than
+  its source delimiters, and full-line selection must preserve the full
+  source-backed Markdown range while clipping highlight paint to glyph bounds.
 - Native text selection must stay a separate compatibility knob bounded to
   stable text leaves. Keep `MarkdownRendererConfiguration.nativeTextSelection`
   defaulted to `.disabled`. On macOS, `.enabled` must work by using

@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Fixed streaming fence sealing so code-fence closer candidates must have at most three leading spaces, enough matching backticks or tildes, and only whitespace after the marker run. Lines such as ` ``` not a closer` or four-space-indented marker content no longer seal a streamed code block early.
+- Fixed source-backed document-selection highlights for styled inline Markdown. Prepared-line fragments now map visible offsets through source runs, so full-line selections over emphasis, strong, links, and other delimiter-backed runs keep the full Markdown source range while clipping highlight paint to the rendered glyph span.
+
 ## 0.4.17 - 2026-05-17
 
 - Fixed a Sirius transcript layout storm where a live sample of the host app spent the main thread under SwiftUI `GraphHost.flushTransactions`, `LayoutChildGeometries`, nested stack/flex-frame layout, and `ForEachState` while copying `MarkdownPreparedSnapshotItem` / `MarkdownBlockID` values during prepared Markdown rendering.

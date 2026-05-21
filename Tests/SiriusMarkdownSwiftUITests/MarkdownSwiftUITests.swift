@@ -668,6 +668,33 @@ func defaultDocumentSelectionClipsHighlightsToPartialPreparedLineRangesOnMacOS()
 
 @Test
 @MainActor
+func defaultDocumentSelectionFullLineHighlightCoversStyledMarkdownSourceOnMacOS() throws {
+    let markdown = "**Styled line with source delimiters**"
+    var stream = MarkdownStream()
+    stream.append(markdown)
+    stream.finish()
+
+    var configuration = MarkdownRendererConfiguration.compactChat
+    configuration.copyProvider = MarkdownCopyProvider(markdownSource: markdown)
+    let snapshot = stream.snapshot()
+    let prepared = configuration.prepare(snapshot: snapshot)
+    let block = try #require(snapshot.blocks.first)
+    let content = try #require(prepared.preparedContentByBlockID[block.id])
+    let fragment = try #require(MarkdownDocumentSelectionFragment.fragments(
+        for: block,
+        preparedContent: content,
+        rect: CGRect(x: 0, y: 0, width: 700, height: 80)
+    ).first { $0.textGeometry != nil })
+    let selection = MarkdownDocumentSelectionFragment.selection(from: fragment, to: fragment, in: [fragment])
+    let highlight = try #require(fragment.highlightRects(for: selection.ranges).first)
+
+    #expect(fragment.sourceRange.byteRange == 0..<markdown.utf8.count)
+    #expect(selection.ranges.first?.byteRange == 0..<markdown.utf8.count)
+    #expect(highlight.rect.width > fragment.rect.width * 0.9)
+}
+
+@Test
+@MainActor
 func defaultDocumentSelectionResolvesDragAndCmdCCopyAcrossBlockBoundariesOnMacOS() throws {
     let markdown = """
     Paragraph boundary selection.

@@ -89,6 +89,36 @@ func scannerTreatsInsufficientClosingBackticksAsInsideFenceStill() {
 }
 
 @Test
+func scannerDoesNotCloseFenceWhenClosingMarkerHasTrailingText() {
+    var buffer = MarkdownSourceBuffer()
+    buffer.append("```\n")
+    buffer.append("code before fake closer\n")
+    buffer.append("``` not a closer\n")
+    buffer.append("\n")
+
+    let scanner = MarkdownBoundaryScanner()
+    #expect(scanner.safeSealUpperBound(in: buffer, after: 0) == nil)
+
+    buffer.append("```\n\n")
+    #expect(scanner.safeSealUpperBound(in: buffer, after: 0) == buffer.byteCount)
+}
+
+@Test
+func scannerDoesNotCloseFenceWithIndentedMarkerContent() {
+    var buffer = MarkdownSourceBuffer()
+    buffer.append("```\n")
+    buffer.append("code before indented marker\n")
+    buffer.append("    ```\n")
+    buffer.append("\n")
+
+    let scanner = MarkdownBoundaryScanner()
+    #expect(scanner.safeSealUpperBound(in: buffer, after: 0) == nil)
+
+    buffer.append("```\n\n")
+    #expect(scanner.safeSealUpperBound(in: buffer, after: 0) == buffer.byteCount)
+}
+
+@Test
 func scannerDoesNotCloseTildeFenceWithBacktickCloser() {
     var buffer = MarkdownSourceBuffer()
     buffer.append("~~~\nbody\n")

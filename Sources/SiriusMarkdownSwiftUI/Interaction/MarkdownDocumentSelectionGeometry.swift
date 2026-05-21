@@ -335,12 +335,12 @@ struct MarkdownDocumentSelectionFragment: Identifiable, Equatable {
             let overlapLower = max(relativeByteRange.lowerBound, runRange.lowerBound)
             let overlapUpper = min(relativeByteRange.upperBound, runRange.upperBound)
             if overlapLower < overlapUpper, let sourceRange = run.sourceRange {
-                let overlap = overlapLower..<overlapUpper
-                let absoluteLower = sourceRange.byteRange.lowerBound + (overlap.lowerBound - runRange.lowerBound)
-                let absoluteUpper = min(
-                    sourceRange.byteRange.upperBound,
-                    sourceRange.byteRange.lowerBound + (overlap.upperBound - runRange.lowerBound)
+                let mapper = MarkdownDocumentSelectionSourceRun(
+                    visibleByteRange: runRange,
+                    sourceRange: sourceRange
                 )
+                let absoluteLower = mapper.sourceByteOffset(forVisibleByteOffset: overlapLower)
+                let absoluteUpper = mapper.sourceByteOffset(forVisibleByteOffset: overlapUpper)
                 lower = min(lower ?? absoluteLower, absoluteLower)
                 upper = max(upper ?? absoluteUpper, absoluteUpper)
                 lineLower = min(lineLower ?? sourceRange.lineRange.lowerBound, sourceRange.lineRange.lowerBound)

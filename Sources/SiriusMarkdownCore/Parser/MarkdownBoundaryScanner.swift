@@ -99,10 +99,11 @@ public struct MarkdownBoundaryScanner: Sendable, Hashable {
             let nextLineStart = line.includesTerminatingNewline
                 ? line.byteRange.upperBound + 1
                 : line.byteRange.upperBound
-            let trimmed = normalizedLineText(line.text).trimmingCharacters(in: .whitespaces)
+            let normalized = normalizedLineText(line.text)
+            let trimmed = normalized.trimmingCharacters(in: .whitespaces)
 
             if let fence = state.openFence {
-                if closesFence(trimmed, fence: fence) {
+                if closesFence(normalized, fence: fence) {
                     state.openFence = nil
                 }
             } else if let html = state.openHTMLBlock {
@@ -113,7 +114,7 @@ public struct MarkdownBoundaryScanner: Sendable, Hashable {
                 if trimmed == "$$" {
                     state.openMathFence = false
                 }
-            } else if let fence = opensFence(trimmed) {
+            } else if let fence = opensFence(normalized) {
                 state.openFence = fence
                 state.lastNonBlankWasListLike = false
             } else if let html = opensHTMLBlock(trimmed) {
@@ -154,12 +155,14 @@ public struct MarkdownBoundaryScanner: Sendable, Hashable {
     }
 
     private func opensFence(_ line: String) -> MarkdownBoundaryFence? {
-        guard line.hasPrefix("```") || line.hasPrefix("~~~") else {
+        guard let content = lineAfterAllowedFenceIndent(line),
+              content.hasPrefix("```") || content.hasPrefix("~~~")
+        else {
             return nil
         }
 
-        let marker = line.first ?? "`"
-        let count = line.prefix { $0 == marker }.count
+        let marker = content.first ?? "`"
+        let count = content.prefix { $0 == marker }.count
         guard count >= 3 else {
             return nil
         }
@@ -168,8 +171,38 @@ public struct MarkdownBoundaryScanner: Sendable, Hashable {
     }
 
     private func closesFence(_ line: String, fence: MarkdownBoundaryFence) -> Bool {
-        let count = line.prefix { $0 == fence.marker }.count
-        return count >= fence.length
+        guard let content = lineAfterAllowedFenceIndent(line) else {
+            return false
+        }
+
+        let count = content.prefix { $0 == fence.marker }.count
+        guard count >= fence.length else {
+            return false
+        }
+
+        return content.dropFirst(count).allSatisfy(\.isWhitespace)
+    }
+
+    private func lineAfterAllowedFenceIndent(_ line: String) -> Substring? {
+        var index = line.startIndex
+        var leadingSpaces = 0
+
+        while index < line.endIndex {
+            switch line[index] {
+            case " ":
+                leadingSpaces += 1
+                guard leadingSpaces <= 3 else {
+                    return nil
+                }
+                index = line.index(after: index)
+            case "\t":
+                return nil
+            default:
+                return line[index...]
+            }
+        }
+
+        return line[index...]
     }
 
     private func opensHTMLBlock(_ line: String) -> MarkdownBoundaryHTMLBlock? {
