@@ -12,17 +12,19 @@ public struct MarkdownBlockView: View {
         configuration.theme
     }
 
+    @available(*, deprecated, message: "Prepare block content outside SwiftUI update paths and use init(block:configuration:preparedContent:) for streaming or large documents.")
     public init(block: MarkdownBlock, theme: MarkdownTheme = .compactChat) {
         self.block = block
         self.configuration = MarkdownRendererConfiguration(theme: theme, inlineRenderingMode: .preparedNativeLines)
-        self.preparedContent = self.configuration.prepare(block: block)
+        self.preparedContent = self.configuration.unpreparedContent(for: block)
         _isCodeBlockCollapsed = State(initialValue: self.configuration.theme.codeBlockAffordances.startsCollapsed)
     }
 
+    @available(*, deprecated, message: "Prepare block content outside SwiftUI update paths and use init(block:configuration:preparedContent:) for streaming or large documents.")
     public init(block: MarkdownBlock, configuration: MarkdownRendererConfiguration) {
         self.block = block
         self.configuration = configuration
-        self.preparedContent = configuration.prepare(block: block)
+        self.preparedContent = configuration.unpreparedContent(for: block)
         _isCodeBlockCollapsed = State(initialValue: configuration.theme.codeBlockAffordances.startsCollapsed)
     }
 
@@ -33,7 +35,7 @@ public struct MarkdownBlockView: View {
     ) {
         self.block = block
         self.configuration = configuration
-        self.preparedContent = preparedContent ?? configuration.prepare(block: block)
+        self.preparedContent = preparedContent ?? configuration.unpreparedContent(for: block)
         _isCodeBlockCollapsed = State(initialValue: configuration.theme.codeBlockAffordances.startsCollapsed)
     }
 

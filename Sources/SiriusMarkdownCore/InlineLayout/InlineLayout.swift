@@ -20,6 +20,7 @@ public struct PreparedInlineContent: Sendable, Hashable {
 
 public struct PreparedInlineSegment: Sendable, Hashable {
     public var kind: MarkdownInlineKind
+    public var presentation: MarkdownInlinePresentation
     public var text: String
     public var byteRange: Range<Int>
     public var isHardBreak: Bool
@@ -27,12 +28,14 @@ public struct PreparedInlineSegment: Sendable, Hashable {
 
     public init(
         kind: MarkdownInlineKind,
+        presentation: MarkdownInlinePresentation? = nil,
         text: String,
         byteRange: Range<Int>,
         isHardBreak: Bool = false,
         isBreakOpportunity: Bool = false
     ) {
         self.kind = kind
+        self.presentation = presentation ?? MarkdownInlinePresentation.defaultPresentation(for: kind)
         self.text = text
         self.byteRange = byteRange
         self.isHardBreak = isHardBreak
@@ -49,6 +52,7 @@ public struct PreparedInlineSegment: Sendable, Hashable {
                 segments.append(
                     PreparedInlineSegment(
                         kind: run.kind,
+                        presentation: run.presentation,
                         text: run.text,
                         byteRange: cursor..<upper,
                         isHardBreak: true,
@@ -59,11 +63,12 @@ public struct PreparedInlineSegment: Sendable, Hashable {
                 continue
             }
 
-            if run.kind == .code || run.kind == .image || run.kind == .math {
+            if run.isAtomicInlineLayoutRun {
                 let upper = cursor + run.text.utf8.count
                 segments.append(
                     PreparedInlineSegment(
                         kind: run.kind,
+                        presentation: run.presentation,
                         text: run.text,
                         byteRange: cursor..<upper,
                         isHardBreak: false,
@@ -79,6 +84,7 @@ public struct PreparedInlineSegment: Sendable, Hashable {
                 segments.append(
                     PreparedInlineSegment(
                         kind: run.kind,
+                        presentation: run.presentation,
                         text: token.text,
                         byteRange: cursor..<upper,
                         isHardBreak: token.isHardBreak,
@@ -127,6 +133,17 @@ public struct PreparedInlineSegment: Sendable, Hashable {
         }
 
         return tokens
+    }
+}
+
+private extension MarkdownInlineRun {
+    var isAtomicInlineLayoutRun: Bool {
+        kind == .code ||
+            kind == .image ||
+            kind == .math ||
+            presentation.contains(.code) ||
+            presentation.contains(.image) ||
+            presentation.contains(.math)
     }
 }
 
@@ -276,7 +293,7 @@ public struct CoreTextInlineMeasurer: InlineMeasuring {
         width(
             of: segment.text,
             fontSize: fontSize,
-            profile: profiles.profile(for: segment.kind)
+            profile: profiles.profile(for: segment.presentation, kind: segment.kind)
         )
     }
 
@@ -624,6 +641,7 @@ public struct VariableWidthLineWalker<Measurer: InlineMeasuring>: Sendable {
         preferredBreakPieces(for: segment).enumerated().flatMap { index, piece -> [MeasuredInlineUnit] in
             let pieceSegment = PreparedInlineSegment(
                 kind: segment.kind,
+                presentation: segment.presentation,
                 text: piece.text,
                 byteRange: piece.byteRange,
                 isHardBreak: false,
@@ -659,6 +677,7 @@ public struct VariableWidthLineWalker<Measurer: InlineMeasuring>: Sendable {
                     width: measurer.width(
                         of: PreparedInlineSegment(
                             kind: segment.kind,
+                            presentation: segment.presentation,
                             text: characterText,
                             byteRange: cursor..<upper,
                             isHardBreak: false,
@@ -1001,6 +1020,7 @@ public struct InlineLayoutEngine<Measurer: InlineMeasuring>: Sendable {
         var hash: UInt64 = 0xcbf29ce484222325
         for run in runs {
             hash = append(run.kind.rawValue, to: hash)
+            hash = append(String(run.presentation.rawValue), to: hash)
             hash = append(run.text, to: hash)
             if let destination = run.destination {
                 hash = append(destination, to: hash)
@@ -1024,6 +1044,7 @@ public struct InlineLayoutEngine<Measurer: InlineMeasuring>: Sendable {
     private func preparedSegmentHash(_ segment: PreparedInlineSegment, initialHash: UInt64) -> UInt64 {
         var hash = initialHash
         hash = append(segment.kind.rawValue, to: hash)
+        hash = append(String(segment.presentation.rawValue), to: hash)
         hash = append(segment.text, to: hash)
         hash = append("\(segment.byteRange.lowerBound)..<\(segment.byteRange.upperBound)", to: hash)
         hash = append(segment.isHardBreak ? "hard" : "soft", to: hash)

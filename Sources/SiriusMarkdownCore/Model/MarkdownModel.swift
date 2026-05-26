@@ -72,6 +72,40 @@ public enum MarkdownInlineKind: String, Sendable, Hashable, Codable {
     case math
 }
 
+public struct MarkdownInlinePresentation: OptionSet, Sendable, Hashable {
+    public var rawValue: Int
+
+    public init(rawValue: Int) {
+        self.rawValue = rawValue
+    }
+
+    public static let emphasis = MarkdownInlinePresentation(rawValue: 1 << 0)
+    public static let strong = MarkdownInlinePresentation(rawValue: 1 << 1)
+    public static let strikethrough = MarkdownInlinePresentation(rawValue: 1 << 2)
+    public static let code = MarkdownInlinePresentation(rawValue: 1 << 3)
+    public static let math = MarkdownInlinePresentation(rawValue: 1 << 4)
+    public static let image = MarkdownInlinePresentation(rawValue: 1 << 5)
+
+    public static func defaultPresentation(for kind: MarkdownInlineKind) -> MarkdownInlinePresentation {
+        switch kind {
+        case .emphasis:
+            return .emphasis
+        case .strong:
+            return .strong
+        case .strikethrough:
+            return .strikethrough
+        case .code:
+            return .code
+        case .math:
+            return .math
+        case .image:
+            return .image
+        default:
+            return []
+        }
+    }
+}
+
 public enum MarkdownTaskState: String, Sendable, Hashable, Codable {
     case checked
     case unchecked
@@ -88,17 +122,20 @@ public struct MarkdownInlineRun: Sendable, Hashable {
     public var text: String
     public var sourceRange: MarkdownSourceRange?
     public var destination: String?
+    public var presentation: MarkdownInlinePresentation
 
     public init(
         kind: MarkdownInlineKind,
         text: String,
         sourceRange: MarkdownSourceRange? = nil,
-        destination: String? = nil
+        destination: String? = nil,
+        presentation: MarkdownInlinePresentation? = nil
     ) {
         self.kind = kind
         self.text = text
         self.sourceRange = sourceRange
         self.destination = destination
+        self.presentation = presentation ?? MarkdownInlinePresentation.defaultPresentation(for: kind)
     }
 }
 

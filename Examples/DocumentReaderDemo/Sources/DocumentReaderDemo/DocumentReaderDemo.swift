@@ -510,7 +510,7 @@ private enum DemoDocument {
 
     > The reader is not a benchmark panel. It is a product surface that proves a prepared Markdown document can behave like native reading material.
 
-    A useful reader still needs Markdown fidelity. Inline runs such as **strong text**, *emphasis*, ~~revisions~~, `code spans`, safe [reference links](https://example.com/reference), and denied [script links](javascript:alert('blocked')) should all flow inside the same paragraph without stealing attention from the prose.
+    A useful reader still needs Markdown fidelity. Inline runs such as **strong text**, *emphasis*, ~~revisions~~, `code spans`, safe [inline links](https://example.com/reference), [reference-style links][reader-reference], [**strong reference links**][strong-reader-reference], and denied [script links](javascript:alert('blocked')) should all flow inside the same paragraph without stealing attention from the prose.
 
     ## Working Notes
 
@@ -581,6 +581,9 @@ private enum DemoDocument {
         C --> D[Prepare]
         D --> E[Render]
     ```
+
+    [reader-reference]: https://example.com/reader/reference
+    [strong-reader-reference]: https://example.com/reader/strong-reference
     """
 
     private static func cachedStressAppendix(sectionCount: Int) -> String {

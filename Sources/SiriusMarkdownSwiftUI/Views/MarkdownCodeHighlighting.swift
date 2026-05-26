@@ -457,8 +457,9 @@ private final class HighlightJavaScriptRuntime: @unchecked Sendable {
     }
 
     private static func makeJSString(_ string: String) -> JSStringRef? {
-        string.withCString { pointer in
-            JSStringCreateWithUTF8CString(pointer)
+        var utf16 = Array(string.utf16)
+        return utf16.withUnsafeMutableBufferPointer { buffer in
+            JSStringCreateWithCharacters(buffer.baseAddress, buffer.count)
         }
     }
 

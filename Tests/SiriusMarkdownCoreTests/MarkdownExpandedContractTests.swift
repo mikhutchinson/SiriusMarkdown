@@ -212,6 +212,173 @@ private func parserClassifiesInlineRuns(inlineCase: InlineCase) {
 }
 
 @Test
+private func parserPreservesNestedInlinePresentationAndLinks() throws {
+    var stream = MarkdownStream()
+    stream.append("**[strong link](https://example.com)** and [*em link*](https://example.org) plus ~~[gone](https://example.net)~~")
+    stream.finish()
+
+    let runs = try #require(stream.snapshot().blocks.first?.inlines)
+    let strongLink = try #require(runs.first { $0.text == "strong link" })
+    let emphasisLink = try #require(runs.first { $0.text == "em link" })
+    let strikeLink = try #require(runs.first { $0.text == "gone" })
+
+    #expect(strongLink.kind == .link)
+    #expect(strongLink.destination == "https://example.com")
+    #expect(strongLink.presentation.contains(.strong))
+
+    #expect(emphasisLink.kind == .link)
+    #expect(emphasisLink.destination == "https://example.org")
+    #expect(emphasisLink.presentation.contains(.emphasis))
+
+    #expect(strikeLink.kind == .link)
+    #expect(strikeLink.destination == "https://example.net")
+    #expect(strikeLink.presentation.contains(.strikethrough))
+}
+
+@Test
+private func streamedReferenceLinksResolveLikeWholeDocument() throws {
+    let markdown = """
+    Intro [later][ref].
+
+    Tail paragraph.
+
+    [ref]: https://example.com/reference
+    """
+
+    var streamed = MarkdownStream()
+    streamed.append("Intro [later][ref].\n\n")
+    #expect(streamed.snapshot().blocks.first?.isSealed == false)
+    streamed.append("Tail paragraph.\n\n")
+    streamed.append("[ref]: https://example.com/reference")
+    streamed.finish()
+
+    var oneShot = MarkdownStream()
+    oneShot.append(markdown)
+    oneShot.finish()
+
+    let streamedLink = try #require(streamed.snapshot().blocks.first?.inlines.first { $0.kind == .link })
+    let oneShotLink = try #require(oneShot.snapshot().blocks.first?.inlines.first { $0.kind == .link })
+    #expect(streamedLink.text == "later")
+    #expect(streamedLink.destination == "https://example.com/reference")
+    #expect(streamedLink == oneShotLink)
+}
+
+@Test
+private func streamedReferenceDefinitionsResolveLaterReferencesLikeWholeDocument() throws {
+    let markdown = """
+    [ref]: https://example.com/reference
+
+    Uses [the ref][ref].
+    """
+
+    var streamed = MarkdownStream()
+    streamed.append("[ref]: https://example.com/reference\n\n")
+    #expect(streamed.diagnosticsCounters.sealedRegionParseCount == 1)
+    streamed.append("Uses [the ref][ref].\n\n")
+    #expect(streamed.diagnosticsCounters.sealedRegionParseCount == 2)
+
+    var oneShot = MarkdownStream()
+    oneShot.append(markdown)
+    oneShot.finish()
+
+    let streamedBlock = try #require(streamed.snapshot().blocks.first)
+    let streamedLink = try #require(streamedBlock.inlines.first { $0.kind == .link })
+    let oneShotLink = try #require(oneShot.snapshot().blocks.first?.inlines.first { $0.kind == .link })
+    #expect(streamedBlock.isSealed)
+    #expect(streamedLink.text == "the ref")
+    #expect(streamedLink.destination == "https://example.com/reference")
+    #expect(streamedLink == oneShotLink)
+}
+
+@Test
+private func streamedReferenceDefinitionsIgnoreFencedCodeDefinitionsLikeWholeDocument() throws {
+    let codeChunk = "```text\n[ref]: https://code.example\n```\n\n"
+    let referenceChunk = "Uses [the ref][ref].\n\n"
+    let definitionChunk = "[ref]: https://example.com/reference\n\n"
+    let markdown = codeChunk + referenceChunk + definitionChunk
+
+    var streamed = MarkdownStream()
+    streamed.append(codeChunk)
+    #expect(streamed.diagnosticsCounters.sealedRegionParseCount == 1)
+    streamed.append(referenceChunk)
+    #expect(streamed.diagnosticsCounters.sealedRegionParseCount == 1)
+    streamed.append(definitionChunk)
+    #expect(streamed.diagnosticsCounters.sealedRegionParseCount == 2)
+
+    var oneShot = MarkdownStream()
+    oneShot.append(markdown)
+    oneShot.finish()
+
+    let streamedLink = try #require(
+        streamed.snapshot().blocks.first(where: { $0.text.contains("Uses") })?.inlines.first { $0.kind == .link }
+    )
+    let oneShotLink = try #require(
+        oneShot.snapshot().blocks.first(where: { $0.text.contains("Uses") })?.inlines.first { $0.kind == .link }
+    )
+    #expect(streamedLink.text == "the ref")
+    #expect(streamedLink.destination == "https://example.com/reference")
+    #expect(streamedLink.text == oneShotLink.text)
+    #expect(streamedLink.destination == oneShotLink.destination)
+}
+
+@Test
+private func streamedReferenceDefinitionsIgnoreHTMLDefinitionsLikeWholeDocument() throws {
+    let htmlChunk = "<div>\n[ref]: https://html.example\n</div>\n\n"
+    let referenceChunk = "Uses [the ref][ref].\n\n"
+    let definitionChunk = "[ref]: https://example.com/reference\n\n"
+    let markdown = htmlChunk + referenceChunk + definitionChunk
+
+    var streamed = MarkdownStream()
+    streamed.append(htmlChunk)
+    #expect(streamed.diagnosticsCounters.sealedRegionParseCount == 1)
+    streamed.append(referenceChunk)
+    #expect(streamed.diagnosticsCounters.sealedRegionParseCount == 1)
+    streamed.append(definitionChunk)
+    #expect(streamed.diagnosticsCounters.sealedRegionParseCount == 2)
+
+    var oneShot = MarkdownStream()
+    oneShot.append(markdown)
+    oneShot.finish()
+
+    let streamedLink = try #require(
+        streamed.snapshot().blocks.first(where: { $0.text.contains("Uses") })?.inlines.first { $0.kind == .link }
+    )
+    let oneShotLink = try #require(
+        oneShot.snapshot().blocks.first(where: { $0.text.contains("Uses") })?.inlines.first { $0.kind == .link }
+    )
+    #expect(streamedLink.text == "the ref")
+    #expect(streamedLink.destination == "https://example.com/reference")
+    #expect(streamedLink.text == oneShotLink.text)
+    #expect(streamedLink.destination == oneShotLink.destination)
+}
+
+@Test
+private func streamedReferenceCandidatesSealAfterMatchingDefinitionArrives() throws {
+    let markdown = """
+    Intro [later][ref].
+
+    [ref]: https://example.com/reference
+    """
+
+    var streamed = MarkdownStream()
+    streamed.append("Intro [later][ref].\n\n")
+    #expect(streamed.diagnosticsCounters.sealedRegionParseCount == 0)
+    streamed.append("[ref]: https://example.com/reference\n\n")
+    #expect(streamed.diagnosticsCounters.sealedRegionParseCount == 1)
+
+    var oneShot = MarkdownStream()
+    oneShot.append(markdown)
+    oneShot.finish()
+
+    let streamedBlock = try #require(streamed.snapshot().blocks.first)
+    let streamedLink = try #require(streamedBlock.inlines.first { $0.kind == .link })
+    let oneShotLink = try #require(oneShot.snapshot().blocks.first?.inlines.first { $0.kind == .link })
+    #expect(streamedBlock.isSealed)
+    #expect(streamedLink.destination == "https://example.com/reference")
+    #expect(streamedLink == oneShotLink)
+}
+
+@Test
 private func parserConvertsStructuredTaskListItemsFromAST() {
     var stream = MarkdownStream()
     stream.append("- [ ] first\n- [x] second")
@@ -246,6 +413,37 @@ private func parserConvertsNestedListItemsFromAST() {
     #expect(item?.inlines.map(\.text).joined() == "parent")
     #expect(item?.childItems.count == 1)
     #expect(item?.childItems.first?.text.contains("child") == true)
+}
+
+@Test
+private func parserDoesNotDropStructuredChildrenInsideBlockQuotesAndListItems() throws {
+    var quoteStream = MarkdownStream()
+    quoteStream.append("> before\n>\n> ```swift\n> let value = 1\n> ```")
+    quoteStream.finish()
+
+    let quote = try #require(quoteStream.snapshot().blocks.first)
+    #expect(quote.kind == .blockQuote)
+    #expect(quote.inlines.map(\.text).joined().contains("let value = 1"))
+    #expect(quote.inlines.contains { $0.kind == .code })
+
+    var listStream = MarkdownStream()
+    listStream.append("- before\n\n  ```swift\n  let nested = 2\n  ```")
+    listStream.finish()
+
+    let item = try #require(listStream.snapshot().blocks.first?.listItems.first)
+    #expect(item.inlines.map(\.text).joined().contains("let nested = 2"))
+    #expect(item.inlines.contains { $0.kind == .code })
+}
+
+@Test
+private func parserPreservesParagraphBreaksInsideLooseListItems() throws {
+    var stream = MarkdownStream()
+    stream.append("- first paragraph\n\n  second paragraph")
+    stream.finish()
+
+    let item = try #require(stream.snapshot().blocks.first?.listItems.first)
+    #expect(item.inlines.map(\.text).joined() == "first paragraph\nsecond paragraph")
+    #expect(item.inlines.contains { $0.kind == .hardBreak })
 }
 
 @Test
@@ -435,6 +633,32 @@ final class SegmentRecordingMeasurer: InlineMeasuring, @unchecked Sendable {
     }
 }
 
+final class SegmentPresentationRecordingMeasurer: InlineMeasuring, @unchecked Sendable {
+    private let lock = NSLock()
+    private var recordedSegments: [(text: String, presentation: MarkdownInlinePresentation)] = []
+
+    var measurementCacheKey: String {
+        "segment-presentation-recording"
+    }
+
+    func width(of text: String, fontSize: Double) -> Double {
+        Double(text.utf8.count)
+    }
+
+    func width(of segment: PreparedInlineSegment, fontSize: Double) -> Double {
+        lock.withLock {
+            recordedSegments.append((segment.text, segment.presentation))
+        }
+        return Double(segment.text.utf8.count)
+    }
+
+    var segments: [(text: String, presentation: MarkdownInlinePresentation)] {
+        lock.withLock {
+            recordedSegments
+        }
+    }
+}
+
 private struct LayoutCase: Sendable {
     var text: String
     var width: Double
@@ -564,6 +788,55 @@ private func variableWidthWalkerMeasuresSegmentsWithSemanticKinds() {
     #expect(kinds.contains(.code))
     #expect(kinds.contains(.math))
     #expect(kinds.contains(.image))
+}
+
+@Test
+private func preparedInlineContentKeepsAtomicPresentationRunsAsSingleSegments() {
+    let linkedCode = MarkdownInlineRun(
+        kind: .link,
+        text: "let value = 1",
+        destination: "https://example.com/code",
+        presentation: .code
+    )
+    let linkedMath = MarkdownInlineRun(
+        kind: .link,
+        text: "x + y",
+        destination: "https://example.com/math",
+        presentation: .math
+    )
+
+    let prepared = PreparedInlineContent(runs: [linkedCode, .init(kind: .text, text: " "), linkedMath])
+
+    #expect(prepared.segments.count == 3)
+    #expect(prepared.segments[0].text == "let value = 1")
+    #expect(prepared.segments[0].presentation.contains(.code))
+    #expect(prepared.segments[0].isBreakOpportunity == false)
+    #expect(prepared.segments[2].text == "x + y")
+    #expect(prepared.segments[2].presentation.contains(.math))
+    #expect(prepared.segments[2].isBreakOpportunity == false)
+}
+
+@Test
+private func overwideFallbackPreservesAtomicPresentationDuringUnitMeasurement() {
+    let run = MarkdownInlineRun(
+        kind: .link,
+        text: "x + y",
+        destination: "https://example.com/math",
+        presentation: .math
+    )
+    let prepared = PreparedInlineContent(runs: [run])
+    let measurer = SegmentPresentationRecordingMeasurer()
+    let walker = VariableWidthLineWalker(measurer: measurer)
+    let measured = walker.prepare(prepared, fontSize: 1)
+
+    _ = walker.layout(
+        measured,
+        options: InlineLayoutOptions(containerWidth: 1, fontSize: 1, lineHeight: 2)
+    )
+
+    let unitMeasurements = measurer.segments.filter { $0.text.utf8.count == 1 }
+    #expect(unitMeasurements.count >= 5)
+    #expect(unitMeasurements.allSatisfy { $0.presentation.contains(.math) })
 }
 
 @Test

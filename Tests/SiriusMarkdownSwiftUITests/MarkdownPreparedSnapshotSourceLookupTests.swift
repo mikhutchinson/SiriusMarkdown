@@ -1,4 +1,5 @@
 import Foundation
+import Combine
 import SwiftUI
 import Testing
 import SiriusMarkdownCore
@@ -19,7 +20,7 @@ private func sourceRange(of substring: String, in source: String) -> MarkdownSou
 
 @Test
 @MainActor
-func preparedSnapshotForwardsSourceLookupWithoutPreparingAgain() throws {
+func preparedSnapshotForwardsSourceLookupWithoutPreparingAgain() async throws {
     let renderRecorder = MarkdownDiagnosticsRecorder()
     let session = MarkdownRenderSession(
         configuration: MarkdownRendererConfiguration(
@@ -29,6 +30,7 @@ func preparedSnapshotForwardsSourceLookupWithoutPreparingAgain() throws {
     )
     session.append("# Title\n\nBody paragraph.\n")
     session.finish()
+    await session.waitUntilIdle()
 
     let prepareCountBefore = renderRecorder.snapshot().prepareCount
     let line = session.preparedSnapshot.snapshot.blocks.first?.sourceRange.lineRange.lowerBound ?? 1
@@ -42,13 +44,15 @@ func preparedSnapshotForwardsSourceLookupWithoutPreparingAgain() throws {
 
 @Test
 @MainActor
-func renderSessionLookupUpdatesAfterAppendAndReset() throws {
+func renderSessionLookupUpdatesAfterAppendAndReset() async throws {
     let session = MarkdownRenderSession(configuration: .document)
     session.append("# First\n\n")
+    await session.waitUntilIdle()
     let firstHeadingID = try #require(session.blockID(containingSourceLine: 1))
 
     session.append("Second section.\n")
     session.finish()
+    await session.waitUntilIdle()
     let secondParagraphLine = try #require(
         session.snapshot.blocks.first { $0.kind == .paragraph }?.sourceRange.lineRange.lowerBound
     )
@@ -58,6 +62,7 @@ func renderSessionLookupUpdatesAfterAppendAndReset() throws {
     session.reset()
     session.append("# Replacement\n")
     session.finish()
+    await session.waitUntilIdle()
     let replacementHeading = try #require(session.snapshot.blocks.first)
     #expect(replacementHeading.text.contains("Replacement"))
     #expect(session.blockID(containingSourceLine: secondParagraphLine) == nil)
@@ -65,23 +70,59 @@ func renderSessionLookupUpdatesAfterAppendAndReset() throws {
 
 @Test
 @MainActor
-func renderSessionTailAppendKeepsRevealTargetStable() throws {
+func renderSessionResetSuppressesStaleQueuedAppendPublication() async {
+    let configuration = MarkdownRendererConfiguration(
+        theme: .document,
+        codeHighlighter: SlowCodeHighlighter(delay: 0.05)
+    )
+    let session = MarkdownRenderSession(configuration: configuration)
+    var resetIssued = false
+    var postResetSourceLengths: [Int] = []
+    let cancellable = session.$snapshot.dropFirst().sink { snapshot in
+        if resetIssued {
+            postResetSourceLengths.append(snapshot.sourceLength)
+        }
+    }
+
+    session.append(
+        """
+        ```swift
+        let stale = true
+        ```
+        """
+    )
+    resetIssued = true
+    session.reset()
+    await session.waitUntilIdle()
+    cancellable.cancel()
+
+    #expect(postResetSourceLengths == [0])
+    #expect(session.snapshot.sourceLength == 0)
+    #expect(session.preparedSnapshot.snapshot.sourceLength == 0)
+}
+
+@Test
+@MainActor
+func renderSessionTailAppendKeepsRevealTargetStable() async throws {
     let session = MarkdownRenderSession(configuration: .document)
     session.append("# Title\n\nStreaming")
+    await session.waitUntilIdle()
     let before = try #require(session.blockID(containingSourceLine: 1))
 
     session.append(" tail")
+    await session.waitUntilIdle()
     let during = try #require(session.blockID(containingSourceLine: 1))
     #expect(before == during)
 }
 
 @Test
 @MainActor
-func selectionControllerSelectSourceLineHighlightsResolvedBlock() throws {
+func selectionControllerSelectSourceLineHighlightsResolvedBlock() async throws {
     let source = "# Title\n\nFirst paragraph.\n\nSecond paragraph.\n"
     let session = MarkdownRenderSession(configuration: .document)
     session.append(source)
     session.finish()
+    await session.waitUntilIdle()
 
     let controller = MarkdownSelectionController()
     let heading = try #require(session.snapshot.blocks.first { $0.kind == .heading })
@@ -94,11 +135,12 @@ func selectionControllerSelectSourceLineHighlightsResolvedBlock() throws {
 
 @Test
 @MainActor
-func selectionControllerSelectSourceRangeUsesOverlappingBlocks() throws {
+func selectionControllerSelectSourceRangeUsesOverlappingBlocks() async throws {
     let source = "# One\n\nTwo\n\nThree\n"
     let session = MarkdownRenderSession(configuration: .document)
     session.append(source)
     session.finish()
+    await session.waitUntilIdle()
 
     let controller = MarkdownSelectionController()
     let blocks = session.snapshot.blocks
@@ -114,11 +156,12 @@ func selectionControllerSelectSourceRangeUsesOverlappingBlocks() throws {
 
 @Test
 @MainActor
-func selectionControllerSelectSourceRangeUsesNearestFallbackInGap() throws {
+func selectionControllerSelectSourceRangeUsesNearestFallbackInGap() async throws {
     let source = "First.\n\nSecond.\n"
     let session = MarkdownRenderSession(configuration: .document)
     session.append(source)
     session.finish()
+    await session.waitUntilIdle()
 
     let first = try #require(session.snapshot.blocks.first)
     let second = try #require(session.snapshot.blocks.last)
@@ -133,11 +176,12 @@ func selectionControllerSelectSourceRangeUsesNearestFallbackInGap() throws {
 
 @Test
 @MainActor
-func selectionControllerSelectSourceLineUsesNearestFallbackInGap() throws {
+func selectionControllerSelectSourceLineUsesNearestFallbackInGap() async throws {
     let source = "First.\n\nSecond.\n"
     let session = MarkdownRenderSession(configuration: .document)
     session.append(source)
     session.finish()
+    await session.waitUntilIdle()
 
     let first = try #require(session.snapshot.blocks.first)
     let second = try #require(session.snapshot.blocks.last)
@@ -147,4 +191,17 @@ func selectionControllerSelectSourceLineUsesNearestFallbackInGap() throws {
     controller.selectSourceLine(gapLine, in: session.snapshot)
     #expect(controller.selectedBlockIDs == [second.id])
     #expect(controller.selectedSourceRanges == [second.sourceRange])
+}
+
+private final class SlowCodeHighlighter: MarkdownCodeHighlighter, @unchecked Sendable {
+    private let delay: TimeInterval
+
+    init(delay: TimeInterval) {
+        self.delay = delay
+    }
+
+    func highlightedCode(_ code: String, infoString _: String?) -> AttributedString {
+        Thread.sleep(forTimeInterval: delay)
+        return AttributedString(code)
+    }
 }

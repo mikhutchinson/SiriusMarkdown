@@ -9,20 +9,40 @@ public protocol MarkdownLinkPolicy: Sendable {
     func evaluateLink(destination: String) -> MarkdownPolicyDecision
 }
 
+public protocol MarkdownLinkPolicyCacheIdentifying: Sendable {
+    var linkPolicyCacheIdentity: String { get }
+}
+
 public protocol MarkdownImagePolicy: Sendable {
     func evaluateImage(source: String, altText: String?) -> MarkdownPolicyDecision
+}
+
+public protocol MarkdownImagePolicyCacheIdentifying: Sendable {
+    var imagePolicyCacheIdentity: String { get }
 }
 
 public protocol MarkdownHTMLPolicy: Sendable {
     func evaluateHTML(_ html: String) -> MarkdownPolicyDecision
 }
 
+public protocol MarkdownHTMLPolicyCacheIdentifying: Sendable {
+    var htmlPolicyCacheIdentity: String { get }
+}
+
 public protocol MarkdownCodePolicy: Sendable {
     func evaluateCodeBlock(infoString: String?, code: String) -> MarkdownPolicyDecision
 }
 
+public protocol MarkdownCodePolicyCacheIdentifying: Sendable {
+    var codePolicyCacheIdentity: String { get }
+}
+
 public protocol MarkdownMathPolicy: Sendable {
     func evaluateMath(_ source: String, isBlock: Bool) -> MarkdownPolicyDecision
+}
+
+public protocol MarkdownMathPolicyCacheIdentifying: Sendable {
+    var mathPolicyCacheIdentity: String { get }
 }
 
 public struct DefaultMarkdownPolicy:
@@ -30,9 +50,34 @@ public struct DefaultMarkdownPolicy:
     MarkdownImagePolicy,
     MarkdownHTMLPolicy,
     MarkdownCodePolicy,
-    MarkdownMathPolicy
+    MarkdownMathPolicy,
+    MarkdownLinkPolicyCacheIdentifying,
+    MarkdownImagePolicyCacheIdentifying,
+    MarkdownHTMLPolicyCacheIdentifying,
+    MarkdownCodePolicyCacheIdentifying,
+    MarkdownMathPolicyCacheIdentifying
 {
     public init() {}
+
+    public var linkPolicyCacheIdentity: String {
+        "siriusmarkdown.default-link-policy.v1"
+    }
+
+    public var imagePolicyCacheIdentity: String {
+        "siriusmarkdown.default-image-policy.v1"
+    }
+
+    public var htmlPolicyCacheIdentity: String {
+        "siriusmarkdown.default-html-policy.v1"
+    }
+
+    public var codePolicyCacheIdentity: String {
+        "siriusmarkdown.default-code-policy.v1"
+    }
+
+    public var mathPolicyCacheIdentity: String {
+        "siriusmarkdown.default-math-policy.v1"
+    }
 
     public func evaluateLink(destination: String) -> MarkdownPolicyDecision {
         let trimmed = destination.trimmingCharacters(in: .whitespacesAndNewlines)

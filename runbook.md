@@ -1,6 +1,6 @@
 # Runbook
 
-This runbook is the local release authority for `SiriusMarkdown`. For the current public package release, use `0.4.20` as the tag and do not publish unless every release blocker below is clear.
+This runbook is the local release authority for `SiriusMarkdown`. For the current public package release, use `0.4.21` as the tag and do not publish unless every release blocker below is clear.
 
 ## Build
 
@@ -30,7 +30,8 @@ Parser acceptance for the current slice:
 - `MarkdownBlock` IDs must be stable while appending to the active tail and after sealing. Do not include mutable upper bounds or content hashes in the identity. Use `contentHash` for cache keys.
 - The render model must expose parser-owned structure for task states, ordered-list starts, nested list items, table cells, table alignments, code info strings, HTML blocks, math blocks, and inline destinations.
 - Whole-document parse and streamed parse must match for block IDs, kinds, and text across the chunk matrix.
-- Boundary scanner changes must preserve conservative handling for code fences, math fences, HTML blocks, loose-list ambiguity, blank-line stability, and CRLF-vs-LF equivalence.
+- Boundary scanner changes must preserve conservative handling for code fences, math fences, HTML blocks, reference-link ambiguity, loose-list ambiguity, blank-line stability, and CRLF-vs-LF equivalence.
+- Reference-style links must keep `swift-markdown` as semantic owner. Streaming may track labels to decide when sealing is safe and may pass sealed reference definitions into later slice parses, but it must not classify final link semantics outside the parser. Do not carry raw `[label]: ...` text forward from fenced code, HTML, or other parsed non-definition content.
 - Code-fence close candidates must match CommonMark closer shape: no tabs or more than three leading spaces before the marker, at least the opening marker length, and only whitespace after the marker run. Trailing text or four-space-indented marker content inside a fence must not seal the stream.
 
 Layout and renderer acceptance for the current slice:
@@ -38,7 +39,7 @@ Layout and renderer acceptance for the current slice:
 - Inline layout must keep the Pretext-shaped contract: call `prepare` to tokenize and measure, then call cheap `layout` for width changes. Tests should prove `layout(MeasuredInlineContent, ...)` does not call the measurer again.
 - Renderer preparation must not eagerly populate per-character unit measurements. Unit fallback measurement is only allowed for explicit overwide fallback paths, and SwiftUI view-time layout must be able to refuse that fallback.
 - SwiftUI `body` must not parse Markdown, syntax highlight, or run custom per-inline measurement/wrapping. `InlineRunsView` should consume prepared inline content with measured segments instead of installing a custom SwiftUI `Layout`.
-- Use `MarkdownRenderSession` or `MarkdownRendererConfiguration.prepare(snapshot:)` in model/controller code and pass `MarkdownPreparedSnapshot` into `MarkdownDocumentView` or `StreamingMarkdownView`. Deprecated direct `snapshot:` view initializers are compatibility shims, not the streaming/document path.
+- Use `MarkdownRenderSession` or `MarkdownRendererConfiguration.prepare(snapshot:)` in model/controller code and pass `MarkdownPreparedSnapshot` into `MarkdownDocumentView` or `StreamingMarkdownView`. Deprecated direct `snapshot:` view initializers are compatibility shims, not the streaming/document path; they may enforce cheap safety policy decisions but must not run full highlighting, math rendering, or inline preparation synchronously.
 - Renderer configuration must be protocol-driven for link, image, HTML, code, math, code highlighting, and math rendering hooks.
 - Default code highlighting must stay language-aware, pluggable, and conservative: explicit supported languages may be highlighted through the JavaScriptCore/highlight.js backend where available; plaintext, nohighlight, unlabeled, unsupported, unavailable-runtime, and failed-backend fences should render plainly.
 - Document and code affordances must stay generic, source-backed, and replaceable. `MarkdownDocumentSurface` may own copy/export/collapse chrome, `MarkdownCodeBlockAffordances` may own code chrome visibility, and `MarkdownAffordanceActionHandler` may own platform actions; none of these APIs may hardcode private Sirius app concepts. Shared affordance icons are decorative SF Symbols; accessibility labels and help text belong on the enclosing buttons.
@@ -131,7 +132,7 @@ Run this before claiming native-renderer product quality. It wraps the release g
 
 ## Public Release Checklist
 
-Use this checklist for `0.4.20`.
+Use this checklist for `0.4.21`.
 
 1. Confirm public hygiene:
 
@@ -166,15 +167,15 @@ Use this checklist for `0.4.20`.
 
    ```sh
    git add README.md runbook.md NOTICE.md changelog.md bugfix.md Docs Sources Tests Examples Tools Package.swift Package.resolved
-   git commit -m "Prepare SiriusMarkdown 0.4.20 release"
+   git commit -m "Prepare SiriusMarkdown 0.4.21 release"
    ```
 
 6. Tag and push:
 
    ```sh
-   git tag -a 0.4.20 -m "SiriusMarkdown 0.4.20"
+   git tag -a 0.4.21 -m "SiriusMarkdown 0.4.21"
    git push origin HEAD
-   git push origin 0.4.20
+   git push origin 0.4.21
    ```
 
 7. After pushing, create the public release notes from `changelog.md`. The release notes must keep the claim precise: native SwiftUI block rendering, prepared-line inline rendering, streaming snapshots, safe policies, language-aware default code highlighting, package-owned Mermaid pan/zoom over prepared SVG/ASCII, explicit accessibility labels for package-owned affordance controls, Pretext-backed layout gate, and demo/product probes. Do not claim a custom glyph renderer, a new Mermaid semantic engine, or a WebKit renderer.

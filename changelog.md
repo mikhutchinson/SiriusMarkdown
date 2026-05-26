@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.4.21 - 2026-05-26
+
+- Fixed streamed reference-style links so unresolved labels keep their region in the mutable tail, matching reference definitions allow sealing once safe, and later streamed regions can resolve links against definitions already sealed in earlier regions.
+- Fixed streamed reference-definition carry-forward so raw `[label]: ...` text inside fenced code or HTML blocks is not treated as a global definition for later chunks. `swift-markdown` remains the semantic owner; streaming only reuses definitions that are safe to carry across sealed-region parse boundaries.
+- Fixed literal unmatched `[` text in completed paragraphs no longer pinning the rest of a long stream in the mutable tail. Reference ambiguity is cleared at block boundaries while true unresolved reference labels still prevent early sealing.
+- Fixed deprecated direct SwiftUI snapshot/block compatibility initializers so their unprepared path still enforces code, math, and HTML policies without doing code highlighting, math rendering, or full inline preparation synchronously.
+- Included sealed reference-definition context in parser/cache namespaces so `swift-markdown` still owns link semantics while source offsets and stable block IDs remain valid for the parsed slice.
+- Preserved nested inline presentation through links, including strong, emphasis, strikethrough, code, math, and image presentation metadata, instead of flattening linked children into a single plain run.
+- Fixed structured child extraction inside block quotes and list items so nested code blocks, tables, lists, and loose-list paragraph breaks are represented in inline/list metadata instead of being silently dropped.
+- Hardened the conservative boundary scanner for `1)` ordered-list markers, non-tag HTML blocks such as processing instructions, declarations, and CDATA, broader CommonMark HTML container tags, and reference-link ambiguity.
+- Fixed stale queued append publication after `MarkdownRenderSession.reset()` so an old async append cannot overwrite the reset session's prepared snapshot.
+- Updated the bundled demos to exercise reference-style links in the static workbench, streaming lab, and reader product surface before cutting the patch release.
+
 ## 0.4.20 - 2026-05-21
 
 - Added source-line and source-range lookup helpers on `MarkdownSnapshot`, `MarkdownPreparedSnapshot`, and `MarkdownRenderSession` so host apps can resolve stable `MarkdownBlockID` scroll targets without open-coding block scans. Lookup is side-effect free and uses existing 1-based, half-open `MarkdownSourceRange.lineRange` semantics.

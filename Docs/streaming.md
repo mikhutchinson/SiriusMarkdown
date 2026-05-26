@@ -28,7 +28,7 @@ let final = stream.snapshot()
 
 ## Sealing
 
-After each **`append`**, **`sealBoundaryIfPossible()`** runs. `MarkdownStream` keeps **`MarkdownBoundaryScanState`** for the active tail, so newly appended complete lines are scanned once instead of rescanning the whole unsealed suffix. If the scanner returns a byte offset strictly greater than the current seal point, Core parses **`[sealedUpperBound, upperBound)`**, appends blocks to **`sealedBlocks`**, resets scanner state to the new seal point, and advances **`sealedUpperBound`**.
+After each **`append`**, **`sealBoundaryIfPossible()`** runs. `MarkdownStream` keeps **`MarkdownBoundaryScanState`** for the active tail, so newly appended complete lines are scanned once instead of rescanning the whole unsealed suffix. If the scanner returns a byte offset strictly greater than the current seal point, Core parses **`[sealedUpperBound, upperBound)`**, appends blocks to **`sealedBlocks`**, records any reference definitions from that sealed slice, resets scanner state to the new seal point, and advances **`sealedUpperBound`**.
 
 The scanner is **conservative**: it must not seal inside constructs that later bytes could extend or invalidate.
 
@@ -37,10 +37,11 @@ Current rules (see `MarkdownBoundaryScanner.swift`):
 - **Fenced code** — opening ` ``` ` / `~~~` tracks depth until a closing line with enough matching markers.
 - **Math** — `$$` toggles an open math fence until a closing `$$`.
 - **HTML blocks** — heuristic open/close for comments and several block tags (`script`, `style`, `pre`, `table`, `div`, etc.) until the closing token appears.
+- **Reference links** — unresolved full, collapsed, or shortcut reference labels keep the region mutable. Matching definitions make the region sealable; definitions sealed earlier are included when later slices are parsed so `swift-markdown` resolves the links. Reference-looking lines inside parsed code/HTML content are not carried forward as definitions.
 - **Blank lines** — a candidate seal ends after a blank line **unless** the scanner is inside fence/HTML/math.
 - **Loose ordered lists** — after a **list-like** non-blank line, a **single** trailing blank line does **not** yield a seal candidate (avoids sealing early before continuation lines); **two** consecutive blanks still allow a candidate.
 
-If any fence/HTML/math remains open at EOF-of-scan, **no** seal is returned for that scan.
+If any fence/HTML/math remains open, or if unresolved reference labels remain ambiguous at EOF-of-scan, **no** seal is returned for that scan. Literal unmatched bracket text recovers at blank-line block boundaries so one malformed paragraph does not pin the rest of a long stream in the mutable tail.
 
 ## Host boundaries
 
@@ -70,7 +71,7 @@ Keeping the configuration alive lets the render-preparation cache reuse inline, 
 - **`generation`** — bumps on append, seal steps, host boundaries, and finish (useful for view identity).
 - **`isFinished`** — whether **`finish()`** was called.
 
-Semantics always come from **`swift-markdown`** on each parsed slice; the scanner only chooses slice boundaries.
+Semantics always come from **`swift-markdown`** on each parsed slice; the scanner only chooses slice boundaries. The scanner's reference-label tracking is a sealing guard, not a Markdown parser.
 
 ## Related docs
 

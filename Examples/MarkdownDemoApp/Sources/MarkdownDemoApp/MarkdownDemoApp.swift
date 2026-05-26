@@ -518,6 +518,8 @@ private struct MarkdownExample: Identifiable, Hashable {
 
             Autolinks such as <https://example.com/autolink> remain link-shaped while unsafe schemes stay blocked.
 
+            Reference-style links resolve through `swift-markdown` semantics too: [defined before use][docs-ref], [defined after use][late-ref], and [**strong linked text**][strong-ref] all keep their inline presentation and destinations.
+
             ## Dense Inline Run
 
             Prepared inline content should preserve semantic boundaries across wrapped lines: `cacheKey` combines source range, content hash, font traits, and policy-relevant inputs while **bold**, *italic*, and `code spans` remain visually distinct.
@@ -526,11 +528,17 @@ private struct MarkdownExample: Identifiable, Hashable {
             | :--- | :--- | :--- |
             | `https://example.com` | allowed | safe web scheme |
             | `/docs/local` | allowed | relative app URL |
+            | reference definitions | resolved | parser-owned CommonMark semantics |
             | `javascript:alert(1)` | inert | unsafe scheme |
             | remote image URL | placeholder only | no network fetch by default |
+
+            [docs-ref]: https://example.com/docs
+            [late-ref]: https://example.com/reference-later
+            [strong-ref]: https://example.com/strong-reference
             """,
             assertions: [
                 "Safe links remain interactive through the policy hook.",
+                "Reference definitions resolve without app-private link routing.",
                 "Unsafe JavaScript links do not become active URLs.",
                 "Remote image markdown does not fetch network data by default."
             ]

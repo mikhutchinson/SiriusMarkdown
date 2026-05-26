@@ -10,6 +10,10 @@ public protocol MarkdownMathRenderer: Sendable {
     func renderedMath(_ source: String, isBlock: Bool) -> AttributedString
 }
 
+public protocol MarkdownMathRendererCacheIdentifying: Sendable {
+    var mathRendererCacheIdentity: String { get }
+}
+
 public enum MarkdownPreparedImageSource: Sendable, Hashable {
     case placeholder(reason: String)
     case localFile(path: String)
@@ -45,6 +49,10 @@ public protocol MarkdownImageResolver: Sendable {
     ) -> MarkdownPreparedImage
 }
 
+public protocol MarkdownImageResolverCacheIdentifying: Sendable {
+    var imageResolverCacheIdentity: String { get }
+}
+
 public struct PlainMarkdownCodeHighlighter: MarkdownCodeHighlighter, MarkdownCodeHighlighterCacheIdentifying {
     public init() {}
 
@@ -59,8 +67,12 @@ public struct PlainMarkdownCodeHighlighter: MarkdownCodeHighlighter, MarkdownCod
     }
 }
 
-public struct PlainMarkdownMathRenderer: MarkdownMathRenderer {
+public struct PlainMarkdownMathRenderer: MarkdownMathRenderer, MarkdownMathRendererCacheIdentifying {
     public init() {}
+
+    public var mathRendererCacheIdentity: String {
+        "siriusmarkdown.plain-math"
+    }
 
     public func renderedMath(_ source: String, isBlock _: Bool) -> AttributedString {
         var rendered = AttributedString(source)
@@ -69,8 +81,12 @@ public struct PlainMarkdownMathRenderer: MarkdownMathRenderer {
     }
 }
 
-public struct DefaultMarkdownImageResolver: MarkdownImageResolver {
+public struct DefaultMarkdownImageResolver: MarkdownImageResolver, MarkdownImageResolverCacheIdentifying {
     public init() {}
+
+    public var imageResolverCacheIdentity: String {
+        "siriusmarkdown.default-image-resolver.v1"
+    }
 
     public func preparedImage(
         source: String,
@@ -286,12 +302,15 @@ public struct MarkdownRendererConfiguration: Sendable {
                     palette: theme.syntaxHighlightingPalette,
                     highlighterIdentity: codeHighlighterCacheIdentity
                 )
-                if let cached = preparationCache.code(forKey: key) {
+                if let key,
+                   let cached = preparationCache.code(forKey: key) {
                     diagnosticsRecorder.recordCacheHit()
                     return MarkdownPreparedBlockContent(blockID: block.id, code: cached)
                 }
 
-                diagnosticsRecorder.recordCacheMiss()
+                if key != nil {
+                    diagnosticsRecorder.recordCacheMiss()
+                }
                 let highlighted: AttributedString
                 if shouldRecordCodeHighlight(language: language) {
                     diagnosticsRecorder.recordCodeHighlight()
@@ -301,7 +320,9 @@ public struct MarkdownRendererConfiguration: Sendable {
                 } else {
                     highlighted = highlightedCode(code, infoString: block.infoString, language: language)
                 }
-                preparationCache.insertCode(highlighted, forKey: key)
+                if let key {
+                    preparationCache.insertCode(highlighted, forKey: key)
+                }
                 return MarkdownPreparedBlockContent(
                     blockID: block.id,
                     code: highlighted
@@ -313,18 +334,28 @@ public struct MarkdownRendererConfiguration: Sendable {
             let math = Self.mathText(for: block)
             switch mathPolicy.evaluateMath(math, isBlock: true) {
             case .allow:
-                let key = Self.cacheKey(for: block, namespace: "rendered-math:block")
-                if let cached = preparationCache.math(forKey: key) {
-                    diagnosticsRecorder.recordCacheHit()
-                    return MarkdownPreparedBlockContent(blockID: block.id, math: cached)
+                if let key = blockMathCacheKey(for: block) {
+                    if let cached = preparationCache.math(forKey: key) {
+                        diagnosticsRecorder.recordCacheHit()
+                        return MarkdownPreparedBlockContent(blockID: block.id, math: cached)
+                    }
+
+                    diagnosticsRecorder.recordCacheMiss()
+                    diagnosticsRecorder.recordMathRender()
+                    let rendered = MarkdownDiagnostics().signpost("MathRender", category: "RenderPreparation") {
+                        mathRenderer.renderedMath(math, isBlock: true)
+                    }
+                    preparationCache.insertMath(rendered, forKey: key)
+                    return MarkdownPreparedBlockContent(
+                        blockID: block.id,
+                        math: rendered
+                    )
                 }
 
-                diagnosticsRecorder.recordCacheMiss()
                 diagnosticsRecorder.recordMathRender()
                 let rendered = MarkdownDiagnostics().signpost("MathRender", category: "RenderPreparation") {
                     mathRenderer.renderedMath(math, isBlock: true)
                 }
-                preparationCache.insertMath(rendered, forKey: key)
                 return MarkdownPreparedBlockContent(
                     blockID: block.id,
                     math: rendered
@@ -391,6 +422,134 @@ public struct MarkdownRendererConfiguration: Sendable {
         )
     }
 
+    func unpreparedSnapshot(for snapshot: MarkdownSnapshot) -> MarkdownPreparedSnapshot {
+        var preparedContentByBlockID: [MarkdownBlockID: MarkdownPreparedBlockContent] = [:]
+        var preparedItems: [MarkdownPreparedSnapshotItem] = []
+
+        for item in snapshot.items {
+            switch item {
+            case let .block(block):
+                let content = unpreparedContent(for: block)
+                preparedContentByBlockID[block.id] = content
+                preparedItems.append(.block(block, content))
+            case let .hostBoundary(boundary):
+                preparedItems.append(.hostBoundary(boundary))
+            }
+        }
+
+        return MarkdownPreparedSnapshot(
+            snapshot: snapshot,
+            items: preparedItems,
+            preparedContentByBlockID: preparedContentByBlockID
+        )
+    }
+
+    func unpreparedContent(for block: MarkdownBlock) -> MarkdownPreparedBlockContent {
+        switch block.kind {
+        case .codeBlock:
+            switch codePolicy.evaluateCodeBlock(infoString: block.infoString, code: Self.codeText(for: block)) {
+            case .allow:
+                break
+            case let .deny(reason):
+                return MarkdownPreparedBlockContent(blockID: block.id, policyDenialReason: reason)
+            }
+        case .mathBlock:
+            switch mathPolicy.evaluateMath(Self.mathText(for: block), isBlock: true) {
+            case .allow:
+                break
+            case let .deny(reason):
+                return MarkdownPreparedBlockContent(blockID: block.id, policyDenialReason: reason)
+            }
+        case .htmlBlock:
+            switch htmlPolicy.evaluateHTML(block.text) {
+            case .allow:
+                return MarkdownPreparedBlockContent(blockID: block.id, htmlAllowed: true)
+            case let .deny(reason):
+                return MarkdownPreparedBlockContent(
+                    blockID: block.id,
+                    htmlAllowed: false,
+                    policyDenialReason: reason
+                )
+            }
+        default:
+            break
+        }
+
+        return MarkdownPreparedBlockContent(
+            blockID: block.id,
+            listItems: block.listItems.map { unpreparedListItem($0, parentID: block.id.rawValue) },
+            table: unpreparedTable(block.table, parentID: block.id.rawValue)
+        )
+    }
+
+    private func unpreparedListItem(
+        _ item: MarkdownListItem,
+        parentID: String
+    ) -> MarkdownPreparedListItem {
+        let id = "unprepared-list:\(parentID):\(item.sourceRange.byteRange.lowerBound)-\(item.sourceRange.byteRange.upperBound)"
+        return MarkdownPreparedListItem(
+            id: id,
+            sourceRange: item.sourceRange,
+            taskState: item.taskState,
+            inline: unpreparedInline(item.inlines) ?? AttributedString(item.text),
+            childListKind: item.childListKind,
+            childOrderedListStart: item.childOrderedListStart,
+            childItems: item.childItems.map { unpreparedListItem($0, parentID: id) }
+        )
+    }
+
+    private func unpreparedTable(
+        _ table: MarkdownTableBlock?,
+        parentID: String
+    ) -> MarkdownPreparedTableBlock? {
+        guard let table else {
+            return nil
+        }
+
+        return MarkdownPreparedTableBlock(
+            columnAlignments: table.columnAlignments,
+            header: table.header.enumerated().map { index, cell in
+                unpreparedTableCell(cell, parentID: parentID, rowID: "header", column: index)
+            },
+            rows: table.rows.enumerated().map { rowIndex, row in
+                let rowID = "row-\(rowIndex)"
+                return MarkdownPreparedTableRow(
+                    id: "unprepared-table:\(parentID):\(rowID)",
+                    cells: row.enumerated().map { column, cell in
+                        unpreparedTableCell(cell, parentID: parentID, rowID: rowID, column: column)
+                    }
+                )
+            }
+        )
+    }
+
+    private func unpreparedTableCell(
+        _ cell: MarkdownTableCell,
+        parentID: String,
+        rowID: String,
+        column: Int
+    ) -> MarkdownPreparedTableCell {
+        MarkdownPreparedTableCell(
+            id: "unprepared-table:\(parentID):\(rowID):\(column)",
+            sourceRange: cell.sourceRange,
+            inline: unpreparedInline(cell.inlines) ?? AttributedString(cell.text),
+            colspan: cell.colspan,
+            rowspan: cell.rowspan
+        )
+    }
+
+    private func unpreparedInline(_ runs: [MarkdownInlineRun]) -> AttributedString? {
+        guard !runs.isEmpty else {
+            return nil
+        }
+
+        return InlineRunsView.attributedString(
+            for: runs,
+            linkPolicy: linkPolicy,
+            imagePolicy: imagePolicy
+        )
+    }
+
     public nonisolated static func codeText(for block: MarkdownBlock) -> String {
         block.text
     }
@@ -418,14 +577,35 @@ public struct MarkdownRendererConfiguration: Sendable {
         )
     }
 
+    private func blockMathCacheKey(for block: MarkdownBlock) -> MarkdownCacheKey? {
+        guard let mathPolicyIdentity,
+              let mathRendererIdentity
+        else {
+            return nil
+        }
+
+        return Self.cacheKey(
+            for: block,
+            namespace: [
+                "rendered-math:block:v2",
+                "policy=\(mathPolicyIdentity)",
+                "renderer=\(mathRendererIdentity)"
+            ].joined(separator: ":")
+        )
+    }
+
     private nonisolated static func codeCacheKey(
         for block: MarkdownBlock,
         code: String,
         language: MarkdownCodeLanguage,
         palette: MarkdownSyntaxHighlightingPalette,
-        highlighterIdentity: String
-    ) -> MarkdownCacheKey {
-        MarkdownCacheKey(
+        highlighterIdentity: String?
+    ) -> MarkdownCacheKey? {
+        guard let highlighterIdentity else {
+            return nil
+        }
+
+        return MarkdownCacheKey(
             sourceRange: block.sourceRange,
             contentHash: stableHash(code),
             namespace: [
@@ -440,10 +620,14 @@ public struct MarkdownRendererConfiguration: Sendable {
     private nonisolated static func mermaidCacheKey(
         for block: MarkdownBlock,
         code: String,
-        rendererIdentity: String,
+        rendererIdentity: String?,
         themeIdentity: String
-    ) -> MarkdownCacheKey {
-        MarkdownCacheKey(
+    ) -> MarkdownCacheKey? {
+        guard let rendererIdentity else {
+            return nil
+        }
+
+        return MarkdownCacheKey(
             sourceRange: block.sourceRange,
             contentHash: stableHash(code),
             namespace: [
@@ -454,28 +638,48 @@ public struct MarkdownRendererConfiguration: Sendable {
         )
     }
 
-    private var codeHighlighterCacheIdentity: String {
+    private var codeHighlighterCacheIdentity: String? {
         if let identifying = codeHighlighter as? any MarkdownCodeHighlighterCacheIdentifying {
             return identifying.codeHighlighterCacheIdentity
         }
 
-        return String(reflecting: type(of: codeHighlighter))
+        return nil
     }
 
-    private var mermaidRendererCacheIdentity: String {
+    private var mermaidRendererCacheIdentity: String? {
         guard let mermaidRenderer else {
-            return "disabled"
+            return nil
         }
 
         if let identifying = mermaidRenderer as? any MarkdownMermaidRendererCacheIdentifying {
             return identifying.mermaidRendererCacheIdentity
         }
 
-        return String(reflecting: type(of: mermaidRenderer))
+        return nil
     }
 
     private var mermaidThemeCacheIdentity: String {
         return String(theme.hashValue)
+    }
+
+    private var linkPolicyIdentity: String? {
+        (linkPolicy as? any MarkdownLinkPolicyCacheIdentifying)?.linkPolicyCacheIdentity
+    }
+
+    private var imagePolicyIdentity: String? {
+        (imagePolicy as? any MarkdownImagePolicyCacheIdentifying)?.imagePolicyCacheIdentity
+    }
+
+    private var imageResolverIdentity: String? {
+        (imageResolver as? any MarkdownImageResolverCacheIdentifying)?.imageResolverCacheIdentity
+    }
+
+    private var mathPolicyIdentity: String? {
+        (mathPolicy as? any MarkdownMathPolicyCacheIdentifying)?.mathPolicyCacheIdentity
+    }
+
+    private var mathRendererIdentity: String? {
+        (mathRenderer as? any MarkdownMathRendererCacheIdentifying)?.mathRendererCacheIdentity
     }
 
     private func shouldRecordCodeHighlight(language: MarkdownCodeLanguage) -> Bool {
@@ -528,12 +732,15 @@ public struct MarkdownRendererConfiguration: Sendable {
             rendererIdentity: mermaidRendererCacheIdentity,
             themeIdentity: mermaidThemeCacheIdentity
         )
-        if let cached = preparationCache.mermaid(forKey: key) {
+        if let key,
+           let cached = preparationCache.mermaid(forKey: key) {
             diagnosticsRecorder.recordCacheHit()
             return cached
         }
 
-        diagnosticsRecorder.recordCacheMiss()
+        if key != nil {
+            diagnosticsRecorder.recordCacheMiss()
+        }
         diagnosticsRecorder.recordMermaidRender()
         let rendered = MarkdownDiagnostics().signpost("MermaidRender", category: "RenderPreparation") {
             mermaidRenderer.renderedMermaid(code, sourceRange: block.sourceRange, theme: theme)
@@ -543,7 +750,9 @@ public struct MarkdownRendererConfiguration: Sendable {
             return nil
         }
 
-        preparationCache.insertMermaid(rendered, forKey: key)
+        if let key {
+            preparationCache.insertMermaid(rendered, forKey: key)
+        }
         return rendered
     }
 
@@ -557,19 +766,24 @@ public struct MarkdownRendererConfiguration: Sendable {
         }
 
         let metrics = inlineMetrics(for: block)
-        let key = MarkdownCacheKey(
-            sourceRange: sourceRange,
-            contentHash: Self.inlineHash(runs),
-            namespace: "inline-prepared:\(metrics.fontSize):\(metrics.lineHeight):\(metrics.fontProfiles.cacheKey)"
-        )
-        if let cached = preparationCache.inline(forKey: key) {
+        let cacheKey = inlineCacheNamespace(for: runs, metrics: metrics).map { namespace in
+            MarkdownCacheKey(
+                sourceRange: sourceRange,
+                contentHash: Self.inlineHash(runs),
+                namespace: namespace
+            )
+        }
+        if let cacheKey,
+           let cached = preparationCache.inline(forKey: cacheKey) {
             diagnosticsRecorder.recordCacheHit()
             return cached
         }
 
-        diagnosticsRecorder.recordCacheMiss()
-        let inlinePayload = preparedInlinePayload(for: runs)
+        if cacheKey != nil {
+            diagnosticsRecorder.recordCacheMiss()
+        }
         let images = preparedImages(for: runs)
+        let inlinePayload = preparedInlinePayload(for: runs, images: images)
         let prepared = PreparedInlineContent(runs: inlinePayload.runs, sourceRange: sourceRange)
         diagnosticsRecorder.recordPrepare()
         let measurer = CoreTextInlineMeasurer(profiles: metrics.fontProfiles)
@@ -591,18 +805,76 @@ public struct MarkdownRendererConfiguration: Sendable {
             fontProfiles: metrics.fontProfiles,
             layoutCache: layoutCache
         )
-        preparationCache.insertInline(inline, forKey: key)
+        if let cacheKey {
+            preparationCache.insertInline(inline, forKey: cacheKey)
+        }
         return inline
     }
 
+    private func inlineCacheNamespace(
+        for runs: [MarkdownInlineRun],
+        metrics: (fontSize: Double, lineHeight: Double, fontProfiles: MarkdownInlineFontProfiles)
+    ) -> String? {
+        var components = [
+            "inline-prepared:v2",
+            "fontSize=\(metrics.fontSize)",
+            "lineHeight=\(metrics.lineHeight)",
+            "fontProfiles=\(metrics.fontProfiles.cacheKey)"
+        ]
+
+        if runs.contains(where: { $0.kind == .link || $0.destination != nil }) {
+            guard let linkPolicyIdentity else {
+                return nil
+            }
+            components.append("linkPolicy=\(linkPolicyIdentity)")
+        }
+
+        if runs.contains(where: { $0.kind == .image }) {
+            guard let imagePolicyIdentity,
+                  let imageResolverIdentity
+            else {
+                return nil
+            }
+            components.append("imagePolicy=\(imagePolicyIdentity)")
+            components.append("imageResolver=\(imageResolverIdentity)")
+        }
+
+        if runs.contains(where: { $0.kind == .math || $0.presentation.contains(.math) }) {
+            guard let mathPolicyIdentity,
+                  let mathRendererIdentity
+            else {
+                return nil
+            }
+            components.append("mathPolicy=\(mathPolicyIdentity)")
+            components.append("mathRenderer=\(mathRendererIdentity)")
+        }
+
+        return components.joined(separator: ":")
+    }
+
     private func preparedInlinePayload(
-        for runs: [MarkdownInlineRun]
+        for runs: [MarkdownInlineRun],
+        images: [MarkdownPreparedImage]
     ) -> (runs: [MarkdownInlineRun], attributed: AttributedString) {
         var displayRuns: [MarkdownInlineRun] = []
         var attributed = AttributedString()
 
         for run in runs {
-            guard run.kind == .math else {
+            if run.kind == .image {
+                let displayRun = preparedImageDisplayRun(for: run, images: images)
+                displayRuns.append(displayRun)
+                attributed.append(
+                    InlineRunsView.attributedString(
+                        for: [displayRun],
+                        linkPolicy: linkPolicy,
+                        imagePolicy: imagePolicy
+                    )
+                )
+                continue
+            }
+
+            let rendersAsMath = run.kind == .math || run.presentation.contains(.math)
+            guard rendersAsMath else {
                 displayRuns.append(run)
                 attributed.append(
                     InlineRunsView.attributedString(
@@ -617,17 +889,19 @@ public struct MarkdownRendererConfiguration: Sendable {
             switch mathPolicy.evaluateMath(run.text, isBlock: false) {
             case .allow:
                 diagnosticsRecorder.recordMathRender()
-                let rendered = MarkdownDiagnostics().signpost("MathRender", category: "RenderPreparation") {
+                let renderedMath = MarkdownDiagnostics().signpost("MathRender", category: "RenderPreparation") {
                     mathRenderer.renderedMath(run.text, isBlock: false)
                 }
+                let rendered = mathAttributedString(renderedMath, preservingLinkFrom: run)
                 attributed.append(rendered)
                 let renderedText = String(rendered.characters)
                 displayRuns.append(
                     MarkdownInlineRun(
-                        kind: .math,
+                        kind: run.kind,
                         text: renderedText.isEmpty ? run.text : renderedText,
                         sourceRange: run.sourceRange,
-                        destination: run.destination
+                        destination: run.destination,
+                        presentation: run.presentation
                     )
                 )
             case .deny:
@@ -643,6 +917,56 @@ public struct MarkdownRendererConfiguration: Sendable {
         }
 
         return (displayRuns, attributed)
+    }
+
+    private func mathAttributedString(
+        _ rendered: AttributedString,
+        preservingLinkFrom run: MarkdownInlineRun
+    ) -> AttributedString {
+        guard run.kind == .link,
+              let destination = run.destination,
+              case .allow = linkPolicy.evaluateLink(destination: destination),
+              let url = URL(string: destination)
+        else {
+            return rendered
+        }
+
+        var copy = rendered
+        copy.link = url
+        return copy
+    }
+
+    private func preparedImageDisplayRun(
+        for run: MarkdownInlineRun,
+        images: [MarkdownPreparedImage]
+    ) -> MarkdownInlineRun {
+        guard let image = images.first(where: { preparedImage in
+            preparedImage.source == run.destination &&
+                preparedImage.sourceRange == run.sourceRange
+        }) else {
+            return run
+        }
+
+        var copy = run
+        copy.text = imageDisplayText(for: image)
+        return copy
+    }
+
+    private func imageDisplayText(for image: MarkdownPreparedImage) -> String {
+        if let altText = image.altText, !altText.isEmpty {
+            return altText
+        }
+
+        switch image.preparedSource {
+        case let .placeholder(reason):
+            return "[image: \(reason)]"
+        case let .localFile(path):
+            return path
+        case .data:
+            return "[image]"
+        case let .remote(url):
+            return url.absoluteString
+        }
     }
 
     private func preparedListItems(_ items: [MarkdownListItem]) -> [MarkdownPreparedListItem] {
@@ -727,6 +1051,7 @@ public struct MarkdownRendererConfiguration: Sendable {
         var hash: UInt64 = 0xcbf29ce484222325
         for run in runs {
             hash = append(run.kind.rawValue, to: hash)
+            hash = append(String(run.presentation.rawValue), to: hash)
             hash = append(run.text, to: hash)
             hash = append(run.destination ?? "", to: hash)
         }

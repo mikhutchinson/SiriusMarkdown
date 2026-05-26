@@ -93,4 +93,31 @@ public struct MarkdownInlineFontProfiles: Sendable, Hashable {
             return body
         }
     }
+
+    public func profile(
+        for presentation: MarkdownInlinePresentation,
+        kind: MarkdownInlineKind
+    ) -> MarkdownFontProfile {
+        if presentation.contains(.code) || kind == .code {
+            return code
+        }
+
+        if presentation.contains(.math) || kind == .math {
+            return math
+        }
+
+        if presentation.contains(.image) || kind == .image {
+            return imagePlaceholder
+        }
+
+        if presentation.contains(.strong) || kind == .strong {
+            return strong
+        }
+
+        if presentation.contains(.emphasis) || kind == .emphasis {
+            return emphasis
+        }
+
+        return body
+    }
 }

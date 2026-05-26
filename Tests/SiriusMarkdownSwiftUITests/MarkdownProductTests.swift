@@ -6,11 +6,12 @@ import SiriusMarkdownSwiftUI
 
 @Test
 @MainActor
-func MarkdownRenderSessionPreparesSnapshotsAndSourceBackedCopy() throws {
+func MarkdownRenderSessionPreparesSnapshotsAndSourceBackedCopy() async throws {
     let session = MarkdownRenderSession(configuration: .compactChat)
     session.append("# Title\n\n")
     session.append("Body with $x^2$ and ![diagram](local-diagram.png).\n\n")
     session.finish()
+    await session.waitUntilIdle()
 
     let paragraph = try #require(session.snapshot.blocks.last)
     let prepared = try #require(session.preparedSnapshot.preparedContentByBlockID[paragraph.id])
@@ -24,11 +25,39 @@ func MarkdownRenderSessionPreparesSnapshotsAndSourceBackedCopy() throws {
 
 @Test
 @MainActor
-func MarkdownSelectionControllerCopiesBoundedSourceBackedSelection() throws {
+func MarkdownRenderSessionAppendReturnsBeforeParseAndPrepare() async throws {
+    let markdown = "# Title\n\nBody that should be processed by the render-session worker.\n"
+    let streamRecorder = MarkdownDiagnosticsRecorder()
+    let renderRecorder = MarkdownDiagnosticsRecorder()
+    let session = MarkdownRenderSession(
+        configuration: .document,
+        streamDiagnosticsRecorder: streamRecorder,
+        renderDiagnosticsRecorder: renderRecorder
+    )
+
+    session.append(markdown)
+
+    #expect(session.sourceLength == markdown.utf8.count)
+    #expect(session.snapshot.sourceLength == 0)
+    #expect(streamRecorder.snapshot().parseCount == 0)
+    #expect(renderRecorder.snapshot().prepareCount == 0)
+    #expect(session.configuration.copyProvider?.markdownForDocument() == markdown)
+
+    await session.waitUntilIdle()
+
+    #expect(session.snapshot.sourceLength == markdown.utf8.count)
+    #expect(streamRecorder.snapshot().parseCount > 0)
+    #expect(renderRecorder.snapshot().prepareCount > 0)
+}
+
+@Test
+@MainActor
+func MarkdownSelectionControllerCopiesBoundedSourceBackedSelection() async throws {
     let source = "# Title\n\nFirst paragraph.\n\nSecond paragraph.\n\n"
     let session = MarkdownRenderSession(configuration: .document)
     session.append(source)
     session.finish()
+    await session.waitUntilIdle()
 
     let controller = MarkdownSelectionController(maximumSelectedBlockCount: 2)
     controller.updateSnapshot(session.snapshot)
@@ -50,11 +79,12 @@ func MarkdownSelectionControllerCopiesBoundedSourceBackedSelection() throws {
 
 @Test
 @MainActor
-func MarkdownSelectionControllerCopiesExactPartialAndNonContiguousSourceRanges() throws {
+func MarkdownSelectionControllerCopiesExactPartialAndNonContiguousSourceRanges() async throws {
     let source = "Alpha beta gamma.\n\nSecond paragraph.\n\nThird paragraph.\n"
     let session = MarkdownRenderSession(configuration: .document)
     session.append(source)
     session.finish()
+    await session.waitUntilIdle()
 
     let first = try #require(session.snapshot.blocks.first)
     let last = try #require(session.snapshot.blocks.last)
@@ -80,10 +110,11 @@ func MarkdownSelectionControllerCopiesExactPartialAndNonContiguousSourceRanges()
 
 @Test
 @MainActor
-func MarkdownSelectionControllerFallsBackToPlainTextWhenSourceIsUnavailable() throws {
+func MarkdownSelectionControllerFallsBackToPlainTextWhenSourceIsUnavailable() async throws {
     let session = MarkdownRenderSession(configuration: .document)
     session.append("Plain fallback paragraph.\n")
     session.finish()
+    await session.waitUntilIdle()
 
     let block = try #require(session.snapshot.blocks.first)
     let controller = MarkdownSelectionController()
@@ -95,13 +126,14 @@ func MarkdownSelectionControllerFallsBackToPlainTextWhenSourceIsUnavailable() th
 
 @Test
 @MainActor
-func MarkdownSelectionSurvivesStreamingAppendAndWidthRelayoutWithoutExpensiveWork() throws {
+func MarkdownSelectionSurvivesStreamingAppendAndWidthRelayoutWithoutExpensiveWork() async throws {
     let renderRecorder = MarkdownDiagnosticsRecorder()
     let session = MarkdownRenderSession(
         configuration: .document,
         renderDiagnosticsRecorder: renderRecorder
     )
     session.append("# Title\n\nSelected paragraph wraps across visual lines for geometry.\n\n")
+    await session.waitUntilIdle()
 
     let controller = MarkdownSelectionController()
     controller.updateSnapshot(session.snapshot)
@@ -111,6 +143,7 @@ func MarkdownSelectionSurvivesStreamingAppendAndWidthRelayoutWithoutExpensiveWor
     let selectedRanges = controller.selectedSourceRanges
 
     session.append("Active tail keeps streaming.\n")
+    await session.waitUntilIdle()
     controller.updateSnapshot(session.snapshot)
 
     #expect(controller.selectedBlockIDs == selectedIDs)

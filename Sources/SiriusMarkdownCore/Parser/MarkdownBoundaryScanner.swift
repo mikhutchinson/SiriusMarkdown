@@ -17,6 +17,9 @@ public struct MarkdownBoundaryScanState: Sendable, Hashable {
     var openFence: MarkdownBoundaryFence?
     var openMathFence: Bool
     var openHTMLBlock: MarkdownBoundaryHTMLBlock?
+    var pendingReferenceLabels: Set<String>
+    var definedReferenceLabels: Set<String>
+    var unknownReferenceAmbiguity: Bool
     var consecutiveBlankLines: Int
     var lastNonBlankWasListLike: Bool
 
@@ -28,6 +31,9 @@ public struct MarkdownBoundaryScanState: Sendable, Hashable {
         self.openFence = nil
         self.openMathFence = false
         self.openHTMLBlock = nil
+        self.pendingReferenceLabels = []
+        self.definedReferenceLabels = []
+        self.unknownReferenceAmbiguity = false
         self.consecutiveBlankLines = 0
         self.lastNonBlankWasListLike = false
     }
@@ -125,10 +131,12 @@ public struct MarkdownBoundaryScanner: Sendable, Hashable {
                 state.lastNonBlankWasListLike = false
             } else if trimmed.isEmpty {
                 state.consecutiveBlankLines += 1
+                state.unknownReferenceAmbiguity = false
                 if !state.lastNonBlankWasListLike || state.consecutiveBlankLines >= 2 {
                     state.candidateUpperBound = min(nextLineStart, source.byteCount)
                 }
             } else {
+                scanReferenceLinks(in: normalized, state: &state)
                 state.consecutiveBlankLines = 0
                 state.lastNonBlankWasListLike = isListLike(trimmed)
             }
@@ -147,11 +155,101 @@ public struct MarkdownBoundaryScanner: Sendable, Hashable {
     }
 
     private func currentSafeUpperBound(in state: MarkdownBoundaryScanState) -> Int? {
-        if state.openFence != nil || state.openMathFence || state.openHTMLBlock != nil {
+        if state.openFence != nil || state.openMathFence || state.openHTMLBlock != nil || state.unknownReferenceAmbiguity {
+            return nil
+        }
+
+        if !state.pendingReferenceLabels.isSubset(of: state.definedReferenceLabels) {
             return nil
         }
 
         return state.candidateUpperBound.flatMap { $0 > state.lowerBound ? $0 : nil }
+    }
+
+    private func scanReferenceLinks(in line: String, state: inout MarkdownBoundaryScanState) {
+        var cursor = line.startIndex
+        while cursor < line.endIndex {
+            guard line[cursor] == "[" else {
+                cursor = line.index(after: cursor)
+                continue
+            }
+
+            let opening = cursor
+            guard let closing = closingBracket(in: line, after: opening) else {
+                state.unknownReferenceAmbiguity = true
+                return
+            }
+
+            let label = line[line.index(after: opening)..<closing]
+            if isTaskCheckboxLabel(label) {
+                cursor = line.index(after: closing)
+                continue
+            }
+
+            let afterClosing = line.index(after: closing)
+            if afterClosing < line.endIndex {
+                switch line[afterClosing] {
+                case "(":
+                    cursor = line.index(after: afterClosing)
+                    continue
+                case ":" where line[..<opening].trimmingCharacters(in: .whitespaces).isEmpty:
+                    if let normalized = normalizedReferenceLabel(label) {
+                        state.definedReferenceLabels.insert(normalized)
+                    }
+                    return
+                case "[":
+                    guard let secondClosing = closingBracket(in: line, after: afterClosing) else {
+                        state.unknownReferenceAmbiguity = true
+                        return
+                    }
+                    let explicitLabel = line[line.index(after: afterClosing)..<secondClosing]
+                    let referenceLabel = explicitLabel.isEmpty ? label : explicitLabel
+                    if let normalized = normalizedReferenceLabel(referenceLabel) {
+                        state.pendingReferenceLabels.insert(normalized)
+                    }
+                    cursor = line.index(after: secondClosing)
+                default:
+                    if let normalized = normalizedReferenceLabel(label) {
+                        state.pendingReferenceLabels.insert(normalized)
+                    }
+                    cursor = afterClosing
+                }
+            } else if let normalized = normalizedReferenceLabel(label) {
+                state.pendingReferenceLabels.insert(normalized)
+                cursor = afterClosing
+            } else {
+                cursor = afterClosing
+            }
+        }
+    }
+
+    private func closingBracket(in line: String, after opening: String.Index) -> String.Index? {
+        var cursor = line.index(after: opening)
+        var escaped = false
+        while cursor < line.endIndex {
+            let character = line[cursor]
+            if escaped {
+                escaped = false
+            } else if character == "\\" {
+                escaped = true
+            } else if character == "]" {
+                return cursor
+            }
+            cursor = line.index(after: cursor)
+        }
+        return nil
+    }
+
+    private func isTaskCheckboxLabel(_ label: Substring) -> Bool {
+        label == " " || label.lowercased() == "x"
+    }
+
+    private func normalizedReferenceLabel(_ label: Substring) -> String? {
+        let normalized = label
+            .split(whereSeparator: \.isWhitespace)
+            .joined(separator: " ")
+            .lowercased()
+        return normalized.isEmpty ? nil : normalized
     }
 
     private func opensFence(_ line: String) -> MarkdownBoundaryFence? {
@@ -212,13 +310,64 @@ public struct MarkdownBoundaryScanner: Sendable, Hashable {
             return MarkdownBoundaryHTMLBlock(closingToken: "-->")
         }
 
-        for tag in ["script", "style", "pre", "table", "div", "section", "article", "aside"] {
-            if lowercased.hasPrefix("<\(tag)") && !lowercased.contains("</\(tag)>") {
+        if lowercased.hasPrefix("<?") && !lowercased.contains("?>") {
+            return MarkdownBoundaryHTMLBlock(closingToken: "?>")
+        }
+
+        if lowercased.hasPrefix("<![cdata[") && !lowercased.contains("]]>") {
+            return MarkdownBoundaryHTMLBlock(closingToken: "]]>")
+        }
+
+        if opensHTMLDeclaration(lowercased) && !lowercased.contains(">") {
+            return MarkdownBoundaryHTMLBlock(closingToken: ">")
+        }
+
+        for tag in htmlContainerTags {
+            if startsHTMLTag(lowercased, tag: tag) && !lowercased.contains("</\(tag)>") {
                 return MarkdownBoundaryHTMLBlock(closingToken: "</\(tag)>")
             }
         }
 
         return nil
+    }
+
+    private var htmlContainerTags: [String] {
+        [
+            "address", "article", "aside", "blockquote", "body", "caption", "center",
+            "colgroup", "dd", "details", "dialog", "dir", "div", "dl", "dt",
+            "fieldset", "figcaption", "figure", "footer", "form", "frame", "frameset",
+            "h1", "h2", "h3", "h4", "h5", "h6", "head", "header", "html", "iframe",
+            "legend", "li", "main", "menu", "menuitem", "nav", "noframes", "ol",
+            "optgroup", "option", "p", "pre", "script", "section", "style", "summary",
+            "table", "tbody", "td", "tfoot", "th", "thead", "title", "tr", "ul"
+        ]
+    }
+
+    private func startsHTMLTag(_ line: String, tag: String) -> Bool {
+        guard line.hasPrefix("<\(tag)") else {
+            return false
+        }
+
+        let index = line.index(line.startIndex, offsetBy: tag.count + 1)
+        guard index < line.endIndex else {
+            return false
+        }
+
+        let next = line[index]
+        return next == ">" || next == "/" || next.isWhitespace
+    }
+
+    private func opensHTMLDeclaration(_ line: String) -> Bool {
+        guard line.hasPrefix("<!") && !line.hasPrefix("<!--") && !line.hasPrefix("<![cdata[") else {
+            return false
+        }
+
+        let marker = line.index(line.startIndex, offsetBy: 2)
+        guard marker < line.endIndex else {
+            return false
+        }
+
+        return line[marker].isLetter
     }
 
     private func closesHTMLBlock(_ line: String, html: MarkdownBoundaryHTMLBlock) -> Bool {
@@ -239,7 +388,11 @@ public struct MarkdownBoundaryScanner: Sendable, Hashable {
             index = line.index(after: index)
         }
 
-        guard sawDigit, index < line.endIndex, line[index] == "." else {
+        guard sawDigit, index < line.endIndex else {
+            return false
+        }
+
+        guard line[index] == "." || line[index] == ")" else {
             return false
         }
 

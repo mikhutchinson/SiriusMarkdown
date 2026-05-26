@@ -628,6 +628,22 @@ private struct StreamingCase: Identifiable, Hashable {
             ]
         ),
         StreamingCase(
+            id: "reference-definitions",
+            title: "Reference Definitions",
+            summary: "Reference links wait for matching definitions before sealing.",
+            detail: "This stream shows the mutable tail staying open for an unresolved reference link, then sealing once its definition arrives while later references reuse earlier definitions.",
+            systemImage: "link.circle",
+            steps: [
+                .append("The first paragraph starts with [release notes][release-ref] before the destination exists.\n\n"),
+                .append("While that label is unresolved, the region should remain the mutable tail instead of sealing into the wrong semantics.\n\n"),
+                .append("[release-ref]: https://example.com/siriusmarkdown/0.4.21\n\n"),
+                .append("A later paragraph can reuse [release notes][release-ref] after the definition has already sealed.\n\n"),
+                .append("[docs-ref]: https://example.com/siriusmarkdown/docs\n\n"),
+                .append("Definitions can also arrive before use: [documentation][docs-ref] should resolve without keeping the tail open.\n"),
+                .finish
+            ]
+        ),
+        StreamingCase(
             id: "mixed-document",
             title: "Mixed Document Tail",
             summary: "Nested lists, tables, CJK, RTL, emoji, and hard breaks.",

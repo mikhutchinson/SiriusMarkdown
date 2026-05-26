@@ -265,9 +265,24 @@ struct MarkdownDocumentSelectionFragment: Identifiable, Equatable {
 
     func endpoint(at location: CGPoint) -> MarkdownDocumentSelectionEndpoint {
         if let textGeometry {
+            let localX = location.x - rect.minX
+            if localX <= 0 {
+                return MarkdownDocumentSelectionEndpoint(
+                    blockID: blockID,
+                    sourceByteOffset: sourceRange.byteRange.lowerBound,
+                    line: sourceRange.lineRange.lowerBound
+                )
+            }
+            if localX >= rect.width {
+                return MarkdownDocumentSelectionEndpoint(
+                    blockID: blockID,
+                    sourceByteOffset: sourceRange.byteRange.upperBound,
+                    line: sourceRange.lineRange.upperBound
+                )
+            }
             return MarkdownDocumentSelectionEndpoint(
                 blockID: blockID,
-                sourceByteOffset: textGeometry.sourceByteOffset(atX: location.x - rect.minX),
+                sourceByteOffset: textGeometry.sourceByteOffset(atX: localX),
                 line: sourceRange.lineRange.lowerBound
             )
         }
@@ -335,6 +350,11 @@ struct MarkdownDocumentSelectionFragment: Identifiable, Equatable {
         in inlineLayout: MarkdownPreparedInlineContent,
         diagnosticsRecorder: MarkdownDiagnosticsRecorder? = nil
     ) -> MarkdownSourceRange? {
+        if relativeByteRange == 0..<inlineLayout.prepared.naturalText.utf8.count,
+           let sourceRange = inlineLayout.prepared.sourceRange {
+            return sourceRange
+        }
+
         guard !relativeByteRange.isEmpty else {
             return inlineLayout.prepared.sourceRange
         }
@@ -356,8 +376,15 @@ struct MarkdownDocumentSelectionFragment: Identifiable, Equatable {
                     sourceRange: sourceRange
                 )
                 diagnosticsRecorder?.recordSelectionSourceRunMapping(count: 2)
-                let absoluteLower = mapper.sourceByteOffset(forVisibleByteOffset: overlapLower)
-                let absoluteUpper = mapper.sourceByteOffset(forVisibleByteOffset: overlapUpper)
+                let absoluteLower: Int
+                let absoluteUpper: Int
+                if mapper.mapsOneToOne {
+                    absoluteLower = mapper.sourceByteOffset(forVisibleByteOffset: overlapLower)
+                    absoluteUpper = mapper.sourceByteOffset(forVisibleByteOffset: overlapUpper)
+                } else {
+                    absoluteLower = sourceRange.byteRange.lowerBound
+                    absoluteUpper = sourceRange.byteRange.upperBound
+                }
                 lower = min(lower ?? absoluteLower, absoluteLower)
                 upper = max(upper ?? absoluteUpper, absoluteUpper)
                 lineLower = min(lineLower ?? sourceRange.lineRange.lowerBound, sourceRange.lineRange.lowerBound)
@@ -735,6 +762,10 @@ struct MarkdownDocumentSelectionTextGeometry: Equatable, Sendable {
 struct MarkdownDocumentSelectionSourceRun: Equatable, Sendable {
     var visibleByteRange: Range<Int>
     var sourceRange: MarkdownSourceRange
+
+    var mapsOneToOne: Bool {
+        visibleByteRange.count == sourceRange.byteRange.count
+    }
 
     func sourceByteOffset(forVisibleByteOffset visibleByteOffset: Int) -> Int {
         let clamped = min(max(visibleByteOffset, visibleByteRange.lowerBound), visibleByteRange.upperBound)

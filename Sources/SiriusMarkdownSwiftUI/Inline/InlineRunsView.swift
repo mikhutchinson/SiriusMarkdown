@@ -130,23 +130,16 @@ public struct InlineRunsView: View {
 
         for run in runs {
             var piece = AttributedString(visibleText(for: run, imagePolicy: imagePolicy))
-            switch run.kind {
-            case .emphasis:
-                piece.inlinePresentationIntent = .emphasized
-            case .strong:
-                piece.inlinePresentationIntent = .stronglyEmphasized
-            case .strikethrough:
-                piece.inlinePresentationIntent = .strikethrough
-            case .code, .math:
-                piece.inlinePresentationIntent = .code
-            case .link:
+            if let intent = inlinePresentationIntent(for: run.presentation, kind: run.kind) {
+                piece.inlinePresentationIntent = intent
+            }
+
+            if run.kind == .link {
                 if let destination = run.destination,
                    case .allow = linkPolicy.evaluateLink(destination: destination),
                    let url = URL(string: destination) {
                     piece.link = url
                 }
-            default:
-                break
             }
             attributed.append(piece)
         }
@@ -211,6 +204,7 @@ public struct InlineRunsView: View {
                 text: text,
                 byteRange: cursor..<upper,
                 kind: run.kind,
+                presentation: run.presentation,
                 prepared: prepared
             )
             cursor = upper
@@ -345,6 +339,7 @@ public struct InlineRunsView: View {
         text: String,
         byteRange: Range<Int>,
         kind: MarkdownInlineKind,
+        presentation: MarkdownInlinePresentation,
         prepared: MarkdownPreparedInlineContent
     ) {
         guard !byteRange.isEmpty,
@@ -365,8 +360,9 @@ public struct InlineRunsView: View {
         let lower = characters.index(characters.startIndex, offsetBy: lowerOffset)
         let upper = characters.index(characters.startIndex, offsetBy: upperOffset)
         attributed[lower..<upper].font = swiftUIFont(
-            for: prepared.fontProfiles.profile(for: kind),
+            for: prepared.fontProfiles.profile(for: presentation, kind: kind),
             kind: kind,
+            presentation: presentation,
             size: prepared.fontSize
         )
     }
@@ -379,6 +375,7 @@ public struct InlineRunsView: View {
         attributed.font = swiftUIFont(
             for: prepared.fontProfiles.profile(for: .text),
             kind: .text,
+            presentation: [],
             size: prepared.fontSize
         )
         return attributed
@@ -387,6 +384,7 @@ public struct InlineRunsView: View {
     private nonisolated static func swiftUIFont(
         for profile: MarkdownFontProfile,
         kind: MarkdownInlineKind,
+        presentation: MarkdownInlinePresentation,
         size: Double
     ) -> Font {
         var font: Font
@@ -399,10 +397,30 @@ public struct InlineRunsView: View {
             font = .custom(name, size: CGFloat(size)).weight(swiftUIWeight(weight))
         }
 
-        if kind == .emphasis {
+        if presentation.contains(.emphasis) || kind == .emphasis {
             font = font.italic()
         }
         return font
+    }
+
+    private nonisolated static func inlinePresentationIntent(
+        for presentation: MarkdownInlinePresentation,
+        kind: MarkdownInlineKind
+    ) -> InlinePresentationIntent? {
+        var intent: InlinePresentationIntent = []
+        if presentation.contains(.emphasis) || kind == .emphasis {
+            intent.insert(.emphasized)
+        }
+        if presentation.contains(.strong) || kind == .strong {
+            intent.insert(.stronglyEmphasized)
+        }
+        if presentation.contains(.strikethrough) || kind == .strikethrough {
+            intent.insert(.strikethrough)
+        }
+        if presentation.contains(.code) || presentation.contains(.math) || kind == .code || kind == .math {
+            intent.insert(.code)
+        }
+        return intent.isEmpty ? nil : intent
     }
 
     private nonisolated static func swiftUIWeight(_ weight: MarkdownFontWeight) -> Font.Weight {

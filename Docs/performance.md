@@ -5,8 +5,8 @@ The renderer contract is architectural: SwiftUI **`body`** must not parse Markdo
 ## Streaming and parsing
 
 - **Tail**: While streaming and **`sealedUpperBound < source.byteCount`**, each **`snapshot()`** reparses only the **mutable tail** slice (diagnostics **`tailReparseCount`**).
-- **Sealed regions**: Once sealed, blocks are reused from **`MarkdownParserCache`** keyed by **`MarkdownCacheKey`** (source range, content hash, namespace); hits increment sealed-region cache counters.
-- **Boundary scanning**: `MarkdownStream` retains incremental scanner state for the active tail and records `boundaryScannedByteCount` / `boundaryScannedLineCount`; long open fences, math, HTML, and loose-list tails are covered by counter-based linear-scan tests.
+- **Sealed regions**: Once sealed, blocks are reused from **`MarkdownParserCache`** keyed by **`MarkdownCacheKey`** (source range, content hash, namespace plus reference-definition context when later slices need prior definitions); hits increment sealed-region cache counters.
+- **Boundary scanning**: `MarkdownStream` retains incremental scanner state for the active tail and records `boundaryScannedByteCount` / `boundaryScannedLineCount`; long open fences, math, HTML, reference-link ambiguity, literal unmatched-bracket recovery, and loose-list tails are covered by counter-based linear-scan tests.
 - **Identity**: Blocks expose stable **`MarkdownBlockID`** values derived in the AST converter from structural identity within each parse slice—not from fragile array indices in SwiftUI.
 
 ## Inline prepare / layout (Core)
@@ -25,7 +25,7 @@ Prepared inline layout is the cacheable measurement, resize, diagnostics, and me
 
 ## Rendering path
 
-- **`MarkdownDocumentView`** / **`StreamingMarkdownView`** should receive **`MarkdownPreparedSnapshot`** values prepared outside SwiftUI body evaluation. Deprecated direct `snapshot:` initializers prepare at the view boundary and are kept only for small compatibility cases.
+- **`MarkdownDocumentView`** / **`StreamingMarkdownView`** should receive **`MarkdownPreparedSnapshot`** values prepared outside SwiftUI body evaluation. Deprecated direct `snapshot:` initializers are kept only for small compatibility cases; they enforce cheap block policies but intentionally skip full highlighting, math rendering, and inline layout preparation.
 - **`MarkdownRendererConfiguration.prepare(snapshot:)`** returns **`MarkdownPreparedSnapshot`**, preparing inline attributed payloads, measured inline content, link/image policy decisions, code highlighting, math rendering, and HTML policy decisions before block bodies consume them. `MarkdownRenderPreparationCache` bounds inline/code/math reuse by source range, content hash, normalized code language, highlighter identity, theme palette identity, and preparation namespace.
 - **`MarkdownBlockView`** consumes **`MarkdownPreparedBlockContent`** for paragraphs, headings, lists, tables, code, math, and HTML, and exposes copy/context hooks through **`MarkdownCopyProvider`**.
 

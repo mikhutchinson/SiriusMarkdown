@@ -21,6 +21,7 @@ Debug-run from the repo:
 swift run --package-path Examples/StreamingTranscriptDemo
 ```
 
-The demo appends timed chunks, including a Mermaid fence, into `MarkdownStream`,
-renders prepared snapshots with `StreamingMarkdownView`, and uses shared demo
-controls from `Examples/DemoSupport`.
+The demo appends timed chunks, including a Mermaid fence and reference-link
+definitions that arrive after their first use, into `MarkdownStream`, renders
+prepared snapshots with `StreamingMarkdownView`, and uses shared demo controls
+from `Examples/DemoSupport`.

@@ -35,6 +35,17 @@ func scannerTreatsCRLFBlankLinesLikeLF() {
 }
 
 @Test
+func scannerTreatsParenOrderedListsAsListLike() {
+    let scanner = MarkdownBoundaryScanner()
+
+    var looseList = MarkdownSourceBuffer()
+    looseList.append("1) item\n\n")
+    #expect(scanner.safeSealUpperBound(in: looseList, after: 0) == nil)
+    looseList.append("\n")
+    #expect(scanner.safeSealUpperBound(in: looseList, after: 0) == looseList.byteCount)
+}
+
+@Test
 func scannerTreatsCRLFFencesMathAndHTMLLikeLF() {
     let scanner = MarkdownBoundaryScanner()
 
@@ -49,6 +60,89 @@ func scannerTreatsCRLFFencesMathAndHTMLLikeLF() {
     var html = MarkdownSourceBuffer()
     html.append("<div>\r\nraw\r\n</div>\r\n\r\n")
     #expect(scanner.safeSealUpperBound(in: html, after: 0) == html.byteCount)
+}
+
+@Test
+func scannerKeepsNonTagHTMLBlocksOpenAcrossBlankLines() {
+    let scanner = MarkdownBoundaryScanner()
+
+    var processingInstruction = MarkdownSourceBuffer()
+    processingInstruction.append("<?instruction\n\n")
+    #expect(scanner.safeSealUpperBound(in: processingInstruction, after: 0) == nil)
+    processingInstruction.append("?>\n\n")
+    #expect(scanner.safeSealUpperBound(in: processingInstruction, after: 0) == processingInstruction.byteCount)
+
+    var declaration = MarkdownSourceBuffer()
+    declaration.append("<!DOCTYPE html\n\n")
+    #expect(scanner.safeSealUpperBound(in: declaration, after: 0) == nil)
+    declaration.append(">\n\n")
+    #expect(scanner.safeSealUpperBound(in: declaration, after: 0) == declaration.byteCount)
+
+    var cdata = MarkdownSourceBuffer()
+    cdata.append("<![CDATA[\nraw\n\n")
+    #expect(scanner.safeSealUpperBound(in: cdata, after: 0) == nil)
+    cdata.append("]]>\n\n")
+    #expect(scanner.safeSealUpperBound(in: cdata, after: 0) == cdata.byteCount)
+}
+
+@Test
+func scannerKeepsReferenceLinkCandidatesMutableUntilFinish() {
+    var buffer = MarkdownSourceBuffer()
+    buffer.append("See [later][ref].\n\n")
+
+    let scanner = MarkdownBoundaryScanner()
+    #expect(scanner.safeSealUpperBound(in: buffer, after: 0) == nil)
+}
+
+@Test
+func scannerSealsLiteralUnmatchedBracketAfterParagraphBoundary() {
+    var buffer = MarkdownSourceBuffer()
+    buffer.append("Literal [ bracket in normal prose.\n\n")
+
+    let scanner = MarkdownBoundaryScanner()
+    #expect(scanner.safeSealUpperBound(in: buffer, after: 0) == buffer.byteCount)
+}
+
+@Test
+func scannerRecoversLiteralUnmatchedBracketAcrossIncrementalScans() {
+    let scanner = MarkdownBoundaryScanner()
+    var state = MarkdownBoundaryScanState()
+    var buffer = MarkdownSourceBuffer()
+    buffer.append("Literal [ bracket in normal prose.\n")
+
+    var result = scanner.scan(in: buffer, state: &state)
+    #expect(result.safeUpperBound == nil)
+
+    buffer.append("\nNext paragraph can seal too.\n\n")
+    result = scanner.scan(in: buffer, state: &state)
+    #expect(result.safeUpperBound == buffer.byteCount)
+}
+
+@Test
+func scannerStillSealsInlineLinksAndReferenceDefinitions() {
+    let scanner = MarkdownBoundaryScanner()
+
+    var inline = MarkdownSourceBuffer()
+    inline.append("See [now](https://example.com).\n\n")
+    #expect(scanner.safeSealUpperBound(in: inline, after: 0) == inline.byteCount)
+
+    var definition = MarkdownSourceBuffer()
+    definition.append("[ref]: https://example.com\n\n")
+    #expect(scanner.safeSealUpperBound(in: definition, after: 0) == definition.byteCount)
+}
+
+@Test
+func scannerSealsReferenceCandidateAfterMatchingDefinitionArrives() {
+    let scanner = MarkdownBoundaryScanner()
+    var state = MarkdownBoundaryScanState()
+    var buffer = MarkdownSourceBuffer()
+    buffer.append("See [later][ref].\n\n")
+    var result = scanner.scan(in: buffer, state: &state)
+    #expect(result.safeUpperBound == nil)
+
+    buffer.append("[ref]: https://example.com\n\n")
+    result = scanner.scan(in: buffer, state: &state)
+    #expect(result.safeUpperBound == buffer.byteCount)
 }
 
 @Test

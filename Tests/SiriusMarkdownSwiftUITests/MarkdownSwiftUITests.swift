@@ -31,6 +31,145 @@ func documentViewCanBeConstructedFromSnapshot() {
     )
 }
 
+@available(*, deprecated, message: "Exercises deprecated snapshot compatibility initializers.")
+@Test
+@MainActor
+func deprecatedSnapshotViewInitializersDoNotPrepareSynchronously() throws {
+    var stream = MarkdownStream()
+    stream.append(
+        """
+        Paragraph with [link](https://example.com).
+
+        ```swift
+        let x = 1
+        ```
+
+        ```mermaid
+        graph LR
+        A --> B
+        ```
+
+        $$
+        x^2
+        $$
+
+        | Name | Value |
+        | - | - |
+        | [safe](https://example.com) | `code` |
+        """
+    )
+    stream.finish()
+
+    let recorder = MarkdownDiagnosticsRecorder()
+    let highlighter = CountingCodeHighlighter()
+    let mermaidRenderer = CountingMermaidRenderer(ascii: "A -> B")
+    let mathRenderer = CountingMathRenderer()
+    let configuration = MarkdownRendererConfiguration(
+        codeHighlighter: highlighter,
+        mermaidRenderer: mermaidRenderer,
+        mathRenderer: mathRenderer,
+        diagnosticsRecorder: recorder
+    )
+    let snapshot = stream.snapshot()
+
+    _ = MarkdownDocumentView(snapshot: snapshot, configuration: configuration)
+    _ = StreamingMarkdownView(snapshot: snapshot, configuration: configuration)
+
+    let counters = recorder.snapshot()
+    #expect(counters.renderPreparationCount == 0)
+    #expect(counters.prepareCount == 0)
+    #expect(counters.codeHighlightCount == 0)
+    #expect(counters.mermaidRenderCount == 0)
+    #expect(counters.mathRenderCount == 0)
+    #expect(highlighter.count == 0)
+    #expect(mermaidRenderer.count == 0)
+    #expect(mathRenderer.count == 0)
+}
+
+@Test
+func unpreparedSnapshotKeepsStructuredCompatibilityDataWithoutPreparing() throws {
+    var stream = MarkdownStream()
+    stream.append(
+        """
+        - [safe](https://example.com)
+          - child
+
+        | Name | Value |
+        | - | - |
+        | [safe](https://example.com) | `code` |
+        """
+    )
+    stream.finish()
+
+    let recorder = MarkdownDiagnosticsRecorder()
+    let configuration = MarkdownRendererConfiguration(diagnosticsRecorder: recorder)
+    let unprepared = configuration.unpreparedSnapshot(for: stream.snapshot())
+    let list = try #require(unprepared.items.compactMap { item -> MarkdownPreparedBlockContent? in
+        guard case let .block(block, content) = item, block.kind == .unorderedList else {
+            return nil
+        }
+        return content
+    }.first)
+    let table = try #require(unprepared.items.compactMap { item -> MarkdownPreparedBlockContent? in
+        guard case let .block(block, content) = item, block.kind == .table else {
+            return nil
+        }
+        return content
+    }.first?.table)
+
+    #expect(list.listItems.count == 1)
+    #expect(list.listItems.first?.childItems.count == 1)
+    #expect(attributedStringContainsLink(list.listItems.first?.inline) == true)
+    #expect(table.header.count == 2)
+    #expect(table.rows.count == 1)
+    #expect(attributedStringContainsLink(table.rows.first?.cells.first?.inline) == true)
+    #expect(recorder.snapshot().renderPreparationCount == 0)
+    #expect(recorder.snapshot().prepareCount == 0)
+}
+
+@Test
+func unpreparedSnapshotStillEnforcesBlockPoliciesWithoutPreparing() throws {
+    var stream = MarkdownStream()
+    stream.append(
+        """
+        ```swift
+        let x = 1
+        ```
+
+        $$
+        x^2
+        $$
+
+        <div>raw</div>
+        """
+    )
+    stream.finish()
+
+    let recorder = MarkdownDiagnosticsRecorder()
+    let configuration = MarkdownRendererConfiguration(
+        htmlPolicy: CountingHTMLPolicy(),
+        codePolicy: DenyCodePolicy(),
+        mathPolicy: DenyMathPolicy(),
+        diagnosticsRecorder: recorder
+    )
+    let unprepared = configuration.unpreparedSnapshot(for: stream.snapshot())
+    let contents = unprepared.items.compactMap { item -> (MarkdownBlockKind, MarkdownPreparedBlockContent)? in
+        guard case let .block(block, content) = item else {
+            return nil
+        }
+        return (block.kind, content)
+    }
+
+    #expect(contents.first { $0.0 == .codeBlock }?.1.policyDenialReason == "code denied")
+    #expect(contents.first { $0.0 == .mathBlock }?.1.policyDenialReason == "math denied")
+    #expect(contents.first { $0.0 == .htmlBlock }?.1.policyDenialReason == "counted html denied")
+    #expect(contents.first { $0.0 == .htmlBlock }?.1.htmlAllowed == false)
+    #expect(recorder.snapshot().renderPreparationCount == 0)
+    #expect(recorder.snapshot().prepareCount == 0)
+    #expect(recorder.snapshot().codeHighlightCount == 0)
+    #expect(recorder.snapshot().mathRenderCount == 0)
+}
+
 @Test
 func preparedSnapshotExposesLightweightRenderItems() throws {
     var stream = MarkdownStream()
@@ -302,7 +441,11 @@ func packagedPresetsUsePreparedNativeLinesWhileRawConfigKeepsCompatibilityFallba
         text: "Hello",
         isSealed: true
     )
-    let view = MarkdownBlockView(block: block)
+    let view = MarkdownBlockView(
+        block: block,
+        configuration: MarkdownRendererConfiguration(theme: .compactChat, inlineRenderingMode: .preparedNativeLines),
+        preparedContent: nil
+    )
     let configuration = try #require(mirroredConfiguration(from: view))
     #expect(configuration.inlineRenderingMode == .preparedNativeLines)
 }
@@ -832,6 +975,22 @@ func preparedNativeLinesPreserveMathRenderedTextAndImagePlaceholderText() throws
 }
 
 @Test
+func preparedInlineImageUsesResolverPlaceholderWhenAltTextIsEmpty() throws {
+    var stream = MarkdownStream()
+    stream.append("Image ![](diagram.png) after")
+    stream.finish()
+    let snapshot = stream.snapshot()
+    let configuration = MarkdownRendererConfiguration(inlineRenderingMode: .preparedNativeLines)
+
+    let prepared = configuration.prepare(snapshot: snapshot)
+    let block = try #require(snapshot.blocks.first)
+    let inlineLayout = try #require(prepared.preparedContentByBlockID[block.id]?.inlineLayout)
+
+    #expect(inlineLayout.images.first?.source == "diagram.png")
+    #expect(inlineLayout.prepared.naturalText.contains("Image loading is disabled by default."))
+}
+
+@Test
 func preparedNativeLinesPreserveHardBreakLineSlices() throws {
     var stream = MarkdownStream()
     stream.append("first  \nsecond  \nthird")
@@ -1318,6 +1477,132 @@ func mermaidPreparationCacheKeysIncludeRendererIdentityAndSupportOptOut() throws
 }
 
 @Test
+func inlinePreparationCacheKeysIncludePolicyIdentity() throws {
+    let linkBlock = try firstBlock("[safe](https://example.com)")
+    let cache = MarkdownRenderPreparationCache()
+    let recorder = MarkdownDiagnosticsRecorder()
+
+    let allowConfiguration = MarkdownRendererConfiguration(
+        linkPolicy: IdentityLinkPolicy(identity: "allow", decision: .allow),
+        preparationCache: cache,
+        diagnosticsRecorder: recorder
+    )
+    let allowed = allowConfiguration.prepare(block: linkBlock)
+    let afterAllow = recorder.snapshot()
+
+    let denyConfiguration = MarkdownRendererConfiguration(
+        linkPolicy: IdentityLinkPolicy(identity: "deny", decision: .deny(reason: "blocked")),
+        preparationCache: cache,
+        diagnosticsRecorder: recorder
+    )
+    let denied = denyConfiguration.prepare(block: linkBlock)
+    let afterDeny = recorder.snapshot()
+
+    #expect(attributedStringContainsLink(allowed.inline) == true)
+    #expect(attributedStringContainsLink(denied.inline) == false)
+    #expect(afterDeny.cacheMissCount == afterAllow.cacheMissCount + 1)
+}
+
+@Test
+func mathPreparationCacheKeysIncludeRendererIdentity() throws {
+    let inlineMathBlock = try firstBlock("Before $x^2$ after")
+    let blockMathBlock = try firstBlock("$$\nx^2\n$$")
+    let cache = MarkdownRenderPreparationCache()
+    let recorder = MarkdownDiagnosticsRecorder()
+    let rendererOne = IdentityMathRenderer(identity: "one", prefix: "one")
+    let rendererTwo = IdentityMathRenderer(identity: "two", prefix: "two")
+
+    let configOne = MarkdownRendererConfiguration(
+        mathRenderer: rendererOne,
+        preparationCache: cache,
+        diagnosticsRecorder: recorder
+    )
+    let inlineOne = configOne.prepare(block: inlineMathBlock)
+    let blockOne = configOne.prepare(block: blockMathBlock)
+    let afterOne = recorder.snapshot()
+
+    let configTwo = MarkdownRendererConfiguration(
+        mathRenderer: rendererTwo,
+        preparationCache: cache,
+        diagnosticsRecorder: recorder
+    )
+    let inlineTwo = configTwo.prepare(block: inlineMathBlock)
+    let blockTwo = configTwo.prepare(block: blockMathBlock)
+    let afterTwo = recorder.snapshot()
+
+    #expect(plainString(inlineOne.inline).contains("one:x^2"))
+    #expect(plainString(inlineTwo.inline).contains("two:x^2"))
+    #expect(plainString(blockOne.math).contains("one:x^2"))
+    #expect(plainString(blockTwo.math).contains("two:x^2"))
+    #expect(afterTwo.mathRenderCount == afterOne.mathRenderCount + 2)
+    #expect(rendererOne.count == 2)
+    #expect(rendererTwo.count == 2)
+}
+
+@Test
+func inlineMathNestedInsideLinkUsesMathRendererAndKeepsLink() throws {
+    let block = try firstBlock("[value $x^2$](https://example.com/math)")
+    let renderer = IdentityMathRenderer(identity: "linked-inline-math", prefix: "rendered")
+    let configuration = MarkdownRendererConfiguration(mathRenderer: renderer)
+
+    let inline = try #require(configuration.prepare(block: block).inlineLayout)
+    let renderedText = String(inline.attributed.characters)
+    let linkedMathRun = inline.prepared.runs.first { run in
+        run.kind == .link && run.presentation.contains(.math)
+    }
+
+    #expect(renderedText.contains("rendered:x^2"))
+    #expect(attributedStringContainsLink(inline.attributed))
+    #expect(linkedMathRun?.destination == "https://example.com/math")
+    #expect(linkedMathRun?.text.contains("rendered:x^2") == true)
+    #expect(renderer.count == 1)
+}
+
+@Test
+func customCodeHighlightersWithoutCacheIdentityDoNotReuseStaleOutput() throws {
+    let block = try firstBlock("```swift\nlet x = 1\n```")
+    let cache = MarkdownRenderPreparationCache()
+    let firstHighlighter = PrefixCodeHighlighter(prefix: "one")
+    let secondHighlighter = PrefixCodeHighlighter(prefix: "two")
+
+    let first = MarkdownRendererConfiguration(
+        codeHighlighter: firstHighlighter,
+        preparationCache: cache
+    ).prepare(block: block)
+    let second = MarkdownRendererConfiguration(
+        codeHighlighter: secondHighlighter,
+        preparationCache: cache
+    ).prepare(block: block)
+
+    #expect(plainString(first.code).contains("one:let x = 1"))
+    #expect(plainString(second.code).contains("two:let x = 1"))
+    #expect(firstHighlighter.count == 1)
+    #expect(secondHighlighter.count == 1)
+}
+
+@Test
+func customMermaidRenderersWithoutCacheIdentityDoNotReuseStaleOutput() throws {
+    let block = try firstBlock("```mermaid\ngraph LR\nA --> B\n```")
+    let cache = MarkdownRenderPreparationCache()
+    let firstRenderer = PrefixMermaidRenderer(ascii: "one")
+    let secondRenderer = PrefixMermaidRenderer(ascii: "two")
+
+    let first = MarkdownRendererConfiguration(
+        mermaidRenderer: firstRenderer,
+        preparationCache: cache
+    ).prepare(block: block)
+    let second = MarkdownRendererConfiguration(
+        mermaidRenderer: secondRenderer,
+        preparationCache: cache
+    ).prepare(block: block)
+
+    #expect(first.mermaid?.ascii == "one")
+    #expect(second.mermaid?.ascii == "two")
+    #expect(firstRenderer.count == 1)
+    #expect(secondRenderer.count == 1)
+}
+
+@Test
 func defaultPlainAndUnsupportedFencesDoNotRecordHighlightWork() throws {
     let supportedBlock = try firstBlock("```swift\nlet x = 1\n```")
     let plaintextBlock = try firstBlock("```plaintext\n2026-05-02 12:00:00 \"plain\"\n```")
@@ -1338,6 +1623,26 @@ func defaultPlainAndUnsupportedFencesDoNotRecordHighlightWork() throws {
     #expect(afterUnsupported.codeHighlightCount == 0)
     #expect(afterSupported.codeHighlightCount == 1)
     #expect(afterCachedSupported.codeHighlightCount == afterSupported.codeHighlightCount)
+}
+
+@Test
+func defaultCodeHighlighterPreservesEmbeddedNULAndTailText() {
+    let code = "let first = \"a\0b\"\nlet second = 2"
+    let highlighted = DefaultMarkdownCodeHighlighter().highlightedCode(code, infoString: "swift")
+    let rendered = String(highlighted.characters)
+
+    #expect(rendered.contains("a\0b"))
+    #expect(rendered.contains("let second = 2"))
+}
+
+@Test
+func selectionSourceRunMarksFormattedRunAsNonOneToOne() {
+    let mapper = MarkdownDocumentSelectionSourceRun(
+        visibleByteRange: 0..<4,
+        sourceRange: MarkdownSourceRange(byteRange: 10..<18, lineRange: 1..<2)
+    )
+
+    #expect(mapper.mapsOneToOne == false)
 }
 
 @Test
@@ -1825,7 +2130,7 @@ func sourceBackedCopyProviderReturnsUTF8SourceSlices() throws {
 
 @Test
 @MainActor
-func copyProviderReturnsFullDocumentMarkdown() throws {
+func copyProviderReturnsFullDocumentMarkdown() async throws {
     let markdown = "# Title\n\nBody with `code`.\n"
     let provider = MarkdownCopyProvider(markdownSource: markdown)
 
@@ -1835,6 +2140,7 @@ func copyProviderReturnsFullDocumentMarkdown() throws {
     let session = MarkdownRenderSession(configuration: .document)
     session.append(markdown)
     session.finish()
+    await session.waitUntilIdle()
 
     #expect(session.configuration.copyProvider?.hasDocumentMarkdown == true)
     #expect(session.configuration.copyProvider?.markdownForDocument() == markdown)
@@ -2071,6 +2377,9 @@ func preparedBlockContentMovesCodeAndMathRenderingOutOfBlockBody() throws {
     _ = MarkdownBlockView.renderPlan(for: code, configuration: codeConfiguration)
     #expect(highlighter.count == 0)
 
+    _ = MarkdownBlockView(block: code, configuration: codeConfiguration, preparedContent: nil)
+    #expect(highlighter.count == 0)
+
     let preparedCode = codeConfiguration.prepare(block: code)
     #expect(highlighter.count == 1)
     _ = codeConfiguration.prepare(block: code)
@@ -2196,6 +2505,23 @@ private func firstBlock(_ markdown: String) throws -> MarkdownBlock {
     stream.append(markdown)
     stream.finish()
     return try #require(stream.snapshot().blocks.first)
+}
+
+private func attributedStringContainsLink(_ attributed: AttributedString?) -> Bool {
+    guard let attributed else {
+        return false
+    }
+
+    return attributed.runs.contains { run in
+        run.link != nil
+    }
+}
+
+private func plainString(_ attributed: AttributedString?) -> String {
+    guard let attributed else {
+        return ""
+    }
+    return String(attributed.characters)
 }
 
 private func screenshotCommandMarkdown() -> String {
@@ -2593,15 +2919,43 @@ private struct InlineFixtureMathRenderer: MarkdownMathRenderer {
     }
 }
 
-private final class CountingCodeHighlighter: MarkdownCodeHighlighter, @unchecked Sendable {
+private final class CountingCodeHighlighter: MarkdownCodeHighlighter, MarkdownCodeHighlighterCacheIdentifying, @unchecked Sendable {
     private let lock = NSLock()
     private var callCount = 0
+
+    var codeHighlighterCacheIdentity: String {
+        "test.counting-code"
+    }
 
     func highlightedCode(_ code: String, infoString: String?) -> AttributedString {
         lock.withLock {
             callCount += 1
         }
         return AttributedString(code)
+    }
+
+    var count: Int {
+        lock.withLock {
+            callCount
+        }
+    }
+}
+
+private final class PrefixCodeHighlighter: MarkdownCodeHighlighter, @unchecked Sendable {
+    private let lock = NSLock()
+    private var callCount = 0
+    private let prefix: String
+
+    init(prefix: String) {
+        self.prefix = prefix
+    }
+
+    func highlightedCode(_ code: String, infoString: String?) -> AttributedString {
+        _ = infoString
+        lock.withLock {
+            callCount += 1
+        }
+        return AttributedString("\(prefix):\(code)")
     }
 
     var count: Int {
@@ -2634,9 +2988,28 @@ private final class IdentityCodeHighlighter: MarkdownCodeHighlighter, MarkdownCo
     }
 }
 
-private final class CountingMathRenderer: MarkdownMathRenderer, @unchecked Sendable {
+private struct IdentityLinkPolicy: MarkdownLinkPolicy, MarkdownLinkPolicyCacheIdentifying {
+    var linkPolicyCacheIdentity: String
+    var decision: MarkdownPolicyDecision
+
+    init(identity: String, decision: MarkdownPolicyDecision) {
+        self.linkPolicyCacheIdentity = identity
+        self.decision = decision
+    }
+
+    func evaluateLink(destination: String) -> MarkdownPolicyDecision {
+        _ = destination
+        return decision
+    }
+}
+
+private final class CountingMathRenderer: MarkdownMathRenderer, MarkdownMathRendererCacheIdentifying, @unchecked Sendable {
     private let lock = NSLock()
     private var callCount = 0
+
+    var mathRendererCacheIdentity: String {
+        "test.counting-math"
+    }
 
     func renderedMath(_ source: String, isBlock: Bool) -> AttributedString {
         lock.withLock {
@@ -2652,7 +3025,71 @@ private final class CountingMathRenderer: MarkdownMathRenderer, @unchecked Senda
     }
 }
 
-private final class CountingMermaidRenderer: MarkdownMermaidRenderer, @unchecked Sendable {
+private final class IdentityMathRenderer: MarkdownMathRenderer, MarkdownMathRendererCacheIdentifying, @unchecked Sendable {
+    private let lock = NSLock()
+    private var callCount = 0
+    let mathRendererCacheIdentity: String
+    private let prefix: String
+
+    init(identity: String, prefix: String) {
+        self.mathRendererCacheIdentity = identity
+        self.prefix = prefix
+    }
+
+    func renderedMath(_ source: String, isBlock: Bool) -> AttributedString {
+        _ = isBlock
+        lock.withLock {
+            callCount += 1
+        }
+        var attributed = AttributedString("\(prefix):\(source)")
+        attributed.inlinePresentationIntent = .code
+        return attributed
+    }
+
+    var count: Int {
+        lock.withLock {
+            callCount
+        }
+    }
+}
+
+private final class CountingMermaidRenderer: MarkdownMermaidRenderer, MarkdownMermaidRendererCacheIdentifying, @unchecked Sendable {
+    private let lock = NSLock()
+    private var callCount = 0
+    private let ascii: String
+
+    var mermaidRendererCacheIdentity: String {
+        "test.counting-mermaid"
+    }
+
+    init(ascii: String) {
+        self.ascii = ascii
+    }
+
+    func renderedMermaid(
+        _ source: String,
+        sourceRange: MarkdownSourceRange?,
+        theme: MarkdownTheme
+    ) -> MarkdownPreparedMermaidDiagram? {
+        _ = theme
+        lock.withLock {
+            callCount += 1
+        }
+        return MarkdownPreparedMermaidDiagram(
+            source: source,
+            sourceRange: sourceRange,
+            ascii: ascii
+        )
+    }
+
+    var count: Int {
+        lock.withLock {
+            callCount
+        }
+    }
+}
+
+private final class PrefixMermaidRenderer: MarkdownMermaidRenderer, @unchecked Sendable {
     private let lock = NSLock()
     private var callCount = 0
     private let ascii: String

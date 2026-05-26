@@ -8,17 +8,20 @@ public struct SwiftMarkdownParser: Sendable {
         _ slice: MarkdownSourceSlice,
         lineMap: MarkdownLineMap,
         idNamespace: String,
-        isSealed: Bool
+        isSealed: Bool,
+        referenceDefinitionsPrefix: String = ""
     ) -> [MarkdownBlock] {
-        let source = slice.text
+        let sliceText = slice.text
+        let source = referenceDefinitionsPrefix + sliceText
         guard !source.isEmpty else {
             return []
         }
 
         let document = Document(parsing: source, options: [.disableSmartOpts])
+        let baseOffset = slice.byteRange.lowerBound - referenceDefinitionsPrefix.utf8.count
         return SwiftMarkdownRenderModelConverter(
             source: source,
-            baseOffset: slice.byteRange.lowerBound,
+            baseOffset: baseOffset,
             lineMap: lineMap,
             idNamespace: idNamespace,
             isSealed: isSealed
@@ -123,7 +126,7 @@ private struct SwiftMarkdownRenderModelConverter {
             }
             return inlineRunConverter(fallbackRange: fallbackRange).runs(in: paragraph.children)
         case let quote as BlockQuote:
-            return inlineRunConverter(fallbackRange: fallbackRange).runs(in: quote.children)
+            return blockContainerInlineRuns(in: quote.children, fallbackRange: fallbackRange)
         case let list as UnorderedList:
             return inlineRunConverter(fallbackRange: fallbackRange).runs(in: list.children)
         case let list as OrderedList:
@@ -178,16 +181,122 @@ private struct SwiftMarkdownRenderModelConverter {
 
     private func listItemInlineRuns(in item: ListItem, fallbackRange: MarkdownSourceRange) -> [MarkdownInlineRun] {
         let converter = inlineRunConverter(fallbackRange: fallbackRange)
-        return item.children.flatMap { child -> [MarkdownInlineRun] in
+        let inlineChildren = Array(item.children).filter { child in
+            !(child is UnorderedList) && !(child is OrderedList)
+        }
+
+        return inlineChildren.enumerated().flatMap { index, child -> [MarkdownInlineRun] in
+            var runs: [MarkdownInlineRun]
             switch child {
-            case is UnorderedList, is OrderedList:
-                return []
             case let paragraph as Paragraph:
-                return converter.runs(in: paragraph.children)
+                runs = converter.runs(in: paragraph.children)
             default:
-                return converter.runs(in: child.children)
+                runs = blockInlineRuns(for: child, fallbackRange: fallbackRange)
+            }
+
+            if index < inlineChildren.count - 1, !runs.isEmpty {
+                runs.append(
+                    MarkdownInlineRun(
+                        kind: .hardBreak,
+                        text: "\n",
+                        sourceRange: runs.last?.sourceRange ?? fallbackRange
+                    )
+                )
+            }
+            return runs
+        }
+    }
+
+    private func blockContainerInlineRuns(
+        in children: MarkupChildren,
+        fallbackRange: MarkdownSourceRange
+    ) -> [MarkdownInlineRun] {
+        let childArray = Array(children)
+        return childArray.enumerated().flatMap { index, child -> [MarkdownInlineRun] in
+            var runs = blockInlineRuns(for: child, fallbackRange: fallbackRange)
+            if index < childArray.count - 1, !runs.isEmpty {
+                runs.append(
+                    MarkdownInlineRun(
+                        kind: .hardBreak,
+                        text: "\n",
+                        sourceRange: runs.last?.sourceRange ?? fallbackRange
+                    )
+                )
+            }
+            return runs
+        }
+    }
+
+    private func blockInlineRuns(
+        for markup: Markup,
+        fallbackRange: MarkdownSourceRange
+    ) -> [MarkdownInlineRun] {
+        let converter = inlineRunConverter(fallbackRange: fallbackRange)
+        switch markup {
+        case let paragraph as Paragraph:
+            return converter.runs(in: paragraph.children)
+        case let heading as Heading:
+            return converter.runs(in: heading.children)
+        case let codeBlock as CodeBlock:
+            return [
+                MarkdownInlineRun(
+                    kind: .code,
+                    text: codeBlock.code,
+                    sourceRange: markdownSourceRange(for: codeBlock)
+                )
+            ]
+        case let htmlBlock as HTMLBlock:
+            return [
+                MarkdownInlineRun(
+                    kind: .text,
+                    text: htmlBlock.rawHTML,
+                    sourceRange: markdownSourceRange(for: htmlBlock)
+                )
+            ]
+        case let table as Table:
+            return tableInlineRuns(table, fallbackRange: fallbackRange)
+        case let list as UnorderedList:
+            let items = Array(list.children).compactMap { $0 as? ListItem }
+            return items.enumerated().flatMap { index, item in
+                var runs = listItemInlineRuns(in: item, fallbackRange: markdownSourceRange(for: item))
+                if index < items.count - 1, !runs.isEmpty {
+                    runs.append(MarkdownInlineRun(kind: .hardBreak, text: "\n", sourceRange: markdownSourceRange(for: item)))
+                }
+                return runs
+            }
+        case let list as OrderedList:
+            let items = Array(list.children).compactMap { $0 as? ListItem }
+            return items.enumerated().flatMap { index, item in
+                var runs = listItemInlineRuns(in: item, fallbackRange: markdownSourceRange(for: item))
+                if index < items.count - 1, !runs.isEmpty {
+                    runs.append(MarkdownInlineRun(kind: .hardBreak, text: "\n", sourceRange: markdownSourceRange(for: item)))
+                }
+                return runs
+            }
+        default:
+            return converter.runs(in: markup.children)
+        }
+    }
+
+    private func tableInlineRuns(
+        _ table: Table,
+        fallbackRange: MarkdownSourceRange
+    ) -> [MarkdownInlineRun] {
+        var runs: [MarkdownInlineRun] = []
+        let rows = [table.head.cells] + table.body.rows.map(\.cells)
+        for (rowIndex, row) in rows.enumerated() {
+            let cells = Array(row)
+            for (cellIndex, cell) in cells.enumerated() {
+                runs.append(contentsOf: inlineRunConverter(fallbackRange: fallbackRange).runs(in: cell.children))
+                if cellIndex < cells.count - 1 {
+                    runs.append(MarkdownInlineRun(kind: .text, text: " | ", sourceRange: markdownSourceRange(for: cell)))
+                }
+            }
+            if rowIndex < rows.count - 1 {
+                runs.append(MarkdownInlineRun(kind: .hardBreak, text: "\n", sourceRange: fallbackRange))
             }
         }
+        return runs
     }
 
     private func nestedListMetadata(in item: ListItem) -> (kind: MarkdownBlockKind?, orderedStart: UInt?) {
@@ -367,61 +476,117 @@ private struct InlineRunConverter {
     var fallbackRange: MarkdownSourceRange
 
     func runs(in children: MarkupChildren) -> [MarkdownInlineRun] {
-        children.flatMap { runs(in: $0) }
+        runs(in: children, presentation: [], destination: nil)
     }
 
-    private func runs(in markup: Markup) -> [MarkdownInlineRun] {
+    private func runs(
+        in children: MarkupChildren,
+        presentation: MarkdownInlinePresentation,
+        destination: String?
+    ) -> [MarkdownInlineRun] {
+        children.flatMap {
+            runs(in: $0, presentation: presentation, destination: destination)
+        }
+    }
+
+    private func runs(
+        in markup: Markup,
+        presentation: MarkdownInlinePresentation,
+        destination: String?
+    ) -> [MarkdownInlineRun] {
         switch markup {
         case let text as Markdown.Text:
-            return textRuns(for: text)
+            return textRuns(for: text, presentation: presentation, destination: destination)
         case let code as InlineCode:
-            return [run(kind: .code, text: code.code, markup: code)]
-        case let softBreak as SoftBreak:
-            return [run(kind: .softBreak, text: "\n", markup: softBreak)]
-        case let lineBreak as LineBreak:
-            return [run(kind: .hardBreak, text: "\n", markup: lineBreak)]
-        case let emphasis as Emphasis:
-            return [run(kind: .emphasis, text: plainText(in: emphasis.children), markup: emphasis)]
-        case let strong as Strong:
-            return [run(kind: .strong, text: plainText(in: strong.children), markup: strong)]
-        case let strikethrough as Strikethrough:
-            return [run(kind: .strikethrough, text: plainText(in: strikethrough.children), markup: strikethrough)]
-        case let link as Link:
             return [
                 run(
-                    kind: .link,
-                    text: plainText(in: link.children),
-                    markup: link,
-                    destination: link.destination
+                    kind: primaryKind(.code, destination: destination),
+                    text: code.code,
+                    markup: code,
+                    destination: destination,
+                    presentation: presentation.union(.code)
                 )
             ]
+        case let softBreak as SoftBreak:
+            return [run(kind: .softBreak, text: "\n", markup: softBreak, presentation: presentation)]
+        case let lineBreak as LineBreak:
+            return [run(kind: .hardBreak, text: "\n", markup: lineBreak, presentation: presentation)]
+        case let emphasis as Emphasis:
+            return runs(
+                in: emphasis.children,
+                presentation: presentation.union(.emphasis),
+                destination: destination
+            )
+        case let strong as Strong:
+            return runs(
+                in: strong.children,
+                presentation: presentation.union(.strong),
+                destination: destination
+            )
+        case let strikethrough as Strikethrough:
+            return runs(
+                in: strikethrough.children,
+                presentation: presentation.union(.strikethrough),
+                destination: destination
+            )
+        case let link as Link:
+            return runs(
+                in: link.children,
+                presentation: presentation,
+                destination: link.destination
+            )
         case let image as Markdown.Image:
             return [
                 run(
                     kind: .image,
                     text: plainText(in: image.children),
                     markup: image,
-                    destination: image.source
+                    destination: image.source,
+                    presentation: presentation.union(.image)
                 )
             ]
         case let html as InlineHTML:
-            return [run(kind: .text, text: html.rawHTML, markup: html)]
+            return [
+                run(
+                    kind: primaryKind(.text, destination: destination),
+                    text: html.rawHTML,
+                    markup: html,
+                    destination: destination,
+                    presentation: presentation
+                )
+            ]
         default:
-            return runs(in: markup.children)
+            return runs(in: markup.children, presentation: presentation, destination: destination)
         }
     }
 
-    private func textRuns(for text: Markdown.Text) -> [MarkdownInlineRun] {
+    private func textRuns(
+        for text: Markdown.Text,
+        presentation: MarkdownInlinePresentation,
+        destination: String?
+    ) -> [MarkdownInlineRun] {
         guard let sourceRange = sourceRange(for: text) else {
-            return splitInlineMath(in: text.string, baseRange: fallbackRange)
+            return applyInlineContext(
+                splitInlineMath(in: text.string, baseRange: fallbackRange),
+                presentation: presentation,
+                destination: destination
+            )
         }
 
         let rawText = sourceText(for: sourceRange.byteRange)
         if rawText != text.string, rawText.contains("$") {
-            return splitInlineMathInSource(rawText, baseRange: sourceRange)
+            return applyInlineContext(
+                splitInlineMathInSource(rawText, baseRange: sourceRange),
+                presentation: presentation,
+                destination: destination
+            )
         }
 
-        return splitInlineMath(in: text.string, baseRange: sourceRange)
+        return applyInlineContext(
+            splitInlineMath(in: text.string, baseRange: sourceRange),
+            presentation: presentation,
+            destination: destination
+        )
     }
 
     private func splitInlineMathInSource(
@@ -668,14 +833,63 @@ private struct InlineRunConverter {
         kind: MarkdownInlineKind,
         text: String,
         markup: Markup,
-        destination: String? = nil
+        destination: String? = nil,
+        presentation: MarkdownInlinePresentation? = nil
     ) -> MarkdownInlineRun {
         MarkdownInlineRun(
             kind: kind,
             text: text,
             sourceRange: sourceRange(for: markup) ?? fallbackRange,
-            destination: destination
+            destination: destination,
+            presentation: presentation
         )
+    }
+
+    private func primaryKind(_ kind: MarkdownInlineKind, destination: String?) -> MarkdownInlineKind {
+        guard destination != nil else {
+            return kind
+        }
+
+        switch kind {
+        case .text, .emphasis, .strong, .strikethrough, .code, .math:
+            return .link
+        default:
+            return kind
+        }
+    }
+
+    private func applyInlineContext(
+        _ runs: [MarkdownInlineRun],
+        presentation: MarkdownInlinePresentation,
+        destination: String?
+    ) -> [MarkdownInlineRun] {
+        runs.map { run in
+            var copy = run
+            copy.presentation.formUnion(presentation)
+            if let destination {
+                copy.kind = primaryKind(copy.kind, destination: destination)
+                copy.destination = destination
+            } else if copy.kind == .text {
+                copy.kind = primaryStyleKind(for: copy.presentation)
+            }
+            return copy
+        }
+    }
+
+    private func primaryStyleKind(for presentation: MarkdownInlinePresentation) -> MarkdownInlineKind {
+        if presentation.contains(.strong) {
+            return .strong
+        }
+
+        if presentation.contains(.emphasis) {
+            return .emphasis
+        }
+
+        if presentation.contains(.strikethrough) {
+            return .strikethrough
+        }
+
+        return .text
     }
 
     private func plainText(in children: MarkupChildren) -> String {

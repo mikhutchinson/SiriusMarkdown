@@ -1,4 +1,5 @@
 import SiriusMarkdownCore
+import Foundation
 import SwiftUI
 
 @MainActor
@@ -10,9 +11,11 @@ public final class MarkdownRenderSession: ObservableObject {
     public let streamDiagnosticsRecorder: MarkdownDiagnosticsRecorder
     public let renderDiagnosticsRecorder: MarkdownDiagnosticsRecorder
 
-    private var stream: MarkdownStream
+    private let pipeline: MarkdownRenderSessionPipeline
     private let sourceCopyStore: MarkdownMutableSourceCopyStore
     private let parserCacheCapacity: Int
+    private var renderTask: Task<Void, Never>?
+    private var presentationRevision: Int = 0
 
     public init(
         configuration: MarkdownRendererConfiguration = .compactChat,
@@ -23,12 +26,7 @@ public final class MarkdownRenderSession: ObservableObject {
         self.streamDiagnosticsRecorder = streamDiagnosticsRecorder
         self.renderDiagnosticsRecorder = renderDiagnosticsRecorder
         self.parserCacheCapacity = parserCacheCapacity
-        self.stream = MarkdownStream(
-            parserCacheCapacity: parserCacheCapacity,
-            diagnosticsRecorder: streamDiagnosticsRecorder
-        )
-        self.sourceCopyStore = MarkdownMutableSourceCopyStore()
-
+        let sourceCopyStore = MarkdownMutableSourceCopyStore()
         var sessionConfiguration = configuration
         sessionConfiguration.diagnosticsRecorder = renderDiagnosticsRecorder
         sessionConfiguration.copyProvider = MarkdownCopyProvider(
@@ -39,8 +37,18 @@ public final class MarkdownRenderSession: ObservableObject {
                 sourceCopyStore.markdown
             }
         )
+        self.sourceCopyStore = sourceCopyStore
+        self.pipeline = MarkdownRenderSessionPipeline(
+            configuration: sessionConfiguration,
+            parserCacheCapacity: parserCacheCapacity,
+            diagnosticsRecorder: streamDiagnosticsRecorder
+        )
         self.configuration = sessionConfiguration
 
+        let stream = MarkdownStream(
+            parserCacheCapacity: parserCacheCapacity,
+            diagnosticsRecorder: streamDiagnosticsRecorder
+        )
         let snapshot = stream.snapshot()
         self.snapshot = snapshot
         self.preparedSnapshot = sessionConfiguration.prepare(snapshot: snapshot)
@@ -55,7 +63,7 @@ public final class MarkdownRenderSession: ObservableObject {
     }
 
     public var sourceLength: Int {
-        stream.sourceLength
+        sourceCopyStore.byteCount
     }
 
     public func append(_ markdown: String) {
@@ -64,38 +72,51 @@ public final class MarkdownRenderSession: ObservableObject {
         }
 
         sourceCopyStore.append(markdown)
-        stream.append(markdown)
-        refreshPreparedSnapshot()
+        schedule(.append(markdown))
     }
 
     public func appendHostBoundary(id: MarkdownHostBoundaryID? = nil) {
-        stream.appendHostBoundary(id: id)
-        refreshPreparedSnapshot()
+        schedule(.appendHostBoundary(id))
     }
 
     public func finish() {
-        stream.finish()
-        refreshPreparedSnapshot()
+        schedule(.finish)
     }
 
     public func markdown(in sourceRange: MarkdownSourceRange) -> String {
-        stream.markdown(in: sourceRange)
+        sourceCopyStore.markdown(in: sourceRange) ?? ""
     }
 
     public func reset() {
-        stream = MarkdownStream(
-            parserCacheCapacity: parserCacheCapacity,
-            diagnosticsRecorder: streamDiagnosticsRecorder
-        )
         sourceCopyStore.removeAll()
         configuration.preparationCache.removeAll()
-        refreshPreparedSnapshot()
+        schedule(.reset)
     }
 
-    private func refreshPreparedSnapshot() {
-        let latestSnapshot = stream.snapshot()
-        snapshot = latestSnapshot
-        preparedSnapshot = configuration.prepare(snapshot: latestSnapshot)
+    public func waitUntilIdle() async {
+        let task = renderTask
+        await task?.value
+    }
+
+    private func schedule(_ operation: MarkdownRenderSessionOperation) {
+        presentationRevision += 1
+        let revision = presentationRevision
+        let previousTask = renderTask
+        let pipeline = pipeline
+        renderTask = Task(priority: .userInitiated) { [weak self] in
+            await previousTask?.value
+            let state = await pipeline.apply(operation)
+            await MainActor.run {
+                guard let self else {
+                    return
+                }
+                guard revision == self.presentationRevision else {
+                    return
+                }
+                self.snapshot = state.snapshot
+                self.preparedSnapshot = state.preparedSnapshot
+            }
+        }
     }
 }
 
@@ -115,25 +136,87 @@ public extension MarkdownRenderSession {
     }
 }
 
+private enum MarkdownRenderSessionOperation: Sendable {
+    case append(String)
+    case appendHostBoundary(MarkdownHostBoundaryID?)
+    case finish
+    case reset
+}
+
+private struct MarkdownRenderSessionState: Sendable {
+    var snapshot: MarkdownSnapshot
+    var preparedSnapshot: MarkdownPreparedSnapshot
+}
+
+private actor MarkdownRenderSessionPipeline {
+    private var stream: MarkdownStream
+    private var configuration: MarkdownRendererConfiguration
+    private let parserCacheCapacity: Int
+    private let diagnosticsRecorder: MarkdownDiagnosticsRecorder
+
+    init(
+        configuration: MarkdownRendererConfiguration,
+        parserCacheCapacity: Int,
+        diagnosticsRecorder: MarkdownDiagnosticsRecorder
+    ) {
+        self.configuration = configuration
+        self.parserCacheCapacity = parserCacheCapacity
+        self.diagnosticsRecorder = diagnosticsRecorder
+        self.stream = MarkdownStream(
+            parserCacheCapacity: parserCacheCapacity,
+            diagnosticsRecorder: diagnosticsRecorder
+        )
+    }
+
+    func apply(_ operation: MarkdownRenderSessionOperation) -> MarkdownRenderSessionState {
+        switch operation {
+        case let .append(markdown):
+            stream.append(markdown)
+        case let .appendHostBoundary(id):
+            stream.appendHostBoundary(id: id)
+        case .finish:
+            stream.finish()
+        case .reset:
+            stream = MarkdownStream(
+                parserCacheCapacity: parserCacheCapacity,
+                diagnosticsRecorder: diagnosticsRecorder
+            )
+            configuration.preparationCache.removeAll()
+        }
+
+        let snapshot = stream.snapshot()
+        return MarkdownRenderSessionState(
+            snapshot: snapshot,
+            preparedSnapshot: configuration.prepare(snapshot: snapshot)
+        )
+    }
+}
+
 private final class MarkdownMutableSourceCopyStore: @unchecked Sendable {
     private let lock = NSLock()
-    private var source = ""
+    private var source = MarkdownSourceBuffer()
+
+    var byteCount: Int {
+        lock.withLock {
+            source.byteCount
+        }
+    }
 
     func append(_ markdown: String) {
         lock.withLock {
-            source.append(markdown)
+            _ = source.append(markdown)
         }
     }
 
     func removeAll() {
         lock.withLock {
-            source.removeAll(keepingCapacity: true)
+            source = MarkdownSourceBuffer()
         }
     }
 
     var markdown: String {
         lock.withLock {
-            source
+            source.slice(0..<source.byteCount).text
         }
     }
 
@@ -142,24 +225,12 @@ private final class MarkdownMutableSourceCopyStore: @unchecked Sendable {
             let byteRange = sourceRange.byteRange
             guard byteRange.lowerBound >= 0,
                   byteRange.lowerBound <= byteRange.upperBound,
-                  byteRange.upperBound <= source.utf8.count,
-                  let lowerUTF8 = source.utf8.index(
-                      source.utf8.startIndex,
-                      offsetBy: byteRange.lowerBound,
-                      limitedBy: source.utf8.endIndex
-                  ),
-                  let upperUTF8 = source.utf8.index(
-                      source.utf8.startIndex,
-                      offsetBy: byteRange.upperBound,
-                      limitedBy: source.utf8.endIndex
-                  ),
-                  let lower = String.Index(lowerUTF8, within: source),
-                  let upper = String.Index(upperUTF8, within: source)
+                  byteRange.upperBound <= source.byteCount
             else {
                 return nil
             }
 
-            return String(source[lower..<upper])
+            return source.slice(byteRange).text
         }
     }
 }

@@ -9,7 +9,7 @@ The goal is a native, streaming-first Markdown renderer for Apple applications: 
 - Semantics: Markdown structure comes from `swift-markdown`, not string-rule parsing.
 - Streaming: appends reparse only the mutable tail; sealed regions stay immutable and cacheable.
 - Resize: width changes perform cheap prepared layout only.
-- Rendering: paragraphs, headings, nested/task lists, quotes, code, Mermaid diagrams, tables, math, links, images, and host boundaries have structured native render paths.
+- Rendering: paragraphs, headings, nested/task lists, quotes, code, Mermaid diagrams, tables, math, inline/reference links, images, and host boundaries have structured native render paths.
 - Inline rendering: packaged chat and document presets use `MarkdownInlineRenderingMode.preparedNativeLines`, so visible wrapping is driven by cached prepared line ranges contained to the finite proposal. `MarkdownInlineRenderingMode.systemText` remains an explicit compatibility fallback for custom configurations.
 - Font measurement: production CoreText measurement defaults to system-profile fonts and includes font profiles in cache identity; Pretext fixtures pin explicit named fonts for oracle stability.
 - Safety: links, images, HTML, code, and math stay policy controlled, with no remote image fetch by default.
