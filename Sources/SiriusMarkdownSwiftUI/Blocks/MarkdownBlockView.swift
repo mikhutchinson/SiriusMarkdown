@@ -399,28 +399,48 @@ public struct MarkdownBlockView: View {
 
     @ViewBuilder
     private var mathBlockContent: some View {
-        if let math = preparedContent.math {
-            selectableText(
-                math,
-                font: theme.codeFont,
-                textColor: theme.textColor,
-                selectionMode: configuration.nativeTextSelection,
-                metrics: codeTextMetrics
-            )
-                .padding(8)
-                .background(theme.codeBackground)
-                .clipShape(RoundedRectangle(cornerRadius: 6))
+        if let mathRender = preparedContent.mathRender {
+            switch mathRender {
+            case let .image(image):
+                mathImageBlock(image)
+            case let .text(attributed):
+                mathTextBlock(attributed)
+            }
+        } else if let math = preparedContent.math {
+            mathTextBlock(math)
         } else if let reason = preparedContent.policyDenialReason {
             policyDeniedView(reason: reason)
         } else {
-            selectableText(
-                AttributedString(MarkdownRendererConfiguration.mathText(for: block)),
-                font: theme.codeFont,
-                textColor: theme.textColor,
-                selectionMode: configuration.nativeTextSelection,
-                metrics: codeTextMetrics
-            )
+            mathTextBlock(AttributedString(MarkdownRendererConfiguration.mathText(for: block)))
         }
+    }
+
+    @ViewBuilder
+    private func mathImageBlock(_ image: MarkdownPreparedMathImage) -> some View {
+        let mathView = MarkdownMathImageView(image: image, color: theme.textColor)
+            .padding(.vertical, 6)
+        ViewThatFits(in: .horizontal) {
+            mathView
+                .frame(maxWidth: .infinity, alignment: .center)
+            ScrollView(.horizontal, showsIndicators: false) {
+                mathView
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .center)
+    }
+
+    @ViewBuilder
+    private func mathTextBlock(_ attributed: AttributedString) -> some View {
+        selectableText(
+            attributed,
+            font: theme.codeFont,
+            textColor: theme.textColor,
+            selectionMode: configuration.nativeTextSelection,
+            metrics: codeTextMetrics
+        )
+            .padding(8)
+            .background(theme.codeBackground)
+            .clipShape(RoundedRectangle(cornerRadius: 6))
     }
 
     @ViewBuilder
@@ -655,9 +675,16 @@ public struct MarkdownBlockView: View {
                 MarkdownRendererConfiguration.mathText(for: block),
                 isBlock: true
             )
+            let mathRendered: Bool
+            if case .image = preparedContent?.mathRender {
+                mathRendered = true
+            } else {
+                mathRendered = false
+            }
             return MarkdownBlockRenderPlan(
                 kind: block.kind,
                 mathAllowed: policyAllowed(mathDecision),
+                mathRendered: mathRendered,
                 policyDenialReason: denialReason(mathDecision)
             )
         case .htmlBlock:
@@ -687,7 +714,7 @@ public struct MarkdownBlockView: View {
         case .blockQuote:
             return "Quote: \(block.inlines.map(\.text).joined())"
         case .mathBlock:
-            return "Math block"
+            return "Math: \(MarkdownRendererConfiguration.mathText(for: block))"
         case .htmlBlock:
             return "HTML block"
         case .thematicBreak:

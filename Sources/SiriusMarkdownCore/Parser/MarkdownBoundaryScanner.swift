@@ -16,6 +16,7 @@ public struct MarkdownBoundaryScanState: Sendable, Hashable {
     var candidateUpperBound: Int?
     var openFence: MarkdownBoundaryFence?
     var openMathFence: Bool
+    var openDisplayMath: Bool
     var openHTMLBlock: MarkdownBoundaryHTMLBlock?
     var pendingReferenceLabels: Set<String>
     var definedReferenceLabels: Set<String>
@@ -30,6 +31,7 @@ public struct MarkdownBoundaryScanState: Sendable, Hashable {
         self.candidateUpperBound = nil
         self.openFence = nil
         self.openMathFence = false
+        self.openDisplayMath = false
         self.openHTMLBlock = nil
         self.pendingReferenceLabels = []
         self.definedReferenceLabels = []
@@ -120,6 +122,10 @@ public struct MarkdownBoundaryScanner: Sendable, Hashable {
                 if trimmed == "$$" {
                     state.openMathFence = false
                 }
+            } else if state.openDisplayMath {
+                if closesDisplayMath(trimmed) {
+                    state.openDisplayMath = false
+                }
             } else if let fence = opensFence(normalized) {
                 state.openFence = fence
                 state.lastNonBlankWasListLike = false
@@ -128,6 +134,9 @@ public struct MarkdownBoundaryScanner: Sendable, Hashable {
                 state.lastNonBlankWasListLike = false
             } else if trimmed == "$$" {
                 state.openMathFence = true
+                state.lastNonBlankWasListLike = false
+            } else if opensDisplayMath(trimmed) {
+                state.openDisplayMath = true
                 state.lastNonBlankWasListLike = false
             } else if trimmed.isEmpty {
                 state.consecutiveBlankLines += 1
@@ -155,7 +164,7 @@ public struct MarkdownBoundaryScanner: Sendable, Hashable {
     }
 
     private func currentSafeUpperBound(in state: MarkdownBoundaryScanState) -> Int? {
-        if state.openFence != nil || state.openMathFence || state.openHTMLBlock != nil || state.unknownReferenceAmbiguity {
+        if state.openFence != nil || state.openMathFence || state.openDisplayMath || state.openHTMLBlock != nil || state.unknownReferenceAmbiguity {
             return nil
         }
 
@@ -372,6 +381,18 @@ public struct MarkdownBoundaryScanner: Sendable, Hashable {
 
     private func closesHTMLBlock(_ line: String, html: MarkdownBoundaryHTMLBlock) -> Bool {
         line.lowercased().contains(html.closingToken)
+    }
+
+    private func opensDisplayMath(_ line: String) -> Bool {
+        guard let open = line.range(of: "\\[") else {
+            return false
+        }
+
+        return !String(line[open.upperBound...]).contains("\\]")
+    }
+
+    private func closesDisplayMath(_ line: String) -> Bool {
+        line.contains("\\]")
     }
 
     private func isListLike(_ line: String) -> Bool {

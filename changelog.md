@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.5.0 - 2026-05-29
+
+- Added native LaTeX math rendering through `SiriusMarkdownMath`'s `NativeMarkdownMathRenderer`, backed by SwiftMath's CoreText typesetting. Display and inline equations render as real glyphs (Latin Modern Math) with no WebView, SVG rasterization, or network access. The dependency is linked only into `SiriusMarkdownMath` on iOS/macOS/visionOS; the core renderer stays dependency-free and pluggable.
+- Extended math detection so `\[ ... \]` display delimiters, `\( ... \)` inline delimiters, and `\begin{...} ... \end{...}` environments are recognized alongside `$$ ... $$` and `$ ... $`. Detection stays source-preserving and does not rewrite code spans before `swift-markdown` parsing.
+- Taught the streaming boundary scanner to treat an unclosed `\[` display block as an open fence so equations never seal mid-expression; streamed and whole-document parses stay equivalent across chunk sizes.
+- Evolved `MarkdownMathRenderer` with `preparedMath(_:isBlock:fontSize:)` returning `MarkdownPreparedMath` (`.text` or typeset `.image`). The new method has a default that wraps the existing `renderedMath(_:isBlock:)`, so external conformers keep working without changes.
+- Rendered typeset math blocks centered with horizontal-scroll overflow containment and theme-tinted template images; inline math composes natively with SwiftUI `Text` so it wraps with surrounding prose. Equation bitmaps are rasterized once during preparation and reused through the bounded math preparation cache.
+- Added `MarkdownBlockRenderPlan.mathRendered`, `MarkdownPreparedBlockContent.mathRender`, `MarkdownPreparedMath`, `MarkdownPreparedMathImage`, and `MarkdownInlineMathPiece` to the public SwiftUI surface, and improved the math block accessibility label to include the LaTeX source.
+- Fell back to plain text for streamed/partial LaTeX until it parses and seals, then typeset once; invalid LaTeX renders inertly as its source.
+- Added a "Native LaTeX Math" showcase to the demo app and broadened Core/Math test coverage for delimiter detection, streaming equivalence, typeset output, caching, render plans, and inline composition.
+
 ## 0.4.21 - 2026-05-26
 
 - Fixed streamed reference-style links so unresolved labels keep their region in the mutable tail, matching reference definitions allow sealing once safe, and later streamed regions can resolve links against definitions already sealed in earlier regions.

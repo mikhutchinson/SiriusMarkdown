@@ -2,8 +2,32 @@ import Foundation
 import SiriusMarkdownSwiftUI
 import SwiftUI
 
-public struct NativeMarkdownMathRenderer: MarkdownMathRenderer {
+public struct NativeMarkdownMathRenderer: MarkdownMathRenderer, MarkdownMathRendererCacheIdentifying {
     public init() {}
+
+    static let renderScale = 3.0
+
+    public var mathRendererCacheIdentity: String {
+        #if canImport(SwiftMath)
+        return "siriusmarkdown.native-math.swiftmath.1.7.3.scale3"
+        #else
+        return "siriusmarkdown.native-math.unicode-fallback.v1"
+        #endif
+    }
+
+    public func preparedMath(_ source: String, isBlock: Bool, fontSize: Double) -> MarkdownPreparedMath {
+        #if canImport(SwiftMath)
+        if let image = SwiftMathTypesetter.shared.preparedImage(
+            latex: source,
+            isBlock: isBlock,
+            fontSize: fontSize,
+            scale: Self.renderScale
+        ) {
+            return .image(image)
+        }
+        #endif
+        return .text(renderedMath(source, isBlock: isBlock))
+    }
 
     public func renderedMath(_ source: String, isBlock: Bool) -> AttributedString {
         var rendered = AttributedString(Self.normalizedMath(source))

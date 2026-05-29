@@ -56,6 +56,12 @@ Products (see `Package.swift`): **`SiriusMarkdown`** (app-facing umbrella module
 - **`MarkdownBlockView`** branches on `MarkdownBlockKind` for structured blocks and consumes `MarkdownPreparedBlockContent` for inline text, lists, nested lists, tables, code, math, and HTML. List and table rendering uses prepared source-range IDs rather than array offsets. Tables use prepared cell inline layouts and measured natural widths to choose bounded adaptive columns in SwiftUI; the view layer does not reparse table Markdown or measure raw source.
 - **`MarkdownTheme`** owns renderer-level table presentation tokens (`tableBackground`, header/alternate-row backgrounds, border/accent colors, corner radius, and cell padding). This keeps table styling part of the public renderer surface instead of a demo-only skin.
 
+### Math (`SiriusMarkdownMath`, optional)
+
+- **`MarkdownMathRenderer`** is the pluggable seam. `preparedMath(_:isBlock:fontSize:)` returns `MarkdownPreparedMath` (`.text` or a typeset `.image`); the default implementation wraps the legacy `renderedMath(_:isBlock:)` so the core path stays text-only and dependency-free.
+- **`NativeMarkdownMathRenderer`** (in the optional `SiriusMarkdownMath` product) typesets LaTeX with CoreText via SwiftMath. `SwiftMathTypesetter` is a locked, `@unchecked Sendable` singleton (mirroring the Mermaid runtime) that confines non-`Sendable` typesetting objects and yields only a `Sendable` `MarkdownPreparedMathImage` (alpha-coverage PNG plus point metrics). The SwiftMath dependency is linked only on iOS/macOS/visionOS and gated with `#if canImport(SwiftMath)`.
+- **Preparation, not body**: typesetting and rasterization happen in `prepare(block:)`/`preparedInline`, keyed by source range, content hash, renderer identity, and font size in the bounded math cache. SwiftUI draws the cached image as a theme-tinted template; width changes never re-typeset. Block math renders centered with horizontal-scroll overflow; inline math composes through `MarkdownInlineMathPiece` with native `Text` so it wraps with prose. Partial/invalid LaTeX falls back to text until it parses and seals.
+
 Host-native content between Markdown segments is modeled in Core via **`MarkdownSnapshot.items`** and **`appendHostBoundary`**; built-in document views now render prepared items and expose a host-boundary closure with an empty default.
 
 ### Pretext support

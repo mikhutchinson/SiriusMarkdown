@@ -142,7 +142,7 @@ let prepared = configuration.prepare(snapshot: stream.snapshot())
 MarkdownDocumentView(preparedSnapshot: prepared, configuration: configuration)
 ```
 
-Use the optional native math renderer when a host wants built-in math presentation without taking over the pluggable hook:
+Use the optional native math renderer for beautiful, native LaTeX without taking over the pluggable hook:
 
 ```swift
 import SiriusMarkdownMath
@@ -152,6 +152,8 @@ let configuration = MarkdownRendererConfiguration(
     mathRenderer: NativeMarkdownMathRenderer()
 )
 ```
+
+`NativeMarkdownMathRenderer` typesets math with CoreText (via SwiftMath) — real glyphs, no WebView, no SVG, no network. It recognizes display math (`$$ ... $$` and `\[ ... \]`), inline math (`$ ... $` and `\( ... \)`), and `\begin{...} ... \end{...}` environments. Equations are typeset once during preparation and cached; display blocks render centered with horizontal-scroll overflow, and inline math composes natively so it wraps with surrounding text. The dependency is linked only into `SiriusMarkdownMath`, so `SiriusMarkdownCore` and `SiriusMarkdownSwiftUI` stay dependency-free; hosts that ship their own engine can conform to `MarkdownMathRenderer` (implement `preparedMath(_:isBlock:fontSize:)` for typeset output, or just `renderedMath(_:isBlock:)` for text).
 
 The direct `snapshot:` view initializers remain for small compatibility cases, but they are deprecated because they skip full preparation at the view boundary. They still enforce cheap code, math, and HTML policy denials; applications that stream or resize long content should keep full preparation in their model layer.
 

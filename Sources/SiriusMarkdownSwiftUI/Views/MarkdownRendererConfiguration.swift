@@ -8,6 +8,7 @@ public protocol MarkdownCodeHighlighter: Sendable {
 
 public protocol MarkdownMathRenderer: Sendable {
     func renderedMath(_ source: String, isBlock: Bool) -> AttributedString
+    func preparedMath(_ source: String, isBlock: Bool, fontSize: Double) -> MarkdownPreparedMath
 }
 
 public protocol MarkdownMathRendererCacheIdentifying: Sendable {
@@ -334,32 +335,27 @@ public struct MarkdownRendererConfiguration: Sendable {
             let math = Self.mathText(for: block)
             switch mathPolicy.evaluateMath(math, isBlock: true) {
             case .allow:
-                if let key = blockMathCacheKey(for: block) {
+                let fontSize = mathBlockFontSize
+                if let key = blockMathCacheKey(for: block, fontSize: fontSize) {
                     if let cached = preparationCache.math(forKey: key) {
                         diagnosticsRecorder.recordCacheHit()
-                        return MarkdownPreparedBlockContent(blockID: block.id, math: cached)
+                        return mathBlockContent(blockID: block.id, math: cached)
                     }
 
                     diagnosticsRecorder.recordCacheMiss()
                     diagnosticsRecorder.recordMathRender()
                     let rendered = MarkdownDiagnostics().signpost("MathRender", category: "RenderPreparation") {
-                        mathRenderer.renderedMath(math, isBlock: true)
+                        mathRenderer.preparedMath(math, isBlock: true, fontSize: fontSize)
                     }
                     preparationCache.insertMath(rendered, forKey: key)
-                    return MarkdownPreparedBlockContent(
-                        blockID: block.id,
-                        math: rendered
-                    )
+                    return mathBlockContent(blockID: block.id, math: rendered)
                 }
 
                 diagnosticsRecorder.recordMathRender()
                 let rendered = MarkdownDiagnostics().signpost("MathRender", category: "RenderPreparation") {
-                    mathRenderer.renderedMath(math, isBlock: true)
+                    mathRenderer.preparedMath(math, isBlock: true, fontSize: fontSize)
                 }
-                return MarkdownPreparedBlockContent(
-                    blockID: block.id,
-                    math: rendered
-                )
+                return mathBlockContent(blockID: block.id, math: rendered)
             case let .deny(reason):
                 return MarkdownPreparedBlockContent(blockID: block.id, policyDenialReason: reason)
             }
@@ -559,14 +555,27 @@ public struct MarkdownRendererConfiguration: Sendable {
             return mathRun.text
         }
 
-        var lines = block.text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
-        if lines.first?.trimmingCharacters(in: .whitespaces) == "$$" {
-            lines.removeFirst()
+        let trimmed = block.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.hasPrefix("\\begin{"), trimmed.contains("\\end{") {
+            return trimmed
         }
-        if lines.last?.trimmingCharacters(in: .whitespaces) == "$$" {
-            lines.removeLast()
+
+        for (open, close) in [("$$", "$$"), ("\\[", "\\]")] {
+            guard trimmed.hasPrefix(open),
+                  trimmed.hasSuffix(close),
+                  trimmed.count >= open.count + close.count
+            else {
+                continue
+            }
+
+            let start = trimmed.index(trimmed.startIndex, offsetBy: open.count)
+            let end = trimmed.index(trimmed.endIndex, offsetBy: -close.count)
+            if start <= end {
+                return String(trimmed[start..<end]).trimmingCharacters(in: .whitespacesAndNewlines)
+            }
         }
-        return lines.joined(separator: "\n")
+
+        return trimmed
     }
 
     private nonisolated static func cacheKey(for block: MarkdownBlock, namespace: String) -> MarkdownCacheKey {
@@ -577,7 +586,7 @@ public struct MarkdownRendererConfiguration: Sendable {
         )
     }
 
-    private func blockMathCacheKey(for block: MarkdownBlock) -> MarkdownCacheKey? {
+    private func blockMathCacheKey(for block: MarkdownBlock, fontSize: Double) -> MarkdownCacheKey? {
         guard let mathPolicyIdentity,
               let mathRendererIdentity
         else {
@@ -587,11 +596,32 @@ public struct MarkdownRendererConfiguration: Sendable {
         return Self.cacheKey(
             for: block,
             namespace: [
-                "rendered-math:block:v2",
+                "rendered-math:block:v3",
                 "policy=\(mathPolicyIdentity)",
-                "renderer=\(mathRendererIdentity)"
+                "renderer=\(mathRendererIdentity)",
+                "fontSize=\(fontSize)"
             ].joined(separator: ":")
         )
+    }
+
+    var mathBlockFontSize: Double {
+        (theme.paragraphFontSize * 1.3).rounded()
+    }
+
+    private func mathBlockContent(
+        blockID: MarkdownBlockID,
+        math: MarkdownPreparedMath
+    ) -> MarkdownPreparedBlockContent {
+        switch math {
+        case let .text(attributed):
+            return MarkdownPreparedBlockContent(blockID: blockID, math: attributed, mathRender: .text(attributed))
+        case let .image(image):
+            return MarkdownPreparedBlockContent(
+                blockID: blockID,
+                math: AttributedString(image.latex),
+                mathRender: .image(image)
+            )
+        }
     }
 
     private nonisolated static func codeCacheKey(
@@ -783,7 +813,7 @@ public struct MarkdownRendererConfiguration: Sendable {
             diagnosticsRecorder.recordCacheMiss()
         }
         let images = preparedImages(for: runs)
-        let inlinePayload = preparedInlinePayload(for: runs, images: images)
+        let inlinePayload = preparedInlinePayload(for: runs, images: images, fontSize: metrics.fontSize)
         let prepared = PreparedInlineContent(runs: inlinePayload.runs, sourceRange: sourceRange)
         diagnosticsRecorder.recordPrepare()
         let measurer = CoreTextInlineMeasurer(profiles: metrics.fontProfiles)
@@ -803,7 +833,8 @@ public struct MarkdownRendererConfiguration: Sendable {
             fontSize: metrics.fontSize,
             lineHeight: metrics.lineHeight,
             fontProfiles: metrics.fontProfiles,
-            layoutCache: layoutCache
+            layoutCache: layoutCache,
+            mathTextPieces: inlinePayload.mathPieces
         )
         if let cacheKey {
             preparationCache.insertInline(inline, forKey: cacheKey)
@@ -854,69 +885,106 @@ public struct MarkdownRendererConfiguration: Sendable {
 
     private func preparedInlinePayload(
         for runs: [MarkdownInlineRun],
-        images: [MarkdownPreparedImage]
-    ) -> (runs: [MarkdownInlineRun], attributed: AttributedString) {
+        images: [MarkdownPreparedImage],
+        fontSize: Double
+    ) -> (runs: [MarkdownInlineRun], attributed: AttributedString, mathPieces: [MarkdownInlineMathPiece]?) {
         var displayRuns: [MarkdownInlineRun] = []
         var attributed = AttributedString()
+        var pieces: [MarkdownInlineMathPiece] = []
+        var pendingText = AttributedString()
+        var producedMathImage = false
+
+        func flushPendingText() {
+            guard !pendingText.characters.isEmpty else {
+                return
+            }
+            pieces.append(.text(pendingText))
+            pendingText = AttributedString()
+        }
 
         for run in runs {
             if run.kind == .image {
                 let displayRun = preparedImageDisplayRun(for: run, images: images)
                 displayRuns.append(displayRun)
-                attributed.append(
-                    InlineRunsView.attributedString(
-                        for: [displayRun],
-                        linkPolicy: linkPolicy,
-                        imagePolicy: imagePolicy
-                    )
+                let piece = InlineRunsView.attributedString(
+                    for: [displayRun],
+                    linkPolicy: linkPolicy,
+                    imagePolicy: imagePolicy
                 )
+                attributed.append(piece)
+                pendingText.append(piece)
                 continue
             }
 
             let rendersAsMath = run.kind == .math || run.presentation.contains(.math)
             guard rendersAsMath else {
                 displayRuns.append(run)
-                attributed.append(
-                    InlineRunsView.attributedString(
-                        for: [run],
-                        linkPolicy: linkPolicy,
-                        imagePolicy: imagePolicy
-                    )
+                let piece = InlineRunsView.attributedString(
+                    for: [run],
+                    linkPolicy: linkPolicy,
+                    imagePolicy: imagePolicy
                 )
+                attributed.append(piece)
+                pendingText.append(piece)
                 continue
             }
 
             switch mathPolicy.evaluateMath(run.text, isBlock: false) {
             case .allow:
                 diagnosticsRecorder.recordMathRender()
-                let renderedMath = MarkdownDiagnostics().signpost("MathRender", category: "RenderPreparation") {
-                    mathRenderer.renderedMath(run.text, isBlock: false)
+                let preparedMath = MarkdownDiagnostics().signpost("MathRender", category: "RenderPreparation") {
+                    mathRenderer.preparedMath(run.text, isBlock: false, fontSize: fontSize)
                 }
-                let rendered = mathAttributedString(renderedMath, preservingLinkFrom: run)
-                attributed.append(rendered)
-                let renderedText = String(rendered.characters)
-                displayRuns.append(
-                    MarkdownInlineRun(
-                        kind: run.kind,
-                        text: renderedText.isEmpty ? run.text : renderedText,
-                        sourceRange: run.sourceRange,
-                        destination: run.destination,
-                        presentation: run.presentation
+
+                switch preparedMath {
+                case let .image(image):
+                    producedMathImage = true
+                    flushPendingText()
+                    pieces.append(.math(image))
+                    let fallback = mathAttributedString(
+                        mathRenderer.renderedMath(run.text, isBlock: false),
+                        preservingLinkFrom: run
                     )
-                )
+                    attributed.append(fallback)
+                    let fallbackText = String(fallback.characters)
+                    displayRuns.append(
+                        MarkdownInlineRun(
+                            kind: run.kind,
+                            text: fallbackText.isEmpty ? run.text : fallbackText,
+                            sourceRange: run.sourceRange,
+                            destination: run.destination,
+                            presentation: run.presentation
+                        )
+                    )
+                case let .text(renderedMath):
+                    let rendered = mathAttributedString(renderedMath, preservingLinkFrom: run)
+                    attributed.append(rendered)
+                    pendingText.append(rendered)
+                    let renderedText = String(rendered.characters)
+                    displayRuns.append(
+                        MarkdownInlineRun(
+                            kind: run.kind,
+                            text: renderedText.isEmpty ? run.text : renderedText,
+                            sourceRange: run.sourceRange,
+                            destination: run.destination,
+                            presentation: run.presentation
+                        )
+                    )
+                }
             case .deny:
                 displayRuns.append(run)
-                attributed.append(
-                    InlineRunsView.attributedString(
-                        for: [run],
-                        linkPolicy: linkPolicy,
-                        imagePolicy: imagePolicy
-                    )
+                let piece = InlineRunsView.attributedString(
+                    for: [run],
+                    linkPolicy: linkPolicy,
+                    imagePolicy: imagePolicy
                 )
+                attributed.append(piece)
+                pendingText.append(piece)
             }
         }
 
-        return (displayRuns, attributed)
+        flushPendingText()
+        return (displayRuns, attributed, producedMathImage ? pieces : nil)
     }
 
     private func mathAttributedString(
@@ -1082,6 +1150,9 @@ public struct MarkdownPreparedInlineContent: Sendable {
     public var lineHeight: Double
     public var fontProfiles: MarkdownInlineFontProfiles
     public var layoutCache: MarkdownInlineLayoutCache
+    /// When non-nil, this inline content contains typeset math and should be
+    /// rendered with native `Text` composition instead of prepared CoreText lines.
+    public var mathTextPieces: [MarkdownInlineMathPiece]?
 
     public init(
         attributed: AttributedString,
@@ -1091,7 +1162,8 @@ public struct MarkdownPreparedInlineContent: Sendable {
         fontSize: Double,
         lineHeight: Double,
         fontProfiles: MarkdownInlineFontProfiles = .paragraphDefault,
-        layoutCache: MarkdownInlineLayoutCache = MarkdownInlineLayoutCache()
+        layoutCache: MarkdownInlineLayoutCache = MarkdownInlineLayoutCache(),
+        mathTextPieces: [MarkdownInlineMathPiece]? = nil
     ) {
         self.attributed = attributed
         self.prepared = prepared
@@ -1101,6 +1173,7 @@ public struct MarkdownPreparedInlineContent: Sendable {
         self.lineHeight = lineHeight
         self.fontProfiles = fontProfiles
         self.layoutCache = layoutCache
+        self.mathTextPieces = mathTextPieces
     }
 
     public func layout(
@@ -1260,7 +1333,7 @@ public final class MarkdownRenderPreparationCache: @unchecked Sendable {
     private var inlineCache: BoundedMarkdownCache<MarkdownPreparedInlineContent>
     private var codeCache: BoundedMarkdownCache<AttributedString>
     private var mermaidCache: BoundedMarkdownCache<MarkdownPreparedMermaidDiagram>
-    private var mathCache: BoundedMarkdownCache<AttributedString>
+    private var mathCache: BoundedMarkdownCache<MarkdownPreparedMath>
 
     public init(capacity: Int = 256) {
         self.inlineCache = BoundedMarkdownCache(capacity: capacity)
@@ -1305,13 +1378,13 @@ public final class MarkdownRenderPreparationCache: @unchecked Sendable {
         }
     }
 
-    public func math(forKey key: MarkdownCacheKey) -> AttributedString? {
+    public func math(forKey key: MarkdownCacheKey) -> MarkdownPreparedMath? {
         lock.withLock {
             mathCache.value(forKey: key)
         }
     }
 
-    public func insertMath(_ math: AttributedString, forKey key: MarkdownCacheKey) {
+    public func insertMath(_ math: MarkdownPreparedMath, forKey key: MarkdownCacheKey) {
         lock.withLock {
             mathCache[key] = math
         }
@@ -1395,6 +1468,7 @@ public struct MarkdownPreparedBlockContent: Sendable {
     public var mermaid: MarkdownPreparedMermaidDiagram?
     public var code: AttributedString?
     public var math: AttributedString?
+    public var mathRender: MarkdownPreparedMath?
     public var htmlAllowed: Bool?
     public var policyDenialReason: String?
 
@@ -1407,6 +1481,7 @@ public struct MarkdownPreparedBlockContent: Sendable {
         mermaid: MarkdownPreparedMermaidDiagram? = nil,
         code: AttributedString? = nil,
         math: AttributedString? = nil,
+        mathRender: MarkdownPreparedMath? = nil,
         htmlAllowed: Bool? = nil,
         policyDenialReason: String? = nil
     ) {
@@ -1418,6 +1493,7 @@ public struct MarkdownPreparedBlockContent: Sendable {
         self.mermaid = mermaid
         self.code = code
         self.math = math
+        self.mathRender = mathRender
         self.htmlAllowed = htmlAllowed
         self.policyDenialReason = policyDenialReason
     }
@@ -1523,6 +1599,7 @@ public struct MarkdownBlockRenderPlan: Sendable, Equatable {
     public var codeCollapseButtonVisible: Bool
     public var codeInitiallyCollapsed: Bool
     public var mathAllowed: Bool?
+    public var mathRendered: Bool
     public var htmlAllowed: Bool?
     public var policyDenialReason: String?
 
@@ -1544,6 +1621,7 @@ public struct MarkdownBlockRenderPlan: Sendable, Equatable {
         codeCollapseButtonVisible: Bool = false,
         codeInitiallyCollapsed: Bool = false,
         mathAllowed: Bool? = nil,
+        mathRendered: Bool = false,
         htmlAllowed: Bool? = nil,
         policyDenialReason: String? = nil
     ) {
@@ -1564,6 +1642,7 @@ public struct MarkdownBlockRenderPlan: Sendable, Equatable {
         self.codeCollapseButtonVisible = codeCollapseButtonVisible
         self.codeInitiallyCollapsed = codeInitiallyCollapsed
         self.mathAllowed = mathAllowed
+        self.mathRendered = mathRendered
         self.htmlAllowed = htmlAllowed
         self.policyDenialReason = policyDenialReason
     }

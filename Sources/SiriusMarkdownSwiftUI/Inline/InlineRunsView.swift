@@ -75,7 +75,14 @@ public struct InlineRunsView: View {
 
     @ViewBuilder
     public var body: some View {
-        if let prepared {
+        if let prepared, let mathPieces = prepared.mathTextPieces, !mathPieces.isEmpty {
+            InlineMathTextView(
+                pieces: mathPieces,
+                font: baseFont,
+                color: theme.textColor,
+                fontSize: prepared.fontSize
+            )
+        } else if let prepared {
             PreparedInlineTextView(
                 prepared: prepared,
                 fallbackAttributed: attributed,

@@ -638,6 +638,50 @@ private struct MarkdownExample: Identifiable, Hashable {
             ]
         ),
         MarkdownExample(
+            id: "math-showcase",
+            title: "Native LaTeX Math",
+            summary: "Beautiful CoreText math typeset from LaTeX delimiters.",
+            detail: "Display and inline math typeset natively through SiriusMarkdownMath — no WebView and no SVG rasterization.",
+            systemImage: "x.squareroot",
+            badge: "LaTeX",
+            markdown: """
+            SiriusMarkdown typesets LaTeX **natively** with CoreText. It understands \
+            display delimiters `\\[ ... \\]`, inline delimiters `\\( ... \\)`, the TeX \
+            forms `$$ ... $$` and `$ ... $`, and `\\begin{...}` environments.
+
+            L'Hopital's rule, written with display brackets:
+
+            \\[
+            \\lim_{x \\to a} \\frac{f(x)}{g(x)} = \\lim_{x \\to a} \\frac{f'(x)}{g'(x)}
+            \\]
+
+            The quadratic formula, written with `$$`:
+
+            $$
+            x = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}
+            $$
+
+            A Gaussian integral keeps proper limits, radicals, and fractions:
+
+            \\[
+            \\int_{0}^{\\infty} e^{-x^2}\\, dx = \\frac{\\sqrt{\\pi}}{2}
+            \\]
+
+            Inline math flows with prose: the limit \\(\\frac{\\sin x}{x} \\to 1\\) as \
+            \\(x \\to 0\\), and Euler's identity $e^{i\\pi} + 1 = 0$ stays on the line.
+
+            Environments typeset too:
+
+            \\begin{bmatrix} a & b \\\\ c & d \\end{bmatrix}
+            """,
+            assertions: [
+                "Display math (\\[ \\], $$) renders as centered native glyphs.",
+                "Inline math (\\( \\), $) flows with the surrounding text.",
+                "LaTeX environments such as bmatrix typeset through the same engine.",
+                "Copying a math block yields the original LaTeX source."
+            ]
+        ),
+        MarkdownExample(
             id: "math-html",
             title: "Math And HTML Policy",
             summary: "Math hooks and inert raw HTML in the default public package.",

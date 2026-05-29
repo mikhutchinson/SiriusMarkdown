@@ -445,18 +445,47 @@ private struct SwiftMarkdownRenderModelConverter {
 
     private func isMathBlock(_ rawText: String) -> Bool {
         let trimmed = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.hasPrefix("$$") && trimmed.hasSuffix("$$") && trimmed.count >= 4
+        if trimmed.hasPrefix("$$"), trimmed.hasSuffix("$$"), trimmed.count >= 4 {
+            return true
+        }
+        if trimmed.hasPrefix("\\["), trimmed.hasSuffix("\\]"), trimmed.count >= 4 {
+            return true
+        }
+        if trimmed.hasPrefix("\\begin{"), trimmed.hasSuffix("}"), trimmed.contains("\\end{") {
+            return true
+        }
+        return false
     }
 
     private func mathContent(_ rawText: String) -> String {
-        var lines = rawText.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
-        if lines.first?.trimmingCharacters(in: .whitespaces) == "$$" {
-            lines.removeFirst()
+        let trimmed = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.hasPrefix("\\begin{"), trimmed.contains("\\end{") {
+            return trimmed
         }
-        if lines.last?.trimmingCharacters(in: .whitespaces) == "$$" {
-            lines.removeLast()
+        if let stripped = strippedMathDelimiters(trimmed, open: "$$", close: "$$") {
+            return stripped
         }
-        return lines.joined(separator: "\n")
+        if let stripped = strippedMathDelimiters(trimmed, open: "\\[", close: "\\]") {
+            return stripped
+        }
+        return trimmed
+    }
+
+    private func strippedMathDelimiters(_ trimmed: String, open: String, close: String) -> String? {
+        guard trimmed.hasPrefix(open),
+              trimmed.hasSuffix(close),
+              trimmed.count >= open.count + close.count
+        else {
+            return nil
+        }
+
+        let start = trimmed.index(trimmed.startIndex, offsetBy: open.count)
+        let end = trimmed.index(trimmed.endIndex, offsetBy: -close.count)
+        guard start <= end else {
+            return nil
+        }
+
+        return String(trimmed[start..<end]).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private func stableContentHash(_ text: String) -> UInt64 {
@@ -574,7 +603,7 @@ private struct InlineRunConverter {
         }
 
         let rawText = sourceText(for: sourceRange.byteRange)
-        if rawText != text.string, rawText.contains("$") {
+        if rawText != text.string, rawText.contains("$") || rawText.contains("\\(") {
             return applyInlineContext(
                 splitInlineMathInSource(rawText, baseRange: sourceRange),
                 presentation: presentation,
@@ -620,31 +649,49 @@ private struct InlineRunConverter {
         }
 
         while cursor < rawText.endIndex {
-            guard rawText[cursor] == "$",
-                  isPotentialOpeningDollar(in: rawText, at: cursor),
-                  let close = closingDollar(in: rawText, after: cursor)
-            else {
-                cursor = rawText.index(after: cursor)
+            if rawText[cursor] == "$",
+               isPotentialOpeningDollar(in: rawText, at: cursor),
+               let close = closingDollar(in: rawText, after: cursor) {
+                appendPlain(upTo: cursor)
+                let contentStart = rawText.index(after: cursor)
+                let contentRange = contentStart..<close
+                let fullRange = cursor..<rawText.index(after: close)
+                runs.append(
+                    MarkdownInlineRun(
+                        kind: .math,
+                        text: String(rawText[contentRange]),
+                        sourceRange: sourceRange(
+                            in: rawText,
+                            localRange: fullRange,
+                            baseRange: baseRange
+                        )
+                    )
+                )
+                cursor = rawText.index(after: close)
+                plainStart = cursor
                 continue
             }
 
-            appendPlain(upTo: cursor)
-            let contentStart = rawText.index(after: cursor)
-            let contentRange = contentStart..<close
-            let fullRange = cursor..<rawText.index(after: close)
-            runs.append(
-                MarkdownInlineRun(
-                    kind: .math,
-                    text: String(rawText[contentRange]),
-                    sourceRange: sourceRange(
-                        in: rawText,
-                        localRange: fullRange,
-                        baseRange: baseRange
+            if rawText[cursor] == "\\",
+               let latex = latexInlineMathRange(in: rawText, at: cursor) {
+                appendPlain(upTo: cursor)
+                runs.append(
+                    MarkdownInlineRun(
+                        kind: .math,
+                        text: String(rawText[latex.content]),
+                        sourceRange: sourceRange(
+                            in: rawText,
+                            localRange: latex.full,
+                            baseRange: baseRange
+                        )
                     )
                 )
-            )
-            cursor = rawText.index(after: close)
-            plainStart = cursor
+                cursor = latex.full.upperBound
+                plainStart = cursor
+                continue
+            }
+
+            cursor = rawText.index(after: cursor)
         }
 
         appendPlain(upTo: rawText.endIndex)
@@ -742,6 +789,36 @@ private struct InlineRunConverter {
         }
 
         return true
+    }
+
+    private func latexInlineMathRange(
+        in text: String,
+        at cursor: String.Index
+    ) -> (content: Range<String.Index>, full: Range<String.Index>)? {
+        guard text[cursor] == "\\" else {
+            return nil
+        }
+
+        let openParen = text.index(after: cursor)
+        guard openParen < text.endIndex, text[openParen] == "(" else {
+            return nil
+        }
+
+        let contentStart = text.index(after: openParen)
+        var scan = contentStart
+        while scan < text.endIndex {
+            if text[scan] == "\\" {
+                let next = text.index(after: scan)
+                if next < text.endIndex, text[next] == ")" {
+                    let content = contentStart..<scan
+                    let full = cursor..<text.index(after: next)
+                    return (content, full)
+                }
+            }
+            scan = text.index(after: scan)
+        }
+
+        return nil
     }
 
     private func closingDollar(in text: String, after opening: String.Index) -> String.Index? {

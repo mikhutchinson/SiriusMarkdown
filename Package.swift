@@ -35,7 +35,8 @@ let package = Package(
         )
     ],
     dependencies: [
-        .package(url: "https://github.com/swiftlang/swift-markdown.git", from: "0.7.3")
+        .package(url: "https://github.com/swiftlang/swift-markdown.git", from: "0.7.3"),
+        .package(url: "https://github.com/mgriebling/SwiftMath.git", from: "1.7.3")
     ],
     targets: [
         .target(
@@ -67,7 +68,14 @@ let package = Package(
         ),
         .target(
             name: "SiriusMarkdownMath",
-            dependencies: ["SiriusMarkdownSwiftUI"]
+            dependencies: [
+                "SiriusMarkdownSwiftUI",
+                .product(
+                    name: "SwiftMath",
+                    package: "SwiftMath",
+                    condition: .when(platforms: [.iOS, .macOS, .visionOS])
+                )
+            ]
         ),
         .testTarget(
             name: "SiriusMarkdownTests",
@@ -87,7 +95,11 @@ let package = Package(
         ),
         .testTarget(
             name: "SiriusMarkdownMathTests",
-            dependencies: ["SiriusMarkdownMath"]
+            dependencies: [
+                "SiriusMarkdownMath",
+                "SiriusMarkdownSwiftUI",
+                "SiriusMarkdownCore"
+            ]
         )
     ]
 )
