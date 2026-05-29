@@ -23,6 +23,71 @@ func displayMathBracketsOnOwnLinesParseAsMathBlock() throws {
 }
 
 @Test
+func paragraphWithDisplayMathBracketsSplitsIntoTextMathTextBlocks() throws {
+    let snapshot = snapshot("""
+    Then:
+    \\[
+    \\lim_{x \\to a} \\frac{f(x)}{g(x)} = \\lim_{x \\to a} \\frac{f'(x)}{g'(x)}
+    \\]
+    if the derivative limit exists.
+    """)
+
+    #expect(snapshot.blocks.map(\.kind) == [.paragraph, .mathBlock, .paragraph])
+    let mathBlock = try #require(snapshot.blocks.first { $0.kind == .mathBlock })
+    let mathRun = try #require(mathBlock.inlines.first { $0.kind == .math })
+    #expect(mathRun.text == "\\lim_{x \\to a} \\frac{f(x)}{g(x)} = \\lim_{x \\to a} \\frac{f'(x)}{g'(x)}")
+}
+
+@Test
+func degradedBareDisplayBracketsWithLatexContentParseAsMathBlock() throws {
+    let snapshot = snapshot("""
+    [
+    \\lim_{x \\to a} \\frac{f(x)}{g(x)}
+    \\lim_{x \\to a} \\frac{f'(x)}{g'(x)}
+    ]
+    """)
+
+    let block = try #require(snapshot.blocks.first)
+    #expect(block.kind == .mathBlock)
+    let mathRun = try #require(block.inlines.first { $0.kind == .math })
+    #expect(mathRun.text == "\\lim_{x \\to a} \\frac{f(x)}{g(x)}\n\\lim_{x \\to a} \\frac{f'(x)}{g'(x)}")
+}
+
+@Test
+func bareBracketedProseDoesNotBecomeMathBlock() throws {
+    let snapshot = snapshot("""
+    [
+    a normal reference label
+    ]
+    """)
+
+    let block = try #require(snapshot.blocks.first)
+    #expect(block.kind == .paragraph)
+    #expect(block.inlines.allSatisfy { $0.kind != .math })
+}
+
+@Test
+func paragraphEmbeddedDisplayMathPreservesReferenceLinkSemantics() throws {
+    let snapshot = snapshot("""
+    [docs]: https://example.com/docs
+
+    Before [docs].
+    \\[
+    x^2
+    \\]
+    After [docs].
+    """)
+
+    #expect(snapshot.blocks.map(\.kind) == [.paragraph, .mathBlock, .paragraph])
+    let linkDestinations = snapshot.blocks
+        .filter { $0.kind == .paragraph }
+        .flatMap(\.inlines)
+        .filter { $0.kind == .link }
+        .compactMap(\.destination)
+    #expect(linkDestinations == ["https://example.com/docs", "https://example.com/docs"])
+}
+
+@Test
 func displayMathBracketsInlineOnOneLineParsesAsMathBlock() throws {
     let snapshot = snapshot("\\[x^2 + y^2 = z^2\\]")
 

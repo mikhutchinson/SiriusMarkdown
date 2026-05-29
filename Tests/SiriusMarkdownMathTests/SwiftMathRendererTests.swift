@@ -197,3 +197,53 @@ func latexDisplayBracketBlockPreparesTypesetImage() throws {
     }
     #expect(image.latex == "\\lim_{x \\to a} \\frac{f(x)}{g(x)}")
 }
+
+@Test
+func paragraphEmbeddedDisplayMathPreparesTypesetImage() throws {
+    var stream = MarkdownStream()
+    stream.append("""
+    Then:
+    \\[
+    \\frac{f'(x)}{g'(x)}
+    \\]
+    if the derivative limit exists.
+    """)
+    stream.finish()
+
+    var configuration = MarkdownRendererConfiguration.document
+    configuration.mathRenderer = NativeMarkdownMathRenderer()
+
+    let blocks = stream.snapshot().blocks
+    #expect(blocks.map(\.kind) == [.paragraph, .mathBlock, .paragraph])
+    let block = try #require(blocks.first { $0.kind == .mathBlock })
+    let prepared = configuration.prepare(block: block)
+
+    guard case let .image(image) = prepared.mathRender else {
+        Issue.record("Expected embedded display math to prepare a typeset image.")
+        return
+    }
+    #expect(image.latex == "\\frac{f'(x)}{g'(x)}")
+}
+
+@Test
+func degradedBareDisplayBracketMathPreparesTypesetImage() throws {
+    var stream = MarkdownStream()
+    stream.append("""
+    [
+    \\frac{f'(x)}{g'(x)}
+    ]
+    """)
+    stream.finish()
+
+    var configuration = MarkdownRendererConfiguration.document
+    configuration.mathRenderer = NativeMarkdownMathRenderer()
+
+    let block = try #require(stream.snapshot().blocks.first { $0.kind == .mathBlock })
+    let prepared = configuration.prepare(block: block)
+
+    guard case let .image(image) = prepared.mathRender else {
+        Issue.record("Expected degraded bare-bracket display math to prepare a typeset image.")
+        return
+    }
+    #expect(image.latex == "\\frac{f'(x)}{g'(x)}")
+}

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.1 - 2026-05-29
+
+- Hardened display-math recovery for chat-style output where models omit blank lines around `\[ ... \]` blocks or upstream text has degraded the delimiters to bare `[` / `]` lines. The parser now splits paragraph-embedded standalone display math into source-backed text/math/text blocks, preserves reference-link resolution in adjacent text, and only treats bare bracket delimiters as math when the enclosed content is clearly TeX, leaving ordinary bracketed prose and reference labels as prose.
+
 ## 0.5.0 - 2026-05-29
 
 - Added native LaTeX math rendering through `SiriusMarkdownMath`'s `NativeMarkdownMathRenderer`, backed by SwiftMath's CoreText typesetting. Display and inline equations render as real glyphs (Latin Modern Math) with no WebView, SVG rasterization, or network access. The dependency is linked only into `SiriusMarkdownMath` on iOS/macOS/visionOS; the core renderer stays dependency-free and pluggable.

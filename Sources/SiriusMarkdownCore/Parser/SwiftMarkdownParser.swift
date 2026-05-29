@@ -24,7 +24,8 @@ public struct SwiftMarkdownParser: Sendable {
             baseOffset: baseOffset,
             lineMap: lineMap,
             idNamespace: idNamespace,
-            isSealed: isSealed
+            isSealed: isSealed,
+            referenceDefinitionsPrefix: referenceDefinitionsPrefix
         ).convert(document)
     }
 }
@@ -35,15 +36,32 @@ private struct SwiftMarkdownRenderModelConverter {
     var lineMap: MarkdownLineMap
     var idNamespace: String
     var isSealed: Bool
+    var referenceDefinitionsPrefix: String
+    var allowParagraphDisplayMathSplitting: Bool = true
 
     private var sliceByteCount: Int {
         source.utf8.count
     }
 
     func convert(_ document: Document) -> [MarkdownBlock] {
-        document.children.enumerated().map { sequence, child in
-            convertBlock(child, sequence: sequence)
+        var blocks: [MarkdownBlock] = []
+        var sequence = 0
+        for child in document.children {
+            let converted = convertBlocks(child, sequence: sequence)
+            blocks.append(contentsOf: converted)
+            sequence += converted.count
         }
+        return blocks
+    }
+
+    private func convertBlocks(_ markup: Markup, sequence: Int) -> [MarkdownBlock] {
+        if allowParagraphDisplayMathSplitting,
+           let paragraph = markup as? Paragraph,
+           let splitBlocks = displayMathSplitBlocks(for: paragraph, sequence: sequence) {
+            return splitBlocks
+        }
+
+        return [convertBlock(markup, sequence: sequence)]
     }
 
     private func convertBlock(_ markup: Markup, sequence: Int) -> MarkdownBlock {
@@ -88,7 +106,7 @@ private struct SwiftMarkdownRenderModelConverter {
             return .orderedList
         case is Table:
             return .table
-        case is Paragraph where isMathBlock(rawText):
+        case is Paragraph where MarkdownMathDelimiterScanner.blockContent(in: rawText) != nil:
             return .mathBlock
         case is Paragraph:
             return .paragraph
@@ -115,11 +133,11 @@ private struct SwiftMarkdownRenderModelConverter {
         case let heading as Heading:
             return inlineRunConverter(fallbackRange: fallbackRange).runs(in: heading.children)
         case let paragraph as Paragraph:
-            if isMathBlock(sourceText(for: fallbackRange.byteRange)) {
+            if let mathContent = MarkdownMathDelimiterScanner.blockContent(in: sourceText(for: fallbackRange.byteRange)) {
                 return [
                     MarkdownInlineRun(
                         kind: .math,
-                        text: mathContent(sourceText(for: fallbackRange.byteRange)),
+                        text: mathContent,
                         sourceRange: fallbackRange
                     )
                 ]
@@ -136,6 +154,97 @@ private struct SwiftMarkdownRenderModelConverter {
         default:
             return []
         }
+    }
+
+    private func displayMathSplitBlocks(for paragraph: Paragraph, sequence: Int) -> [MarkdownBlock]? {
+        let paragraphRange = markdownSourceRange(for: paragraph)
+        let rawText = sourceText(for: paragraphRange.byteRange)
+        let spans = MarkdownMathDelimiterScanner.standaloneDisplayMathSpans(in: rawText)
+        guard !spans.isEmpty else {
+            return nil
+        }
+
+        if spans.count == 1,
+           MarkdownMathDelimiterScanner.spanCoversTrimmedText(spans[0], in: rawText) {
+            return nil
+        }
+
+        var blocks: [MarkdownBlock] = []
+        var cursor = rawText.startIndex
+
+        func appendParagraphSegment(_ localRange: Range<String.Index>) {
+            guard let trimmedRange = trimmedNonEmptyRange(in: rawText, localRange: localRange) else {
+                return
+            }
+
+            let segmentRange = sourceRange(
+                in: rawText,
+                localRange: trimmedRange,
+                baseRange: paragraphRange
+            )
+            let segmentText = String(rawText[trimmedRange])
+            let source = referenceDefinitionsPrefix + segmentText
+            let document = Document(parsing: source, options: [.disableSmartOpts])
+            let segmentBlocks = SwiftMarkdownRenderModelConverter(
+                source: source,
+                baseOffset: segmentRange.byteRange.lowerBound - referenceDefinitionsPrefix.utf8.count,
+                lineMap: lineMap,
+                idNamespace: idNamespace,
+                isSealed: isSealed,
+                referenceDefinitionsPrefix: referenceDefinitionsPrefix,
+                allowParagraphDisplayMathSplitting: false
+            ).convert(document)
+
+            if segmentBlocks.isEmpty {
+                blocks.append(
+                    MarkdownBlock(
+                        id: stableBlockID(kind: .paragraph, range: segmentRange, sequence: sequence + blocks.count),
+                        kind: .paragraph,
+                        sourceRange: segmentRange,
+                        text: segmentText,
+                        inlines: [
+                            MarkdownInlineRun(kind: .text, text: segmentText, sourceRange: segmentRange)
+                        ],
+                        contentHash: stableContentHash(segmentText),
+                        isSealed: isSealed
+                    )
+                )
+            } else {
+                blocks.append(contentsOf: segmentBlocks)
+            }
+        }
+
+        for span in spans {
+            appendParagraphSegment(cursor..<span.full.lowerBound)
+            blocks.append(mathBlock(from: span, in: rawText, paragraphRange: paragraphRange, sequence: sequence + blocks.count))
+            cursor = span.full.upperBound
+        }
+
+        appendParagraphSegment(cursor..<rawText.endIndex)
+        return blocks.isEmpty ? nil : blocks
+    }
+
+    private func mathBlock(
+        from span: MarkdownMathDelimiterScanner.DisplayMathSpan,
+        in rawText: String,
+        paragraphRange: MarkdownSourceRange,
+        sequence: Int
+    ) -> MarkdownBlock {
+        let range = sourceRange(in: rawText, localRange: span.full, baseRange: paragraphRange)
+        let contentRange = sourceRange(in: rawText, localRange: span.content, baseRange: paragraphRange)
+        let text = String(rawText[span.full])
+        let math = String(rawText[span.content]).trimmingCharacters(in: .whitespacesAndNewlines)
+        return MarkdownBlock(
+            id: stableBlockID(kind: .mathBlock, range: range, sequence: sequence),
+            kind: .mathBlock,
+            sourceRange: range,
+            text: text,
+            inlines: [
+                MarkdownInlineRun(kind: .math, text: math, sourceRange: contentRange)
+            ],
+            contentHash: stableContentHash(text),
+            isSealed: isSealed
+        )
     }
 
     private func inlineRunConverter(fallbackRange: MarkdownSourceRange) -> InlineRunConverter {
@@ -443,35 +552,150 @@ private struct SwiftMarkdownRenderModelConverter {
         return String(decoding: source.utf8[lower..<upper], as: UTF8.self)
     }
 
-    private func isMathBlock(_ rawText: String) -> Bool {
-        let trimmed = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.hasPrefix("$$"), trimmed.hasSuffix("$$"), trimmed.count >= 4 {
-            return true
+    private func stableContentHash(_ text: String) -> UInt64 {
+        var hash: UInt64 = 0xcbf29ce484222325
+        for byte in text.utf8 {
+            hash ^= UInt64(byte)
+            hash &*= 0x100000001b3
         }
-        if trimmed.hasPrefix("\\["), trimmed.hasSuffix("\\]"), trimmed.count >= 4 {
-            return true
-        }
-        if trimmed.hasPrefix("\\begin{"), trimmed.hasSuffix("}"), trimmed.contains("\\end{") {
-            return true
-        }
-        return false
+        return hash
     }
 
-    private func mathContent(_ rawText: String) -> String {
+    private func sourceRange(
+        in text: String,
+        localRange: Range<String.Index>,
+        baseRange: MarkdownSourceRange
+    ) -> MarkdownSourceRange {
+        let lowerOffset = text.utf8.distance(
+            from: text.utf8.startIndex,
+            to: localRange.lowerBound.samePosition(in: text.utf8) ?? text.utf8.startIndex
+        )
+        let upperOffset = text.utf8.distance(
+            from: text.utf8.startIndex,
+            to: localRange.upperBound.samePosition(in: text.utf8) ?? text.utf8.endIndex
+        )
+        let byteRange = (baseRange.byteRange.lowerBound + lowerOffset)..<(baseRange.byteRange.lowerBound + upperOffset)
+        return MarkdownSourceRange(
+            byteRange: byteRange,
+            lineRange: lineMap.lineRange(for: byteRange)
+        )
+    }
+
+    private func trimmedNonEmptyRange(
+        in text: String,
+        localRange: Range<String.Index>
+    ) -> Range<String.Index>? {
+        var lower = localRange.lowerBound
+        var upper = localRange.upperBound
+
+        while lower < upper, text[lower].isWhitespace {
+            lower = text.index(after: lower)
+        }
+
+        while lower < upper {
+            let beforeUpper = text.index(before: upper)
+            guard text[beforeUpper].isWhitespace else {
+                break
+            }
+            upper = beforeUpper
+        }
+
+        return lower < upper ? lower..<upper : nil
+    }
+}
+
+private struct MarkdownMathDelimiterScanner {
+    struct DisplayMathSpan {
+        var full: Range<String.Index>
+        var content: Range<String.Index>
+    }
+
+    static func blockContent(in rawText: String) -> String? {
         let trimmed = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.hasPrefix("\\begin{"), trimmed.contains("\\end{") {
+        guard !trimmed.isEmpty else {
+            return nil
+        }
+
+        if trimmed.hasPrefix("\\begin{"), trimmed.hasSuffix("}"), trimmed.contains("\\end{") {
             return trimmed
         }
+
         if let stripped = strippedMathDelimiters(trimmed, open: "$$", close: "$$") {
             return stripped
         }
+
         if let stripped = strippedMathDelimiters(trimmed, open: "\\[", close: "\\]") {
             return stripped
         }
-        return trimmed
+
+        if let stripped = strippedBareDisplayBrackets(trimmed), looksLikeTex(stripped) {
+            return stripped
+        }
+
+        return nil
     }
 
-    private func strippedMathDelimiters(_ trimmed: String, open: String, close: String) -> String? {
+    static func standaloneDisplayMathSpans(in text: String) -> [DisplayMathSpan] {
+        var spans: [DisplayMathSpan] = []
+        var cursor = text.startIndex
+
+        while cursor < text.endIndex {
+            if hasToken("\\[", in: text, at: cursor),
+               let openUpper = text.index(cursor, offsetBy: 2, limitedBy: text.endIndex),
+               isOnlyTokenOnLine(cursor..<openUpper, in: text),
+               let close = closingStandaloneToken("\\]", in: text, after: openUpper) {
+                spans.append(displaySpan(open: cursor..<openUpper, close: close, in: text))
+                cursor = close.upperBound
+                continue
+            }
+
+            if hasToken("$$", in: text, at: cursor),
+               let openUpper = text.index(cursor, offsetBy: 2, limitedBy: text.endIndex),
+               isOnlyTokenOnLine(cursor..<openUpper, in: text),
+               let close = closingStandaloneToken("$$", in: text, after: openUpper) {
+                spans.append(displaySpan(open: cursor..<openUpper, close: close, in: text))
+                cursor = close.upperBound
+                continue
+            }
+
+            if text[cursor] == "[",
+               let openUpper = text.index(cursor, offsetBy: 1, limitedBy: text.endIndex),
+               isOnlyTokenOnLine(cursor..<openUpper, in: text),
+               let close = closingStandaloneToken("]", in: text, after: openUpper) {
+                let span = displaySpan(open: cursor..<openUpper, close: close, in: text)
+                if looksLikeTex(String(text[span.content])) {
+                    spans.append(span)
+                    cursor = close.upperBound
+                    continue
+                }
+            }
+
+            cursor = text.index(after: cursor)
+        }
+
+        return spans
+    }
+
+    static func spanCoversTrimmedText(_ span: DisplayMathSpan, in text: String) -> Bool {
+        var lower = text.startIndex
+        var upper = text.endIndex
+
+        while lower < upper, text[lower].isWhitespace {
+            lower = text.index(after: lower)
+        }
+
+        while lower < upper {
+            let beforeUpper = text.index(before: upper)
+            guard text[beforeUpper].isWhitespace else {
+                break
+            }
+            upper = beforeUpper
+        }
+
+        return span.full.lowerBound == lower && span.full.upperBound == upper
+    }
+
+    private static func strippedMathDelimiters(_ trimmed: String, open: String, close: String) -> String? {
         guard trimmed.hasPrefix(open),
               trimmed.hasSuffix(close),
               trimmed.count >= open.count + close.count
@@ -488,13 +712,127 @@ private struct SwiftMarkdownRenderModelConverter {
         return String(trimmed[start..<end]).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private func stableContentHash(_ text: String) -> UInt64 {
-        var hash: UInt64 = 0xcbf29ce484222325
-        for byte in text.utf8 {
-            hash ^= UInt64(byte)
-            hash &*= 0x100000001b3
+    private static func strippedBareDisplayBrackets(_ trimmed: String) -> String? {
+        guard trimmed.hasPrefix("["),
+              trimmed.hasSuffix("]"),
+              let firstLineEnd = trimmed.firstIndex(where: { $0.isNewline }),
+              let lastLineStart = trimmed.lastIndex(where: { $0.isNewline })
+        else {
+            return nil
         }
-        return hash
+
+        let firstLine = trimmed[..<firstLineEnd].trimmingCharacters(in: .whitespaces)
+        let lastLine = trimmed[trimmed.index(after: lastLineStart)...].trimmingCharacters(in: .whitespaces)
+        guard firstLine == "[", lastLine == "]" else {
+            return nil
+        }
+
+        return String(trimmed[trimmed.index(after: firstLineEnd)..<lastLineStart])
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func hasToken(_ token: String, in text: String, at index: String.Index) -> Bool {
+        text[index...].hasPrefix(token)
+    }
+
+    private static func closingStandaloneToken(
+        _ token: String,
+        in text: String,
+        after lowerBound: String.Index
+    ) -> Range<String.Index>? {
+        var searchStart = lowerBound
+        while searchStart < text.endIndex,
+              let range = text.range(of: token, range: searchStart..<text.endIndex) {
+            if isOnlyTokenOnLine(range, in: text) {
+                return range
+            }
+            searchStart = range.upperBound
+        }
+        return nil
+    }
+
+    private static func displaySpan(
+        open: Range<String.Index>,
+        close: Range<String.Index>,
+        in text: String
+    ) -> DisplayMathSpan {
+        let contentLower = startOfNextLine(after: open.upperBound, in: text) ?? open.upperBound
+        let contentUpper = startOfLine(containing: close.lowerBound, in: text)
+        return DisplayMathSpan(
+            full: open.lowerBound..<close.upperBound,
+            content: min(contentLower, contentUpper)..<max(contentLower, contentUpper)
+        )
+    }
+
+    private static func isOnlyTokenOnLine(_ range: Range<String.Index>, in text: String) -> Bool {
+        let lineStart = startOfLine(containing: range.lowerBound, in: text)
+        var cursor = lineStart
+        while cursor < range.lowerBound {
+            guard text[cursor].isWhitespace, !text[cursor].isNewline else {
+                return false
+            }
+            cursor = text.index(after: cursor)
+        }
+
+        cursor = range.upperBound
+        while cursor < text.endIndex, !text[cursor].isNewline {
+            guard text[cursor].isWhitespace else {
+                return false
+            }
+            cursor = text.index(after: cursor)
+        }
+
+        return true
+    }
+
+    private static func startOfLine(containing index: String.Index, in text: String) -> String.Index {
+        var cursor = index
+        while cursor > text.startIndex {
+            let previous = text.index(before: cursor)
+            if text[previous].isNewline {
+                break
+            }
+            cursor = previous
+        }
+        return cursor
+    }
+
+    private static func startOfNextLine(after index: String.Index, in text: String) -> String.Index? {
+        var cursor = index
+        while cursor < text.endIndex {
+            if text[cursor].isNewline {
+                return text.index(after: cursor)
+            }
+            cursor = text.index(after: cursor)
+        }
+        return nil
+    }
+
+    private static func looksLikeTex(_ content: String) -> Bool {
+        let body = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !body.isEmpty else {
+            return false
+        }
+
+        let commonCommands = [
+            "\\frac", "\\lim", "\\sum", "\\int", "\\sqrt", "\\begin{", "\\end{",
+            "\\left", "\\right", "\\sin", "\\cos", "\\tan", "\\log", "\\ln",
+            "\\alpha", "\\beta", "\\gamma", "\\delta", "\\theta", "\\lambda",
+            "\\rightarrow", "\\leftarrow", "\\infty"
+        ]
+        if commonCommands.contains(where: { body.contains($0) }) {
+            return true
+        }
+
+        guard body.range(of: #"\\[A-Za-z]+(\*|\b)"#, options: .regularExpression) != nil else {
+            return false
+        }
+
+        return body.contains("{") ||
+            body.contains("}") ||
+            body.contains("_") ||
+            body.contains("^") ||
+            body.contains("=")
     }
 }
 
