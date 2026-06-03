@@ -103,9 +103,13 @@ public enum MarkdownInlineMathPiece: Sendable, Hashable {
 /// concatenation, baseline-aligning each equation image to the surrounding text.
 struct InlineMathTextView: View {
     var pieces: [MarkdownInlineMathPiece]
+    var prepared: MarkdownPreparedInlineContent? = nil
     var font: Font
     var color: Color
     var fontSize: Double
+    var linkAction: MarkdownLinkAction? = nil
+
+    @Environment(\.markdownDocumentSelectionContext) private var documentSelectionContext
 
     var body: some View {
         composed
@@ -113,6 +117,50 @@ struct InlineMathTextView: View {
             .foregroundStyle(color)
             .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, alignment: .leading)
+            .environment(\.openURL, openURLAction)
+            .background(selectionFragmentPreference)
+    }
+
+    var openURLAction: OpenURLAction {
+        markdownOpenURLAction(linkAction: linkAction)
+    }
+
+    private var selectionFragmentPreference: some View {
+        GeometryReader { proxy in
+            let rect = selectionPreferenceRect(from: proxy)
+            Color.clear.preference(
+                key: MarkdownDocumentSelectionFragmentsKey.self,
+                value: selectionFragments(rect: rect)
+            )
+        }
+        .allowsHitTesting(false)
+    }
+
+    private func selectionPreferenceRect(from proxy: GeometryProxy) -> CGRect {
+        prepared?.layoutCache.recordSelectionPreferenceBodyEvaluation()
+        prepared?.layoutCache.recordSelectionFrameQuery()
+        return proxy.frame(in: .named(markdownDocumentSelectionCoordinateSpaceName))
+    }
+
+    private func selectionFragments(rect: CGRect) -> [MarkdownDocumentSelectionFragment] {
+        guard let documentSelectionContext,
+              let sourceRange = prepared?.prepared.sourceRange,
+              rect.width.isFinite,
+              rect.height.isFinite,
+              rect.width > 0,
+              rect.height > 0
+        else {
+            return []
+        }
+
+        return [
+            MarkdownDocumentSelectionFragment.fallbackTextFragment(
+                blockID: documentSelectionContext.blockID,
+                sourceRange: sourceRange,
+                rect: rect,
+                idPrefix: "text-leaf-math"
+            )
+        ]
     }
 
     private var composed: Text {

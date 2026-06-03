@@ -216,11 +216,41 @@ func inlineRunsApplyLinkAndImagePolicies() {
             MarkdownInlineRun(
                 kind: .image,
                 text: "",
-                destination: "https://example.com/image.png"
+                destination: "https://example.com/image.png",
+                imageSource: "https://example.com/image.png"
             )
         ]
     )
     #expect(hiddenImage == "[image]")
+
+    let linkedImage = InlineRunsView.attributedString(
+        for: [
+            MarkdownInlineRun(
+                kind: .link,
+                text: "diagram",
+                destination: "https://example.com/diagram",
+                imageSource: "https://example.com/image.png",
+                presentation: .image
+            )
+        ]
+    )
+    #expect(String(linkedImage.characters) == "diagram")
+    #expect(linkedImage.runs.compactMap(\.link).first?.absoluteString == "https://example.com/diagram")
+
+    let multilineLink = InlineRunsView.attributedString(
+        for: [
+            MarkdownInlineRun(kind: .link, text: "first", destination: "https://example.com/multiline"),
+            MarkdownInlineRun(kind: .softBreak, text: "\n", destination: "https://example.com/multiline"),
+            MarkdownInlineRun(kind: .link, text: "second", destination: "https://example.com/multiline")
+        ]
+    )
+    let linkedPieces = multilineLink.runs.compactMap { run -> String? in
+        guard run.link?.absoluteString == "https://example.com/multiline" else {
+            return nil
+        }
+        return String(multilineLink[run.range].characters)
+    }
+    #expect(linkedPieces == ["first\nsecond"])
 }
 
 @Test
@@ -901,6 +931,62 @@ func defaultDocumentSelectionResolvesDragAndCmdCCopyAcrossBlockBoundariesOnMacOS
     #expect(selectedMarkdown == expectedMarkdown)
     #expect(copySpy.copied == expectedMarkdown)
 }
+
+@Test
+@MainActor
+func defaultDocumentSelectionReceivesTextLeafFragmentForImageBackedInlineMath() throws {
+    let markdown = "Before $x^2$ after"
+    var stream = MarkdownStream()
+    stream.append(markdown)
+    stream.finish()
+
+    let configuration = MarkdownRendererConfiguration(mathRenderer: CountingImageMathRenderer())
+    let snapshot = stream.snapshot()
+    let prepared = configuration.prepare(snapshot: snapshot)
+    let block = try #require(snapshot.blocks.first)
+    let content = try #require(prepared.preparedContentByBlockID[block.id])
+    let inlineLayout = try #require(content.inlineLayout)
+    #expect(inlineLayout.mathTextPieces != nil)
+
+    let recorder = SelectionPreferenceRecorder()
+    let view = InlineRunsView(
+        prepared: inlineLayout,
+        theme: configuration.theme,
+        baseFont: configuration.theme.paragraphFont,
+        linkAction: configuration.linkAction,
+        inlineRenderingMode: configuration.inlineRenderingMode,
+        nativeTextSelection: configuration.nativeTextSelection
+    )
+    .environment(\.markdownDocumentSelectionContext, MarkdownDocumentSelectionContext(blockID: block.id))
+    .coordinateSpace(name: markdownDocumentSelectionCoordinateSpaceName)
+    .onPreferenceChange(MarkdownDocumentSelectionFragmentsKey.self) { fragments in
+        recorder.fragments = fragments
+    }
+    .frame(width: 320, height: 80, alignment: .topLeading)
+
+    let hostingView = NSHostingView(rootView: view)
+    hostingView.frame = NSRect(origin: .zero, size: NSSize(width: 320, height: 80))
+    let window = NSWindow(
+        contentRect: hostingView.frame,
+        styleMask: [.borderless],
+        backing: .buffered,
+        defer: false
+    )
+    window.animationBehavior = .none
+    window.contentView = hostingView
+    window.orderFrontRegardless()
+    defer { tearDownWindow(window) }
+    pumpLayout(hostingView)
+
+    let fragments = recorder.fragments.sortedForTestSelection()
+    let fragment = try #require(fragments.first)
+    #expect(fragments.count == 1)
+    #expect(fragment.id.hasPrefix("text-leaf-math:"))
+    #expect(fragment.blockID == block.id)
+    #expect(fragment.sourceRange == block.sourceRange)
+    #expect(fragment.rect.width > 0)
+    #expect(fragment.rect.height > 0)
+}
 }
 #endif
 
@@ -988,6 +1074,145 @@ func preparedInlineImageUsesResolverPlaceholderWhenAltTextIsEmpty() throws {
 
     #expect(inlineLayout.images.first?.source == "diagram.png")
     #expect(inlineLayout.prepared.naturalText.contains("Image loading is disabled by default."))
+}
+
+@Test
+func deniedPreparedImagesDoNotInvokeResolver() throws {
+    let block = try firstBlock("Remote ![diagram](https://example.com/diagram.png)")
+    let deniedResolver = RecordingImageResolver()
+    let deniedConfiguration = MarkdownRendererConfiguration(
+        imagePolicy: IdentityImagePolicy(identity: "deny", decision: .deny(reason: "blocked")),
+        imageResolver: deniedResolver
+    )
+
+    let denied = deniedConfiguration.prepare(block: block)
+    let deniedImage = try #require(denied.inlineLayout?.images.first)
+
+    #expect(deniedResolver.count == 0)
+    #expect(deniedImage.preparedSource == .placeholder(reason: "blocked"))
+
+    let allowedResolver = RecordingImageResolver()
+    let allowedConfiguration = MarkdownRendererConfiguration(
+        imagePolicy: IdentityImagePolicy(identity: "allow", decision: .allow),
+        imageResolver: allowedResolver
+    )
+
+    _ = allowedConfiguration.prepare(block: block)
+
+    #expect(allowedResolver.count == 1)
+}
+
+@Test
+func preparedImagePolicyEvaluatesOncePerSourceBackedRun() throws {
+    let block = try firstBlock("Remote ![](https://example.com/diagram.png)")
+    let imagePolicy = NonIdentifyingImagePolicy(decision: .deny(reason: "blocked"))
+    let resolver = NonIdentifyingImageResolver()
+    let configuration = MarkdownRendererConfiguration(
+        imagePolicy: imagePolicy,
+        imageResolver: resolver
+    )
+
+    let prepared = configuration.prepare(block: block)
+
+    #expect(plainString(prepared.inline) == "Remote [image: blocked]")
+    #expect(prepared.inlineLayout?.images.first?.preparedSource == .placeholder(reason: "blocked"))
+    #expect(resolver.count == 0)
+    #expect(imagePolicy.count == 1)
+}
+
+@Test
+func deniedPreparedImageCacheDoesNotRequireResolverIdentity() throws {
+    let block = try firstBlock("Remote ![diagram](https://example.com/diagram.png)")
+    let cache = MarkdownRenderPreparationCache()
+    let recorder = MarkdownDiagnosticsRecorder()
+    let resolver = NonIdentifyingImageResolver()
+    let configuration = MarkdownRendererConfiguration(
+        imagePolicy: IdentityImagePolicy(identity: "deny", decision: .deny(reason: "blocked")),
+        imageResolver: resolver,
+        preparationCache: cache,
+        diagnosticsRecorder: recorder
+    )
+
+    let first = configuration.prepare(block: block)
+    let afterFirst = recorder.snapshot()
+    let second = configuration.prepare(block: block)
+    let afterSecond = recorder.snapshot()
+
+    #expect(first.inlineLayout?.images.first?.preparedSource == .placeholder(reason: "blocked"))
+    #expect(second.inlineLayout?.images.first?.preparedSource == .placeholder(reason: "blocked"))
+    #expect(resolver.count == 0)
+    #expect(afterFirst.prepareCount == 1)
+    #expect(afterSecond.prepareCount == afterFirst.prepareCount)
+    #expect(afterSecond.cacheHitCount == afterFirst.cacheHitCount + 1)
+}
+
+@Test
+func imageOnlyInlineCacheDoesNotRequireLinkPolicyIdentity() throws {
+    let block = try firstBlock("Remote ![diagram](https://example.com/diagram.png)")
+    let cache = MarkdownRenderPreparationCache()
+    let recorder = MarkdownDiagnosticsRecorder()
+    let resolver = NonIdentifyingImageResolver()
+    let configuration = MarkdownRendererConfiguration(
+        linkPolicy: NonIdentifyingLinkPolicy(decision: .deny(reason: "links disabled")),
+        imagePolicy: IdentityImagePolicy(identity: "deny-image", decision: .deny(reason: "blocked")),
+        imageResolver: resolver,
+        preparationCache: cache,
+        diagnosticsRecorder: recorder
+    )
+
+    let first = configuration.prepare(block: block)
+    let afterFirst = recorder.snapshot()
+    let second = configuration.prepare(block: block)
+    let afterSecond = recorder.snapshot()
+
+    #expect(first.inlineLayout?.images.first?.preparedSource == .placeholder(reason: "blocked"))
+    #expect(second.inlineLayout?.images.first?.preparedSource == .placeholder(reason: "blocked"))
+    #expect(resolver.count == 0)
+    #expect(afterFirst.prepareCount == 1)
+    #expect(afterSecond.prepareCount == afterFirst.prepareCount)
+    #expect(afterSecond.cacheHitCount == afterFirst.cacheHitCount + 1)
+}
+
+@Test
+func sourcelessImageInlineCacheDoesNotRequireImagePolicyIdentity() throws {
+    let range = MarkdownSourceRange(byteRange: 0..<8, lineRange: 1..<2)
+    let block = MarkdownBlock(
+        id: MarkdownBlockID("sourceless-image"),
+        kind: .paragraph,
+        sourceRange: range,
+        text: "diagram",
+        inlines: [
+            MarkdownInlineRun(
+                kind: .image,
+                text: "diagram",
+                sourceRange: range,
+                imageSource: nil
+            )
+        ],
+        isSealed: true
+    )
+    let cache = MarkdownRenderPreparationCache()
+    let recorder = MarkdownDiagnosticsRecorder()
+    let imagePolicy = NonIdentifyingImagePolicy(decision: .deny(reason: "blocked"))
+    let configuration = MarkdownRendererConfiguration(
+        imagePolicy: imagePolicy,
+        preparationCache: cache,
+        diagnosticsRecorder: recorder
+    )
+
+    let first = configuration.prepare(block: block)
+    let afterFirst = recorder.snapshot()
+    let second = configuration.prepare(block: block)
+    let afterSecond = recorder.snapshot()
+
+    #expect(plainString(first.inline) == "diagram")
+    #expect(plainString(second.inline) == "diagram")
+    #expect(first.inlineLayout?.images.isEmpty == true)
+    #expect(second.inlineLayout?.images.isEmpty == true)
+    #expect(imagePolicy.count == 0)
+    #expect(afterFirst.prepareCount == 1)
+    #expect(afterSecond.prepareCount == afterFirst.prepareCount)
+    #expect(afterSecond.cacheHitCount == afterFirst.cacheHitCount + 1)
 }
 
 @Test
@@ -1504,6 +1729,22 @@ func inlinePreparationCacheKeysIncludePolicyIdentity() throws {
 }
 
 @Test
+func preparedInlineLinksUsePolicyNormalizedDestinations() throws {
+    var stream = MarkdownStream()
+    stream.append("[https](https&#58//example.com/path)\n\n[relative](docs&#47safe)\n")
+    stream.finish()
+
+    let prepared = MarkdownRendererConfiguration.document.prepare(snapshot: stream.snapshot())
+    let links = prepared.preparedContentByBlockID.values.flatMap { content in
+        content.inlineLayout?.attributed.runs.compactMap(\.link) ?? []
+    }
+
+    #expect(links.contains(URL(string: "https://example.com/path")!))
+    #expect(links.contains(URL(string: "docs/safe")!))
+    #expect(links.count == 2)
+}
+
+@Test
 func mathPreparationCacheKeysIncludeRendererIdentity() throws {
     let inlineMathBlock = try firstBlock("Before $x^2$ after")
     let blockMathBlock = try firstBlock("$$\nx^2\n$$")
@@ -1537,6 +1778,74 @@ func mathPreparationCacheKeysIncludeRendererIdentity() throws {
     #expect(afterTwo.mathRenderCount == afterOne.mathRenderCount + 2)
     #expect(rendererOne.count == 2)
     #expect(rendererTwo.count == 2)
+}
+
+@Test
+func deniedInlineMathCacheDoesNotRequireRendererIdentity() throws {
+    let block = try firstBlock("Before $x^2$ after")
+    let cache = MarkdownRenderPreparationCache()
+    let recorder = MarkdownDiagnosticsRecorder()
+    let renderer = NonIdentifyingMathRenderer()
+    let configuration = MarkdownRendererConfiguration(
+        mathPolicy: IdentityMathPolicy(identity: "deny", decision: .deny(reason: "math denied")),
+        mathRenderer: renderer,
+        preparationCache: cache,
+        diagnosticsRecorder: recorder
+    )
+
+    let first = configuration.prepare(block: block)
+    let afterFirst = recorder.snapshot()
+    let second = configuration.prepare(block: block)
+    let afterSecond = recorder.snapshot()
+
+    #expect(plainString(first.inline).contains("$x^2$") || plainString(first.inline).contains("x^2"))
+    #expect(plainString(second.inline).contains("$x^2$") || plainString(second.inline).contains("x^2"))
+    #expect(renderer.count == 0)
+    #expect(afterFirst.prepareCount == 1)
+    #expect(afterSecond.prepareCount == afterFirst.prepareCount)
+    #expect(afterSecond.cacheHitCount == afterFirst.cacheHitCount + 1)
+}
+
+@Test
+func imageBackedInlineMathPreparationDoesNotCallRenderedFallback() throws {
+    let block = try firstBlock("[value $x^2$](https://example.com/math)")
+    let renderer = CountingImageMathRenderer()
+    let configuration = MarkdownRendererConfiguration(mathRenderer: renderer)
+
+    let inline = try #require(configuration.prepare(block: block).inlineLayout)
+    let mathPieces = try #require(inline.mathTextPieces)
+    let linkedMathRun = inline.prepared.runs.first { run in
+        run.kind == .math || run.presentation.contains(.math)
+    }
+
+    #expect(mathPieces.contains { piece in
+        if case .math = piece { return true }
+        return false
+    })
+    #expect(linkedMathRun?.destination == "https://example.com/math")
+    #expect(renderer.preparedCount == 1)
+    #expect(renderer.renderedCount == 0)
+}
+
+@Test
+@MainActor
+func imageBackedInlineMathTextUsesConfiguredLinkAction() {
+    var linkedText = AttributedString("x^2")
+    linkedText.link = URL(string: "https://example.com/math")!
+    let recorder = LinkActionRecorder()
+    let view = InlineMathTextView(
+        pieces: [.text(linkedText)],
+        font: .body,
+        color: .primary,
+        fontSize: 14,
+        linkAction: MarkdownLinkAction { destination in
+            recorder.record(destination)
+        }
+    )
+
+    view.openURLAction(URL(string: "https://example.com/math")!)
+
+    #expect(recorder.destinations == ["https://example.com/math"])
 }
 
 @Test
@@ -1643,6 +1952,52 @@ func selectionSourceRunMarksFormattedRunAsNonOneToOne() {
     )
 
     #expect(mapper.mapsOneToOne == false)
+}
+
+@Test
+func selectionSourceRunSnapsAtomicRunsToSourceBoundaries() {
+    let mapper = MarkdownDocumentSelectionSourceRun(
+        visibleByteRange: 10..<30,
+        sourceRange: MarkdownSourceRange(byteRange: 100..<145, lineRange: 1..<2),
+        isAtomic: true
+    )
+
+    #expect(mapper.mapsOneToOne == false)
+    #expect(mapper.sourceByteOffset(forVisibleByteOffset: 10) == 100)
+    #expect(mapper.sourceByteOffset(forVisibleByteOffset: 19) == 100)
+    #expect(mapper.sourceByteOffset(forVisibleByteOffset: 20) == 100)
+    #expect(mapper.sourceByteOffset(forVisibleByteOffset: 21) == 145)
+    #expect(mapper.sourceByteOffset(forVisibleByteOffset: 30) == 145)
+    #expect(mapper.visibleByteOffset(forSourceByteOffset: 100) == 10)
+    #expect(mapper.visibleByteOffset(forSourceByteOffset: 120) == 20)
+    #expect(mapper.visibleByteOffset(forSourceByteOffset: 145) == 30)
+}
+
+@Test
+func preparedImageSelectionSourceRunIsAtomic() throws {
+    let markdown = "Image ![](diagram.png) after"
+    let imageByteRange = try utf8Range(of: "![](diagram.png)", in: markdown)
+    var stream = MarkdownStream()
+    stream.append(markdown)
+    stream.finish()
+
+    let snapshot = stream.snapshot()
+    let configuration = MarkdownRendererConfiguration.compactChat
+    let prepared = configuration.prepare(snapshot: snapshot)
+    let block = try #require(snapshot.blocks.first)
+    let content = try #require(prepared.preparedContentByBlockID[block.id])
+    let fragment = try #require(MarkdownDocumentSelectionFragment.fragments(
+        for: block,
+        preparedContent: content,
+        rect: CGRect(x: 0, y: 0, width: 700, height: 80)
+    ).first { $0.textGeometry != nil })
+    let sourceRun = try #require(fragment.textGeometry?.sourceRuns.first { sourceRun in
+        sourceRun.sourceRange.byteRange == imageByteRange
+    })
+
+    #expect(sourceRun.isAtomic)
+    #expect(sourceRun.sourceByteOffset(forVisibleByteOffset: sourceRun.visibleByteRange.lowerBound) == imageByteRange.lowerBound)
+    #expect(sourceRun.sourceByteOffset(forVisibleByteOffset: sourceRun.visibleByteRange.upperBound) == imageByteRange.upperBound)
 }
 
 @Test
@@ -2708,6 +3063,11 @@ private final class MarkdownCopySpy {
     var copied: String?
 }
 
+@MainActor
+private final class SelectionPreferenceRecorder {
+    var fragments: [MarkdownDocumentSelectionFragment] = []
+}
+
 private func selectionFragments(
     for snapshot: MarkdownSnapshot,
     prepared: MarkdownPreparedSnapshot,
@@ -2895,6 +3255,22 @@ private final class CountingMathPolicy: MarkdownMathPolicy, @unchecked Sendable 
     }
 }
 
+private struct IdentityMathPolicy: MarkdownMathPolicy, MarkdownMathPolicyCacheIdentifying {
+    var mathPolicyCacheIdentity: String
+    var decision: MarkdownPolicyDecision
+
+    init(identity: String, decision: MarkdownPolicyDecision) {
+        self.mathPolicyCacheIdentity = identity
+        self.decision = decision
+    }
+
+    func evaluateMath(_ source: String, isBlock: Bool) -> MarkdownPolicyDecision {
+        _ = source
+        _ = isBlock
+        return decision
+    }
+}
+
 private final class CountingHTMLPolicy: MarkdownHTMLPolicy, @unchecked Sendable {
     private let lock = NSLock()
     private var callCount = 0
@@ -3003,6 +3379,116 @@ private struct IdentityLinkPolicy: MarkdownLinkPolicy, MarkdownLinkPolicyCacheId
     }
 }
 
+private struct NonIdentifyingLinkPolicy: MarkdownLinkPolicy {
+    var decision: MarkdownPolicyDecision
+
+    func evaluateLink(destination: String) -> MarkdownPolicyDecision {
+        _ = destination
+        return decision
+    }
+}
+
+private final class NonIdentifyingImagePolicy: MarkdownImagePolicy, @unchecked Sendable {
+    private let lock = NSLock()
+    private var callCount = 0
+    var decision: MarkdownPolicyDecision
+
+    init(decision: MarkdownPolicyDecision) {
+        self.decision = decision
+    }
+
+    func evaluateImage(source: String, altText: String?) -> MarkdownPolicyDecision {
+        _ = source
+        _ = altText
+        lock.withLock {
+            callCount += 1
+        }
+        return decision
+    }
+
+    var count: Int {
+        lock.withLock {
+            callCount
+        }
+    }
+}
+
+private struct IdentityImagePolicy: MarkdownImagePolicy, MarkdownImagePolicyCacheIdentifying {
+    var imagePolicyCacheIdentity: String
+    var decision: MarkdownPolicyDecision
+
+    init(identity: String, decision: MarkdownPolicyDecision) {
+        self.imagePolicyCacheIdentity = identity
+        self.decision = decision
+    }
+
+    func evaluateImage(source: String, altText: String?) -> MarkdownPolicyDecision {
+        _ = source
+        _ = altText
+        return decision
+    }
+}
+
+private final class RecordingImageResolver: MarkdownImageResolver, MarkdownImageResolverCacheIdentifying, @unchecked Sendable {
+    private let lock = NSLock()
+    private var callCount = 0
+
+    var imageResolverCacheIdentity: String {
+        "test.recording-image-resolver"
+    }
+
+    func preparedImage(
+        source: String,
+        altText: String?,
+        sourceRange: MarkdownSourceRange?,
+        policyDecision: MarkdownPolicyDecision
+    ) -> MarkdownPreparedImage {
+        lock.withLock {
+            callCount += 1
+        }
+        return MarkdownPreparedImage(
+            source: source,
+            altText: altText,
+            sourceRange: sourceRange,
+            preparedSource: .placeholder(reason: "\(policyDecision)")
+        )
+    }
+
+    var count: Int {
+        lock.withLock {
+            callCount
+        }
+    }
+}
+
+private final class NonIdentifyingImageResolver: MarkdownImageResolver, @unchecked Sendable {
+    private let lock = NSLock()
+    private var callCount = 0
+
+    func preparedImage(
+        source: String,
+        altText: String?,
+        sourceRange: MarkdownSourceRange?,
+        policyDecision: MarkdownPolicyDecision
+    ) -> MarkdownPreparedImage {
+        lock.withLock {
+            callCount += 1
+        }
+        return MarkdownPreparedImage(
+            source: source,
+            altText: altText,
+            sourceRange: sourceRange,
+            preparedSource: .placeholder(reason: "\(policyDecision)")
+        )
+    }
+
+    var count: Int {
+        lock.withLock {
+            callCount
+        }
+    }
+}
+
 private final class CountingMathRenderer: MarkdownMathRenderer, MarkdownMathRendererCacheIdentifying, @unchecked Sendable {
     private let lock = NSLock()
     private var callCount = 0
@@ -3049,6 +3535,91 @@ private final class IdentityMathRenderer: MarkdownMathRenderer, MarkdownMathRend
     var count: Int {
         lock.withLock {
             callCount
+        }
+    }
+}
+
+private final class NonIdentifyingMathRenderer: MarkdownMathRenderer, @unchecked Sendable {
+    private let lock = NSLock()
+    private var callCount = 0
+
+    func renderedMath(_ source: String, isBlock: Bool) -> AttributedString {
+        _ = isBlock
+        lock.withLock {
+            callCount += 1
+        }
+        return AttributedString("rendered:\(source)")
+    }
+
+    var count: Int {
+        lock.withLock {
+            callCount
+        }
+    }
+}
+
+private final class CountingImageMathRenderer: MarkdownMathRenderer, MarkdownMathRendererCacheIdentifying, @unchecked Sendable {
+    private let lock = NSLock()
+    private var preparedCallCount = 0
+    private var renderedCallCount = 0
+
+    var mathRendererCacheIdentity: String {
+        "test.counting-image-math"
+    }
+
+    func renderedMath(_ source: String, isBlock: Bool) -> AttributedString {
+        _ = isBlock
+        lock.withLock {
+            renderedCallCount += 1
+        }
+        return AttributedString("fallback:\(source)")
+    }
+
+    func preparedMath(_ source: String, isBlock: Bool, fontSize: Double) -> MarkdownPreparedMath {
+        _ = isBlock
+        _ = fontSize
+        lock.withLock {
+            preparedCallCount += 1
+        }
+        return .image(
+            MarkdownPreparedMathImage(
+                imageData: Data([0]),
+                scale: 1,
+                pointWidth: 8,
+                pointHeight: 8,
+                ascent: 6,
+                descent: 2,
+                latex: source
+            )
+        )
+    }
+
+    var preparedCount: Int {
+        lock.withLock {
+            preparedCallCount
+        }
+    }
+
+    var renderedCount: Int {
+        lock.withLock {
+            renderedCallCount
+        }
+    }
+}
+
+private final class LinkActionRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var values: [String] = []
+
+    func record(_ destination: String) {
+        lock.withLock {
+            values.append(destination)
+        }
+    }
+
+    var destinations: [String] {
+        lock.withLock {
+            values
         }
     }
 }
@@ -3146,6 +3717,19 @@ private func swiftSourceFiles(under root: URL) throws -> [URL] {
         let values = try url.resourceValues(forKeys: [.isRegularFileKey])
         return values.isRegularFile == true ? url : nil
     }
+}
+
+private func utf8Range(of needle: String, in haystack: String) throws -> Range<Int> {
+    let range = try #require(haystack.range(of: needle))
+    let lower = haystack.utf8.distance(
+        from: haystack.utf8.startIndex,
+        to: range.lowerBound.samePosition(in: haystack.utf8) ?? haystack.utf8.startIndex
+    )
+    let upper = haystack.utf8.distance(
+        from: haystack.utf8.startIndex,
+        to: range.upperBound.samePosition(in: haystack.utf8) ?? haystack.utf8.endIndex
+    )
+    return lower..<upper
 }
 
 private extension String {

@@ -86,20 +86,26 @@ public final class MarkdownParserCache: @unchecked Sendable {
         self.cache = BoundedMarkdownCache(capacity: capacity)
     }
 
+    private func withLock<T>(_ body: () throws -> T) rethrows -> T {
+        lock.lock()
+        defer { lock.unlock() }
+        return try body()
+    }
+
     public func blocks(forKey key: MarkdownCacheKey, isSealed: Bool) -> [MarkdownBlock]? {
-        lock.withLock {
+        withLock {
             cache.value(forKey: key)?.withSealedState(isSealed)
         }
     }
 
     public func insert(_ blocks: [MarkdownBlock], forKey key: MarkdownCacheKey) {
-        lock.withLock {
+        withLock {
             cache[key] = blocks.withSealedState(false)
         }
     }
 
     public func removeAll() {
-        lock.withLock {
+        withLock {
             cache.removeAll()
         }
     }

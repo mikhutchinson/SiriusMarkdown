@@ -25,3 +25,41 @@ func escapedDollarDoesNotStartInlineMath() throws {
     #expect(block.inlines.contains { $0.kind == .math && $0.text == "a_1" })
     #expect(block.inlines.filter { $0.kind == .math }.count == 1)
 }
+
+@Test
+func escapedParenInlineMathIsDetectedInPlainTextNodes() throws {
+    var stream = MarkdownStream()
+    stream.append("Inline \\(x^2 + y^2\\) survives in prose.")
+    stream.finish()
+
+    let block = try #require(stream.snapshot().blocks.first)
+
+    #expect(block.inlines.contains { $0.kind == .math && $0.text == "x^2 + y^2" })
+    #expect(block.inlines.filter { $0.kind == .math }.count == 1)
+}
+
+@Test
+func escapedBackslashBeforeParenDoesNotStartInlineMath() throws {
+    var stream = MarkdownStream()
+    stream.append("Literal \\\\(x\\\\) stays prose, while \\(y\\) is math.")
+    stream.finish()
+
+    let block = try #require(stream.snapshot().blocks.first)
+
+    #expect(block.inlines.contains { $0.kind == .text && $0.text.contains("\\(x\\)") })
+    #expect(block.inlines.contains { $0.kind == .math && $0.text == "y" })
+    #expect(block.inlines.filter { $0.kind == .math }.count == 1)
+}
+
+@Test
+func escapedBackslashBeforeDollarStillAllowsDollarMath() throws {
+    var stream = MarkdownStream()
+    stream.append("Literal backslash before math: \\\\$x$ stays parsed.")
+    stream.finish()
+
+    let block = try #require(stream.snapshot().blocks.first)
+
+    #expect(block.inlines.contains { $0.kind == .text && $0.text.contains("\\") })
+    #expect(block.inlines.contains { $0.kind == .math && $0.text == "x" })
+    #expect(block.inlines.filter { $0.kind == .math }.count == 1)
+}

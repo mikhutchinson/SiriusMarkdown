@@ -102,8 +102,8 @@ private struct SwiftMarkdownRenderModelConverter {
             return .htmlBlock
         case let list as UnorderedList:
             return listContainsTaskItems(list) ? .taskList : .unorderedList
-        case is OrderedList:
-            return .orderedList
+        case let list as OrderedList:
+            return listContainsTaskItems(list) ? .taskList : .orderedList
         case is Table:
             return .table
         case is Paragraph where MarkdownMathDelimiterScanner.blockContent(in: rawText) != nil:
@@ -256,7 +256,7 @@ private struct SwiftMarkdownRenderModelConverter {
         )
     }
 
-    private func listContainsTaskItems(_ list: UnorderedList) -> Bool {
+    private func listContainsTaskItems(_ list: Markup) -> Bool {
         list.children.contains { child in
             (child as? ListItem)?.checkbox != nil
         }
@@ -359,7 +359,8 @@ private struct SwiftMarkdownRenderModelConverter {
                 MarkdownInlineRun(
                     kind: .text,
                     text: htmlBlock.rawHTML,
-                    sourceRange: markdownSourceRange(for: htmlBlock)
+                    sourceRange: markdownSourceRange(for: htmlBlock),
+                    presentation: .html
                 )
             ]
         case let table as Table:
@@ -415,7 +416,7 @@ private struct SwiftMarkdownRenderModelConverter {
             }
 
             if let list = child as? OrderedList {
-                return (.orderedList, list.startIndex)
+                return (listContainsTaskItems(list) ? .taskList : .orderedList, list.startIndex)
             }
         }
 
@@ -808,7 +809,7 @@ private struct MarkdownMathDelimiterScanner {
         return nil
     }
 
-    private static func looksLikeTex(_ content: String) -> Bool {
+    static func looksLikeTex(_ content: String) -> Bool {
         let body = content.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !body.isEmpty else {
             return false
@@ -842,6 +843,12 @@ private struct InlineRunConverter {
     var lineMap: MarkdownLineMap
     var fallbackRange: MarkdownSourceRange
 
+    private enum DisplayMathRunDelimiter {
+        case bracket
+        case dollar
+        case bareBracket
+    }
+
     func runs(in children: MarkupChildren) -> [MarkdownInlineRun] {
         runs(in: children, presentation: [], destination: nil)
     }
@@ -851,9 +858,10 @@ private struct InlineRunConverter {
         presentation: MarkdownInlinePresentation,
         destination: String?
     ) -> [MarkdownInlineRun] {
-        children.flatMap {
+        let converted = children.flatMap {
             runs(in: $0, presentation: presentation, destination: destination)
         }
+        return coalescedStandaloneDisplayMathRuns(converted)
     }
 
     private func runs(
@@ -875,9 +883,25 @@ private struct InlineRunConverter {
                 )
             ]
         case let softBreak as SoftBreak:
-            return [run(kind: .softBreak, text: "\n", markup: softBreak, presentation: presentation)]
+            return [
+                run(
+                    kind: .softBreak,
+                    text: "\n",
+                    markup: softBreak,
+                    destination: destination,
+                    presentation: presentation
+                )
+            ]
         case let lineBreak as LineBreak:
-            return [run(kind: .hardBreak, text: "\n", markup: lineBreak, presentation: presentation)]
+            return [
+                run(
+                    kind: .hardBreak,
+                    text: "\n",
+                    markup: lineBreak,
+                    destination: destination,
+                    presentation: presentation
+                )
+            ]
         case let emphasis as Emphasis:
             return runs(
                 in: emphasis.children,
@@ -903,13 +927,15 @@ private struct InlineRunConverter {
                 destination: link.destination
             )
         case let image as Markdown.Image:
+            let imagePresentation = presentation.union(.image)
             return [
                 run(
-                    kind: .image,
+                    kind: destination == nil ? .image : .link,
                     text: plainText(in: image.children),
                     markup: image,
-                    destination: image.source,
-                    presentation: presentation.union(.image)
+                    destination: destination ?? image.source,
+                    imageSource: image.source,
+                    presentation: imagePresentation
                 )
             ]
         case let html as InlineHTML:
@@ -919,12 +945,384 @@ private struct InlineRunConverter {
                     text: html.rawHTML,
                     markup: html,
                     destination: destination,
-                    presentation: presentation
+                    presentation: presentation.union(.html)
                 )
             ]
         default:
             return runs(in: markup.children, presentation: presentation, destination: destination)
         }
+    }
+
+    private func coalescedStandaloneDisplayMathRuns(_ runs: [MarkdownInlineRun]) -> [MarkdownInlineRun] {
+        guard runs.count >= 3 else {
+            return runs
+        }
+
+        var coalesced: [MarkdownInlineRun] = []
+        coalesced.reserveCapacity(runs.count)
+
+        var index = runs.startIndex
+        while index < runs.endIndex {
+            guard let delimiter = displayMathOpeningDelimiter(for: runs[index]),
+                  runHasLineBoundaryBefore(index, in: runs),
+                  runHasLineBoundaryAfter(index, in: runs),
+                  let closingIndex = closingDisplayMathRunIndex(
+                    in: runs,
+                    after: index,
+                    delimiter: delimiter
+                  )
+            else {
+                coalesced.append(runs[index])
+                index += 1
+                continue
+            }
+
+            let math = rawDisplayMathText(opening: runs[index], closing: runs[closingIndex])
+            guard !math.isEmpty,
+                  delimiter != .bareBracket || MarkdownMathDelimiterScanner.looksLikeTex(math),
+                  let mathSourceRange = displayMathSourceRange(opening: runs[index], closing: runs[closingIndex])
+            else {
+                coalesced.append(runs[index])
+                index += 1
+                continue
+            }
+
+            var presentation = runs[index].presentation
+            presentation.formUnion(.math)
+            coalesced.append(
+                MarkdownInlineRun(
+                    kind: runs[index].destination == nil ? .math : .link,
+                    text: math,
+                    sourceRange: mathSourceRange,
+                    destination: runs[index].destination,
+                    presentation: presentation
+                )
+            )
+            index = runs.index(after: closingIndex)
+        }
+
+        return coalesced
+    }
+
+    private func rawDisplayMathText(
+        opening: MarkdownInlineRun,
+        closing: MarkdownInlineRun
+    ) -> String {
+        guard let openingRange = opening.sourceRange?.byteRange,
+              let closingRange = closing.sourceRange?.byteRange,
+              openingRange.upperBound <= closingRange.lowerBound
+        else {
+            return ""
+        }
+
+        let raw = sourceText(for: openingRange.upperBound..<closingRange.lowerBound)
+        return normalizedDisplayMathSource(raw)
+    }
+
+    private func normalizedDisplayMathSource(_ raw: String) -> String {
+        let lines = raw
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .map { stripDisplayMathContainerPrefixes(from: String($0)) }
+        let commonIndent = lines
+            .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            .map(leadingHorizontalWhitespaceCount)
+            .min() ?? 0
+        return lines
+            .map { removingLeadingHorizontalWhitespace(from: $0, count: commonIndent) }
+            .joined(separator: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func stripDisplayMathContainerPrefixes(from line: String) -> String {
+        var current = line
+        while let stripped = stripLeadingBlockQuoteMarker(from: current) {
+            current = stripped
+        }
+        return current
+    }
+
+    private func stripLeadingBlockQuoteMarker(from line: String) -> String? {
+        var cursor = line.startIndex
+        var leadingSpaces = 0
+        while cursor < line.endIndex, line[cursor] == " ", leadingSpaces < 3 {
+            leadingSpaces += 1
+            cursor = line.index(after: cursor)
+        }
+
+        guard cursor < line.endIndex, line[cursor] == ">" else {
+            return nil
+        }
+
+        cursor = line.index(after: cursor)
+        if cursor < line.endIndex, line[cursor] == " " || line[cursor] == "\t" {
+            cursor = line.index(after: cursor)
+        }
+        return String(line[cursor...])
+    }
+
+    private func leadingHorizontalWhitespaceCount(in line: String) -> Int {
+        var count = 0
+        var cursor = line.startIndex
+        while cursor < line.endIndex, line[cursor] == " " || line[cursor] == "\t" {
+            count += 1
+            cursor = line.index(after: cursor)
+        }
+        return count
+    }
+
+    private func removingLeadingHorizontalWhitespace(from line: String, count: Int) -> String {
+        guard count > 0 else {
+            return line
+        }
+
+        var remaining = count
+        var cursor = line.startIndex
+        while remaining > 0,
+              cursor < line.endIndex,
+              line[cursor] == " " || line[cursor] == "\t" {
+            remaining -= 1
+            cursor = line.index(after: cursor)
+        }
+        return String(line[cursor...])
+    }
+
+    private func closingDisplayMathRunIndex(
+        in runs: [MarkdownInlineRun],
+        after openingIndex: Int,
+        delimiter: DisplayMathRunDelimiter
+    ) -> Int? {
+        var index = runs.index(after: openingIndex)
+        while index < runs.endIndex {
+            if displayMathClosingDelimiter(for: runs[index]) == delimiter,
+               runHasLineBoundaryBefore(index, in: runs),
+               runHasLineBoundaryAfter(index, in: runs) {
+                return index
+            }
+            index += 1
+        }
+        return nil
+    }
+
+    private func displayMathOpeningDelimiter(for run: MarkdownInlineRun) -> DisplayMathRunDelimiter? {
+        guard run.kind == .text || run.kind == .link,
+              let sourceRange = run.sourceRange,
+              displayMathDelimiterIsStandaloneSourceRun(sourceRange.byteRange)
+        else {
+            return nil
+        }
+
+        switch sourceText(for: sourceRange.byteRange).trimmingCharacters(in: .whitespacesAndNewlines) {
+        case "\\[":
+            return .bracket
+        case "$$":
+            return .dollar
+        case "[":
+            return .bareBracket
+        default:
+            return nil
+        }
+    }
+
+    private func displayMathClosingDelimiter(for run: MarkdownInlineRun) -> DisplayMathRunDelimiter? {
+        guard run.kind == .text || run.kind == .link,
+              let sourceRange = run.sourceRange,
+              displayMathDelimiterIsStandaloneSourceRun(sourceRange.byteRange)
+        else {
+            return nil
+        }
+
+        switch sourceText(for: sourceRange.byteRange).trimmingCharacters(in: .whitespacesAndNewlines) {
+        case "\\]":
+            return .bracket
+        case "$$":
+            return .dollar
+        case "]":
+            return .bareBracket
+        default:
+            return nil
+        }
+    }
+
+    private func displayMathDelimiterIsStandaloneSourceRun(_ byteRange: Range<Int>) -> Bool {
+        guard let context = sourceLineContext(for: byteRange) else {
+            return false
+        }
+
+        let prefix = String(context.line[..<context.token.lowerBound])
+        let suffix = context.line[context.token.upperBound...]
+        return sourcePrefixAllowsStandaloneDisplayMathDelimiter(prefix) &&
+            suffix.allSatisfy(\.isWhitespace)
+    }
+
+    private func sourceLineContext(
+        for byteRange: Range<Int>
+    ) -> (line: String, token: Range<String.Index>)? {
+        let localLower = byteRange.lowerBound - baseOffset
+        let localUpper = byteRange.upperBound - baseOffset
+        guard localLower >= 0,
+              localLower <= localUpper,
+              localUpper <= source.utf8.count,
+              let lower = source.utf8.index(
+                source.utf8.startIndex,
+                offsetBy: localLower,
+                limitedBy: source.utf8.endIndex
+              ),
+              let upper = source.utf8.index(
+                source.utf8.startIndex,
+                offsetBy: localUpper,
+                limitedBy: source.utf8.endIndex
+              )
+        else {
+            return nil
+        }
+
+        var lineStart = lower
+        while lineStart > source.utf8.startIndex {
+            let previous = source.utf8.index(before: lineStart)
+            guard source.utf8[previous] != 10 else {
+                break
+            }
+            lineStart = previous
+        }
+
+        var lineEnd = upper
+        while lineEnd < source.utf8.endIndex, source.utf8[lineEnd] != 10 {
+            lineEnd = source.utf8.index(after: lineEnd)
+        }
+
+        let lineStartOffset = source.utf8.distance(from: source.utf8.startIndex, to: lineStart)
+        let tokenLowerOffset = localLower - lineStartOffset
+        let tokenUpperOffset = localUpper - lineStartOffset
+        let line = String(decoding: source.utf8[lineStart..<lineEnd], as: UTF8.self)
+        guard let tokenLowerUTF8 = line.utf8.index(
+                line.utf8.startIndex,
+                offsetBy: tokenLowerOffset,
+                limitedBy: line.utf8.endIndex
+              ),
+              let tokenUpperUTF8 = line.utf8.index(
+                line.utf8.startIndex,
+                offsetBy: tokenUpperOffset,
+                limitedBy: line.utf8.endIndex
+              ),
+              let tokenLower = String.Index(tokenLowerUTF8, within: line),
+              let tokenUpper = String.Index(tokenUpperUTF8, within: line)
+        else {
+            return nil
+        }
+
+        return (line, tokenLower..<tokenUpper)
+    }
+
+    private func sourcePrefixAllowsStandaloneDisplayMathDelimiter(_ prefix: String) -> Bool {
+        var current = prefix
+        while true {
+            if current.allSatisfy(\.isWhitespace) {
+                return true
+            }
+
+            if let stripped = stripLeadingBlockQuoteMarker(from: current) {
+                current = stripped
+                continue
+            }
+
+            if let stripped = stripLeadingListItemMarker(from: current) {
+                current = stripped
+                continue
+            }
+
+            return false
+        }
+    }
+
+    private func stripLeadingListItemMarker(from line: String) -> String? {
+        var cursor = line.startIndex
+        var leadingSpaces = 0
+        while cursor < line.endIndex, line[cursor] == " ", leadingSpaces < 3 {
+            leadingSpaces += 1
+            cursor = line.index(after: cursor)
+        }
+
+        guard cursor < line.endIndex else {
+            return nil
+        }
+
+        if line[cursor] == "-" || line[cursor] == "+" || line[cursor] == "*" {
+            let afterMarker = line.index(after: cursor)
+            guard afterMarker == line.endIndex ||
+                    line[afterMarker] == " " ||
+                    line[afterMarker] == "\t"
+            else {
+                return nil
+            }
+            return afterMarker < line.endIndex
+                ? String(line[afterMarker...])
+                : ""
+        }
+
+        guard line[cursor].isNumber else {
+            return nil
+        }
+
+        var digitCursor = cursor
+        var digitCount = 0
+        while digitCursor < line.endIndex, line[digitCursor].isNumber, digitCount < 9 {
+            digitCount += 1
+            digitCursor = line.index(after: digitCursor)
+        }
+
+        guard digitCount > 0,
+              digitCursor < line.endIndex,
+              line[digitCursor] == "." || line[digitCursor] == ")"
+        else {
+            return nil
+        }
+
+        let afterMarker = line.index(after: digitCursor)
+        guard afterMarker == line.endIndex ||
+                line[afterMarker] == " " ||
+                line[afterMarker] == "\t"
+        else {
+            return nil
+        }
+        return afterMarker < line.endIndex
+            ? String(line[afterMarker...])
+            : ""
+    }
+
+    private func runHasLineBoundaryBefore(_ index: Int, in runs: [MarkdownInlineRun]) -> Bool {
+        guard index > runs.startIndex else {
+            return true
+        }
+        return isLineBreakRun(runs[runs.index(before: index)])
+    }
+
+    private func runHasLineBoundaryAfter(_ index: Int, in runs: [MarkdownInlineRun]) -> Bool {
+        let next = runs.index(after: index)
+        guard next < runs.endIndex else {
+            return true
+        }
+        return isLineBreakRun(runs[next])
+    }
+
+    private func isLineBreakRun(_ run: MarkdownInlineRun) -> Bool {
+        run.kind == .softBreak || run.kind == .hardBreak
+    }
+
+    private func displayMathSourceRange(
+        opening: MarkdownInlineRun,
+        closing: MarkdownInlineRun
+    ) -> MarkdownSourceRange? {
+        guard let openingRange = opening.sourceRange?.byteRange,
+              let closingRange = closing.sourceRange?.byteRange
+        else {
+            return nil
+        }
+
+        let byteRange = openingRange.lowerBound..<closingRange.upperBound
+        return MarkdownSourceRange(
+            byteRange: byteRange,
+            lineRange: lineMap.lineRange(for: byteRange)
+        )
     }
 
     private func textRuns(
@@ -941,7 +1339,7 @@ private struct InlineRunConverter {
         }
 
         let rawText = sourceText(for: sourceRange.byteRange)
-        if rawText != text.string, rawText.contains("$") || rawText.contains("\\(") {
+        if rawText != text.string, containsMathDelimiterCandidate(rawText) {
             return applyInlineContext(
                 splitInlineMathInSource(rawText, baseRange: sourceRange),
                 presentation: presentation,
@@ -963,6 +1361,8 @@ private struct InlineRunConverter {
         var runs: [MarkdownInlineRun] = []
         var cursor = rawText.startIndex
         var plainStart = cursor
+        let displaySpans = MarkdownMathDelimiterScanner.standaloneDisplayMathSpans(in: rawText)
+        var displaySpanIndex = displaySpans.startIndex
 
         func appendPlain(upTo end: String.Index) {
             guard plainStart < end else {
@@ -987,6 +1387,32 @@ private struct InlineRunConverter {
         }
 
         while cursor < rawText.endIndex {
+            while displaySpanIndex < displaySpans.endIndex,
+                  displaySpans[displaySpanIndex].full.lowerBound < cursor {
+                displaySpanIndex += 1
+            }
+
+            if displaySpanIndex < displaySpans.endIndex,
+               displaySpans[displaySpanIndex].full.lowerBound == cursor {
+                let span = displaySpans[displaySpanIndex]
+                appendPlain(upTo: cursor)
+                runs.append(
+                    MarkdownInlineRun(
+                        kind: .math,
+                        text: String(rawText[span.content]).trimmingCharacters(in: .whitespacesAndNewlines),
+                        sourceRange: sourceRange(
+                            in: rawText,
+                            localRange: span.full,
+                            baseRange: baseRange
+                        )
+                    )
+                )
+                cursor = span.full.upperBound
+                plainStart = cursor
+                displaySpanIndex += 1
+                continue
+            }
+
             if rawText[cursor] == "$",
                isPotentialOpeningDollar(in: rawText, at: cursor),
                let close = closingDollar(in: rawText, after: cursor) {
@@ -1046,7 +1472,7 @@ private struct InlineRunConverter {
         in text: String,
         baseRange: MarkdownSourceRange
     ) -> [MarkdownInlineRun] {
-        guard text.contains("$") else {
+        guard containsMathDelimiterCandidate(text) else {
             return [
                 MarkdownInlineRun(
                     kind: .text,
@@ -1059,6 +1485,8 @@ private struct InlineRunConverter {
         var runs: [MarkdownInlineRun] = []
         var cursor = text.startIndex
         var plainStart = cursor
+        let displaySpans = MarkdownMathDelimiterScanner.standaloneDisplayMathSpans(in: text)
+        var displaySpanIndex = displaySpans.startIndex
 
         func appendPlain(upTo end: String.Index) {
             guard plainStart < end else {
@@ -1079,6 +1507,32 @@ private struct InlineRunConverter {
         }
 
         while cursor < text.endIndex {
+            while displaySpanIndex < displaySpans.endIndex,
+                  displaySpans[displaySpanIndex].full.lowerBound < cursor {
+                displaySpanIndex += 1
+            }
+
+            if displaySpanIndex < displaySpans.endIndex,
+               displaySpans[displaySpanIndex].full.lowerBound == cursor {
+                let span = displaySpans[displaySpanIndex]
+                appendPlain(upTo: cursor)
+                runs.append(
+                    MarkdownInlineRun(
+                        kind: .math,
+                        text: String(text[span.content]).trimmingCharacters(in: .whitespacesAndNewlines),
+                        sourceRange: sourceRange(
+                            in: text,
+                            localRange: span.full,
+                            baseRange: baseRange
+                        )
+                    )
+                )
+                cursor = span.full.upperBound
+                plainStart = cursor
+                displaySpanIndex += 1
+                continue
+            }
+
             guard text[cursor] == "$",
                   isPotentialOpeningDollar(in: text, at: cursor),
                   let close = closingDollar(in: text, after: cursor)
@@ -1112,8 +1566,16 @@ private struct InlineRunConverter {
         ] : runs
     }
 
+    private func containsMathDelimiterCandidate(_ text: String) -> Bool {
+        text.contains("$") ||
+            text.contains("\\(") ||
+            text.contains("\\[") ||
+            text.hasPrefix("[") ||
+            text.contains("\n[")
+    }
+
     private func isPotentialOpeningDollar(in text: String, at index: String.Index) -> Bool {
-        if index > text.startIndex, text[text.index(before: index)] == "\\" {
+        if isEscapedDelimiter(in: text, at: index) {
             return false
         }
 
@@ -1133,7 +1595,7 @@ private struct InlineRunConverter {
         in text: String,
         at cursor: String.Index
     ) -> (content: Range<String.Index>, full: Range<String.Index>)? {
-        guard text[cursor] == "\\" else {
+        guard text[cursor] == "\\", !isEscapedDelimiter(in: text, at: cursor) else {
             return nil
         }
 
@@ -1145,7 +1607,7 @@ private struct InlineRunConverter {
         let contentStart = text.index(after: openParen)
         var scan = contentStart
         while scan < text.endIndex {
-            if text[scan] == "\\" {
+            if text[scan] == "\\", !isEscapedDelimiter(in: text, at: scan) {
                 let next = text.index(after: scan)
                 if next < text.endIndex, text[next] == ")" {
                     let content = contentStart..<scan
@@ -1170,7 +1632,7 @@ private struct InlineRunConverter {
                 continue
             }
 
-            if cursor > text.startIndex, text[text.index(before: cursor)] == "\\" {
+            if isEscapedDelimiter(in: text, at: cursor) {
                 continue
             }
 
@@ -1188,6 +1650,26 @@ private struct InlineRunConverter {
         }
 
         return nil
+    }
+
+    private func isEscapedDelimiter(in text: String, at index: String.Index) -> Bool {
+        guard index > text.startIndex else {
+            return false
+        }
+
+        var cursor = text.index(before: index)
+        var backslashCount = 0
+        while true {
+            guard text[cursor] == "\\" else {
+                break
+            }
+            backslashCount += 1
+            guard cursor > text.startIndex else {
+                break
+            }
+            cursor = text.index(before: cursor)
+        }
+        return backslashCount % 2 == 1
     }
 
     private func markdownUnescapedText(_ rawText: String) -> String {
@@ -1249,6 +1731,7 @@ private struct InlineRunConverter {
         text: String,
         markup: Markup,
         destination: String? = nil,
+        imageSource: String? = nil,
         presentation: MarkdownInlinePresentation? = nil
     ) -> MarkdownInlineRun {
         MarkdownInlineRun(
@@ -1256,6 +1739,7 @@ private struct InlineRunConverter {
             text: text,
             sourceRange: sourceRange(for: markup) ?? fallbackRange,
             destination: destination,
+            imageSource: imageSource,
             presentation: presentation
         )
     }

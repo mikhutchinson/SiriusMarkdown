@@ -796,7 +796,14 @@ public struct MarkdownRendererConfiguration: Sendable {
         }
 
         let metrics = inlineMetrics(for: block)
-        let cacheKey = inlineCacheNamespace(for: runs, metrics: metrics).map { namespace in
+        let imageDecisions = preparedImageDecisions(for: runs)
+        let mathDecisions = preparedMathDecisions(for: runs)
+        let cacheKey = inlineCacheNamespace(
+            for: runs,
+            metrics: metrics,
+            imageDecisions: imageDecisions,
+            mathDecisions: mathDecisions
+        ).map { namespace in
             MarkdownCacheKey(
                 sourceRange: sourceRange,
                 contentHash: Self.inlineHash(runs),
@@ -812,8 +819,13 @@ public struct MarkdownRendererConfiguration: Sendable {
         if cacheKey != nil {
             diagnosticsRecorder.recordCacheMiss()
         }
-        let images = preparedImages(for: runs)
-        let inlinePayload = preparedInlinePayload(for: runs, images: images, fontSize: metrics.fontSize)
+        let images = preparedImages(from: imageDecisions)
+        let inlinePayload = preparedInlinePayload(
+            for: runs,
+            images: images,
+            mathDecisions: mathDecisions,
+            fontSize: metrics.fontSize
+        )
         let prepared = PreparedInlineContent(runs: inlinePayload.runs, sourceRange: sourceRange)
         diagnosticsRecorder.recordPrepare()
         let measurer = CoreTextInlineMeasurer(profiles: metrics.fontProfiles)
@@ -844,7 +856,9 @@ public struct MarkdownRendererConfiguration: Sendable {
 
     private func inlineCacheNamespace(
         for runs: [MarkdownInlineRun],
-        metrics: (fontSize: Double, lineHeight: Double, fontProfiles: MarkdownInlineFontProfiles)
+        metrics: (fontSize: Double, lineHeight: Double, fontProfiles: MarkdownInlineFontProfiles),
+        imageDecisions: [MarkdownPreparedImageDecision],
+        mathDecisions: [MarkdownPreparedMathDecision]
     ) -> String? {
         var components = [
             "inline-prepared:v2",
@@ -853,39 +867,85 @@ public struct MarkdownRendererConfiguration: Sendable {
             "fontProfiles=\(metrics.fontProfiles.cacheKey)"
         ]
 
-        if runs.contains(where: { $0.kind == .link || $0.destination != nil }) {
+        if runs.contains(where: { $0.isLinkPresentation }) {
             guard let linkPolicyIdentity else {
                 return nil
             }
             components.append("linkPolicy=\(linkPolicyIdentity)")
         }
 
-        if runs.contains(where: { $0.kind == .image }) {
-            guard let imagePolicyIdentity,
-                  let imageResolverIdentity
-            else {
+        if !imageDecisions.isEmpty {
+            guard let imagePolicyIdentity else {
                 return nil
             }
             components.append("imagePolicy=\(imagePolicyIdentity)")
-            components.append("imageResolver=\(imageResolverIdentity)")
+            if imageDecisions.contains(where: { decision in
+                if case .allow = decision.policyDecision {
+                    return true
+                }
+                return false
+            }) {
+                guard let imageResolverIdentity else {
+                    return nil
+                }
+                components.append("imageResolver=\(imageResolverIdentity)")
+            }
         }
 
-        if runs.contains(where: { $0.kind == .math || $0.presentation.contains(.math) }) {
-            guard let mathPolicyIdentity,
-                  let mathRendererIdentity
-            else {
+        if runs.contains(where: { $0.isMathPresentation }) {
+            guard let mathPolicyIdentity else {
                 return nil
             }
             components.append("mathPolicy=\(mathPolicyIdentity)")
-            components.append("mathRenderer=\(mathRendererIdentity)")
+            if mathDecisions.contains(where: { decision in
+                if case .allow = decision.policyDecision {
+                    return true
+                }
+                return false
+            }) {
+                guard let mathRendererIdentity else {
+                    return nil
+                }
+                components.append("mathRenderer=\(mathRendererIdentity)")
+            }
         }
 
         return components.joined(separator: ":")
     }
 
+    private func preparedImageDecisions(for runs: [MarkdownInlineRun]) -> [MarkdownPreparedImageDecision] {
+        runs.compactMap { run in
+            guard run.isImagePresentation,
+                  let source = run.resolvedImageSource
+            else {
+                return nil
+            }
+
+            return MarkdownPreparedImageDecision(
+                run: run,
+                source: source,
+                policyDecision: imagePolicy.evaluateImage(source: source, altText: run.text)
+            )
+        }
+    }
+
+    private func preparedMathDecisions(for runs: [MarkdownInlineRun]) -> [MarkdownPreparedMathDecision] {
+        runs.compactMap { run in
+            guard run.isMathPresentation else {
+                return nil
+            }
+
+            return MarkdownPreparedMathDecision(
+                run: run,
+                policyDecision: mathPolicy.evaluateMath(run.text, isBlock: false)
+            )
+        }
+    }
+
     private func preparedInlinePayload(
         for runs: [MarkdownInlineRun],
         images: [MarkdownPreparedImage],
+        mathDecisions: [MarkdownPreparedMathDecision],
         fontSize: Double
     ) -> (runs: [MarkdownInlineRun], attributed: AttributedString, mathPieces: [MarkdownInlineMathPiece]?) {
         var displayRuns: [MarkdownInlineRun] = []
@@ -893,6 +953,7 @@ public struct MarkdownRendererConfiguration: Sendable {
         var pieces: [MarkdownInlineMathPiece] = []
         var pendingText = AttributedString()
         var producedMathImage = false
+        var mathDecisionIndex = 0
 
         func flushPendingText() {
             guard !pendingText.characters.isEmpty else {
@@ -903,7 +964,7 @@ public struct MarkdownRendererConfiguration: Sendable {
         }
 
         for run in runs {
-            if run.kind == .image {
+            if run.isImagePresentation {
                 let displayRun = preparedImageDisplayRun(for: run, images: images)
                 displayRuns.append(displayRun)
                 let piece = InlineRunsView.attributedString(
@@ -916,8 +977,7 @@ public struct MarkdownRendererConfiguration: Sendable {
                 continue
             }
 
-            let rendersAsMath = run.kind == .math || run.presentation.contains(.math)
-            guard rendersAsMath else {
+            guard run.isMathPresentation else {
                 displayRuns.append(run)
                 let piece = InlineRunsView.attributedString(
                     for: [run],
@@ -929,7 +989,10 @@ public struct MarkdownRendererConfiguration: Sendable {
                 continue
             }
 
-            switch mathPolicy.evaluateMath(run.text, isBlock: false) {
+            let mathDecision = mathDecisions[mathDecisionIndex]
+            mathDecisionIndex += 1
+
+            switch mathDecision.policyDecision {
             case .allow:
                 diagnosticsRecorder.recordMathRender()
                 let preparedMath = MarkdownDiagnostics().signpost("MathRender", category: "RenderPreparation") {
@@ -942,7 +1005,7 @@ public struct MarkdownRendererConfiguration: Sendable {
                     flushPendingText()
                     pieces.append(.math(image))
                     let fallback = mathAttributedString(
-                        mathRenderer.renderedMath(run.text, isBlock: false),
+                        AttributedString(image.latex),
                         preservingLinkFrom: run
                     )
                     attributed.append(fallback)
@@ -953,6 +1016,7 @@ public struct MarkdownRendererConfiguration: Sendable {
                             text: fallbackText.isEmpty ? run.text : fallbackText,
                             sourceRange: run.sourceRange,
                             destination: run.destination,
+                            imageSource: run.imageSource,
                             presentation: run.presentation
                         )
                     )
@@ -967,6 +1031,7 @@ public struct MarkdownRendererConfiguration: Sendable {
                             text: renderedText.isEmpty ? run.text : renderedText,
                             sourceRange: run.sourceRange,
                             destination: run.destination,
+                            imageSource: run.imageSource,
                             presentation: run.presentation
                         )
                     )
@@ -993,8 +1058,7 @@ public struct MarkdownRendererConfiguration: Sendable {
     ) -> AttributedString {
         guard run.kind == .link,
               let destination = run.destination,
-              case .allow = linkPolicy.evaluateLink(destination: destination),
-              let url = URL(string: destination)
+              let url = markdownLinkURL(for: destination, policy: linkPolicy)
         else {
             return rendered
         }
@@ -1009,7 +1073,7 @@ public struct MarkdownRendererConfiguration: Sendable {
         images: [MarkdownPreparedImage]
     ) -> MarkdownInlineRun {
         guard let image = images.first(where: { preparedImage in
-            preparedImage.source == run.destination &&
+            preparedImage.source == run.resolvedImageSource &&
                 preparedImage.sourceRange == run.sourceRange
         }) else {
             return run
@@ -1017,6 +1081,10 @@ public struct MarkdownRendererConfiguration: Sendable {
 
         var copy = run
         copy.text = imageDisplayText(for: image)
+        copy.imageSource = nil
+        if copy.kind == .image {
+            copy.destination = nil
+        }
         return copy
     }
 
@@ -1053,21 +1121,24 @@ public struct MarkdownRendererConfiguration: Sendable {
         }
     }
 
-    private func preparedImages(for runs: [MarkdownInlineRun]) -> [MarkdownPreparedImage] {
-        runs.compactMap { run in
-            guard run.kind == .image,
-                  let source = run.destination
-            else {
-                return nil
+    private func preparedImages(from decisions: [MarkdownPreparedImageDecision]) -> [MarkdownPreparedImage] {
+        decisions.map { imageDecision in
+            switch imageDecision.policyDecision {
+            case .allow:
+                return imageResolver.preparedImage(
+                    source: imageDecision.source,
+                    altText: imageDecision.run.text.isEmpty ? nil : imageDecision.run.text,
+                    sourceRange: imageDecision.run.sourceRange,
+                    policyDecision: imageDecision.policyDecision
+                )
+            case let .deny(reason):
+                return MarkdownPreparedImage(
+                    source: imageDecision.source,
+                    altText: imageDecision.run.text.isEmpty ? nil : imageDecision.run.text,
+                    sourceRange: imageDecision.run.sourceRange,
+                    preparedSource: .placeholder(reason: reason)
+                )
             }
-
-            let decision = imagePolicy.evaluateImage(source: source, altText: run.text)
-            return imageResolver.preparedImage(
-                source: source,
-                altText: run.text.isEmpty ? nil : run.text,
-                sourceRange: run.sourceRange,
-                policyDecision: decision
-            )
         }
     }
 
@@ -1122,6 +1193,7 @@ public struct MarkdownRendererConfiguration: Sendable {
             hash = append(String(run.presentation.rawValue), to: hash)
             hash = append(run.text, to: hash)
             hash = append(run.destination ?? "", to: hash)
+            hash = append(run.imageSource ?? "", to: hash)
         }
         return hash
     }
@@ -1139,6 +1211,17 @@ public struct MarkdownRendererConfiguration: Sendable {
         }
         return hash
     }
+}
+
+private struct MarkdownPreparedImageDecision {
+    var run: MarkdownInlineRun
+    var source: String
+    var policyDecision: MarkdownPolicyDecision
+}
+
+private struct MarkdownPreparedMathDecision {
+    var run: MarkdownInlineRun
+    var policyDecision: MarkdownPolicyDecision
 }
 
 public struct MarkdownPreparedInlineContent: Sendable {
@@ -1397,6 +1480,25 @@ public final class MarkdownRenderPreparationCache: @unchecked Sendable {
             mermaidCache.removeAll()
             mathCache.removeAll()
         }
+    }
+}
+
+private extension MarkdownInlineRun {
+    var isLinkPresentation: Bool {
+        kind == .link ||
+            ((kind == .softBreak || kind == .hardBreak) && destination != nil)
+    }
+
+    var isImagePresentation: Bool {
+        kind == .image || presentation.contains(.image)
+    }
+
+    var resolvedImageSource: String? {
+        imageSource ?? (kind == .image ? destination : nil)
+    }
+
+    var isMathPresentation: Bool {
+        kind == .math || presentation.contains(.math)
     }
 }
 

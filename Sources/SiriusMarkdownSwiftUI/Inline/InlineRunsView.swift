@@ -78,9 +78,11 @@ public struct InlineRunsView: View {
         if let prepared, let mathPieces = prepared.mathTextPieces, !mathPieces.isEmpty {
             InlineMathTextView(
                 pieces: mathPieces,
+                prepared: prepared,
                 font: baseFont,
                 color: theme.textColor,
-                fontSize: prepared.fontSize
+                fontSize: prepared.fontSize,
+                linkAction: linkAction
             )
         } else if let prepared {
             PreparedInlineTextView(
@@ -111,9 +113,8 @@ public struct InlineRunsView: View {
         imagePolicy: any MarkdownImagePolicy = DefaultMarkdownPolicy()
     ) -> String {
         runs.map { run in
-            switch run.kind {
-            case .image:
-                guard let source = run.destination else {
+            if run.isImagePresentation {
+                guard let source = run.resolvedImageSource else {
                     return run.text.isEmpty ? "[image]" : run.text
                 }
                 switch imagePolicy.evaluateImage(source: source, altText: run.text) {
@@ -122,9 +123,8 @@ public struct InlineRunsView: View {
                 case .deny:
                     return run.text.isEmpty ? "[image]" : run.text
                 }
-            default:
-                return run.text
             }
+            return run.text
         }.joined()
     }
 
@@ -141,10 +141,9 @@ public struct InlineRunsView: View {
                 piece.inlinePresentationIntent = intent
             }
 
-            if run.kind == .link {
+            if run.isLinkPresentation {
                 if let destination = run.destination,
-                   case .allow = linkPolicy.evaluateLink(destination: destination),
-                   let url = URL(string: destination) {
+                   let url = markdownLinkURL(for: destination, policy: linkPolicy) {
                     piece.link = url
                 }
             }
@@ -277,11 +276,11 @@ public struct InlineRunsView: View {
         for run: MarkdownInlineRun,
         imagePolicy: any MarkdownImagePolicy
     ) -> String {
-        guard run.kind == .image else {
+        guard run.isImagePresentation else {
             return run.text
         }
 
-        guard let source = run.destination else {
+        guard let source = run.resolvedImageSource else {
             return run.text.isEmpty ? "[image]" : run.text
         }
 
@@ -457,6 +456,39 @@ public struct InlineRunsView: View {
     }
 }
 
+nonisolated func markdownLinkURL(for destination: String, policy: any MarkdownLinkPolicy) -> URL? {
+    guard case .allow = policy.evaluateLink(destination: destination) else {
+        return nil
+    }
+
+    let urlDestination: String
+    if let normalizer = policy as? any MarkdownLinkDestinationNormalizing {
+        guard let normalized = normalizer.normalizedLinkDestination(for: destination) else {
+            return nil
+        }
+        urlDestination = normalized
+    } else {
+        urlDestination = destination
+    }
+
+    return URL(string: urlDestination)
+}
+
+private extension MarkdownInlineRun {
+    var isLinkPresentation: Bool {
+        kind == .link ||
+            ((kind == .softBreak || kind == .hardBreak) && destination != nil)
+    }
+
+    var isImagePresentation: Bool {
+        kind == .image || presentation.contains(.image)
+    }
+
+    var resolvedImageSource: String? {
+        imageSource ?? (kind == .image ? destination : nil)
+    }
+}
+
 private struct PreparedInlineLayoutIdentity: Hashable {
     var sourceRange: MarkdownSourceRange?
     var naturalText: String
@@ -492,7 +524,7 @@ private struct PreparedInlineTextView: View {
     @ViewBuilder
     var body: some View {
         renderSurface
-            .environment(\.openURL, openURLAction)
+            .environment(\.openURL, markdownOpenURLAction(linkAction: linkAction))
             .accessibilityValue(layoutResult.lines.isEmpty ? "" : "\(layoutResult.lines.count) prepared lines")
             .onAppear {
                 refreshLayoutIfPossible()
@@ -669,18 +701,6 @@ private struct PreparedInlineTextView: View {
         }
     }
 
-    private var openURLAction: OpenURLAction {
-        OpenURLAction { url in
-            if let linkAction {
-                linkAction.open(url.absoluteString)
-            } else {
-                Task { @MainActor in
-                    MarkdownURLOpener.open(url.absoluteString)
-                }
-            }
-            return .handled
-        }
-    }
 }
 
 private struct PreparedInlineWidthPreferenceKey: PreferenceKey {

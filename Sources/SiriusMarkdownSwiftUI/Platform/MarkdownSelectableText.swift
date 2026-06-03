@@ -40,20 +40,7 @@ struct MarkdownSelectableText: View {
             .foregroundStyle(textColor)
             .lineSpacing(lineSpacing)
             .markdownNativeTextSelection(nativeTextSelection)
-            .environment(\.openURL, openURLAction)
-    }
-
-    private var openURLAction: OpenURLAction {
-        OpenURLAction { url in
-            if let linkAction {
-                linkAction.open(url.absoluteString)
-            } else {
-                Task { @MainActor in
-                    MarkdownURLOpener.open(url.absoluteString)
-                }
-            }
-            return .handled
-        }
+            .environment(\.openURL, markdownOpenURLAction(linkAction: linkAction))
     }
 }
 

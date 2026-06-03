@@ -260,7 +260,7 @@ public struct DefaultMarkdownCodeHighlighter: MarkdownCodeHighlighter, MarkdownC
     public init() {}
 
     public var codeHighlighterCacheIdentity: String {
-        "siriusmarkdown.default.highlightjs.11.11.1"
+        "siriusmarkdown.default.highlightjs.11.11.1.native-swift.1"
     }
 
     public func highlightedCode(_ code: String, infoString: String?) -> AttributedString {
@@ -277,6 +277,10 @@ public struct DefaultMarkdownCodeHighlighter: MarkdownCodeHighlighter, MarkdownC
             return Self.plainCode(code)
         }
 
+        if backendName == "swift" {
+            return NativeSwiftCodeHighlighter(palette: palette).highlightedCode(code)
+        }
+
         return HighlightJavaScriptRuntime.shared.highlight(
             code: code,
             language: backendName,
@@ -289,6 +293,319 @@ public struct DefaultMarkdownCodeHighlighter: MarkdownCodeHighlighter, MarkdownC
         highlighted.inlinePresentationIntent = .code
         return highlighted
     }
+}
+
+private struct NativeSwiftCodeHighlighter {
+    var palette: MarkdownSyntaxHighlightingPalette
+
+    func highlightedCode(_ code: String) -> AttributedString {
+        var result = AttributedString()
+        var index = code.startIndex
+
+        while index < code.endIndex {
+            let start = index
+            if code[index...].hasPrefix("//") {
+                index = scanLineComment(in: code, from: index)
+                append(code[start..<index], color: palette.comment.swiftUIColor, to: &result)
+                continue
+            }
+
+            if code[index...].hasPrefix("/*") {
+                index = scanBlockComment(in: code, from: index)
+                append(code[start..<index], color: palette.comment.swiftUIColor, to: &result)
+                continue
+            }
+
+            if let stringEnd = scanStringLiteral(in: code, from: index) {
+                index = stringEnd
+                append(code[start..<index], color: palette.string.swiftUIColor, to: &result)
+                continue
+            }
+
+            let character = code[index]
+            if character.isNumber {
+                index = scanNumber(in: code, from: index)
+                append(code[start..<index], color: palette.number.swiftUIColor, to: &result)
+                continue
+            }
+
+            if isIdentifierStart(character) {
+                index = scanIdentifier(in: code, from: index)
+                let token = String(code[start..<index])
+                append(code[start..<index], color: color(forIdentifier: token), to: &result)
+                continue
+            }
+
+            index = code.index(after: index)
+            if isOperator(character) {
+                append(code[start..<index], color: palette.operatorToken.swiftUIColor, to: &result)
+            } else if isPunctuation(character) {
+                append(code[start..<index], color: palette.punctuation.swiftUIColor, to: &result)
+            } else {
+                append(code[start..<index], color: nil, to: &result)
+            }
+        }
+
+        return result
+    }
+
+    private func append(
+        _ text: Substring,
+        color: Color?,
+        to result: inout AttributedString
+    ) {
+        guard !text.isEmpty else {
+            return
+        }
+
+        var piece = AttributedString(String(text))
+        piece.inlinePresentationIntent = .code
+        if let color {
+            piece.foregroundColor = color
+        }
+        result.append(piece)
+    }
+
+    private func scanLineComment(in code: String, from start: String.Index) -> String.Index {
+        var index = code.index(start, offsetBy: 2)
+        while index < code.endIndex, code[index] != "\n" {
+            index = code.index(after: index)
+        }
+        return index
+    }
+
+    private func scanBlockComment(in code: String, from start: String.Index) -> String.Index {
+        var index = code.index(start, offsetBy: 2)
+        var depth = 1
+
+        while index < code.endIndex {
+            if code[index...].hasPrefix("/*") {
+                depth += 1
+                index = code.index(index, offsetBy: 2)
+                continue
+            }
+            if code[index...].hasPrefix("*/") {
+                depth -= 1
+                index = code.index(index, offsetBy: 2)
+                if depth == 0 {
+                    return index
+                }
+                continue
+            }
+            index = code.index(after: index)
+        }
+
+        return index
+    }
+
+    private func scanStringLiteral(in code: String, from start: String.Index) -> String.Index? {
+        let hashCount = rawStringHashCount(in: code, from: start)
+        var quoteStart = code.index(start, offsetBy: hashCount)
+        guard quoteStart < code.endIndex, code[quoteStart] == "\"" else {
+            return nil
+        }
+
+        let isMultiline = code[quoteStart...].hasPrefix("\"\"\"")
+        if isMultiline {
+            quoteStart = code.index(quoteStart, offsetBy: 3)
+        } else {
+            quoteStart = code.index(after: quoteStart)
+        }
+
+        var index = quoteStart
+        while index < code.endIndex {
+            if let interpolationEnd = scanInterpolation(in: code, from: index, hashCount: hashCount) {
+                index = interpolationEnd
+                continue
+            }
+
+            if isMultiline {
+                if code[index...].hasPrefix("\"\"\""),
+                   hasClosingRawHashes(in: code, afterQuoteEndingAt: code.index(index, offsetBy: 3), hashCount: hashCount)
+                {
+                    return code.index(index, offsetBy: 3 + hashCount)
+                }
+                index = code.index(after: index)
+                continue
+            }
+
+            if hashCount == 0, code[index] == "\\" {
+                index = code.index(after: index)
+                if index < code.endIndex {
+                    index = code.index(after: index)
+                }
+                continue
+            }
+
+            if code[index] == "\"",
+               hasClosingRawHashes(in: code, afterQuoteEndingAt: code.index(after: index), hashCount: hashCount)
+            {
+                return code.index(index, offsetBy: 1 + hashCount)
+            }
+
+            index = code.index(after: index)
+        }
+
+        return code.endIndex
+    }
+
+    private func scanInterpolation(
+        in code: String,
+        from start: String.Index,
+        hashCount: Int
+    ) -> String.Index? {
+        guard code[start] == "\\" else {
+            return nil
+        }
+
+        var index = code.index(after: start)
+        for _ in 0..<hashCount {
+            guard index < code.endIndex, code[index] == "#" else {
+                return nil
+            }
+            index = code.index(after: index)
+        }
+
+        guard index < code.endIndex, code[index] == "(" else {
+            return nil
+        }
+
+        index = code.index(after: index)
+        var depth = 1
+        while index < code.endIndex {
+            if let stringEnd = scanStringLiteral(in: code, from: index) {
+                index = stringEnd
+                continue
+            }
+
+            if code[index...].hasPrefix("//") {
+                index = scanLineComment(in: code, from: index)
+                continue
+            }
+
+            if code[index...].hasPrefix("/*") {
+                index = scanBlockComment(in: code, from: index)
+                continue
+            }
+
+            if code[index] == "(" {
+                depth += 1
+            } else if code[index] == ")" {
+                depth -= 1
+                index = code.index(after: index)
+                if depth == 0 {
+                    return index
+                }
+                continue
+            }
+
+            index = code.index(after: index)
+        }
+
+        return code.endIndex
+    }
+
+    private func rawStringHashCount(in code: String, from start: String.Index) -> Int {
+        var index = start
+        var count = 0
+        while index < code.endIndex, code[index] == "#" {
+            count += 1
+            index = code.index(after: index)
+        }
+        return count
+    }
+
+    private func hasClosingRawHashes(
+        in code: String,
+        afterQuoteEndingAt index: String.Index,
+        hashCount: Int
+    ) -> Bool {
+        var cursor = index
+        for _ in 0..<hashCount {
+            guard cursor < code.endIndex, code[cursor] == "#" else {
+                return false
+            }
+            cursor = code.index(after: cursor)
+        }
+        return true
+    }
+
+    private func scanNumber(in code: String, from start: String.Index) -> String.Index {
+        var index = start
+        while index < code.endIndex {
+            let character = code[index]
+            guard character.isNumber
+                || character.isLetter
+                || character == "."
+                || character == "_"
+            else {
+                return index
+            }
+            index = code.index(after: index)
+        }
+        return index
+    }
+
+    private func scanIdentifier(in code: String, from start: String.Index) -> String.Index {
+        var index = code.index(after: start)
+        while index < code.endIndex, isIdentifierContinue(code[index]) {
+            index = code.index(after: index)
+        }
+        return index
+    }
+
+    private func color(forIdentifier token: String) -> Color? {
+        if Self.keywords.contains(token) {
+            return palette.keyword.swiftUIColor
+        }
+        if Self.literals.contains(token) {
+            return palette.literal.swiftUIColor
+        }
+        if Self.builtinTypes.contains(token) || token.first?.isUppercase == true {
+            return palette.type.swiftUIColor
+        }
+        return nil
+    }
+
+    private func isIdentifierStart(_ character: Character) -> Bool {
+        character == "_" || character.isLetter
+    }
+
+    private func isIdentifierContinue(_ character: Character) -> Bool {
+        isIdentifierStart(character) || character.isNumber
+    }
+
+    private func isOperator(_ character: Character) -> Bool {
+        "+-*/%=!<>?:&|^~.".contains(character)
+    }
+
+    private func isPunctuation(_ character: Character) -> Bool {
+        "()[]{};,.".contains(character)
+    }
+
+    private static let keywords: Set<String> = [
+        "actor", "any", "associatedtype", "async", "await", "borrowing", "break",
+        "case", "catch", "class", "consume", "consuming", "continue", "convenience",
+        "copy", "default", "defer", "deinit", "didSet", "distributed", "do",
+        "dynamic", "each", "else", "enum", "extension", "fallthrough", "fileprivate",
+        "final", "for", "func", "get", "guard", "if", "import", "in", "indirect",
+        "infix", "init", "inout", "internal", "is", "isolated", "lazy", "let",
+        "macro", "mutating", "nonisolated", "nonmutating", "open", "operator",
+        "optional", "override", "package", "postfix", "precedencegroup", "prefix",
+        "private", "protocol", "public", "repeat", "required", "rethrows", "return",
+        "set", "some", "static", "struct", "subscript", "switch", "throw", "throws",
+        "try", "typealias", "unowned", "var", "weak", "where", "while", "willSet"
+    ]
+
+    private static let literals: Set<String> = [
+        "false", "nil", "self", "super", "true"
+    ]
+
+    private static let builtinTypes: Set<String> = [
+        "Any", "Array", "Bool", "Character", "Data", "Dictionary", "Double",
+        "Float", "Int", "Never", "Optional", "Result", "Set", "String", "UInt",
+        "URL", "UUID", "Void"
+    ]
 }
 
 private struct HighlightJavaScriptResult: Sendable {

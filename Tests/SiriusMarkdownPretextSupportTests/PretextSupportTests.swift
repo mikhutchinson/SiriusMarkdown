@@ -40,7 +40,10 @@ func bundledPretextFixturesCompareAgainstSwiftLayout() throws {
     for fixture in fixtures {
         let runs = try parsedInlineRuns(for: fixture)
         if let expectedInlineKinds = fixture.expectedInlineKinds {
-            if runs.map(\.kind) != expectedInlineKinds {
+            let actualInlineKinds = runs.reduce(into: [MarkdownInlineKind]()) { kinds, run in
+                kinds.append(run.kind)
+            }
+            if actualInlineKinds != expectedInlineKinds {
                 Issue.record("\(fixture.name) inline kinds must come from swift-markdown")
             }
         }

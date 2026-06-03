@@ -107,14 +107,20 @@ public final class MarkdownDiagnosticsRecorder: @unchecked Sendable {
 
     public init() {}
 
+    private func withLock<T>(_ body: () throws -> T) rethrows -> T {
+        lock.lock()
+        defer { lock.unlock() }
+        return try body()
+    }
+
     public func snapshot() -> MarkdownDiagnosticsCounters {
-        lock.withLock {
+        withLock {
             counters
         }
     }
 
     public func recordParse(isSealedRegion: Bool) {
-        lock.withLock {
+        withLock {
             counters.parseCount += 1
             if isSealedRegion {
                 counters.sealedRegionParseCount += 1
@@ -125,55 +131,55 @@ public final class MarkdownDiagnosticsRecorder: @unchecked Sendable {
     }
 
     public func recordPrepare() {
-        lock.withLock {
+        withLock {
             counters.prepareCount += 1
         }
     }
 
     public func recordLayout() {
-        lock.withLock {
+        withLock {
             counters.layoutCount += 1
         }
     }
 
     public func recordRenderPreparation() {
-        lock.withLock {
+        withLock {
             counters.renderPreparationCount += 1
         }
     }
 
     public func recordCodeHighlight() {
-        lock.withLock {
+        withLock {
             counters.codeHighlightCount += 1
         }
     }
 
     public func recordMermaidRender() {
-        lock.withLock {
+        withLock {
             counters.mermaidRenderCount += 1
         }
     }
 
     public func recordMermaidFallback() {
-        lock.withLock {
+        withLock {
             counters.mermaidFallbackCount += 1
         }
     }
 
     public func recordMathRender() {
-        lock.withLock {
+        withLock {
             counters.mathRenderCount += 1
         }
     }
 
     public func recordWidthRelayout() {
-        lock.withLock {
+        withLock {
             counters.widthRelayoutCount += 1
         }
     }
 
     public func recordBoundaryScan(bytes: Int, lines: Int) {
-        lock.withLock {
+        withLock {
             counters.boundaryScanCount += 1
             counters.boundaryScannedByteCount += bytes
             counters.boundaryScannedLineCount += lines
@@ -181,85 +187,85 @@ public final class MarkdownDiagnosticsRecorder: @unchecked Sendable {
     }
 
     public func recordOverwideUnitFallback() {
-        lock.withLock {
+        withLock {
             counters.overwideUnitFallbackCount += 1
         }
     }
 
     public func recordNonFiniteInlineProposalFallback() {
-        lock.withLock {
+        withLock {
             counters.nonFiniteInlineProposalFallbackCount += 1
         }
     }
 
     public func recordNativeLineClipping() {
-        lock.withLock {
+        withLock {
             counters.nativeLineClippingCount += 1
         }
     }
 
     public func recordSelectionPreferenceBodyEvaluation() {
-        lock.withLock {
+        withLock {
             counters.selectionPreferenceBodyEvaluationCount += 1
         }
     }
 
     public func recordSelectionFrameQuery() {
-        lock.withLock {
+        withLock {
             counters.selectionFrameQueryCount += 1
         }
     }
 
     public func recordInlineLineFragmentBuild(count: Int = 1) {
-        lock.withLock {
+        withLock {
             counters.inlineLineFragmentBuildCount += count
         }
     }
 
     public func recordSelectionTextGeometryInitialization() {
-        lock.withLock {
+        withLock {
             counters.selectionTextGeometryInitializationCount += 1
         }
     }
 
     public func recordSelectionFingerprintBuild() {
-        lock.withLock {
+        withLock {
             counters.selectionFingerprintBuildCount += 1
         }
     }
 
     public func recordSelectionSourceRunMapping(count: Int = 1) {
-        lock.withLock {
+        withLock {
             counters.selectionSourceRunMappingCount += count
         }
     }
 
     public func recordSelectionPreferenceChange() {
-        lock.withLock {
+        withLock {
             counters.selectionPreferenceChangeCount += 1
         }
     }
 
     public func recordSelectionCoreTextLineBuild() {
-        lock.withLock {
+        withLock {
             counters.selectionCoreTextLineBuildCount += 1
         }
     }
 
     public func recordSelectionLineFragmentCacheHit() {
-        lock.withLock {
+        withLock {
             counters.selectionLineFragmentCacheHitCount += 1
         }
     }
 
     public func recordSelectionLineFragmentCacheMiss() {
-        lock.withLock {
+        withLock {
             counters.selectionLineFragmentCacheMissCount += 1
         }
     }
 
     public func recordCacheHit(isSealedRegion: Bool = false) {
-        lock.withLock {
+        withLock {
             counters.cacheHitCount += 1
             if isSealedRegion {
                 counters.sealedRegionCacheHitCount += 1
@@ -268,7 +274,7 @@ public final class MarkdownDiagnosticsRecorder: @unchecked Sendable {
     }
 
     public func recordCacheMiss(isSealedRegion: Bool = false) {
-        lock.withLock {
+        withLock {
             counters.cacheMissCount += 1
             if isSealedRegion {
                 counters.sealedRegionCacheMissCount += 1

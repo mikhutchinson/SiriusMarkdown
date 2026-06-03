@@ -885,6 +885,10 @@ struct SiriusMarkdownRenderProbe {
     }
 
     private static func sampleRenderedPixels(_ bitmap: NSBitmapImageRep, pixelScale: Double) -> PixelSample {
+        if let rawSample = sampleRenderedPixelsFromRGBA8(bitmap, pixelScale: pixelScale) {
+            return rawSample
+        }
+
         var nonWhitePixels = 0
         var colorBuckets = Set<Int>()
         var nonWhiteRightmostX = 0
@@ -923,6 +927,73 @@ struct SiriusMarkdownRenderProbe {
         }
 
         // Gap detection ignores isolated antialiasing specks; darkRightmostX remains a per-pixel edge check above.
+        let columnDarkThreshold = max(2, bitmap.pixelsHigh / 200)
+        let darkColumns = darkColumnCounts.map { $0 >= columnDarkThreshold }
+        let minimumGapWidth = max(5, Int(round(4.5 * pixelScale)))
+
+        return PixelSample(
+            nonWhitePixels: nonWhitePixels,
+            distinctColorBuckets: colorBuckets.count,
+            nonWhiteRightmostX: nonWhiteRightmostX,
+            darkRightmostX: darkRightmostX,
+            wideDarkColumnGaps: wideBlankRunCount(darkColumns, minimumWidth: minimumGapWidth),
+            rightBandNonWhitePixels: rightBandNonWhitePixels
+        )
+    }
+
+    private static func sampleRenderedPixelsFromRGBA8(
+        _ bitmap: NSBitmapImageRep,
+        pixelScale: Double
+    ) -> PixelSample? {
+        guard bitmap.bitsPerSample == 8,
+              bitmap.samplesPerPixel >= 3,
+              bitmap.bitsPerPixel == 32,
+              !bitmap.isPlanar,
+              bitmap.bitmapFormat.isEmpty,
+              let bitmapData = bitmap.bitmapData
+        else {
+            return nil
+        }
+
+        var nonWhitePixels = 0
+        var colorBuckets = Set<Int>()
+        var nonWhiteRightmostX = 0
+        var darkRightmostX = 0
+        var rightBandNonWhitePixels = 0
+        var darkColumnCounts = Array(repeating: 0, count: bitmap.pixelsWide)
+        let rightBandStart = Int(Double(bitmap.pixelsWide) * 0.72)
+        let nonWhiteThreshold = UInt8(244)
+        let darkThreshold = UInt8(89)
+
+        for y in 0..<bitmap.pixelsHigh {
+            let rowStart = y * bitmap.bytesPerRow
+            for x in 0..<bitmap.pixelsWide {
+                let offset = rowStart + x * 4
+                let red = bitmapData[offset]
+                let green = bitmapData[offset + 1]
+                let blue = bitmapData[offset + 2]
+
+                if red <= nonWhiteThreshold || green <= nonWhiteThreshold || blue <= nonWhiteThreshold {
+                    nonWhitePixels += 1
+                    nonWhiteRightmostX = max(nonWhiteRightmostX, x)
+                    if x >= rightBandStart {
+                        rightBandNonWhitePixels += 1
+                    }
+
+                    let bucket =
+                        (Int(red) * 15 / 255 << 8) |
+                        (Int(green) * 15 / 255 << 4) |
+                        (Int(blue) * 15 / 255)
+                    colorBuckets.insert(bucket)
+
+                    if red <= darkThreshold, green <= darkThreshold, blue <= darkThreshold {
+                        darkRightmostX = max(darkRightmostX, x)
+                        darkColumnCounts[x] += 1
+                    }
+                }
+            }
+        }
+
         let columnDarkThreshold = max(2, bitmap.pixelsHigh / 200)
         let darkColumns = darkColumnCounts.map { $0 >= columnDarkThreshold }
         let minimumGapWidth = max(5, Int(round(4.5 * pixelScale)))

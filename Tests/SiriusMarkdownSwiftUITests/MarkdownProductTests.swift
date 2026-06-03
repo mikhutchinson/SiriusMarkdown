@@ -250,6 +250,55 @@ func ProductDefaultCodeHighlighterUsesLanguageAwareFixtures() {
 }
 
 @Test
+func ProductDefaultCodeHighlighterHandlesLongSwiftStringLiteralsWithoutCrashing() {
+    let code = """
+    let veryLongIdentifierName = "abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz"
+    """
+
+    let highlighted = DefaultMarkdownCodeHighlighter().highlightedCode(
+        code,
+        infoString: "swift"
+    )
+
+    #expect(String(highlighted.characters) == code)
+    #expect(highlighted.runs.contains { $0.foregroundColor != nil })
+}
+
+@Test
+func ProductDefaultSwiftCodeHighlighterKeepsNestedInterpolationStringsColored() throws {
+    let palette = MarkdownSyntaxHighlightingPalette.default
+    let code = #"let value = "\(String("inner"))""#
+    let highlighted = DefaultMarkdownCodeHighlighter().highlightedCode(
+        code,
+        infoString: "swift",
+        palette: palette
+    )
+
+    #expect(String(highlighted.characters) == code)
+    let colors = foregroundColors(for: "inner", in: highlighted)
+    #expect(colors.isEmpty == false)
+    #expect(colors.allSatisfy { $0 == palette.string.swiftUIColor })
+}
+
+@Test
+func ProductDefaultSwiftCodeHighlighterRecognizesModernSwiftKeywords() throws {
+    let palette = MarkdownSyntaxHighlightingPalette.default
+    let code = "actor Worker { func run() throws { throw Failure() } }\n"
+    let highlighted = DefaultMarkdownCodeHighlighter().highlightedCode(
+        code,
+        infoString: "swift",
+        palette: palette
+    )
+
+    #expect(String(highlighted.characters) == code)
+    for keyword in ["actor", "throw"] {
+        let colors = foregroundColors(for: keyword, in: highlighted)
+        #expect(colors.isEmpty == false)
+        #expect(colors.allSatisfy { $0 == palette.keyword.swiftUIColor })
+    }
+}
+
+@Test
 func ProductDefaultCodeHighlighterKeepsUnknownAndPlainFencesPlain() {
     let diagnosticFence = """
     id: 019de2e4-0571-7bf3-94f0-3cd35b8fa0d3
@@ -274,6 +323,32 @@ func ProductDefaultCodeHighlighterKeepsUnknownAndPlainFencesPlain() {
     #expect(unknown.runs.contains { $0.foregroundColor != nil } == false)
     #expect(plaintext.runs.contains { $0.foregroundColor != nil } == false)
     #expect(unlabeled.runs.contains { $0.foregroundColor != nil } == false)
+}
+
+private func foregroundColors(
+    for target: String,
+    in highlighted: AttributedString
+) -> [Color?] {
+    let rendered = String(highlighted.characters)
+    guard let range = rendered.range(of: target) else {
+        return []
+    }
+
+    let targetStart = rendered.distance(from: rendered.startIndex, to: range.lowerBound)
+    let targetEnd = rendered.distance(from: rendered.startIndex, to: range.upperBound)
+    var runStart = 0
+    var colors: [Color?] = []
+
+    for run in highlighted.runs {
+        let runText = String(highlighted[run.range].characters)
+        let runEnd = runStart + runText.count
+        if runStart < targetEnd, targetStart < runEnd {
+            colors.append(run.foregroundColor)
+        }
+        runStart = runEnd
+    }
+
+    return colors
 }
 
 @Test

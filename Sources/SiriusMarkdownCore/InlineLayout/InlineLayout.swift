@@ -954,7 +954,9 @@ public struct InlineLayoutEngine<Measurer: InlineMeasuring>: Sendable {
         sourceRange: MarkdownSourceRange?,
         namespace: String
     ) -> MarkdownCacheKey {
-        let byteCount = runs.reduce(0) { $0 + $1.text.utf8.count + ($1.destination?.utf8.count ?? 0) }
+        let byteCount = runs.reduce(0) {
+            $0 + $1.text.utf8.count + ($1.destination?.utf8.count ?? 0) + ($1.imageSource?.utf8.count ?? 0)
+        }
         let range = sourceRange ?? MarkdownSourceRange(byteRange: 0..<byteCount, lineRange: 1..<2)
         return MarkdownCacheKey(
             sourceRange: range,
@@ -1024,6 +1026,9 @@ public struct InlineLayoutEngine<Measurer: InlineMeasuring>: Sendable {
             hash = append(run.text, to: hash)
             if let destination = run.destination {
                 hash = append(destination, to: hash)
+            }
+            if let imageSource = run.imageSource {
+                hash = append(imageSource, to: hash)
             }
         }
         return hash
@@ -1195,8 +1200,14 @@ private final class OverwideUnitCache: @unchecked Sendable {
         self.capacity = capacity
     }
 
+    private func withLock<T>(_ body: () throws -> T) rethrows -> T {
+        lock.lock()
+        defer { lock.unlock() }
+        return try body()
+    }
+
     func value(forKey key: MarkdownCacheKey) -> [MeasuredInlineUnit]? {
-        lock.withLock {
+        withLock {
             guard let value = storage[key] else {
                 return nil
             }
@@ -1208,7 +1219,7 @@ private final class OverwideUnitCache: @unchecked Sendable {
     }
 
     func insert(_ value: [MeasuredInlineUnit], forKey key: MarkdownCacheKey) {
-        lock.withLock {
+        withLock {
             removeKeyFromOrder(key)
             order.append(key)
             storage[key] = value

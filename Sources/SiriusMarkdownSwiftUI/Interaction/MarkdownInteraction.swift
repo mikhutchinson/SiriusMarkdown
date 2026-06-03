@@ -19,6 +19,20 @@ public struct MarkdownLinkAction: Sendable {
     }
 }
 
+@MainActor
+func markdownOpenURLAction(linkAction: MarkdownLinkAction?) -> OpenURLAction {
+    OpenURLAction { url in
+        if let linkAction {
+            linkAction.open(url.absoluteString)
+        } else {
+            Task { @MainActor in
+                MarkdownURLOpener.open(url.absoluteString)
+            }
+        }
+        return .handled
+    }
+}
+
 public struct MarkdownCopyProvider: Sendable {
     public var markdown: @Sendable (MarkdownSourceRange) -> String?
     public var documentMarkdown: (@Sendable () -> String?)?

@@ -487,7 +487,8 @@ struct MarkdownDocumentSelectionTextGeometry: Equatable, Sendable {
                     sourceRuns.append(
                         MarkdownDocumentSelectionSourceRun(
                             visibleByteRange: visibleRange,
-                            sourceRange: sourceRange
+                            sourceRange: sourceRange,
+                            isAtomic: run.isAtomicSelectionRun
                         )
                     )
                 }
@@ -748,6 +749,7 @@ struct MarkdownDocumentSelectionTextGeometry: Equatable, Sendable {
             hasher.combine(run.visibleByteRange.lowerBound)
             hasher.combine(run.visibleByteRange.upperBound)
             hasher.combine(run.sourceRange)
+            hasher.combine(run.isAtomic)
         }
         hasher.combine(fontRuns.count)
         for run in fontRuns {
@@ -762,6 +764,7 @@ struct MarkdownDocumentSelectionTextGeometry: Equatable, Sendable {
 struct MarkdownDocumentSelectionSourceRun: Equatable, Sendable {
     var visibleByteRange: Range<Int>
     var sourceRange: MarkdownSourceRange
+    var isAtomic: Bool = false
 
     var mapsOneToOne: Bool {
         visibleByteRange.count == sourceRange.byteRange.count
@@ -771,6 +774,10 @@ struct MarkdownDocumentSelectionSourceRun: Equatable, Sendable {
         let clamped = min(max(visibleByteOffset, visibleByteRange.lowerBound), visibleByteRange.upperBound)
         let visibleLength = max(1, visibleByteRange.count)
         let sourceLength = max(0, sourceRange.byteRange.count)
+        if isAtomic && visibleLength != sourceLength {
+            let midpoint = visibleByteRange.lowerBound + visibleLength / 2
+            return clamped <= midpoint ? sourceRange.byteRange.lowerBound : sourceRange.byteRange.upperBound
+        }
         if visibleLength == sourceLength {
             return sourceRange.byteRange.lowerBound + (clamped - visibleByteRange.lowerBound)
         }
@@ -783,6 +790,15 @@ struct MarkdownDocumentSelectionSourceRun: Equatable, Sendable {
         let clamped = min(max(sourceByteOffset, sourceRange.byteRange.lowerBound), sourceRange.byteRange.upperBound)
         let visibleLength = max(0, visibleByteRange.count)
         let sourceLength = max(1, sourceRange.byteRange.count)
+        if isAtomic && visibleLength != sourceLength {
+            if clamped <= sourceRange.byteRange.lowerBound {
+                return visibleByteRange.lowerBound
+            }
+            if clamped >= sourceRange.byteRange.upperBound {
+                return visibleByteRange.upperBound
+            }
+            return visibleByteRange.lowerBound + visibleLength / 2
+        }
         if visibleLength == sourceLength {
             return visibleByteRange.lowerBound + (clamped - sourceRange.byteRange.lowerBound)
         }
@@ -795,6 +811,15 @@ struct MarkdownDocumentSelectionSourceRun: Equatable, Sendable {
 struct MarkdownDocumentSelectionFontRun: Equatable, Sendable {
     var visibleByteRange: Range<Int>
     var kind: MarkdownInlineKind
+}
+
+private extension MarkdownInlineRun {
+    var isAtomicSelectionRun: Bool {
+        kind == .image ||
+            kind == .math ||
+            presentation.contains(.image) ||
+            presentation.contains(.math)
+    }
 }
 
 extension MarkdownPreparedBlockContent {

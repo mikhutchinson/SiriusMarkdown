@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.2 - 2026-06-03
+
+- Hardened streaming boundary scanning and sealed-reference carry-forward across generated stream-vs-one-shot matrices covering reference definitions, inline reference ambiguity, container fences, display math, raw HTML, list continuations, tables, and host boundaries.
+- Tightened default public link policy handling for HTTP(S), `mailto:`, relative destinations, and HTML-character-reference decoded links. The default policy now rejects additional Foundation-normalized and percent-decoded delimiter/header-smuggling cases, including encoded `mailto:` query separators inside allowed `subject` values.
+- Improved display-math recovery and native math behavior in block quotes, list items, linked inline contexts, image-backed inline math, selection geometry, and render preparation so math remains source-backed, policy-routed, and cacheable without extra renderer invocations.
+- Replaced the crash-prone default Swift highlighting path with a package-owned lexical Swift highlighter that handles long strings, nested interpolation strings, embedded NULs, and modern Swift keywords.
+- Strengthened prepared inline/image/math cache identities and policy short-circuit behavior so denied content does not invoke host resolvers/renderers and allowed content does not reuse stale policy-dependent output.
+- Expanded release evidence with `456` Swift tests, required named regressions, AppKit RenderProbe coverage, Pretext golden checks, a clean local SwiftPM consumer build, DocC/symbol graph generation, and bundled macOS demo app smoke coverage.
+
 ## 0.5.1 - 2026-05-29
 
 - Hardened display-math recovery for chat-style output where models omit blank lines around `\[ ... \]` blocks or upstream text has degraded the delimiters to bare `[` / `]` lines. The parser now splits paragraph-embedded standalone display math into source-backed text/math/text blocks, preserves reference-link resolution in adjacent text, and only treats bare bracket delimiters as math when the enclosed content is clearly TeX, leaving ordinary bracketed prose and reference labels as prose.

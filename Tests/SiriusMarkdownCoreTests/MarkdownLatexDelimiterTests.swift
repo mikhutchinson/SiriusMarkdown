@@ -39,6 +39,65 @@ func paragraphWithDisplayMathBracketsSplitsIntoTextMathTextBlocks() throws {
 }
 
 @Test
+func displayMathInsideBlockQuoteProducesMathRun() throws {
+    let snapshot = snapshot("""
+    > Then:
+    > \\[
+    > x^2
+    > \\]
+    > done.
+    """)
+
+    let quote = try #require(snapshot.blocks.first)
+    #expect(quote.kind == .blockQuote)
+    #expect(quote.inlines.contains { $0.kind == .math && $0.text == "x^2" })
+}
+
+@Test
+func displayMathInsideBlockQuotePreservesRawTexSource() throws {
+    let snapshot = snapshot("""
+    > \\[
+    > a_{*b*}
+    > \\]
+    """)
+
+    let quote = try #require(snapshot.blocks.first)
+    let mathRun = try #require(quote.inlines.first { $0.kind == .math })
+
+    #expect(mathRun.text == "a_{*b*}")
+}
+
+@Test
+func displayMathInsideListItemProducesMathRun() throws {
+    let snapshot = snapshot("""
+    - Then:
+      \\[
+      y^2
+      \\]
+      done.
+    """)
+
+    let list = try #require(snapshot.blocks.first)
+    let item = try #require(list.listItems.first)
+    #expect(list.kind == .unorderedList)
+    #expect(item.inlines.contains { $0.kind == .math && $0.text == "y^2" })
+}
+
+@Test
+func linkedLiteralDisplayMathDelimiterDoesNotCoalesceAcrossFollowingLines() throws {
+    let snapshot = snapshot("""
+    [\\[](/docs)
+    x^2
+    \\]
+    """)
+
+    let block = try #require(snapshot.blocks.first)
+    #expect(block.kind == .paragraph)
+    #expect(block.inlines.contains { $0.kind == .link && $0.text == "[" && $0.destination == "/docs" })
+    #expect(block.inlines.allSatisfy { !$0.presentation.contains(.math) && $0.kind != .math })
+}
+
+@Test
 func degradedBareDisplayBracketsWithLatexContentParseAsMathBlock() throws {
     let snapshot = snapshot("""
     [
