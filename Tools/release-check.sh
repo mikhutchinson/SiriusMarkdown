@@ -12,7 +12,7 @@ TEST_LIST_FILE="$(mktemp)"
 trap 'rm -f "$TEST_LIST_FILE"; rm -rf "${CONSUMER_DIR:-}"' EXIT
 swift test list > "$TEST_LIST_FILE"
 TEST_COUNT="$(grep -Ec '^[A-Za-z0-9_]+Tests\.' "$TEST_LIST_FILE")"
-MINIMUM_TEST_COUNT=456
+MINIMUM_TEST_COUNT=466
 if (( TEST_COUNT < MINIMUM_TEST_COUNT )); then
   echo "error: swift test list discovered $TEST_COUNT tests; expected at least $MINIMUM_TEST_COUNT" >&2
   exit 1
@@ -23,6 +23,7 @@ for required_test in \
   "SiriusMarkdownCoreTests.lookupMapsMultilineParagraphHeadingListCodeAndTable()" \
   "SiriusMarkdownSwiftUITests.preparedSnapshotForwardsSourceLookupWithoutPreparingAgain()" \
   "SiriusMarkdownSwiftUITests.renderSessionLookupUpdatesAfterAppendAndReset()" \
+  "SiriusMarkdownSwiftUITests.preparedTableCurrencyAmountsRemainText()" \
   "SiriusMarkdownSwiftUITests.selectionControllerSelectSourceLineHighlightsResolvedBlock()" \
   "SiriusMarkdownSwiftUITests.selectionControllerSelectSourceRangeUsesNearestFallbackInGap()" \
   "SiriusMarkdownCoreTests.firstBlockIDFallsBackToNearestBlockByByteOffsetWhenLineRangeIsEmpty()" \
@@ -158,6 +159,15 @@ for required_test in \
   "SiriusMarkdownCoreTests.escapedParenInlineMathIsDetectedInPlainTextNodes()" \
   "SiriusMarkdownCoreTests.escapedBackslashBeforeParenDoesNotStartInlineMath()" \
   "SiriusMarkdownCoreTests.escapedBackslashBeforeDollarStillAllowsDollarMath()" \
+  "SiriusMarkdownCoreTests.currencyRangesDoNotBecomeInlineMath()" \
+  "SiriusMarkdownCoreTests.tableCurrencyAmountsDoNotBecomeInlineMath()" \
+  "SiriusMarkdownCoreTests.dollarMathMayStartWithANumber()" \
+  "SiriusMarkdownCoreTests.currencyLikeDollarRunsDoNotBecomeInlineMath()" \
+  "SiriusMarkdownCoreTests.compactISOCurrencyCodesDoNotBecomeInlineMath()" \
+  "SiriusMarkdownCoreTests.numericLeadingDollarMathParsesWhenFormulaLike()" \
+  "SiriusMarkdownCoreTests.inlineMathKeepsPresentationAndLinkContext()" \
+  "SiriusMarkdownCoreTests.styledAndLinkedCurrencyDoesNotBecomeInlineMath()" \
+  "SiriusMarkdownCoreTests.codeSpansDoNotParseLatexOrDollarDelimiters()" \
   "SiriusMarkdownCoreTests.inlineSourceRangesRemainByteAccurateAfterMultibytePrefixes()" \
   "SiriusMarkdownCoreTests.tailInlineSourceRangesRemainByteAccurateAfterSealedReferencePrefix()" \
   "SiriusMarkdownCoreTests.paragraphEmbeddedDisplayMathPreservesReferenceLinkSemantics()" \

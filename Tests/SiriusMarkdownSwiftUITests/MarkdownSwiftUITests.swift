@@ -311,6 +311,27 @@ func preparedTablesExposeStableRowAndCellIDs() throws {
 }
 
 @Test
+func preparedTableCurrencyAmountsRemainText() throws {
+    let table = try firstBlock("""
+    | Program | Reward |
+    | --- | --- |
+    | Coveo Public Bug Bounty | $100 - $5,500 |
+    | ICI PARIS XL / AS Watson | $108,500 |
+    | Math sample | $x^2$ |
+    """)
+    let prepared = try #require(MarkdownRendererConfiguration.document.prepare(block: table).table)
+    let range = try #require(prepared.rows.first?.cells.dropFirst().first?.inlineLayout)
+    let currency = try #require(prepared.rows.dropFirst().first?.cells.dropFirst().first?.inlineLayout)
+    let math = try #require(prepared.rows.dropFirst(2).first?.cells.dropFirst().first?.inlineLayout)
+
+    #expect(range.prepared.naturalText == "$100 - $5,500")
+    #expect(range.prepared.runs.allSatisfy { $0.kind != .math })
+    #expect(currency.prepared.naturalText == "$108,500")
+    #expect(currency.prepared.runs.allSatisfy { $0.kind != .math })
+    #expect(math.prepared.runs.contains { $0.kind == .math && $0.text == "x^2" })
+}
+
+@Test
 @MainActor
 func tableRendererAcceptsCustomThemeTokens() throws {
     let table = try firstBlock("| Region | Text | Evidence |\n| - | - | - |\n| CJK | 日本語 | measured |")

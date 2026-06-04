@@ -843,6 +843,8 @@ private struct InlineRunConverter {
     var lineMap: MarkdownLineMap
     var fallbackRange: MarkdownSourceRange
 
+    private static let currencyCodeSuffixes = Set(Locale.Currency.isoCurrencies.map(\.identifier))
+
     private enum DisplayMathRunDelimiter {
         case bracket
         case dollar
@@ -1414,24 +1416,20 @@ private struct InlineRunConverter {
             }
 
             if rawText[cursor] == "$",
-               isPotentialOpeningDollar(in: rawText, at: cursor),
-               let close = closingDollar(in: rawText, after: cursor) {
+               let dollarMath = dollarInlineMathRange(in: rawText, at: cursor) {
                 appendPlain(upTo: cursor)
-                let contentStart = rawText.index(after: cursor)
-                let contentRange = contentStart..<close
-                let fullRange = cursor..<rawText.index(after: close)
                 runs.append(
                     MarkdownInlineRun(
                         kind: .math,
-                        text: String(rawText[contentRange]),
+                        text: String(rawText[dollarMath.content]),
                         sourceRange: sourceRange(
                             in: rawText,
-                            localRange: fullRange,
+                            localRange: dollarMath.full,
                             baseRange: baseRange
                         )
                     )
                 )
-                cursor = rawText.index(after: close)
+                cursor = dollarMath.full.upperBound
                 plainStart = cursor
                 continue
             }
@@ -1534,29 +1532,44 @@ private struct InlineRunConverter {
             }
 
             guard text[cursor] == "$",
-                  isPotentialOpeningDollar(in: text, at: cursor),
-                  let close = closingDollar(in: text, after: cursor)
+                  let dollarMath = dollarInlineMathRange(in: text, at: cursor)
             else {
+                if text[cursor] == "\\",
+                   let latex = latexInlineMathRange(in: text, at: cursor) {
+                    appendPlain(upTo: cursor)
+                    runs.append(
+                        MarkdownInlineRun(
+                            kind: .math,
+                            text: String(text[latex.content]),
+                            sourceRange: sourceRange(
+                                in: text,
+                                localRange: latex.full,
+                                baseRange: baseRange
+                            )
+                        )
+                    )
+                    cursor = latex.full.upperBound
+                    plainStart = cursor
+                    continue
+                }
+
                 cursor = text.index(after: cursor)
                 continue
             }
 
             appendPlain(upTo: cursor)
-            let contentStart = text.index(after: cursor)
-            let contentRange = contentStart..<close
-            let fullRange = cursor..<text.index(after: close)
             runs.append(
                 MarkdownInlineRun(
                     kind: .math,
-                    text: String(text[contentRange]),
+                    text: String(text[dollarMath.content]),
                     sourceRange: sourceRange(
                         in: text,
-                        localRange: fullRange,
+                        localRange: dollarMath.full,
                         baseRange: baseRange
                     )
                 )
             )
-            cursor = text.index(after: close)
+            cursor = dollarMath.full.upperBound
             plainStart = cursor
         }
 
@@ -1619,6 +1632,184 @@ private struct InlineRunConverter {
         }
 
         return nil
+    }
+
+    private func dollarInlineMathRange(
+        in text: String,
+        at opening: String.Index
+    ) -> (content: Range<String.Index>, full: Range<String.Index>)? {
+        guard text[opening] == "$",
+              isPotentialOpeningDollar(in: text, at: opening),
+              let close = closingDollar(in: text, after: opening)
+        else {
+            return nil
+        }
+
+        let contentStart = text.index(after: opening)
+        let contentRange = contentStart..<close
+        guard isValidDollarMathContent(in: text, contentRange: contentRange, opening: opening) else {
+            return nil
+        }
+
+        return (contentRange, opening..<text.index(after: close))
+    }
+
+    private func isValidDollarMathContent(
+        in text: String,
+        contentRange: Range<String.Index>,
+        opening: String.Index
+    ) -> Bool {
+        guard !contentRange.isEmpty,
+              !containsUnescapedDollar(in: text, range: contentRange)
+        else {
+            return false
+        }
+
+        let firstContent = text.index(after: opening)
+        if firstContent < text.endIndex, text[firstContent].isNumber {
+            return numericLeadingDollarMathContentLooksLikeMath(String(text[contentRange]))
+        }
+
+        return true
+    }
+
+    private func containsUnescapedDollar(in text: String, range: Range<String.Index>) -> Bool {
+        var cursor = range.lowerBound
+        while cursor < range.upperBound {
+            if text[cursor] == "$", !isEscapedDelimiter(in: text, at: cursor) {
+                return true
+            }
+            cursor = text.index(after: cursor)
+        }
+        return false
+    }
+
+    private func numericLeadingDollarMathContentLooksLikeMath(_ content: String) -> Bool {
+        let body = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !body.isEmpty else {
+            return false
+        }
+
+        if body.contains("\\") ||
+            body.contains("_") ||
+            body.contains("^") ||
+            body.contains("=") ||
+            body.contains("+") ||
+            body.contains("*") ||
+            body.contains("/") ||
+            body.contains("{") ||
+            body.contains("}") ||
+            body.contains("(") ||
+            body.contains(")") ||
+            body.contains("[") ||
+            body.contains("]") {
+            return true
+        }
+
+        if isSimpleNumericExpression(body) {
+            return true
+        }
+
+        return isCompactNumberLetterProduct(body)
+    }
+
+    private func isSimpleNumericExpression(_ body: String) -> Bool {
+        guard !body.isEmpty,
+              !body.contains(where: { $0.isWhitespace || $0 == "," || $0 == "$" })
+        else {
+            return false
+        }
+
+        var cursor = body.startIndex
+        var sawDigit = false
+        var previousWasOperator = true
+
+        while cursor < body.endIndex {
+            let character = body[cursor]
+            if character.isNumber {
+                sawDigit = true
+                previousWasOperator = false
+                cursor = body.index(after: cursor)
+                continue
+            }
+
+            if character == "." {
+                let next = body.index(after: cursor)
+                guard next < body.endIndex, body[next].isNumber else {
+                    return false
+                }
+                cursor = next
+                continue
+            }
+
+            if character == "-" {
+                guard !previousWasOperator else {
+                    return false
+                }
+                previousWasOperator = true
+                cursor = body.index(after: cursor)
+                continue
+            }
+
+            return false
+        }
+
+        return sawDigit && !previousWasOperator
+    }
+
+    private func isCompactNumberLetterProduct(_ body: String) -> Bool {
+        guard !body.contains(where: { $0.isWhitespace || $0 == "," }) else {
+            return false
+        }
+
+        var cursor = body.startIndex
+        var sawDigit = false
+        while cursor < body.endIndex, body[cursor].isNumber {
+            sawDigit = true
+            cursor = body.index(after: cursor)
+        }
+
+        if cursor < body.endIndex, body[cursor] == "." {
+            let decimalPoint = cursor
+            cursor = body.index(after: cursor)
+            var sawFractionDigit = false
+            while cursor < body.endIndex, body[cursor].isNumber {
+                sawFractionDigit = true
+                cursor = body.index(after: cursor)
+            }
+
+            if !sawFractionDigit {
+                cursor = decimalPoint
+            }
+        }
+
+        guard sawDigit, cursor < body.endIndex else {
+            return false
+        }
+
+        var sawLetter = false
+        var suffix = ""
+        while cursor < body.endIndex {
+            let character = body[cursor]
+            guard character.isLetter || character.isNumber else {
+                return false
+            }
+            if character.isLetter {
+                sawLetter = true
+            }
+            suffix.append(character)
+            cursor = body.index(after: cursor)
+        }
+
+        if isCurrencyCodeSuffix(suffix) {
+            return false
+        }
+
+        return sawLetter
+    }
+
+    private func isCurrencyCodeSuffix(_ suffix: String) -> Bool {
+        Self.currencyCodeSuffixes.contains(suffix.uppercased())
     }
 
     private func closingDollar(in text: String, after opening: String.Index) -> String.Index? {
