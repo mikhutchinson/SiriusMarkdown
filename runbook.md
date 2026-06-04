@@ -1,6 +1,6 @@
 # Runbook
 
-This runbook is the local release authority for `SiriusMarkdown`. For the current public package release, use `0.5.3` as the tag and do not publish unless every release blocker below is clear.
+This runbook is the local release authority for `SiriusMarkdown`. For the current public package release, use `0.5.4` as the tag and do not publish unless every release blocker below is clear.
 
 ## Build
 
@@ -17,6 +17,7 @@ swift test
 ```
 
 Current status: `swift test` must pass with strict Swift-vs-Pretext comparison enabled across the required product fixture groups. Missing groups, duplicate fixture names/groups, absent fixture metadata, or known-drift allowlists are release blockers.
+The release-gate discovery floor for this slice is `472` Swift tests.
 
 Count the Swift test functions reported by the runner and keep the release-gate discovery floor current:
 
@@ -133,7 +134,7 @@ Run this before claiming native-renderer product quality. It wraps the release g
 
 ## Public Release Checklist
 
-Use this checklist for `0.5.3`.
+Use this checklist for `0.5.4`.
 
 1. Confirm public hygiene:
 
@@ -168,18 +169,18 @@ Use this checklist for `0.5.3`.
 
    ```sh
    git add README.md runbook.md NOTICE.md changelog.md bugfix.md Docs Sources Tests Examples Tools Package.swift Package.resolved
-   git commit -m "Prepare SiriusMarkdown 0.5.3 release"
+   git commit -m "Prepare SiriusMarkdown 0.5.4 release"
    ```
 
 6. Tag and push:
 
    ```sh
-   git tag -a 0.5.3 -m "SiriusMarkdown 0.5.3"
+   git tag -a 0.5.4 -m "SiriusMarkdown 0.5.4"
    git push origin HEAD
-   git push origin 0.5.3
+   git push origin 0.5.4
    ```
 
-7. After pushing, create the public release notes from `changelog.md`. The release notes must keep the claim precise: native SwiftUI block rendering, prepared-line inline rendering, streaming snapshots, safe policies, language-aware default code highlighting, package-owned Mermaid pan/zoom over prepared SVG/ASCII, explicit accessibility labels for package-owned affordance controls, Pretext-backed layout gate, and demo/product probes. Do not claim a custom glyph renderer, a new Mermaid semantic engine, or a WebKit renderer.
+7. After pushing, create the public release notes from `changelog.md`. The release notes must keep the claim precise: native SwiftUI block rendering, CoreText-painted prepared-line inline rendering, streaming snapshots, safe policies, language-aware default code highlighting, package-owned Mermaid pan/zoom over prepared SVG/ASCII, explicit accessibility labels for package-owned affordance controls, Pretext-backed layout gate, and demo/product probes. Do not claim a new Mermaid semantic engine or a WebKit renderer.
 
 ## Release Blockers
 
@@ -197,6 +198,7 @@ Consuming apps should depend on the public package product and use one of these 
 
 - `MarkdownRenderSession(configuration: .compactChat)` for streaming/chat surfaces.
 - `MarkdownRendererConfiguration.document` plus `prepare(snapshot:)` for document surfaces.
-- Explicit `MarkdownRendererConfiguration(inlineRenderingMode: .systemText)` only as a compatibility fallback.
+- Default `MarkdownRendererConfiguration(...)`, `.compactChat`, and `.document` use `MarkdownInlineRenderingMode.coreTextPaintedLines`.
+- Explicit `MarkdownRendererConfiguration(inlineRenderingMode: .preparedNativeLines)` or `.systemText` only as compatibility fallbacks.
 
 The consumer handoff is not part of the package release tag. It is a downstream integration check that should verify the app does not parse, highlight, or prepare raw Markdown from SwiftUI `body`.

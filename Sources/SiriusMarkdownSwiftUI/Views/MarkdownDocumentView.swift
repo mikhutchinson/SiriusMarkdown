@@ -18,7 +18,7 @@ public struct MarkdownDocumentView: View {
 
     @available(*, deprecated, message: "Prepare snapshots outside SwiftUI update paths and use init(preparedSnapshot:configuration:) for streaming or large documents.")
     public init(snapshot: MarkdownSnapshot, theme: MarkdownTheme = .document) {
-        self.configuration = MarkdownRendererConfiguration(theme: theme, inlineRenderingMode: .preparedNativeLines)
+        self.configuration = MarkdownRendererConfiguration(theme: theme, inlineRenderingMode: .coreTextPaintedLines)
         self.preparedSnapshot = self.configuration.unpreparedSnapshot(for: snapshot)
         self.selectionController = nil
         self.hostBoundaryView = { _ in AnyView(EmptyView()) }
@@ -158,7 +158,7 @@ public struct StreamingMarkdownView: View {
 
     @available(*, deprecated, message: "Prepare snapshots outside SwiftUI update paths and use init(preparedSnapshot:configuration:) for streaming or large documents.")
     public init(snapshot: MarkdownSnapshot, theme: MarkdownTheme = .compactChat) {
-        self.configuration = MarkdownRendererConfiguration(theme: theme, inlineRenderingMode: .preparedNativeLines)
+        self.configuration = MarkdownRendererConfiguration(theme: theme, inlineRenderingMode: .coreTextPaintedLines)
         self.preparedSnapshot = self.configuration.unpreparedSnapshot(for: snapshot)
         self.selectionController = nil
         self.hostBoundaryView = { _ in AnyView(EmptyView()) }
@@ -367,6 +367,12 @@ private struct MarkdownDocumentSelectionLayer<Content: View>: View {
     }
 
     private var selectionGesture: some Gesture {
+        #if os(tvOS)
+        TapGesture()
+            .onEnded {
+                takeFocus()
+            }
+        #else
         DragGesture(minimumDistance: 0)
             .onChanged { value in
                 takeFocus()
@@ -382,6 +388,7 @@ private struct MarkdownDocumentSelectionLayer<Content: View>: View {
             .onEnded { _ in
                 dragAnchor = nil
             }
+        #endif
     }
 
     @ViewBuilder

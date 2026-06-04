@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.4 - 2026-06-04
+
+- Made CoreText-painted prepared-line inline rendering the default for `MarkdownRendererConfiguration()`, `.compactChat`, and `.document`.
+- Added AppKit/UIKit CoreText line painting with bounded link hit regions derived from policy-filtered prepared link attributes.
+- Preserved explicit native text selection by routing `nativeTextSelection: .enabled` through selectable native text leaves instead of the CoreText paint path.
+- Hardened tvOS/watchOS platform guards and expanded release coverage across iOS, tvOS, watchOS, visionOS, and Mac Catalyst builds.
+- Updated the release gate and docs for the `472`-test floor, product check, Pretext golden coverage, demo builds, DocC, and CoreText-default public claim.
+
 ## 0.5.3 - 2026-06-03
 
 - Fixed dollar-delimited inline math detection so currency and reward amounts such as `$100 - $5,500`, `$108,500`, and screenshot-shaped reward tables stay literal while real inline math continues to parse.

@@ -43,6 +43,8 @@ extension View {
         case .enabled:
             #if os(macOS)
             self
+            #elseif os(tvOS) || os(watchOS)
+            self
             #else
             self.textSelection(.enabled)
             #endif

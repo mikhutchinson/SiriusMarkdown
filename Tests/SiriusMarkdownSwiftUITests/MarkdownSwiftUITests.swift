@@ -6,6 +6,9 @@ import SiriusMarkdownCore
 #if canImport(AppKit)
 import AppKit
 #endif
+#if canImport(CoreText)
+import CoreText
+#endif
 
 @Test
 @MainActor
@@ -469,12 +472,184 @@ func preparedNativeLinesModePreservesPreparedLineText() throws {
 }
 
 @Test
+func coreTextPaintedLinesModeIsDefaultAndBuildsWholePreparedLinePlan() throws {
+    var stream = MarkdownStream()
+    stream.append("alpha beta gamma delta epsilon zeta")
+    stream.finish()
+    let snapshot = stream.snapshot()
+    let configuration = MarkdownRendererConfiguration(
+        inlineRenderingMode: .coreTextPaintedLines
+    )
+
+    let prepared = configuration.prepare(snapshot: snapshot)
+    let block = try #require(snapshot.blocks.first)
+    let inlineLayout = try #require(prepared.preparedContentByBlockID[block.id]?.inlineLayout)
+    let layout = InlineRunsView.lineLayout(for: inlineLayout, containerWidth: 92)
+    let lines = InlineRunsView.attributedLines(for: inlineLayout, layout: layout)
+
+    #expect(configuration.inlineRenderingMode == .coreTextPaintedLines)
+    #expect(lines.count > 1)
+    #expect(lines.map { String($0.characters) }.joined() == inlineLayout.prepared.naturalText)
+
+    #if canImport(CoreText)
+    let plan = MarkdownCoreTextPaintedLinePlan.make(prepared: inlineLayout, layout: layout)
+    #expect(plan.lines.count == layout.lines.count)
+    #expect(plan.lines.map(\.text).joined() == inlineLayout.prepared.naturalText.replacingOccurrences(of: "\n", with: ""))
+    #expect(plan.lines.allSatisfy { $0.typographicWidth.isFinite && $0.typographicWidth > 0 })
+    #expect(plan.lines.contains { $0.text.contains(" ") })
+    #endif
+}
+
+@Test
+func coreTextPaintedLinePlanUsesPreparedLinkPolicyForHitRegions() throws {
+    #if canImport(CoreText)
+    var stream = MarkdownStream()
+    stream.append("[allowed](https://example.com) [blocked](file:///tmp/secret)")
+    stream.finish()
+    let snapshot = stream.snapshot()
+    let configuration = MarkdownRendererConfiguration(inlineRenderingMode: .coreTextPaintedLines)
+    let prepared = configuration.prepare(snapshot: snapshot)
+    let block = try #require(snapshot.blocks.first)
+    let inlineLayout = try #require(prepared.preparedContentByBlockID[block.id]?.inlineLayout)
+    let layout = InlineRunsView.lineLayout(for: inlineLayout, containerWidth: 600)
+    let plan = MarkdownCoreTextPaintedLinePlan.make(prepared: inlineLayout, layout: layout)
+    let destinations = Set(plan.linkFragments.map(\.destination))
+
+    #expect(destinations == ["https://example.com"])
+    #expect(plan.linkFragments.allSatisfy { $0.rect.width > 0 && $0.rect.height > 0 })
+    #expect(plan.linkFragments.allSatisfy { !$0.destination.contains("file:///") })
+    #else
+    #expect(CoreTextPaintedInlineLineView.isSupported == false)
+    #endif
+}
+
+@Test
+func coreTextPaintedLinePlanSplitsWrappedLinksIntoBoundedHitRegions() throws {
+    #if canImport(CoreText)
+    var stream = MarkdownStream()
+    stream.append("[alpha beta gamma delta epsilon zeta](https://example.com/wrapped)")
+    stream.finish()
+    let snapshot = stream.snapshot()
+    let configuration = MarkdownRendererConfiguration(inlineRenderingMode: .coreTextPaintedLines)
+    let prepared = configuration.prepare(snapshot: snapshot)
+    let block = try #require(snapshot.blocks.first)
+    let inlineLayout = try #require(prepared.preparedContentByBlockID[block.id]?.inlineLayout)
+    let layout = InlineRunsView.lineLayout(for: inlineLayout, containerWidth: 72)
+    let plan = MarkdownCoreTextPaintedLinePlan.make(prepared: inlineLayout, layout: layout)
+    let lineIndices = Set(plan.linkFragments.map(\.lineIndex))
+
+    #expect(plan.lines.count > 1)
+    #expect(plan.linkFragments.count == lineIndices.count)
+    #expect(plan.linkFragments.count > 1)
+    #expect(plan.linkFragments.allSatisfy { $0.destination == "https://example.com/wrapped" })
+    #expect(plan.linkFragments.allSatisfy { $0.rect.width > 0 && $0.rect.height > 0 })
+    #else
+    #expect(CoreTextPaintedInlineLineView.isSupported == false)
+    #endif
+}
+
+@Test
+func coreTextPaintedLinePlanCoversStructuredBlockContexts() throws {
+    #if canImport(CoreText)
+    var stream = MarkdownStream()
+    stream.append(
+        """
+        # Heading [link](https://example.com/heading)
+
+        Paragraph with **strong**, _emphasis_, `code`, emoji 😄, CJK 日本語, and [link](https://example.com/paragraph).
+
+        > Quote with wrapped text and [quote link](https://example.com/quote).
+
+        - [x] Task item [task](https://example.com/task)
+          - Nested item with `code`
+
+        | Name | Detail |
+        | --- | --- |
+        | Cell [cell link](https://example.com/cell) | Wrapped table text |
+        """
+    )
+    stream.finish()
+
+    let snapshot = stream.snapshot()
+    let configuration = MarkdownRendererConfiguration(inlineRenderingMode: .coreTextPaintedLines)
+    let prepared = configuration.prepare(snapshot: snapshot)
+    let inlineLayouts = coreTextPaintedTestInlineLayouts(in: prepared)
+
+    #expect(inlineLayouts.count >= 7)
+
+    for inlineLayout in inlineLayouts {
+        let layout = InlineRunsView.lineLayout(for: inlineLayout, containerWidth: 180)
+        let plan = MarkdownCoreTextPaintedLinePlan.make(prepared: inlineLayout, layout: layout)
+
+        #expect(plan.lines.isEmpty == false)
+        #expect(plan.accessibilityLabel == String(inlineLayout.attributed.characters))
+        #expect(plan.lines.allSatisfy { $0.typographicWidth.isFinite && $0.typographicWidth > 0 })
+    }
+    #else
+    #expect(CoreTextPaintedInlineLineView.isSupported == false)
+    #endif
+}
+
+@Test
+func coreTextPaintedLinePlanPreservesHardBreakPreparedText() throws {
+    #if canImport(CoreText)
+    var stream = MarkdownStream()
+    stream.append("first line  \nsecond line")
+    stream.finish()
+    let snapshot = stream.snapshot()
+    let configuration = MarkdownRendererConfiguration(inlineRenderingMode: .coreTextPaintedLines)
+    let prepared = configuration.prepare(snapshot: snapshot)
+    let block = try #require(snapshot.blocks.first)
+    let inlineLayout = try #require(prepared.preparedContentByBlockID[block.id]?.inlineLayout)
+    let layout = InlineRunsView.lineLayout(for: inlineLayout, containerWidth: 220)
+    let plan = MarkdownCoreTextPaintedLinePlan.make(prepared: inlineLayout, layout: layout)
+
+    #expect(plan.lines.count >= 2)
+    #expect(plan.lines.map(\.text).joined() == inlineLayout.prepared.naturalText.replacingOccurrences(of: "\n", with: ""))
+    #expect(plan.lines.contains { $0.text.contains("first line") })
+    #expect(plan.lines.contains { $0.text.contains("second line") })
+    #else
+    #expect(CoreTextPaintedInlineLineView.isSupported == false)
+    #endif
+}
+
+@Test
+func coreTextPaintedLinePlanDrawsNonBlankGlyphsOffscreen() throws {
+    #if canImport(CoreText)
+    var stream = MarkdownStream()
+    stream.append("alpha beta gamma with preserved spaces")
+    stream.finish()
+    let snapshot = stream.snapshot()
+    let configuration = MarkdownRendererConfiguration(inlineRenderingMode: .coreTextPaintedLines)
+    let prepared = configuration.prepare(snapshot: snapshot)
+    let block = try #require(snapshot.blocks.first)
+    let inlineLayout = try #require(prepared.preparedContentByBlockID[block.id]?.inlineLayout)
+    let layout = InlineRunsView.lineLayout(for: inlineLayout, containerWidth: 260)
+    let plan = MarkdownCoreTextPaintedLinePlan.make(prepared: inlineLayout, layout: layout)
+    let firstLine = try #require(plan.lines.first)
+    let noSpaceWidth = coreTextPaintedTestWidth(
+        of: firstLine.text.replacingOccurrences(of: " ", with: ""),
+        prepared: inlineLayout
+    )
+    let alphaCoverage = coreTextPaintedTestAlphaCoverage(plan: plan, width: 320, height: 96)
+
+    #expect(firstLine.text.contains("alpha beta"))
+    #expect(firstLine.typographicWidth > noSpaceWidth)
+    #expect(alphaCoverage > 250)
+    #else
+    #expect(CoreTextPaintedInlineLineView.isSupported == false)
+    #endif
+}
+
+@Test
 @MainActor
-func packagedPresetsUsePreparedNativeLinesWhileRawConfigKeepsCompatibilityFallback() throws {
-    #expect(MarkdownRendererConfiguration.compactChat.inlineRenderingMode == .preparedNativeLines)
-    #expect(MarkdownRendererConfiguration.document.inlineRenderingMode == .preparedNativeLines)
-    #expect(MarkdownRendererConfiguration().inlineRenderingMode == .systemText)
+func packagedPresetsUseCoreTextPaintedLinesWhileFallbackModesStayExplicit() throws {
+    #expect(MarkdownRendererConfiguration.compactChat.inlineRenderingMode == .coreTextPaintedLines)
+    #expect(MarkdownRendererConfiguration.document.inlineRenderingMode == .coreTextPaintedLines)
+    #expect(MarkdownRendererConfiguration().inlineRenderingMode == .coreTextPaintedLines)
     #expect(MarkdownRendererConfiguration(inlineRenderingMode: .systemText).inlineRenderingMode == .systemText)
+    #expect(MarkdownRendererConfiguration(inlineRenderingMode: .preparedNativeLines).inlineRenderingMode == .preparedNativeLines)
+    #expect(MarkdownRendererConfiguration(inlineRenderingMode: .coreTextPaintedLines).inlineRenderingMode == .coreTextPaintedLines)
     #expect(MarkdownRendererConfiguration.compactChat.documentSelection == .enabled)
     #expect(MarkdownRendererConfiguration.document.documentSelection == .enabled)
     #expect(MarkdownRendererConfiguration().documentSelection == .enabled)
@@ -494,11 +669,11 @@ func packagedPresetsUsePreparedNativeLinesWhileRawConfigKeepsCompatibilityFallba
     )
     let view = MarkdownBlockView(
         block: block,
-        configuration: MarkdownRendererConfiguration(theme: .compactChat, inlineRenderingMode: .preparedNativeLines),
+        configuration: MarkdownRendererConfiguration(theme: .compactChat),
         preparedContent: nil
     )
     let configuration = try #require(mirroredConfiguration(from: view))
-    #expect(configuration.inlineRenderingMode == .preparedNativeLines)
+    #expect(configuration.inlineRenderingMode == .coreTextPaintedLines)
 }
 
 @Test
@@ -525,6 +700,8 @@ func documentSelectionDefaultsToEnabledWhileNativeSelectionStaysLeafCompatibilit
     #expect(documentView.contains("configuration.documentSelection == .enabled"))
     #expect(documentView.contains("selectionController ?? internalSelectionController"))
     #expect(documentView.contains("MarkdownDocumentSelectionLayer"))
+    #expect(documentView.contains("#if os(tvOS)"))
+    #expect(documentView.contains("TapGesture()"))
     #expect(documentView.contains("DragGesture(minimumDistance: 0)"))
     #expect(documentView.contains("MarkdownDocumentSelectionKeyHandler"))
     #expect(documentView.contains("selectSourceRanges"))
@@ -595,6 +772,14 @@ func nativeTextSelectionMountsOnlyBoundedTextLeaves() throws {
         contentsOf: root.appending(path: "Sources/SiriusMarkdownSwiftUI/Inline/NativeInlineLineTextView.swift"),
         encoding: .utf8
     )
+    let coreTextPaintedLineView = try String(
+        contentsOf: root.appending(path: "Sources/SiriusMarkdownSwiftUI/Inline/CoreTextPaintedInlineLineView.swift"),
+        encoding: .utf8
+    )
+    let platformHooks = try String(
+        contentsOf: root.appending(path: "Sources/SiriusMarkdownSwiftUI/Platform/MarkdownPlatformHooks.swift"),
+        encoding: .utf8
+    )
     let sourceFiles = try swiftSourceFiles(under: root.appending(path: "Sources/SiriusMarkdownSwiftUI"))
     let directSelectionOffenders = try sourceFiles.filter { file in
         guard file.lastPathComponent != "MarkdownNativeTextSelection.swift" else {
@@ -605,6 +790,10 @@ func nativeTextSelectionMountsOnlyBoundedTextLeaves() throws {
 
     #expect(helper.occurrences(of: ".textSelection(.enabled)") == 1)
     #expect(helper.contains("#if os(macOS)"))
+    #expect(helper.contains("#elseif os(tvOS) || os(watchOS)"))
+    #expect(platformHooks.contains("#elseif canImport(UIKit) && !os(tvOS) && !os(watchOS)"))
+    #expect(platformHooks.contains("#elseif canImport(UIKit) && !os(watchOS)"))
+    #expect(coreTextPaintedLineView.contains("canImport(UIKit) && !os(watchOS)"))
     #expect(directSelectionOffenders.isEmpty)
     #expect(!blockView.contains(".textSelection(.enabled)"))
     #expect(!mermaidView.contains(".textSelection(.enabled)"))
@@ -629,6 +818,8 @@ func nativeTextSelectionMountsOnlyBoundedTextLeaves() throws {
     #expect(inlineRunsView.contains("nativeTextSelection: nativeTextSelection"))
     #expect(nativeLineTextView.contains("MarkdownSelectableText("))
     #expect(nativeLineTextView.contains("wraps: false"))
+    #expect(nativeLineTextView.contains("private var shouldPaintWithCoreText: Bool"))
+    #expect(nativeLineTextView.contains("nativeTextSelection != .enabled"))
 }
 
 @Test
@@ -3712,6 +3903,104 @@ private final class PrefixMermaidRenderer: MarkdownMermaidRenderer, @unchecked S
         }
     }
 }
+
+private func coreTextPaintedTestInlineLayouts(in prepared: MarkdownPreparedSnapshot) -> [MarkdownPreparedInlineContent] {
+    var layouts: [MarkdownPreparedInlineContent] = []
+
+    func appendListItems(_ items: [MarkdownPreparedListItem]) {
+        for item in items {
+            if let inlineLayout = item.inlineLayout {
+                layouts.append(inlineLayout)
+            }
+            appendListItems(item.childItems)
+        }
+    }
+
+    for content in prepared.preparedContentByBlockID.values {
+        if let inlineLayout = content.inlineLayout {
+            layouts.append(inlineLayout)
+        }
+        appendListItems(content.listItems)
+        if let table = content.table {
+            for cell in table.header {
+                if let inlineLayout = cell.inlineLayout {
+                    layouts.append(inlineLayout)
+                }
+            }
+            for row in table.rows {
+                for cell in row.cells {
+                    if let inlineLayout = cell.inlineLayout {
+                        layouts.append(inlineLayout)
+                    }
+                }
+            }
+        }
+    }
+
+    return layouts
+}
+
+#if canImport(CoreText)
+private func coreTextPaintedTestWidth(
+    of text: String,
+    prepared: MarkdownPreparedInlineContent
+) -> CGFloat {
+    let attributed = NSMutableAttributedString(string: text)
+    attributed.addAttribute(
+        NSAttributedString.Key(kCTFontAttributeName as String),
+        value: MarkdownCoreTextFontBridge.font(
+            profile: prepared.fontProfiles.body,
+            kind: .text,
+            presentation: [],
+            size: prepared.fontSize
+        ),
+        range: NSRange(location: 0, length: attributed.length)
+    )
+    let line = CTLineCreateWithAttributedString(attributed)
+    return CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil))
+}
+
+private func coreTextPaintedTestAlphaCoverage(
+    plan: MarkdownCoreTextPaintedLinePlan,
+    width: Int,
+    height: Int
+) -> Int {
+    let bytesPerPixel = 4
+    let bytesPerRow = width * bytesPerPixel
+    var pixels = [UInt8](repeating: 0, count: height * bytesPerRow)
+    let colorSpace = CGColorSpaceCreateDeviceRGB()
+
+    pixels.withUnsafeMutableBytes { buffer in
+        guard let context = CGContext(
+            data: buffer.baseAddress,
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: bytesPerRow,
+            space: colorSpace,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else {
+            return
+        }
+
+        context.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
+        context.textMatrix = .identity
+        for line in plan.lines {
+            let lineStride = plan.lineHeight + plan.lineSpacing
+            let top = CGFloat(line.index) * lineStride
+            let typographicHeight = line.ascent + line.descent + line.leading
+            let verticalInset = max(0, (plan.lineHeight - typographicHeight) / 2)
+            let baselineFromTop = top + verticalInset + line.ascent
+            context.textPosition = CGPoint(x: 0, y: CGFloat(height) - baselineFromTop)
+            CTLineDraw(line.ctLine, context)
+        }
+    }
+
+    return stride(from: 3, to: pixels.count, by: bytesPerPixel).reduce(0) { partial, index in
+        partial + Int(pixels[index])
+    }
+}
+#endif
 
 private func packageRootURL(filePath: String = #filePath) -> URL {
     URL(fileURLWithPath: filePath)

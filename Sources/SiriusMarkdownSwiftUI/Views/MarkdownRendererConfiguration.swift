@@ -155,7 +155,7 @@ public struct MarkdownRendererConfiguration: Sendable {
 
     public init(
         theme: MarkdownTheme = .compactChat,
-        inlineRenderingMode: MarkdownInlineRenderingMode = .systemText,
+        inlineRenderingMode: MarkdownInlineRenderingMode = .coreTextPaintedLines,
         nativeTextSelection: MarkdownNativeTextSelection = .disabled,
         documentSelection: DocumentSelection = .enabled,
         linkAction: MarkdownLinkAction? = nil,
@@ -211,7 +211,7 @@ public struct MarkdownRendererConfiguration: Sendable {
         diagnosticsRecorder: MarkdownDiagnosticsRecorder = MarkdownDiagnosticsRecorder()
     ) {
         self.theme = theme
-        self.inlineRenderingMode = .systemText
+        self.inlineRenderingMode = .coreTextPaintedLines
         self.nativeTextSelection = .disabled
         self.documentSelection = .enabled
         self.linkAction = linkAction
@@ -232,7 +232,7 @@ public struct MarkdownRendererConfiguration: Sendable {
 
     public init(
         theme: MarkdownTheme = .compactChat,
-        inlineRenderingMode: MarkdownInlineRenderingMode = .systemText,
+        inlineRenderingMode: MarkdownInlineRenderingMode = .coreTextPaintedLines,
         nativeTextSelection: MarkdownNativeTextSelection = .disabled,
         linkAction: MarkdownLinkAction? = nil,
         copyProvider: MarkdownCopyProvider? = nil,
@@ -272,11 +272,11 @@ public struct MarkdownRendererConfiguration: Sendable {
     }
 
     public static var compactChat: MarkdownRendererConfiguration {
-        MarkdownRendererConfiguration(theme: .compactChat, inlineRenderingMode: .preparedNativeLines)
+        MarkdownRendererConfiguration(theme: .compactChat, inlineRenderingMode: .coreTextPaintedLines)
     }
 
     public static var document: MarkdownRendererConfiguration {
-        MarkdownRendererConfiguration(theme: .document, inlineRenderingMode: .preparedNativeLines)
+        MarkdownRendererConfiguration(theme: .document, inlineRenderingMode: .coreTextPaintedLines)
     }
 
     public func prepare(block: MarkdownBlock) -> MarkdownPreparedBlockContent {

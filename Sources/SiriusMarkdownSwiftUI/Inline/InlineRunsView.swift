@@ -5,6 +5,18 @@ import SwiftUI
 public enum MarkdownInlineRenderingMode: Sendable, Hashable {
     case systemText
     case preparedNativeLines
+    case coreTextPaintedLines
+}
+
+extension MarkdownInlineRenderingMode {
+    var usesPreparedLineSurface: Bool {
+        switch self {
+        case .systemText:
+            return false
+        case .preparedNativeLines, .coreTextPaintedLines:
+            return true
+        }
+    }
 }
 
 public struct InlineRunsView: View {
@@ -21,7 +33,7 @@ public struct InlineRunsView: View {
         theme: MarkdownTheme = .compactChat,
         baseFont: Font? = nil,
         linkAction: MarkdownLinkAction? = nil,
-        inlineRenderingMode: MarkdownInlineRenderingMode = .systemText,
+        inlineRenderingMode: MarkdownInlineRenderingMode = .coreTextPaintedLines,
         nativeTextSelection: MarkdownNativeTextSelection = .disabled,
         linkPolicy: any MarkdownLinkPolicy = DefaultMarkdownPolicy(),
         imagePolicy: any MarkdownImagePolicy = DefaultMarkdownPolicy()
@@ -44,7 +56,7 @@ public struct InlineRunsView: View {
         theme: MarkdownTheme = .compactChat,
         baseFont: Font? = nil,
         linkAction: MarkdownLinkAction? = nil,
-        inlineRenderingMode: MarkdownInlineRenderingMode = .systemText,
+        inlineRenderingMode: MarkdownInlineRenderingMode = .coreTextPaintedLines,
         nativeTextSelection: MarkdownNativeTextSelection = .disabled
     ) {
         self.attributed = attributed
@@ -61,7 +73,7 @@ public struct InlineRunsView: View {
         theme: MarkdownTheme = .compactChat,
         baseFont: Font? = nil,
         linkAction: MarkdownLinkAction? = nil,
-        inlineRenderingMode: MarkdownInlineRenderingMode = .systemText,
+        inlineRenderingMode: MarkdownInlineRenderingMode = .coreTextPaintedLines,
         nativeTextSelection: MarkdownNativeTextSelection = .disabled
     ) {
         self.attributed = prepared.attributed
@@ -292,7 +304,7 @@ public struct InlineRunsView: View {
         }
     }
 
-    private nonisolated static func attributedSlice(
+    nonisolated static func attributedSlice(
         _ attributed: AttributedString,
         text: String,
         byteRange: Range<Int>
@@ -315,7 +327,17 @@ public struct InlineRunsView: View {
         return AttributedString(attributed[lower..<upper])
     }
 
-    private nonisolated static func stringRange(
+    nonisolated static func textSlice(
+        text: String,
+        byteRange: Range<Int>
+    ) -> String {
+        guard let stringRange = stringRange(forUTF8Range: byteRange, in: text) else {
+            return ""
+        }
+        return String(text[stringRange])
+    }
+
+    nonisolated static func stringRange(
         forUTF8Range byteRange: Range<Int>,
         in text: String
     ) -> Range<String.Index>? {
@@ -564,6 +586,8 @@ private struct PreparedInlineTextView: View {
                         baseFont: baseFont,
                         theme: theme,
                         containerWidth: containerWidth,
+                        linkAction: linkAction,
+                        inlineRenderingMode: inlineRenderingMode,
                         nativeTextSelection: nativeTextSelection
                     )
                 }
@@ -587,10 +611,9 @@ private struct PreparedInlineTextView: View {
     }
 
     private var canRenderNativeLines: Bool {
-        inlineRenderingMode == .preparedNativeLines &&
+        inlineRenderingMode.usesPreparedLineSurface &&
             containerWidth > 0 &&
-            !layoutResult.lines.isEmpty &&
-            NativeInlineLineTextView.isSupported
+            !layoutResult.lines.isEmpty
     }
 
     private var nativeLineSurfaceHeight: CGFloat {

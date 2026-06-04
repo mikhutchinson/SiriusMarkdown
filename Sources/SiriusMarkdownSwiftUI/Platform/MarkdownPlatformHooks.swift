@@ -18,7 +18,7 @@ public enum MarkdownPasteboard {
         #if os(macOS)
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(string, forType: .string)
-        #elseif canImport(UIKit)
+        #elseif canImport(UIKit) && !os(tvOS) && !os(watchOS)
         UIPasteboard.general.string = string
         #endif
     }
@@ -53,7 +53,7 @@ public enum MarkdownURLOpener {
 
         #if os(macOS)
         NSWorkspace.shared.open(url)
-        #elseif canImport(UIKit)
+        #elseif canImport(UIKit) && !os(watchOS)
         UIApplication.shared.open(url)
         #endif
     }

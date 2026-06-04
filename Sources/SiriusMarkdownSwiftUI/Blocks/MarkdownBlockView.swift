@@ -15,7 +15,7 @@ public struct MarkdownBlockView: View {
     @available(*, deprecated, message: "Prepare block content outside SwiftUI update paths and use init(block:configuration:preparedContent:) for streaming or large documents.")
     public init(block: MarkdownBlock, theme: MarkdownTheme = .compactChat) {
         self.block = block
-        self.configuration = MarkdownRendererConfiguration(theme: theme, inlineRenderingMode: .preparedNativeLines)
+        self.configuration = MarkdownRendererConfiguration(theme: theme, inlineRenderingMode: .coreTextPaintedLines)
         self.preparedContent = self.configuration.unpreparedContent(for: block)
         _isCodeBlockCollapsed = State(initialValue: self.configuration.theme.codeBlockAffordances.startsCollapsed)
     }

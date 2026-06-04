@@ -6,6 +6,7 @@
 
 ## Fixed
 
+- Fixed the default packaged inline renderer still behaving like a compatibility path. `MarkdownRendererConfiguration()`, `.compactChat`, and `.document` now select `coreTextPaintedLines`; AppKit/UIKit views paint prepared line ranges with CoreText, while explicit native text selection keeps using selectable native text leaves.
 - Fixed the default `mailto:` link policy accepting percent-encoded query separators inside allowed `subject` values. Destinations such as `mailto:user@example.com?subject=Hello%26bcc=attacker@example.com` and encoded semicolon header separators now deny as malformed instead of allowing downstream mail clients or URL openers to reinterpret the decoded subject as additional headers.
 - Fixed display-math inline coalescing leaking across link syntax. A linked literal delimiter such as `[\\[](/docs)` followed by later `\\]` text no longer becomes linked math spanning unrelated lines; the parser now verifies that coalesced `\\[`, `\\]`, `$$`, and degraded bracket delimiters are standalone in the original source line while still allowing block-quote and list prefixes.
 - Fixed multiline link labels dropping link context from inline break runs. Soft and hard breaks inside `[label](destination)` now keep the same destination in the public `MarkdownInlineRun` model, SwiftUI attributed rendering links the full multiline label, and prepared-inline cache identity treats destination-bearing break runs as policy-relevant link content.

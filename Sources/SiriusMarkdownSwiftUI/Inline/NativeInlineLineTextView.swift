@@ -8,55 +8,80 @@ struct NativeInlineLineTextView: View {
     var baseFont: Font
     var theme: MarkdownTheme
     var containerWidth: CGFloat
+    var linkAction: MarkdownLinkAction?
+    var inlineRenderingMode: MarkdownInlineRenderingMode
     var nativeTextSelection: MarkdownNativeTextSelection
 
     static var isSupported: Bool { true }
 
     var body: some View {
-        let renderedAttributed = InlineRunsView.renderingAttributedString(for: prepared)
-        let renderedLines = InlineRunsView.nativeLineAttributedString(
-            for: prepared,
-            attributed: renderedAttributed,
-            layout: layoutResult
-        )
         let width = max(0, containerWidth)
         let height = nativeLineSurfaceHeight
 
-        if renderedLines.characters.isEmpty {
-            MarkdownSelectableText(
-                attributed: fallbackAttributed,
-                font: baseFont,
-                fontSize: prepared.fontSize,
-                lineHeight: prepared.lineHeight,
-                fontProfile: prepared.fontProfiles.body,
-                textColor: theme.textColor,
-                nativeTextSelection: nativeTextSelection,
-                lineSpacing: lineSpacing,
-                wraps: false
+        if shouldPaintWithCoreText {
+            CoreTextPaintedInlineLineView(
+                prepared: prepared,
+                layoutResult: layoutResult,
+                fallbackAttributed: fallbackAttributed,
+                theme: theme,
+                containerWidth: width,
+                linkAction: linkAction
             )
-                .frame(width: width, height: height, alignment: .topLeading)
-                .clipped()
+            .frame(width: width, height: height, alignment: .topLeading)
+            .clipped()
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(String(fallbackAttributed.characters))
         } else {
-            MarkdownSelectableText(
-                attributed: renderedLines,
-                font: baseFont,
-                fontSize: prepared.fontSize,
-                lineHeight: prepared.lineHeight,
-                fontProfile: prepared.fontProfiles.body,
-                textColor: theme.textColor,
-                nativeTextSelection: nativeTextSelection,
-                lineSpacing: lineSpacing,
-                wraps: false
+            let renderedAttributed = InlineRunsView.renderingAttributedString(for: prepared)
+            let renderedLines = InlineRunsView.nativeLineAttributedString(
+                for: prepared,
+                attributed: renderedAttributed,
+                layout: layoutResult
             )
-                .frame(width: width, height: height, alignment: .topLeading)
-                .clipped()
-                .accessibilityElement(children: .combine)
-                .accessibilityLabel(String(fallbackAttributed.characters))
+
+            if renderedLines.characters.isEmpty {
+                MarkdownSelectableText(
+                    attributed: fallbackAttributed,
+                    font: baseFont,
+                    fontSize: prepared.fontSize,
+                    lineHeight: prepared.lineHeight,
+                    fontProfile: prepared.fontProfiles.body,
+                    textColor: theme.textColor,
+                    nativeTextSelection: nativeTextSelection,
+                    lineSpacing: lineSpacing,
+                    wraps: false
+                )
+                    .frame(width: width, height: height, alignment: .topLeading)
+                    .clipped()
+            } else {
+                MarkdownSelectableText(
+                    attributed: renderedLines,
+                    font: baseFont,
+                    fontSize: prepared.fontSize,
+                    lineHeight: prepared.lineHeight,
+                    fontProfile: prepared.fontProfiles.body,
+                    textColor: theme.textColor,
+                    nativeTextSelection: nativeTextSelection,
+                    lineSpacing: lineSpacing,
+                    wraps: false
+                )
+                    .frame(width: width, height: height, alignment: .topLeading)
+                    .clipped()
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel(String(fallbackAttributed.characters))
+            }
         }
     }
 
     private var lineSpacing: CGFloat {
         InlineRunsView.nativeLineSpacing(for: prepared)
+    }
+
+    private var shouldPaintWithCoreText: Bool {
+        inlineRenderingMode == .coreTextPaintedLines &&
+            nativeTextSelection != .enabled &&
+            CoreTextPaintedInlineLineView.isSupported &&
+            !layoutResult.lines.isEmpty
     }
 
     private var nativeLineSurfaceHeight: CGFloat {
