@@ -10,7 +10,7 @@ The package is built around three principles:
 
 ## Status
 
-This checkout is the `0.5.2` public package release. The release gate is strict Swift-vs-Pretext layout comparison, required Pretext product fixture groups, AppKit render probes for document, compact chat, transcript wrapping, multilingual, inline-attribute, overflow, hard-break, long-word, finite-column containment, wide-to-narrow resize, document affordance chrome, Mermaid diagram pan/zoom, enabled native text selection, default-on document selection, document-selection invalidation-storm counters, and language-aware code highlighting output, plus AppKit-hosted transcript command clipping regressions and a clean local SwiftPM consumer build. Fixture drift, missing groups, duplicate fixture names/groups, missing required tests, and trivial render output are release blockers.
+This checkout is the `0.5.3` public package release. The release gate is strict Swift-vs-Pretext layout comparison, required Pretext product fixture groups, AppKit render probes for document, compact chat, transcript wrapping, multilingual, inline-attribute, currency-safe dollar math, overflow, hard-break, long-word, finite-column containment, wide-to-narrow resize, document affordance chrome, Mermaid diagram pan/zoom, enabled native text selection, default-on document selection, document-selection invalidation-storm counters, and language-aware code highlighting output, plus AppKit-hosted transcript command clipping regressions and a clean local SwiftPM consumer build. Fixture drift, missing groups, duplicate fixture names/groups, missing required tests, and trivial render output are release blockers.
 
 The current product claim is native SwiftUI Markdown rendering with prepared-line layout, streaming snapshots, bounded caches, safe default policies, language-aware default code highlighting, built-in Mermaid diagram rendering with package-owned inline pan/zoom controls and deterministic plain-code fallback, generic document/code affordances with explicit accessibility labels, public chat/document presets, first-class H1-H6 heading typography through `MarkdownTheme.headings`, containment-stable prepared native lines for transcript-style paths, commands, URLs, long identifiers, nested lists, quotes, table cells, and glyph-bound paint, plus default-on source-backed document selection for cross-block drag highlights and Cmd-C. Document selection paint is emitted by rendered text leaves and clipped through prepared-line/CoreText offsets; it is not a parent row or block rectangle overlay. `nativeTextSelection` remains a separate macOS leaf-level compatibility opt-in that uses bounded AppKit text leaves instead of SwiftUI's private `SelectionOverlay`; it is not required for document selection. It is not a custom glyph renderer: `preparedNativeLines` slices prepared attributed line ranges and renders them natively while CoreText owns measurement.
 
@@ -25,7 +25,7 @@ In `Package.swift` (adjust the package URL to the published repository):
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/mikhutchinson/SiriusMarkdown.git", from: "0.5.2")
+    .package(url: "https://github.com/mikhutchinson/SiriusMarkdown.git", from: "0.5.3")
 ],
 targets: [
     .target(
@@ -153,7 +153,7 @@ let configuration = MarkdownRendererConfiguration(
 )
 ```
 
-`NativeMarkdownMathRenderer` typesets math with CoreText (via SwiftMath) — real glyphs, no WebView, no SVG, no network. It recognizes display math (`$$ ... $$` and `\[ ... \]`), inline math (`$ ... $` and `\( ... \)`), and `\begin{...} ... \end{...}` environments. Equations are typeset once during preparation and cached; display blocks render centered with horizontal-scroll overflow, and inline math composes natively so it wraps with surrounding text. The dependency is linked only into `SiriusMarkdownMath`, so `SiriusMarkdownCore` and `SiriusMarkdownSwiftUI` stay dependency-free; hosts that ship their own engine can conform to `MarkdownMathRenderer` (implement `preparedMath(_:isBlock:fontSize:)` for typeset output, or just `renderedMath(_:isBlock:)` for text).
+`NativeMarkdownMathRenderer` typesets math with CoreText (via SwiftMath) — real glyphs, no WebView, no SVG, no network. It recognizes display math (`$$ ... $$` and `\[ ... \]`), inline math (`$ ... $` and `\( ... \)`), and `\begin{...} ... \end{...}` environments. Dollar-delimited inline math remains source-preserving, but common currency/reward amounts such as `$100 - $5,500`, `$108,500`, and compact ISO currency-code amounts stay ordinary text; compact code checks use Foundation's `Locale.Currency.isoCurrencies` rather than a package-maintained list. Equations are typeset once during preparation and cached; display blocks render centered with horizontal-scroll overflow, and inline math composes natively so it wraps with surrounding text. The dependency is linked only into `SiriusMarkdownMath`, so `SiriusMarkdownCore` and `SiriusMarkdownSwiftUI` stay dependency-free; hosts that ship their own engine can conform to `MarkdownMathRenderer` (implement `preparedMath(_:isBlock:fontSize:)` for typeset output, or just `renderedMath(_:isBlock:)` for text).
 
 The direct `snapshot:` view initializers remain for small compatibility cases, but they are deprecated because they skip full preparation at the view boundary. They still enforce cheap code, math, and HTML policy denials; applications that stream or resize long content should keep full preparation in their model layer.
 
@@ -194,7 +194,7 @@ The release and product gates cover more than construction smoke tests:
 - conservative sealing avoids open fences, math, HTML, true reference-link ambiguity, and loose-list ambiguity while allowing literal unmatched bracket prose to seal at paragraph boundaries;
 - SwiftUI renderer inputs are prepared outside block bodies, including inline layout, language-aware code highlighting, built-in Mermaid rendering, math rendering, and policy decisions;
 - `MarkdownRenderSession` keeps streaming, copy, cache, and prepared-snapshot state out of SwiftUI view bodies;
-- inline math is detected source-preservingly while code spans and fences remain excluded;
+- inline math is detected source-preservingly while code spans, fences, common currency/reward amounts, and compact ISO currency-code amounts remain excluded;
 - image runs produce prepared placeholder/resolution decisions, with no remote image loading by default;
 - document selection defaults on for cross-block drag highlights and Cmd-C copy, using ordered source ranges through `MarkdownSelectionController` and `MarkdownCopyProvider`;
 - exact Markdown source copy wins for whole-block, partial-line, contiguous multi-block, and deterministic non-contiguous selection; prepared plain text is only a fallback when source is unavailable;
@@ -297,12 +297,12 @@ bash Tools/product-check.sh
 
 ## Release
 
-`0.5.2` is ready to publish only when:
+`0.5.3` is ready to publish only when:
 
 - `README.md`, DocC, `Docs/architecture.md`, `Docs/native-renderer-scorecard.md`, `NOTICE.md`, `changelog.md`, `bugfix.md`, and `runbook.md` describe the current public package surface;
 - `bash Tools/product-check.sh` passes from the repository root;
 - `git diff --check` reports no whitespace errors;
 - `git remote -v` points at the intended public repository;
-- the release commit is tagged as `0.5.2` and pushed with tags.
+- the release commit is tagged as `0.5.3` and pushed with tags.
 
 Recommended release commands are documented in `runbook.md`.

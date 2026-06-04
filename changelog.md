@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.3 - 2026-06-03
+
+- Fixed dollar-delimited inline math detection so currency and reward amounts such as `$100 - $5,500`, `$108,500`, and screenshot-shaped reward tables stay literal while real inline math continues to parse.
+- Switched compact currency-code detection to Foundation's `Locale.Currency.isoCurrencies` instead of a package-maintained suffix list.
+- Added parser and SwiftUI preparation regressions for table currency amounts, styled and linked currency contexts, numeric-leading math, code spans, `\(...\)` fallback parsing, and every Foundation ISO currency identifier; the release gate now discovers and requires `466` Swift tests.
+
 ## 0.5.2 - 2026-06-03
 
 - Hardened streaming boundary scanning and sealed-reference carry-forward across generated stream-vs-one-shot matrices covering reference definitions, inline reference ambiguity, container fences, display math, raw HTML, list continuations, tables, and host boundaries.
