@@ -145,12 +145,31 @@ struct InlineMathTextView: View {
     private func selectionFragments(rect: CGRect) -> [MarkdownDocumentSelectionFragment] {
         guard let documentSelectionContext,
               let sourceRange = prepared?.prepared.sourceRange,
+              let prepared,
               rect.width.isFinite,
               rect.height.isFinite,
               rect.width > 0,
               rect.height > 0
         else {
             return []
+        }
+
+        let layoutWidth = InlineRunsView.nativeLineLayoutWidth(
+            for: prepared,
+            containerWidth: Double(rect.width)
+        )
+        let lineFragments = MarkdownDocumentSelectionFragment.inlineLineFragments(
+            blockID: documentSelectionContext.blockID,
+            prepared: prepared,
+            layout: prepared.layout(
+                containerWidth: layoutWidth,
+                allowsOverwideFallback: true
+            ),
+            rect: rect,
+            idPrefix: "text-leaf-math"
+        )
+        if !lineFragments.isEmpty {
+            return lineFragments
         }
 
         return [

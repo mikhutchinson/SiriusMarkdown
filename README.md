@@ -18,11 +18,15 @@ The core contract is simple:
 
 ## Current Release
 
-`0.5.4` ships `MarkdownInlineRenderingMode.coreTextPaintedLines` as the default
+`0.5.5` ships `MarkdownInlineRenderingMode.coreTextPaintedLines` as the default
 for `MarkdownRendererConfiguration()`, `.compactChat`, and `.document`.
 Prepared line ranges come from SiriusMarkdown's layout engine; AppKit/UIKit
 bridges paint each line through CoreText `CTLineDraw`; links use bounded hit
 regions derived from already policy-filtered prepared attributes.
+
+This patch also hardens shipped-app resource lookup for bundled HighlightJS and
+Mermaid preparation, and tightens source-backed document selection/copy across
+code, math, HTML, tables, lists, styled Markdown, and streamed appends.
 
 `preparedNativeLines` and `systemText` remain explicit compatibility fallbacks.
 `nativeTextSelection` is a separate disabled-by-default compatibility mode. When
@@ -39,7 +43,7 @@ selection depend on SwiftUI's private selection overlay.
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/mikhutchinson/SiriusMarkdown.git", from: "0.5.4")
+    .package(url: "https://github.com/mikhutchinson/SiriusMarkdown.git", from: "0.5.5")
 ],
 targets: [
     .target(
@@ -216,7 +220,7 @@ git diff --check
 
 ## Release
 
-`0.5.4` is ready only when the docs describe the current public package surface,
+`0.5.5` is ready only when the docs describe the current public package surface,
 `bash Tools/product-check.sh` passes from the repository root, `git diff --check`
 is clean, the public remote is correct, and the release commit is tagged and
-pushed as `0.5.4`.
+pushed as `0.5.5`.

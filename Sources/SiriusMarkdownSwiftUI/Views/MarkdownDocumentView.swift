@@ -357,6 +357,9 @@ private struct MarkdownDocumentSelectionLayer<Content: View>: View {
                 fragments = value.sortedForSelection()
             }
             .contextMenu {
+                Button("Select All") {
+                    selectAll()
+                }
                 Button("Copy Selection") {
                     copySelection()
                 }
@@ -436,6 +439,10 @@ private struct MarkdownDocumentSelectionLayer<Content: View>: View {
         copyContext.copySelection()
     }
 
+    private func selectAll() {
+        copyContext.selectAll()
+    }
+
     private func takeFocus() {
         focusToken &+= 1
     }
@@ -466,6 +473,11 @@ struct MarkdownDocumentSelectionCopyContext {
             return
         }
         affordanceActionHandler.copyString(markdown)
+    }
+
+    @MainActor
+    func selectAll() {
+        selectionController.selectAll(in: preparedSnapshot)
     }
 }
 
@@ -515,6 +527,11 @@ struct MarkdownDocumentSelectionKeyHandler: NSViewRepresentable {
         func copySelection() {
             copyContext.copySelection()
         }
+
+        @MainActor
+        func selectAll() {
+            copyContext.selectAll()
+        }
     }
 
     final class CopyKeyView: NSView {
@@ -525,9 +542,17 @@ struct MarkdownDocumentSelectionKeyHandler: NSViewRepresentable {
         }
 
         override func keyDown(with event: NSEvent) {
-            if event.modifierFlags.contains(.command),
-               event.charactersIgnoringModifiers?.lowercased() == "c" {
+            guard event.modifierFlags.contains(.command),
+                  let character = event.charactersIgnoringModifiers?.lowercased()
+            else {
+                super.keyDown(with: event)
+                return
+            }
+
+            if character == "c" {
                 coordinator?.copySelection()
+            } else if character == "a" {
+                coordinator?.selectAll()
             } else {
                 super.keyDown(with: event)
             }

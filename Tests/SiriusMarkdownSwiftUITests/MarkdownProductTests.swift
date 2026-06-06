@@ -126,6 +126,90 @@ func MarkdownSelectionControllerFallsBackToPlainTextWhenSourceIsUnavailable() as
 
 @Test
 @MainActor
+func MarkdownSelectionControllerPlainTextFallbackRespectsSelectedSourceRanges() async throws {
+    let source = """
+    Alpha beta gamma.
+
+    - first item
+    - second item
+
+    | A | B |
+    | - | - |
+    | one | two |
+    """
+    let session = MarkdownRenderSession(configuration: .document)
+    session.append(source)
+    session.finish()
+    await session.waitUntilIdle()
+
+    let paragraph = try #require(session.snapshot.blocks.first { $0.kind == .paragraph })
+    let list = try #require(session.snapshot.blocks.first { $0.kind == .unorderedList })
+    let table = try #require(session.snapshot.blocks.first { $0.kind == .table })
+    let controller = MarkdownSelectionController()
+    controller.updateSnapshot(session.snapshot)
+
+    controller.selectSourceRanges(
+        [sourceRange(of: "beta gamma", in: source)],
+        selectedBlockIDs: [paragraph.id]
+    )
+    #expect(controller.selectedMarkdown(in: session.preparedSnapshot, copyProvider: nil) == "beta gamma")
+
+    controller.selectSourceRanges(
+        [
+            sourceRange(of: "second", in: source),
+            sourceRange(of: "two", in: source),
+        ],
+        selectedBlockIDs: [list.id, table.id]
+    )
+    #expect(controller.selectedMarkdown(in: session.preparedSnapshot, copyProvider: nil) == "second\ntwo")
+}
+
+@Test
+@MainActor
+func MarkdownSelectionControllerKeepsRangeIntentAcrossSnapshotUpdates() async throws {
+    let initial = "Alpha beta gamma.\n\n"
+    let appended = "Tail paragraph.\n"
+    let session = MarkdownRenderSession(configuration: .document)
+    session.append(initial)
+    await session.waitUntilIdle()
+
+    let block = try #require(session.snapshot.blocks.first)
+    let partialRange = sourceRange(of: "beta", in: initial)
+    let controller = MarkdownSelectionController()
+    controller.updateSnapshot(session.snapshot)
+    controller.selectSourceRanges([partialRange], selectedBlockIDs: [block.id])
+
+    session.append(appended)
+    await session.waitUntilIdle()
+    controller.updateSnapshot(session.snapshot)
+
+    #expect(controller.selectedSourceRanges == [partialRange])
+    #expect(controller.selectedMarkdown(in: session.preparedSnapshot, copyProvider: session.configuration.copyProvider) == "beta")
+}
+
+@Test
+@MainActor
+func MarkdownSelectionControllerSelectAllTracksAppendedDocument() async throws {
+    let initial = "Alpha beta gamma.\n\n"
+    let appended = "Tail paragraph.\n"
+    let session = MarkdownRenderSession(configuration: .document)
+    session.append(initial)
+    await session.waitUntilIdle()
+
+    let controller = MarkdownSelectionController(maximumSelectedBlockCount: 1)
+    controller.selectAll(in: session.snapshot)
+
+    session.append(appended)
+    await session.waitUntilIdle()
+    controller.updateSnapshot(session.snapshot)
+
+    #expect(controller.selectedBlockIDs.count == session.snapshot.blocks.count)
+    #expect(controller.selectedSourceRanges.map(\.byteRange) == [0..<session.snapshot.sourceLength])
+    #expect(controller.selectedMarkdown(in: session.preparedSnapshot, copyProvider: session.configuration.copyProvider) == initial + appended)
+}
+
+@Test
+@MainActor
 func MarkdownSelectionSurvivesStreamingAppendAndWidthRelayoutWithoutExpensiveWork() async throws {
     let renderRecorder = MarkdownDiagnosticsRecorder()
     let session = MarkdownRenderSession(

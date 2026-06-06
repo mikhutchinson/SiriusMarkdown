@@ -111,6 +111,7 @@ public final class MarkdownSelectionController: ObservableObject {
     }
 
     public func updateSnapshot(_ snapshot: MarkdownSnapshot) {
+        let previousFullDocumentByteRange = 0..<snapshotSourceLength
         blockOrder = snapshot.blocks.map(\.id)
         sourceRangeByBlockID = Dictionary(uniqueKeysWithValues: snapshot.blocks.map { ($0.id, $0.sourceRange) })
         snapshotSourceLength = snapshot.sourceLength
@@ -122,11 +123,23 @@ public final class MarkdownSelectionController: ObservableObject {
                 $0.byteRange.lowerBound > $0.byteRange.upperBound
         }
         if !selectedBlockIDs.isEmpty {
-            let hadSingleContiguousRange = selectedSourceRanges.count == 1
-            selectedSourceRanges = if hadSingleContiguousRange {
-                combinedRange(for: selectedBlockIDs).map { [$0] } ?? []
+            let fullDocumentRange = fullDocumentSourceRange()
+            let hadFullDocumentRange = selectedSourceRanges.count == 1 &&
+                selectedSourceRanges.first?.byteRange == previousFullDocumentByteRange
+            let combinedSelectedBlockRange = combinedRange(for: selectedBlockIDs)
+            let hadContiguousBlockRange = selectedSourceRanges.count == 1 &&
+                selectedSourceRanges.first?.byteRange == combinedSelectedBlockRange?.byteRange
+            let selectedBlockRanges = orderedRanges(for: selectedBlockIDs)
+            let hadBlockRangeSelection = selectedSourceRanges.map(\.byteRange) == selectedBlockRanges.map(\.byteRange)
+            if hadFullDocumentRange {
+                selectedBlockIDs = blockOrder
+                selectedSourceRanges = [fullDocumentRange]
+            } else if hadContiguousBlockRange {
+                selectedSourceRanges = combinedSelectedBlockRange.map { [$0] } ?? []
+            } else if hadBlockRangeSelection {
+                selectedSourceRanges = selectedBlockRanges
             } else {
-                orderedRanges(for: selectedBlockIDs)
+                selectedSourceRanges = Self.orderedNonOverlappingRanges(selectedSourceRanges)
             }
         }
         trimSelectionIfNeeded()
@@ -173,6 +186,21 @@ public final class MarkdownSelectionController: ObservableObject {
         sortSelectionInDocumentOrder()
         selectedSourceRanges = Self.orderedNonOverlappingRanges(sourceRanges)
         trimSelectionIfNeeded()
+    }
+
+    public func selectAll(in snapshot: MarkdownSnapshot) {
+        updateSnapshot(snapshot)
+        guard snapshot.sourceLength > 0 else {
+            clearSelection()
+            return
+        }
+
+        selectedBlockIDs = blockOrder
+        selectedSourceRanges = [fullDocumentSourceRange()]
+    }
+
+    public func selectAll(in preparedSnapshot: MarkdownPreparedSnapshot) {
+        selectAll(in: preparedSnapshot.snapshot)
     }
 
     public func clearSelection() {
@@ -261,7 +289,17 @@ public final class MarkdownSelectionController: ObservableObject {
     }
 
     public func selectedPlainText(in preparedSnapshot: MarkdownPreparedSnapshot) -> String {
-        selectedBlocks(in: preparedSnapshot).map(Self.plainText(for:)).joined(separator: "\n")
+        if !selectedSourceRanges.isEmpty {
+            let text = Self.plainText(
+                for: Self.orderedNonOverlappingRanges(selectedSourceRanges),
+                in: preparedSnapshot.snapshot
+            )
+            if !text.isEmpty {
+                return text
+            }
+        }
+
+        return selectedBlocks(in: preparedSnapshot).map(Self.plainText(for:)).joined(separator: "\n")
     }
 
     public func copySelectedMarkdown(
@@ -310,6 +348,12 @@ public final class MarkdownSelectionController: ObservableObject {
             return
         }
 
+        let fullDocumentRange = fullDocumentSourceRange()
+        let isFullDocumentSelection = selectedSourceRanges.count == 1 &&
+            selectedSourceRanges.first?.byteRange == fullDocumentRange.byteRange
+        guard !isFullDocumentSelection else {
+            return
+        }
         let hadSingleContiguousRange = selectedSourceRanges.count == 1
         selectedBlockIDs = Array(selectedBlockIDs.prefix(maximumSelectedBlockCount))
         selectedSourceRanges = if hadSingleContiguousRange {
@@ -317,6 +361,15 @@ public final class MarkdownSelectionController: ObservableObject {
         } else {
             orderedRanges(for: selectedBlockIDs)
         }
+    }
+
+    private func fullDocumentSourceRange() -> MarkdownSourceRange {
+        let lineLower = sourceRangeByBlockID.values.map(\.lineRange.lowerBound).min() ?? 1
+        let lineUpper = sourceRangeByBlockID.values.map(\.lineRange.upperBound).max() ?? lineLower
+        return MarkdownSourceRange(
+            byteRange: 0..<snapshotSourceLength,
+            lineRange: lineLower..<max(lineUpper, lineLower + 1)
+        )
     }
 
     private func orderedRanges(for blockIDs: [MarkdownBlockID]) -> [MarkdownSourceRange] {
@@ -385,6 +438,174 @@ public final class MarkdownSelectionController: ObservableObject {
         }
     }
 
+    private static func plainText(
+        for ranges: [MarkdownSourceRange],
+        in snapshot: MarkdownSnapshot
+    ) -> String {
+        ranges.map { range in
+            snapshot.blocks.compactMap { block in
+                plainText(in: range.byteRange, for: block)
+            }
+            .filter { !$0.isEmpty }
+            .joined(separator: "\n")
+        }
+        .filter { !$0.isEmpty }
+        .joined(separator: "\n")
+    }
+
+    private static func plainText(
+        in selectedRange: Range<Int>,
+        for block: MarkdownBlock
+    ) -> String? {
+        guard selectedRange.overlaps(block.sourceRange.byteRange) else {
+            return nil
+        }
+        if selectedRange.contains(block.sourceRange.byteRange) {
+            return plainText(for: block)
+        }
+
+        switch block.kind {
+        case .unorderedList, .orderedList, .taskList:
+            return joinedPlainText(block.listItems.compactMap { plainText(in: selectedRange, for: $0) })
+        case .table:
+            guard let table = block.table else {
+                return plainText(in: selectedRange, runs: block.inlines, fallbackText: block.text)
+            }
+            return plainText(in: selectedRange, for: table)
+        default:
+            return plainText(in: selectedRange, runs: block.inlines, fallbackText: block.text)
+        }
+    }
+
+    private static func plainText(
+        in selectedRange: Range<Int>,
+        for item: MarkdownListItem
+    ) -> String? {
+        guard selectedRange.overlaps(item.sourceRange.byteRange) else {
+            return nil
+        }
+        if selectedRange.contains(item.sourceRange.byteRange) {
+            return plainText(for: item)
+        }
+
+        let ownText = plainText(in: selectedRange, runs: item.inlines, fallbackText: item.text)
+        let childText = item.childItems.compactMap { plainText(in: selectedRange, for: $0) }
+        return joinedPlainText(([ownText] + childText).compactMap { $0 })
+    }
+
+    private static func plainText(
+        in selectedRange: Range<Int>,
+        for table: MarkdownTableBlock
+    ) -> String? {
+        let rows = ([table.header] + table.rows).compactMap { row -> String? in
+            let cells = row.compactMap { cell -> String? in
+                guard selectedRange.overlaps(cell.sourceRange.byteRange) else {
+                    return nil
+                }
+                if selectedRange.contains(cell.sourceRange.byteRange) {
+                    return cell.text
+                }
+                return plainText(in: selectedRange, runs: cell.inlines, fallbackText: cell.text)
+            }
+            guard !cells.isEmpty else {
+                return nil
+            }
+            return cells.joined(separator: "\t")
+        }
+        return joinedPlainText(rows)
+    }
+
+    private static func plainText(
+        in selectedRange: Range<Int>,
+        runs: [MarkdownInlineRun],
+        fallbackText: String
+    ) -> String? {
+        let text = runs.map { plainText(in: selectedRange, for: $0) }.joined()
+        if !text.isEmpty {
+            return text
+        }
+
+        guard runs.isEmpty else {
+            return nil
+        }
+        return fallbackText.isEmpty ? nil : fallbackText
+    }
+
+    private static func plainText(
+        in selectedRange: Range<Int>,
+        for run: MarkdownInlineRun
+    ) -> String {
+        guard let sourceRange = run.sourceRange?.byteRange,
+              selectedRange.overlaps(sourceRange)
+        else {
+            return ""
+        }
+        if selectedRange.contains(sourceRange) {
+            return run.text
+        }
+
+        let overlap = max(selectedRange.lowerBound, sourceRange.lowerBound)..<min(selectedRange.upperBound, sourceRange.upperBound)
+        guard !overlap.isEmpty else {
+            return ""
+        }
+        if sourceRange.count == run.text.utf8.count {
+            let visibleRange = (overlap.lowerBound - sourceRange.lowerBound)..<(overlap.upperBound - sourceRange.lowerBound)
+            return substring(run.text, utf8Range: visibleRange)
+        }
+
+        let visibleLower = visibleByteOffset(
+            forSourceByteOffset: overlap.lowerBound,
+            sourceRange: sourceRange,
+            visibleByteCount: run.text.utf8.count
+        )
+        let visibleUpper = visibleByteOffset(
+            forSourceByteOffset: overlap.upperBound,
+            sourceRange: sourceRange,
+            visibleByteCount: run.text.utf8.count
+        )
+        return substring(run.text, utf8Range: min(visibleLower, visibleUpper)..<max(visibleLower, visibleUpper))
+    }
+
+    private static func visibleByteOffset(
+        forSourceByteOffset sourceByteOffset: Int,
+        sourceRange: Range<Int>,
+        visibleByteCount: Int
+    ) -> Int {
+        guard sourceRange.count > 0, visibleByteCount > 0 else {
+            return 0
+        }
+        let clamped = min(max(sourceByteOffset, sourceRange.lowerBound), sourceRange.upperBound)
+        let progress = Double(clamped - sourceRange.lowerBound) / Double(sourceRange.count)
+        return min(visibleByteCount, max(0, Int((Double(visibleByteCount) * progress).rounded())))
+    }
+
+    private static func substring(_ text: String, utf8Range: Range<Int>) -> String {
+        let lowerOffset = min(max(utf8Range.lowerBound, 0), text.utf8.count)
+        let upperOffset = min(max(utf8Range.upperBound, lowerOffset), text.utf8.count)
+        guard lowerOffset < upperOffset,
+              let lowerUTF8 = text.utf8.index(
+                text.utf8.startIndex,
+                offsetBy: lowerOffset,
+                limitedBy: text.utf8.endIndex
+              ),
+              let upperUTF8 = text.utf8.index(
+                text.utf8.startIndex,
+                offsetBy: upperOffset,
+                limitedBy: text.utf8.endIndex
+              ),
+              let lower = String.Index(lowerUTF8, within: text),
+              let upper = String.Index(upperUTF8, within: text)
+        else {
+            return ""
+        }
+        return String(text[lower..<upper])
+    }
+
+    private static func joinedPlainText(_ parts: [String]) -> String? {
+        let text = parts.filter { !$0.isEmpty }.joined(separator: "\n")
+        return text.isEmpty ? nil : text
+    }
+
     private static func plainText(for item: MarkdownListItem) -> String {
         let marker: String
         switch item.taskState {
@@ -398,6 +619,12 @@ public final class MarkdownSelectionController: ObservableObject {
 
         let children = item.childItems.map(plainText(for:)).joined(separator: "\n")
         return children.isEmpty ? marker + item.text : marker + item.text + "\n" + children
+    }
+}
+
+private extension Range where Bound == Int {
+    func contains(_ other: Range<Int>) -> Bool {
+        lowerBound <= other.lowerBound && other.upperBound <= upperBound
     }
 }
 

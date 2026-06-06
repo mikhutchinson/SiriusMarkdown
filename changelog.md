@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.5 - 2026-06-06
+
+- Fixed shipped-app JavaScript resource lookup for bundled HighlightJS and Mermaid runtimes by searching the main app bundle, SwiftPM resource bundles, framework bundles, and adjacent resource directories before disabling preparation.
+- Hardened default document selection so code blocks, text-rendered math, image-backed inline math, allowed HTML, table cells, list rows, and styled Markdown map visible drags back to precise source ranges.
+- Added Cmd-A and context-menu Select All support for package-owned document selection, with full-document selections tracking streamed appends instead of being clipped by the configured block-selection cap.
+- Fixed fallback plain-text copy without a `MarkdownCopyProvider` so partial and non-contiguous source selections copy only the selected visible text instead of whole selected blocks.
+- Fixed multi-chunk UTF-8 source slices and line decoding so source-backed selection/copy remains byte-accurate across chunk boundaries and multibyte scalars.
+- Expanded AppKit selection, controller, parser, source-buffer, product, and performance regressions; the release gate now discovers `485` Swift tests.
+
 ## 0.5.4 - 2026-06-04
 
 - Made CoreText-painted prepared-line inline rendering the default for `MarkdownRendererConfiguration()`, `.compactChat`, and `.document`.

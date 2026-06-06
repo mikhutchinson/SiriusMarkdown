@@ -770,11 +770,15 @@ struct MarkdownDocumentSelectionSourceRun: Equatable, Sendable {
         visibleByteRange.count == sourceRange.byteRange.count
     }
 
+    private var usesBoundarySnapping: Bool {
+        isAtomic || !mapsOneToOne
+    }
+
     func sourceByteOffset(forVisibleByteOffset visibleByteOffset: Int) -> Int {
         let clamped = min(max(visibleByteOffset, visibleByteRange.lowerBound), visibleByteRange.upperBound)
         let visibleLength = max(1, visibleByteRange.count)
         let sourceLength = max(0, sourceRange.byteRange.count)
-        if isAtomic && visibleLength != sourceLength {
+        if usesBoundarySnapping {
             let midpoint = visibleByteRange.lowerBound + visibleLength / 2
             return clamped <= midpoint ? sourceRange.byteRange.lowerBound : sourceRange.byteRange.upperBound
         }
@@ -790,7 +794,7 @@ struct MarkdownDocumentSelectionSourceRun: Equatable, Sendable {
         let clamped = min(max(sourceByteOffset, sourceRange.byteRange.lowerBound), sourceRange.byteRange.upperBound)
         let visibleLength = max(0, visibleByteRange.count)
         let sourceLength = max(1, sourceRange.byteRange.count)
-        if isAtomic && visibleLength != sourceLength {
+        if usesBoundarySnapping {
             if clamped <= sourceRange.byteRange.lowerBound {
                 return visibleByteRange.lowerBound
             }
@@ -824,6 +828,9 @@ private extension MarkdownInlineRun {
 
 extension MarkdownPreparedBlockContent {
     var emitsTextLeafSelectionFragments: Bool {
+        if selectionInlineLayout != nil {
+            return true
+        }
         if inlineLayout != nil {
             return true
         }

@@ -24,12 +24,7 @@ public struct MarkdownSourceSlice: Sendable, Hashable {
             return String(decoding: segment, as: UTF8.self)
         }
 
-        var result = ""
-        result.reserveCapacity(byteRange.count)
-        for segment in segments {
-            result += String(decoding: segment, as: UTF8.self)
-        }
-        return result
+        return String(decoding: segments.joined(), as: UTF8.self)
     }
 
     public var contentHash: UInt64 {
@@ -79,12 +74,7 @@ public struct MarkdownSourceLine: Sendable, Hashable {
             return String(decoding: segment, as: UTF8.self)
         }
 
-        var result = ""
-        result.reserveCapacity(byteRange.count)
-        for segment in segments {
-            result += String(decoding: segment, as: UTF8.self)
-        }
-        return result
+        return String(decoding: segments.joined(), as: UTF8.self)
     }
 }
 

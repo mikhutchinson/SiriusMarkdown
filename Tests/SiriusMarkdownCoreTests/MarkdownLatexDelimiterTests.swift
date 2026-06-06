@@ -8,34 +8,55 @@ private func snapshot(_ markdown: String) -> MarkdownSnapshot {
     return stream.snapshot()
 }
 
+private func utf8Range(of needle: String, in haystack: String) -> Range<Int>? {
+    guard let range = haystack.range(of: needle),
+          let lower = range.lowerBound.samePosition(in: haystack.utf8),
+          let upper = range.upperBound.samePosition(in: haystack.utf8)
+    else {
+        return nil
+    }
+    let lowerOffset = haystack.utf8.distance(from: haystack.utf8.startIndex, to: lower)
+    let upperOffset = haystack.utf8.distance(from: haystack.utf8.startIndex, to: upper)
+    return lowerOffset..<upperOffset
+}
+
 @Test
 func displayMathBracketsOnOwnLinesParseAsMathBlock() throws {
-    let snapshot = snapshot("""
+    let markdown = """
     \\[
     \\lim_{x \\to a} \\frac{f(x)}{g(x)}
     \\]
-    """)
+    """
+    let snapshot = snapshot(markdown)
 
     let block = try #require(snapshot.blocks.first)
     #expect(block.kind == .mathBlock)
     let mathRun = try #require(block.inlines.first { $0.kind == .math })
+    let contentRange = try #require(utf8Range(of: "\\lim_{x \\to a} \\frac{f(x)}{g(x)}", in: markdown))
     #expect(mathRun.text == "\\lim_{x \\to a} \\frac{f(x)}{g(x)}")
+    #expect(mathRun.sourceRange?.byteRange == contentRange)
 }
 
 @Test
 func paragraphWithDisplayMathBracketsSplitsIntoTextMathTextBlocks() throws {
-    let snapshot = snapshot("""
+    let markdown = """
     Then:
     \\[
     \\lim_{x \\to a} \\frac{f(x)}{g(x)} = \\lim_{x \\to a} \\frac{f'(x)}{g'(x)}
     \\]
     if the derivative limit exists.
-    """)
+    """
+    let snapshot = snapshot(markdown)
 
     #expect(snapshot.blocks.map(\.kind) == [.paragraph, .mathBlock, .paragraph])
     let mathBlock = try #require(snapshot.blocks.first { $0.kind == .mathBlock })
     let mathRun = try #require(mathBlock.inlines.first { $0.kind == .math })
+    let contentRange = try #require(utf8Range(
+        of: "\\lim_{x \\to a} \\frac{f(x)}{g(x)} = \\lim_{x \\to a} \\frac{f'(x)}{g'(x)}",
+        in: markdown
+    ))
     #expect(mathRun.text == "\\lim_{x \\to a} \\frac{f(x)}{g(x)} = \\lim_{x \\to a} \\frac{f'(x)}{g'(x)}")
+    #expect(mathRun.sourceRange?.byteRange == contentRange)
 }
 
 @Test

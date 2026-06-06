@@ -296,6 +296,7 @@ public struct MarkdownRendererConfiguration: Sendable {
                         mermaid: mermaid
                     )
                 }
+                let selectionInline = preparedCodeSelectionInline(for: block)
                 let key = Self.codeCacheKey(
                     for: block,
                     code: code,
@@ -306,7 +307,11 @@ public struct MarkdownRendererConfiguration: Sendable {
                 if let key,
                    let cached = preparationCache.code(forKey: key) {
                     diagnosticsRecorder.recordCacheHit()
-                    return MarkdownPreparedBlockContent(blockID: block.id, code: cached)
+                    return MarkdownPreparedBlockContent(
+                        blockID: block.id,
+                        selectionInlineLayout: selectionInline,
+                        code: cached
+                    )
                 }
 
                 if key != nil {
@@ -326,6 +331,7 @@ public struct MarkdownRendererConfiguration: Sendable {
                 }
                 return MarkdownPreparedBlockContent(
                     blockID: block.id,
+                    selectionInlineLayout: selectionInline,
                     code: highlighted
                 )
             case let .deny(reason):
@@ -339,7 +345,7 @@ public struct MarkdownRendererConfiguration: Sendable {
                 if let key = blockMathCacheKey(for: block, fontSize: fontSize) {
                     if let cached = preparationCache.math(forKey: key) {
                         diagnosticsRecorder.recordCacheHit()
-                        return mathBlockContent(blockID: block.id, math: cached)
+                        return mathBlockContent(for: block, math: cached)
                     }
 
                     diagnosticsRecorder.recordCacheMiss()
@@ -348,21 +354,32 @@ public struct MarkdownRendererConfiguration: Sendable {
                         mathRenderer.preparedMath(math, isBlock: true, fontSize: fontSize)
                     }
                     preparationCache.insertMath(rendered, forKey: key)
-                    return mathBlockContent(blockID: block.id, math: rendered)
+                    return mathBlockContent(for: block, math: rendered)
                 }
 
                 diagnosticsRecorder.recordMathRender()
                 let rendered = MarkdownDiagnostics().signpost("MathRender", category: "RenderPreparation") {
                     mathRenderer.preparedMath(math, isBlock: true, fontSize: fontSize)
                 }
-                return mathBlockContent(blockID: block.id, math: rendered)
+                return mathBlockContent(for: block, math: rendered)
             case let .deny(reason):
                 return MarkdownPreparedBlockContent(blockID: block.id, policyDenialReason: reason)
             }
         case .htmlBlock:
             switch htmlPolicy.evaluateHTML(block.text) {
             case .allow:
-                return MarkdownPreparedBlockContent(blockID: block.id, htmlAllowed: true)
+                let selectionInline = htmlSelectionText(for: block).flatMap { text in
+                    preparedVisibleTextSelectionInline(
+                        text: text,
+                        sourceRange: block.sourceRange,
+                        block: block
+                    )
+                }
+                return MarkdownPreparedBlockContent(
+                    blockID: block.id,
+                    selectionInlineLayout: selectionInline,
+                    htmlAllowed: true
+                )
             case let .deny(reason):
                 return MarkdownPreparedBlockContent(
                     blockID: block.id,
@@ -609,19 +626,75 @@ public struct MarkdownRendererConfiguration: Sendable {
     }
 
     private func mathBlockContent(
-        blockID: MarkdownBlockID,
+        for block: MarkdownBlock,
         math: MarkdownPreparedMath
     ) -> MarkdownPreparedBlockContent {
         switch math {
         case let .text(attributed):
-            return MarkdownPreparedBlockContent(blockID: blockID, math: attributed, mathRender: .text(attributed))
+            let visibleText = String(attributed.characters)
+            return MarkdownPreparedBlockContent(
+                blockID: block.id,
+                selectionInlineLayout: preparedVisibleTextSelectionInline(
+                    text: visibleText,
+                    sourceRange: mathSelectionSourceRange(for: block),
+                    block: block
+                ),
+                math: attributed,
+                mathRender: .text(attributed)
+            )
         case let .image(image):
             return MarkdownPreparedBlockContent(
-                blockID: blockID,
+                blockID: block.id,
                 math: AttributedString(image.latex),
                 mathRender: .image(image)
             )
         }
+    }
+
+    private func preparedVisibleTextSelectionInline(
+        text: String,
+        sourceRange: MarkdownSourceRange,
+        block: MarkdownBlock
+    ) -> MarkdownPreparedInlineContent? {
+        guard !text.isEmpty else {
+            return nil
+        }
+
+        return preparedInline(
+            for: [
+                MarkdownInlineRun(
+                    kind: .text,
+                    text: text,
+                    sourceRange: sourceRange
+                )
+            ],
+            sourceRange: sourceRange,
+            block: block
+        )
+    }
+
+    private func htmlSelectionText(for block: MarkdownBlock) -> String? {
+        let sourceByteCount = block.sourceRange.byteRange.count
+        guard sourceByteCount > 0 else {
+            return nil
+        }
+        if block.text.utf8.count == sourceByteCount {
+            return block.text
+        }
+
+        var text = block.text
+        while text.utf8.count > sourceByteCount,
+              text.hasSuffix("\n") || text.hasSuffix("\r") {
+            text.removeLast()
+        }
+        guard text.utf8.count == sourceByteCount else {
+            return nil
+        }
+        return text
+    }
+
+    private func mathSelectionSourceRange(for block: MarkdownBlock) -> MarkdownSourceRange {
+        block.inlines.first { $0.kind == .math }?.sourceRange ?? block.sourceRange
     }
 
     private nonisolated static func codeCacheKey(
@@ -852,6 +925,26 @@ public struct MarkdownRendererConfiguration: Sendable {
             preparationCache.insertInline(inline, forKey: cacheKey)
         }
         return inline
+    }
+
+    private func preparedCodeSelectionInline(for block: MarkdownBlock) -> MarkdownPreparedInlineContent? {
+        guard block.kind == .codeBlock,
+              !block.inlines.isEmpty
+        else {
+            return nil
+        }
+
+        let sourceRange = block.inlines.first?.sourceRange ?? block.sourceRange
+        let selectionRuns = block.inlines.map { run in
+            MarkdownInlineRun(
+                kind: .text,
+                text: run.text,
+                sourceRange: run.sourceRange,
+                destination: run.destination,
+                imageSource: run.imageSource
+            )
+        }
+        return preparedInline(for: selectionRuns, sourceRange: sourceRange, block: block)
     }
 
     private func inlineCacheNamespace(
@@ -1565,6 +1658,7 @@ public struct MarkdownPreparedBlockContent: Sendable {
     public var blockID: MarkdownBlockID
     public var inline: AttributedString?
     public var inlineLayout: MarkdownPreparedInlineContent?
+    public var selectionInlineLayout: MarkdownPreparedInlineContent?
     public var listItems: [MarkdownPreparedListItem]
     public var table: MarkdownPreparedTableBlock?
     public var mermaid: MarkdownPreparedMermaidDiagram?
@@ -1578,6 +1672,7 @@ public struct MarkdownPreparedBlockContent: Sendable {
         blockID: MarkdownBlockID,
         inline: AttributedString? = nil,
         inlineLayout: MarkdownPreparedInlineContent? = nil,
+        selectionInlineLayout: MarkdownPreparedInlineContent? = nil,
         listItems: [MarkdownPreparedListItem] = [],
         table: MarkdownPreparedTableBlock? = nil,
         mermaid: MarkdownPreparedMermaidDiagram? = nil,
@@ -1590,6 +1685,7 @@ public struct MarkdownPreparedBlockContent: Sendable {
         self.blockID = blockID
         self.inline = inline
         self.inlineLayout = inlineLayout
+        self.selectionInlineLayout = selectionInlineLayout
         self.listItems = listItems
         self.table = table
         self.mermaid = mermaid

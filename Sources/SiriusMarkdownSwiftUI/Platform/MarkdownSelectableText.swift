@@ -12,8 +12,22 @@ struct MarkdownSelectableText: View {
     var nativeTextSelection: MarkdownNativeTextSelection
     var lineSpacing: CGFloat = 0
     var wraps: Bool = true
+    var selectionInlineLayout: MarkdownPreparedInlineContent?
 
+    @Environment(\.markdownDocumentSelectionContext) private var documentSelectionContext
+
+    @ViewBuilder
     var body: some View {
+        if selectionInlineLayout != nil, documentSelectionContext != nil {
+            selectableContent
+                .background(selectionFragmentPreference)
+        } else {
+            selectableContent
+        }
+    }
+
+    @ViewBuilder
+    private var selectableContent: some View {
         #if os(macOS)
         if nativeTextSelection == .enabled {
             MarkdownAppKitSelectableTextView(
@@ -41,6 +55,56 @@ struct MarkdownSelectableText: View {
             .lineSpacing(lineSpacing)
             .markdownNativeTextSelection(nativeTextSelection)
             .environment(\.openURL, markdownOpenURLAction(linkAction: linkAction))
+    }
+
+    private var selectionFragmentPreference: some View {
+        GeometryReader { proxy in
+            let rect = selectionPreferenceRect(from: proxy)
+            Color.clear.preference(
+                key: MarkdownDocumentSelectionFragmentsKey.self,
+                value: selectionFragments(rect: rect)
+            )
+        }
+        .allowsHitTesting(false)
+    }
+
+    private func selectionPreferenceRect(from proxy: GeometryProxy) -> CGRect {
+        selectionInlineLayout?.layoutCache.recordSelectionPreferenceBodyEvaluation()
+        selectionInlineLayout?.layoutCache.recordSelectionFrameQuery()
+        return proxy.frame(in: .named(markdownDocumentSelectionCoordinateSpaceName))
+    }
+
+    private func selectionFragments(rect: CGRect) -> [MarkdownDocumentSelectionFragment] {
+        guard let documentSelectionContext,
+              let selectionInlineLayout,
+              rect.width.isFinite,
+              rect.height.isFinite,
+              rect.width > 0,
+              rect.height > 0
+        else {
+            return []
+        }
+
+        let layoutWidth: Double
+        if wraps {
+            layoutWidth = InlineRunsView.nativeLineLayoutWidth(
+                for: selectionInlineLayout,
+                containerWidth: Double(rect.width)
+            )
+        } else {
+            layoutWidth = max(Double(rect.width), selectionInlineLayout.measured.naturalWidth)
+        }
+
+        return MarkdownDocumentSelectionFragment.inlineLineFragments(
+            blockID: documentSelectionContext.blockID,
+            prepared: selectionInlineLayout,
+            layout: selectionInlineLayout.layout(
+                containerWidth: layoutWidth,
+                allowsOverwideFallback: wraps
+            ),
+            rect: rect,
+            idPrefix: "selectable-text"
+        )
     }
 }
 

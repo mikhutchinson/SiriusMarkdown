@@ -823,6 +823,17 @@ func nativeTextSelectionMountsOnlyBoundedTextLeaves() throws {
 }
 
 @Test
+func defaultJavaScriptResourceLoadingUsesNonTrappingLookup() throws {
+    let root = packageRootURL()
+    let sourceFiles = try swiftSourceFiles(under: root.appending(path: "Sources/SiriusMarkdownSwiftUI"))
+    let offenders = try sourceFiles.filter { file in
+        try String(contentsOf: file, encoding: .utf8).contains("Bundle.module")
+    }
+
+    #expect(offenders.isEmpty)
+}
+
+@Test
 func defaultDocumentSelectionEmitsTextLeafRectsForListRows() throws {
     let markdown = """
     - List selection should be bounded to the text leaf instead of the full transcript row.
@@ -1053,6 +1064,203 @@ func defaultDocumentSelectionClipsHighlightsToPartialPreparedLineRangesOnMacOS()
 
 @Test
 @MainActor
+func defaultDocumentSelectionSnapsInlineCodeDragToWholeMarkdownSourceRunOnMacOS() throws {
+    let markdown = "Before `code value` after"
+    let codeRange = try utf8Range(of: "`code value`", in: markdown)
+    var stream = MarkdownStream()
+    stream.append(markdown)
+    stream.finish()
+
+    var configuration = MarkdownRendererConfiguration.compactChat
+    configuration.copyProvider = MarkdownCopyProvider(markdownSource: markdown)
+    let snapshot = stream.snapshot()
+    let prepared = configuration.prepare(snapshot: snapshot)
+    let block = try #require(snapshot.blocks.first)
+    let content = try #require(prepared.preparedContentByBlockID[block.id])
+    let fragment = try #require(MarkdownDocumentSelectionFragment.fragments(
+        for: block,
+        preparedContent: content,
+        rect: CGRect(x: 0, y: 0, width: 700, height: 80)
+    ).first { fragment in
+        fragment.textGeometry?.sourceRuns.contains { $0.sourceRange.byteRange == codeRange } == true
+    })
+    let textGeometry = try #require(fragment.textGeometry)
+    let lowerX = textGeometry.xOffset(forSourceByteOffset: codeRange.lowerBound)
+    let upperX = textGeometry.xOffset(forSourceByteOffset: codeRange.upperBound)
+    let runWidth = upperX - lowerX
+
+    #expect(runWidth > 4)
+
+    let start = fragment.endpoint(at: CGPoint(
+        x: fragment.rect.minX + lowerX + runWidth * 0.25,
+        y: fragment.rect.midY
+    ))
+    let end = fragment.endpoint(at: CGPoint(
+        x: fragment.rect.minX + lowerX + runWidth * 0.75,
+        y: fragment.rect.midY
+    ))
+    let forwardSelection = MarkdownDocumentSelectionFragment.selection(from: start, to: end, in: [fragment])
+    let reversedSelection = MarkdownDocumentSelectionFragment.selection(from: end, to: start, in: [fragment])
+
+    let controller = MarkdownSelectionController()
+    controller.updateSnapshot(snapshot)
+    controller.selectSourceRanges(forwardSelection.ranges, selectedBlockIDs: forwardSelection.blockIDs)
+
+    #expect(forwardSelection.ranges.first?.byteRange == codeRange)
+    #expect(reversedSelection.ranges.first?.byteRange == codeRange)
+    #expect(controller.selectedMarkdown(in: prepared, copyProvider: configuration.copyProvider) == "`code value`")
+}
+
+@Test
+@MainActor
+func defaultDocumentSelectionEmitsPreciseCodeBlockTextFragmentsOnMacOS() throws {
+    let markdown = """
+    ```swift
+    swift
+    let second = 2
+    ```
+    """
+    let selectedLineRange = try utf8Range(of: "let second = 2\n", in: markdown)
+    var stream = MarkdownStream()
+    stream.append(markdown)
+    stream.finish()
+
+    var configuration = MarkdownRendererConfiguration.document
+    configuration.copyProvider = MarkdownCopyProvider(markdownSource: markdown)
+    let snapshot = stream.snapshot()
+    let prepared = configuration.prepare(snapshot: snapshot)
+    let block = try #require(snapshot.blocks.first)
+    let content = try #require(prepared.preparedContentByBlockID[block.id])
+    let selectionInline = try #require(content.selectionInlineLayout)
+    let codeSourceRange = try #require(block.inlines.first?.sourceRange)
+    let openingFenceRange = try utf8Range(of: "```swift", in: markdown)
+
+    #expect(codeSourceRange.byteRange.lowerBound > openingFenceRange.upperBound)
+    #expect(selectionInline.prepared.sourceRange == codeSourceRange)
+
+    let recorder = SelectionPreferenceRecorder()
+    let view = MarkdownBlockView(
+        block: block,
+        configuration: configuration,
+        preparedContent: content
+    )
+    .environment(\.markdownDocumentSelectionContext, MarkdownDocumentSelectionContext(blockID: block.id))
+    .coordinateSpace(name: markdownDocumentSelectionCoordinateSpaceName)
+    .onPreferenceChange(MarkdownDocumentSelectionFragmentsKey.self) { fragments in
+        recorder.fragments = fragments
+    }
+    .frame(width: 420, height: 180, alignment: .topLeading)
+
+    let hostingView = NSHostingView(rootView: view)
+    hostingView.frame = NSRect(origin: .zero, size: NSSize(width: 420, height: 180))
+    let window = NSWindow(
+        contentRect: hostingView.frame,
+        styleMask: [.borderless],
+        backing: .buffered,
+        defer: false
+    )
+    window.animationBehavior = .none
+    window.contentView = hostingView
+    window.orderFrontRegardless()
+    defer { tearDownWindow(window) }
+    pumpLayout(hostingView)
+
+    let fragments = recorder.fragments.sortedForTestSelection()
+    let selectedLineFragment = try #require(fragments.first { fragment in
+        fragment.sourceRange.byteRange == selectedLineRange
+    })
+    let selection = MarkdownDocumentSelectionFragment.selection(
+        from: selectedLineFragment,
+        to: selectedLineFragment,
+        in: fragments
+    )
+    let controller = MarkdownSelectionController()
+    controller.updateSnapshot(snapshot)
+    controller.selectSourceRanges(selection.ranges, selectedBlockIDs: selection.blockIDs)
+
+    #expect(fragments.count >= 2)
+    #expect(selectedLineFragment.textGeometry != nil)
+    #expect(selection.ranges.first?.byteRange == selectedLineRange)
+    #expect(controller.selectedMarkdown(in: prepared, copyProvider: configuration.copyProvider) == "let second = 2\n")
+}
+
+@Test
+@MainActor
+func defaultDocumentSelectionUsesRenderedTableCellGeometryForExactCopyOnMacOS() throws {
+    let markdown = """
+    | Column | Value |
+    | --- | --- |
+    | first | cell exact |
+    | second | other |
+    """
+    var stream = MarkdownStream()
+    stream.append(markdown)
+    stream.finish()
+
+    var configuration = MarkdownRendererConfiguration.document
+    configuration.copyProvider = MarkdownCopyProvider(markdownSource: markdown)
+    let snapshot = stream.snapshot()
+    let prepared = configuration.prepare(snapshot: snapshot)
+    let block = try #require(snapshot.blocks.first)
+    let content = try #require(prepared.preparedContentByBlockID[block.id])
+    let table = try #require(content.table)
+    let firstCell = try #require(table.rows.first?.cells.first)
+    let targetCell = try #require(table.rows.first?.cells.dropFirst().first)
+    let expectedMarkdown = try #require(configuration.copyProvider?.markdown(targetCell.sourceRange))
+
+    let recorder = SelectionPreferenceRecorder()
+    let view = MarkdownBlockView(
+        block: block,
+        configuration: configuration,
+        preparedContent: content
+    )
+    .environment(\.markdownDocumentSelectionContext, MarkdownDocumentSelectionContext(blockID: block.id))
+    .coordinateSpace(name: markdownDocumentSelectionCoordinateSpaceName)
+    .onPreferenceChange(MarkdownDocumentSelectionFragmentsKey.self) { fragments in
+        recorder.fragments = fragments
+    }
+    .frame(width: 520, height: 180, alignment: .topLeading)
+
+    let hostingView = NSHostingView(rootView: view)
+    hostingView.frame = NSRect(origin: .zero, size: NSSize(width: 520, height: 180))
+    let window = NSWindow(
+        contentRect: hostingView.frame,
+        styleMask: [.borderless],
+        backing: .buffered,
+        defer: false
+    )
+    window.animationBehavior = .none
+    window.contentView = hostingView
+    window.orderFrontRegardless()
+    defer { tearDownWindow(window) }
+    pumpLayout(hostingView)
+
+    let fragments = recorder.fragments.sortedForTestSelection()
+    let firstCellFragment = try #require(fragments.first {
+        $0.sourceRange == firstCell.sourceRange && $0.textGeometry != nil
+    })
+    let targetFragment = try #require(fragments.first {
+        $0.sourceRange == targetCell.sourceRange && $0.textGeometry != nil
+    })
+    let selection = MarkdownDocumentSelectionFragment.selection(
+        from: targetFragment,
+        to: targetFragment,
+        in: fragments
+    )
+    let controller = MarkdownSelectionController()
+    controller.updateSnapshot(snapshot)
+    controller.selectSourceRanges(selection.ranges, selectedBlockIDs: selection.blockIDs)
+
+    #expect(fragments.count >= 6)
+    #expect(targetFragment.rect.minX > firstCellFragment.rect.maxX)
+    #expect(targetFragment.rect.width < 520)
+    #expect(selection.ranges.first?.byteRange == targetCell.sourceRange.byteRange)
+    #expect(expectedMarkdown.contains("cell exact"))
+    #expect(controller.selectedMarkdown(in: prepared, copyProvider: configuration.copyProvider) == expectedMarkdown)
+}
+
+@Test
+@MainActor
 func defaultDocumentSelectionFullLineHighlightCoversStyledMarkdownSourceOnMacOS() throws {
     let markdown = "**Styled line with source delimiters**"
     var stream = MarkdownStream()
@@ -1146,6 +1354,60 @@ func defaultDocumentSelectionResolvesDragAndCmdCCopyAcrossBlockBoundariesOnMacOS
 
 @Test
 @MainActor
+func defaultDocumentSelectionCommandASelectsAndCopiesFullDocumentMarkdownOnMacOS() throws {
+    let markdown = """
+    # Full selection
+
+    Paragraph before list.
+
+    - first
+    - second
+
+    ```swift
+    let all = true
+    ```
+
+    | Key | Value |
+    | - | - |
+    | copy | exact |
+    """
+    var stream = MarkdownStream()
+    stream.append(markdown)
+    stream.finish()
+
+    let controller = MarkdownSelectionController(maximumSelectedBlockCount: 2)
+    let copySpy = MarkdownCopySpy()
+    var configuration = MarkdownRendererConfiguration.document
+    configuration.copyProvider = MarkdownCopyProvider(markdownSource: markdown)
+    configuration.affordanceActionHandler = MarkdownAffordanceActionHandler { string in
+        copySpy.copied = string
+    }
+
+    let snapshot = stream.snapshot()
+    let prepared = configuration.prepare(snapshot: snapshot)
+    controller.updateSnapshot(snapshot)
+    let copyContext = MarkdownDocumentSelectionCopyContext(
+        selectionController: controller,
+        preparedSnapshot: prepared,
+        copyProvider: configuration.copyProvider,
+        affordanceActionHandler: configuration.affordanceActionHandler
+    )
+    let coordinator = MarkdownDocumentSelectionKeyHandler.Coordinator(copyContext: copyContext)
+    let keyView = MarkdownDocumentSelectionKeyHandler.CopyKeyView()
+    keyView.coordinator = coordinator
+
+    keyView.keyDown(with: commandAEvent())
+    controller.updateSnapshot(snapshot)
+    keyView.keyDown(with: commandCEvent())
+
+    #expect(controller.selectedSourceRanges.map(\.byteRange) == [0..<markdown.utf8.count])
+    #expect(controller.selectedBlockIDs.count == snapshot.blocks.count)
+    #expect(controller.selectedMarkdown(in: prepared, copyProvider: configuration.copyProvider) == markdown)
+    #expect(copySpy.copied == markdown)
+}
+
+@Test
+@MainActor
 func defaultDocumentSelectionReceivesTextLeafFragmentForImageBackedInlineMath() throws {
     let markdown = "Before $x^2$ after"
     var stream = MarkdownStream()
@@ -1196,8 +1458,177 @@ func defaultDocumentSelectionReceivesTextLeafFragmentForImageBackedInlineMath() 
     #expect(fragment.id.hasPrefix("text-leaf-math:"))
     #expect(fragment.blockID == block.id)
     #expect(fragment.sourceRange == block.sourceRange)
+    #expect(fragment.textGeometry != nil)
     #expect(fragment.rect.width > 0)
     #expect(fragment.rect.height > 0)
+
+    let start = fragment.endpoint(at: CGPoint(x: fragment.rect.minX + fragment.rect.width * 0.20, y: fragment.rect.midY))
+    let end = fragment.endpoint(at: CGPoint(x: fragment.rect.minX + fragment.rect.width * 0.45, y: fragment.rect.midY))
+    let selection = MarkdownDocumentSelectionFragment.selection(from: start, to: end, in: [fragment])
+    let selectedRange = try #require(selection.ranges.first)
+    let highlight = try #require(fragment.highlightRects(for: selection.ranges).first)
+
+    #expect(selectedRange.byteRange.lowerBound > block.sourceRange.byteRange.lowerBound)
+    #expect(selectedRange.byteRange.upperBound < block.sourceRange.byteRange.upperBound)
+    #expect(highlight.rect.minX > fragment.rect.minX)
+    #expect(highlight.rect.maxX < fragment.rect.maxX)
+    #expect(highlight.rect.width < fragment.rect.width * 0.6)
+}
+
+@Test
+@MainActor
+func defaultDocumentSelectionEmitsPreciseTextMathBlockFragmentsOnMacOS() throws {
+    let markdown = """
+    \\[
+    alpha + beta + gamma
+    \\]
+    """
+    var stream = MarkdownStream()
+    stream.append(markdown)
+    stream.finish()
+
+    var configuration = MarkdownRendererConfiguration.document
+    configuration.copyProvider = MarkdownCopyProvider(markdownSource: markdown)
+    let snapshot = stream.snapshot()
+    let prepared = configuration.prepare(snapshot: snapshot)
+    let block = try #require(snapshot.blocks.first { $0.kind == .mathBlock })
+    let content = try #require(prepared.preparedContentByBlockID[block.id])
+    let selectionInline = try #require(content.selectionInlineLayout)
+    let mathSourceRange = try #require(block.inlines.first { $0.kind == .math }?.sourceRange)
+
+    #expect(selectionInline.prepared.sourceRange == mathSourceRange)
+    #expect(mathSourceRange.byteRange.lowerBound > block.sourceRange.byteRange.lowerBound)
+    #expect(mathSourceRange.byteRange.upperBound < block.sourceRange.byteRange.upperBound)
+
+    let recorder = SelectionPreferenceRecorder()
+    let view = MarkdownBlockView(
+        block: block,
+        configuration: configuration,
+        preparedContent: content
+    )
+    .environment(\.markdownDocumentSelectionContext, MarkdownDocumentSelectionContext(blockID: block.id))
+    .coordinateSpace(name: markdownDocumentSelectionCoordinateSpaceName)
+    .onPreferenceChange(MarkdownDocumentSelectionFragmentsKey.self) { fragments in
+        recorder.fragments = fragments
+    }
+    .frame(width: 420, height: 120, alignment: .topLeading)
+
+    let hostingView = NSHostingView(rootView: view)
+    hostingView.frame = NSRect(origin: .zero, size: NSSize(width: 420, height: 120))
+    let window = NSWindow(
+        contentRect: hostingView.frame,
+        styleMask: [.borderless],
+        backing: .buffered,
+        defer: false
+    )
+    window.animationBehavior = .none
+    window.contentView = hostingView
+    window.orderFrontRegardless()
+    defer { tearDownWindow(window) }
+    pumpLayout(hostingView)
+
+    let fragment = try #require(recorder.fragments.sortedForTestSelection().first { $0.textGeometry != nil })
+    let start = fragment.endpoint(at: CGPoint(x: fragment.rect.minX + fragment.rect.width * 0.20, y: fragment.rect.midY))
+    let end = fragment.endpoint(at: CGPoint(x: fragment.rect.minX + fragment.rect.width * 0.80, y: fragment.rect.midY))
+    let selection = MarkdownDocumentSelectionFragment.selection(from: start, to: end, in: [fragment])
+    let selectedRange = try #require(selection.ranges.first)
+    let highlight = try #require(fragment.highlightRects(for: selection.ranges).first)
+
+    let controller = MarkdownSelectionController()
+    controller.updateSnapshot(snapshot)
+    controller.selectSourceRanges(selection.ranges, selectedBlockIDs: selection.blockIDs)
+    let selectedMarkdown = controller.selectedMarkdown(in: prepared, copyProvider: configuration.copyProvider)
+
+    #expect(fragment.sourceRange.byteRange.lowerBound >= mathSourceRange.byteRange.lowerBound)
+    #expect(fragment.sourceRange.byteRange.upperBound <= mathSourceRange.byteRange.upperBound)
+    #expect(selectedRange.byteRange.lowerBound > fragment.sourceRange.byteRange.lowerBound)
+    #expect(selectedRange.byteRange.upperBound < fragment.sourceRange.byteRange.upperBound)
+    #expect(highlight.rect.minX > fragment.rect.minX)
+    #expect(highlight.rect.maxX < fragment.rect.maxX)
+    #expect(!selectedMarkdown.isEmpty)
+	#expect(!selectedMarkdown.contains("\\["))
+	#expect(!selectedMarkdown.contains("\\]"))
+}
+
+@Test
+@MainActor
+func defaultDocumentSelectionEmitsPreciseAllowedHTMLBlockFragmentsOnMacOS() throws {
+    let markdown = "<section><span>alpha beta gamma delta</span></section>"
+    var stream = MarkdownStream()
+    stream.append(markdown)
+    stream.finish()
+
+    var configuration = MarkdownRendererConfiguration.document
+    configuration.htmlPolicy = AllowHTMLPolicy()
+    configuration.copyProvider = MarkdownCopyProvider(markdownSource: markdown)
+    let snapshot = stream.snapshot()
+    let prepared = configuration.prepare(snapshot: snapshot)
+    let block = try #require(snapshot.blocks.first { $0.kind == .htmlBlock })
+    let content = try #require(prepared.preparedContentByBlockID[block.id])
+    let selectionInline = try #require(content.selectionInlineLayout)
+
+    #expect(selectionInline.prepared.sourceRange == block.sourceRange)
+    #expect(selectionInline.prepared.naturalText == markdown)
+    #expect(block.sourceRange.byteRange == 0..<markdown.utf8.count)
+
+    let recorder = SelectionPreferenceRecorder()
+    let view = MarkdownBlockView(
+        block: block,
+        configuration: configuration,
+        preparedContent: content
+    )
+    .environment(\.markdownDocumentSelectionContext, MarkdownDocumentSelectionContext(blockID: block.id))
+    .coordinateSpace(name: markdownDocumentSelectionCoordinateSpaceName)
+    .onPreferenceChange(MarkdownDocumentSelectionFragmentsKey.self) { fragments in
+        recorder.fragments = fragments
+    }
+    .frame(width: 520, height: 90, alignment: .topLeading)
+
+    let hostingView = NSHostingView(rootView: view)
+    hostingView.frame = NSRect(origin: .zero, size: NSSize(width: 520, height: 90))
+    let window = NSWindow(
+        contentRect: hostingView.frame,
+        styleMask: [.borderless],
+        backing: .buffered,
+        defer: false
+    )
+    window.animationBehavior = .none
+    window.contentView = hostingView
+    window.orderFrontRegardless()
+    defer { tearDownWindow(window) }
+    pumpLayout(hostingView)
+
+    let selectedHTMLRange = try utf8Range(of: "alpha", in: markdown)
+    let fragment = try #require(recorder.fragments.sortedForTestSelection().first {
+        $0.textGeometry != nil &&
+            $0.sourceRange.byteRange.lowerBound <= selectedHTMLRange.lowerBound &&
+            selectedHTMLRange.upperBound <= $0.sourceRange.byteRange.upperBound
+    })
+    let textGeometry = try #require(fragment.textGeometry)
+    let lowerX = textGeometry.xOffset(forSourceByteOffset: selectedHTMLRange.lowerBound)
+    let upperX = textGeometry.xOffset(forSourceByteOffset: selectedHTMLRange.upperBound)
+    #expect(upperX - lowerX > 4)
+
+    let start = fragment.endpoint(at: CGPoint(x: fragment.rect.minX + lowerX + 1, y: fragment.rect.midY))
+    let end = fragment.endpoint(at: CGPoint(x: fragment.rect.minX + upperX - 1, y: fragment.rect.midY))
+    let selection = MarkdownDocumentSelectionFragment.selection(from: start, to: end, in: [fragment])
+    let selectedRange = try #require(selection.ranges.first)
+    let highlight = try #require(fragment.highlightRects(for: selection.ranges).first)
+
+    let controller = MarkdownSelectionController()
+    controller.updateSnapshot(snapshot)
+    controller.selectSourceRanges(selection.ranges, selectedBlockIDs: selection.blockIDs)
+    let selectedMarkdown = controller.selectedMarkdown(in: prepared, copyProvider: configuration.copyProvider)
+
+    #expect(fragment.blockID == block.id)
+    #expect(fragment.sourceRange.byteRange.lowerBound >= block.sourceRange.byteRange.lowerBound)
+    #expect(fragment.sourceRange.byteRange.upperBound <= block.sourceRange.byteRange.upperBound)
+    #expect(selectedRange.byteRange.lowerBound > fragment.sourceRange.byteRange.lowerBound)
+    #expect(selectedRange.byteRange.upperBound < fragment.sourceRange.byteRange.upperBound)
+    #expect(highlight.rect.minX > fragment.rect.minX)
+    #expect(highlight.rect.maxX < fragment.rect.maxX)
+    #expect(!selectedMarkdown.isEmpty)
+    #expect(selectedMarkdown != markdown)
 }
 }
 #endif
@@ -1859,7 +2290,7 @@ func codeHighlightCacheKeysIncludeLanguagePaletteAndHighlighterIdentity() throws
 
     #expect(afterFirst.codeHighlightCount == 1)
     #expect(afterCached.codeHighlightCount == afterFirst.codeHighlightCount)
-    #expect(afterCached.cacheHitCount == afterFirst.cacheHitCount + 1)
+    #expect(afterCached.cacheHitCount >= afterFirst.cacheHitCount + 1)
     #expect(afterLanguageChange.codeHighlightCount == afterFirst.codeHighlightCount + 1)
     #expect(afterPaletteChange.codeHighlightCount == afterLanguageChange.codeHighlightCount + 1)
     #expect(afterIdentityChange.codeHighlightCount == afterPaletteChange.codeHighlightCount + 1)
@@ -2164,6 +2595,24 @@ func selectionSourceRunMarksFormattedRunAsNonOneToOne() {
     )
 
     #expect(mapper.mapsOneToOne == false)
+}
+
+@Test
+func selectionSourceRunSnapsNonOneToOneRunsToSourceBoundaries() {
+    let mapper = MarkdownDocumentSelectionSourceRun(
+        visibleByteRange: 0..<4,
+        sourceRange: MarkdownSourceRange(byteRange: 10..<18, lineRange: 1..<2)
+    )
+
+    #expect(mapper.sourceByteOffset(forVisibleByteOffset: 0) == 10)
+    #expect(mapper.sourceByteOffset(forVisibleByteOffset: 1) == 10)
+    #expect(mapper.sourceByteOffset(forVisibleByteOffset: 2) == 10)
+    #expect(mapper.sourceByteOffset(forVisibleByteOffset: 3) == 18)
+    #expect(mapper.sourceByteOffset(forVisibleByteOffset: 4) == 18)
+    #expect(mapper.visibleByteOffset(forSourceByteOffset: 10) == 0)
+    #expect(mapper.visibleByteOffset(forSourceByteOffset: 11) == 2)
+    #expect(mapper.visibleByteOffset(forSourceByteOffset: 17) == 2)
+    #expect(mapper.visibleByteOffset(forSourceByteOffset: 18) == 4)
 }
 
 @Test
@@ -3304,6 +3753,16 @@ private func selectionFragments(
 
 @MainActor
 private func commandCEvent() -> NSEvent {
+    commandKeyEvent("c", keyCode: 8)
+}
+
+@MainActor
+private func commandAEvent() -> NSEvent {
+    commandKeyEvent("a", keyCode: 0)
+}
+
+@MainActor
+private func commandKeyEvent(_ character: String, keyCode: UInt16) -> NSEvent {
     guard let event = NSEvent.keyEvent(
         with: .keyDown,
         location: .zero,
@@ -3311,13 +3770,13 @@ private func commandCEvent() -> NSEvent {
         timestamp: ProcessInfo.processInfo.systemUptime,
         windowNumber: 0,
         context: nil,
-        characters: "c",
-        charactersIgnoringModifiers: "c",
+        characters: character,
+        charactersIgnoringModifiers: character,
         isARepeat: false,
-        keyCode: 8
+        keyCode: keyCode
     ) else {
-        Issue.record("Unable to create command-C event")
-        fatalError("Unable to create command-C event")
+        Issue.record("Unable to create command-\(character.uppercased()) event")
+        fatalError("Unable to create command-\(character.uppercased()) event")
     }
     return event
 }

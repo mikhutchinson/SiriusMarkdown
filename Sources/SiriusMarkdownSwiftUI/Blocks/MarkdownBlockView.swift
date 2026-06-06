@@ -148,7 +148,8 @@ public struct MarkdownBlockView: View {
         selectionMode: MarkdownNativeTextSelection,
         metrics: (fontSize: Double, lineHeight: Double, fontProfile: MarkdownFontProfile),
         lineSpacing: CGFloat = 0,
-        wraps: Bool = true
+        wraps: Bool = true,
+        selectionInlineLayout: MarkdownPreparedInlineContent? = nil
     ) -> some View {
         MarkdownSelectableText(
             attributed: attributed,
@@ -160,7 +161,8 @@ public struct MarkdownBlockView: View {
             linkAction: configuration.linkAction,
             nativeTextSelection: selectionMode,
             lineSpacing: lineSpacing,
-            wraps: wraps
+            wraps: wraps,
+            selectionInlineLayout: selectionInlineLayout
         )
     }
 
@@ -217,7 +219,8 @@ public struct MarkdownBlockView: View {
                             textColor: theme.textColor,
                             selectionMode: configuration.nativeTextSelection,
                             metrics: codeTextMetrics,
-                            wraps: false
+                            wraps: false,
+                            selectionInlineLayout: preparedContent.selectionInlineLayout
                         )
                             .padding(.horizontal, 10)
                             .padding(.top, showsCodeBlockHeader ? 4 : 10)
@@ -244,7 +247,8 @@ public struct MarkdownBlockView: View {
                 textColor: theme.textColor,
                 selectionMode: configuration.nativeTextSelection,
                 metrics: codeTextMetrics,
-                wraps: false
+                wraps: false,
+                selectionInlineLayout: preparedContent.selectionInlineLayout
             )
         }
     }
@@ -436,7 +440,8 @@ public struct MarkdownBlockView: View {
             font: theme.codeFont,
             textColor: theme.textColor,
             selectionMode: configuration.nativeTextSelection,
-            metrics: codeTextMetrics
+            metrics: codeTextMetrics,
+            selectionInlineLayout: preparedContent.selectionInlineLayout
         )
             .padding(8)
             .background(theme.codeBackground)
@@ -451,7 +456,8 @@ public struct MarkdownBlockView: View {
                 font: theme.codeFont,
                 textColor: theme.secondaryTextColor,
                 selectionMode: configuration.nativeTextSelection,
-                metrics: codeTextMetrics
+                metrics: codeTextMetrics,
+                selectionInlineLayout: preparedContent.selectionInlineLayout
             )
         } else if let reason = preparedContent.policyDenialReason {
             policyDeniedView(reason: reason)

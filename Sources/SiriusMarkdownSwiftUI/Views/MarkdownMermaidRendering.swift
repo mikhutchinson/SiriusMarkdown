@@ -556,14 +556,10 @@ private final class MermaidJavaScriptRuntime: @unchecked Sendable {
         }
 
         didLoadScript = true
-        guard let scriptURL = Bundle.module.url(forResource: "beautiful-mermaid.bundle", withExtension: "js")
-                  ?? Bundle.module.url(
-                      forResource: "beautiful-mermaid.bundle",
-                      withExtension: "js",
-                      subdirectory: "MermaidJS"
-                  ),
-              let contents = try? String(contentsOf: scriptURL, encoding: .utf8)
-        else {
+        guard let contents = MarkdownJavaScriptResourceLookup.script(
+            named: "beautiful-mermaid.bundle",
+            subdirectory: "MermaidJS"
+        ) else {
             return nil
         }
 

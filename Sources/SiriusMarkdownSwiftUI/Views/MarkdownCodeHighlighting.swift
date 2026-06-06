@@ -693,14 +693,10 @@ private final class HighlightJavaScriptRuntime: @unchecked Sendable {
         }
 
         didLoadScript = true
-        guard let scriptURL = Bundle.module.url(forResource: "highlight.min", withExtension: "js")
-                  ?? Bundle.module.url(
-                      forResource: "highlight.min",
-                      withExtension: "js",
-                      subdirectory: "HighlightJS"
-                  ),
-              let contents = try? String(contentsOf: scriptURL, encoding: .utf8)
-        else {
+        guard let contents = MarkdownJavaScriptResourceLookup.script(
+            named: "highlight.min",
+            subdirectory: "HighlightJS"
+        ) else {
             return nil
         }
 
