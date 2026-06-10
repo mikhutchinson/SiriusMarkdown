@@ -202,6 +202,36 @@ struct MarkdownSelectionPerformanceTests {
         #expect(delta.selectionSourceRunMappingCount == 0)
         #expect(delta.selectionLineFragmentCacheHitCount == 40)
     }
+
+    @Test
+    @MainActor
+    func repeatedSelectionEndpointAndHighlightQueriesReusePreparedCoreTextLine() throws {
+        let fixture = try preparedInlineSelectionFixture()
+        let layout = InlineRunsView.lineLayout(for: fixture.inlineLayout, containerWidth: 180)
+        let fragments = MarkdownDocumentSelectionFragment.inlineLineFragments(
+            blockID: fixture.block.id,
+            prepared: fixture.inlineLayout,
+            layout: layout,
+            rect: CGRect(x: 0, y: 0, width: 180, height: 400),
+            idPrefix: "highlight-hot-path"
+        )
+        let fragment = try #require(fragments.first { $0.textGeometry != nil })
+        let before = fixture.recorder.snapshot()
+
+        for _ in 0..<40 {
+            let start = fragment.endpoint(at: CGPoint(x: fragment.rect.minX + 12, y: fragment.rect.midY))
+            let end = fragment.endpoint(at: CGPoint(x: fragment.rect.minX + fragment.rect.width - 12, y: fragment.rect.midY))
+            let selection = MarkdownDocumentSelectionFragment.selection(from: start, to: end, in: [fragment])
+            #expect(fragment.highlightRects(for: selection.ranges).isEmpty == false)
+        }
+
+        let delta = SelectionCounterDelta(before: before, after: fixture.recorder.snapshot())
+
+        #expect(delta.selectionCoreTextLineBuildCount == 0)
+        #expect(delta.selectionTextGeometryInitializationCount == 0)
+        #expect(delta.selectionFingerprintBuildCount == 0)
+        #expect(delta.selectionSourceRunMappingCount == 0)
+    }
 }
 
 @MainActor

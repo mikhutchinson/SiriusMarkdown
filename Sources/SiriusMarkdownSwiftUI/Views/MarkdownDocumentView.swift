@@ -336,6 +336,7 @@ private struct MarkdownDocumentSelectionLayer<Content: View>: View {
     @State private var fragments: [MarkdownDocumentSelectionFragment] = []
     @State private var dragAnchor: MarkdownDocumentSelectionEndpoint?
     @State private var focusToken = 0
+    private let dragActivation = MarkdownDocumentSelectionDragActivation()
 
     var body: some View {
         content()
@@ -376,8 +377,11 @@ private struct MarkdownDocumentSelectionLayer<Content: View>: View {
                 takeFocus()
             }
         #else
-        DragGesture(minimumDistance: 0)
+        DragGesture(minimumDistance: dragActivation.minimumDistance)
             .onChanged { value in
+                guard dragActivation.hasActivated(start: value.startLocation, current: value.location) else {
+                    return
+                }
                 takeFocus()
                 let anchor = dragAnchor ?? hitEndpoint(at: value.startLocation)
                 dragAnchor = anchor
@@ -413,14 +417,7 @@ private struct MarkdownDocumentSelectionLayer<Content: View>: View {
     }
 
     private func hitFragment(at location: CGPoint) -> MarkdownDocumentSelectionFragment? {
-        let hitSlop: CGFloat = 4
-        if let direct = fragments.first(where: { $0.rect.insetBy(dx: -hitSlop, dy: -hitSlop).contains(location) }) {
-            return direct
-        }
-
-        return fragments.min { lhs, rhs in
-            lhs.distanceSquared(to: location) < rhs.distanceSquared(to: location)
-        }
+        MarkdownDocumentSelectionFragment.hitFragment(at: location, in: fragments, hitSlop: 4)
     }
 
     private func selectRange(

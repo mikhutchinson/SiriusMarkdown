@@ -110,6 +110,131 @@ func MarkdownSelectionControllerCopiesExactPartialAndNonContiguousSourceRanges()
 
 @Test
 @MainActor
+func MarkdownSelectionControllerTrimsSourceRangeSelectionWithoutExpandingToWholeBlocks() async throws {
+    let source = "First alpha.\n\nSecond beta.\n\nThird gamma.\n"
+    let session = MarkdownRenderSession(configuration: .document)
+    session.append(source)
+    session.finish()
+    await session.waitUntilIdle()
+
+    let blocks = session.snapshot.blocks
+    let first = try #require(blocks.first)
+    let second = try #require(blocks.dropFirst().first)
+    let alphaRange = sourceRange(of: "alpha.", in: source)
+    let betaRange = sourceRange(of: "beta.", in: source)
+    let selectedRange = MarkdownSourceRange(
+        byteRange: alphaRange.byteRange.lowerBound..<betaRange.byteRange.upperBound,
+        lineRange: alphaRange.lineRange.lowerBound..<betaRange.lineRange.upperBound
+    )
+    let controller = MarkdownSelectionController(maximumSelectedBlockCount: 1)
+    controller.updateSnapshot(session.snapshot)
+
+    controller.selectSourceRanges([selectedRange], selectedBlockIDs: [first.id, second.id])
+
+    #expect(controller.selectedBlockIDs == [first.id])
+    #expect(controller.selectedSourceRanges.map(\.byteRange) == [alphaRange.byteRange])
+    #expect(controller.selectedMarkdown(in: session.preparedSnapshot, copyProvider: session.configuration.copyProvider) == "alpha.")
+}
+
+@Test
+@MainActor
+func MarkdownSelectionControllerDoesNotCopyBlocksForEmptySourceRangeIntent() async throws {
+    let source = "First alpha.\n\nSecond beta.\n\nThird gamma.\n"
+    let session = MarkdownRenderSession(configuration: .document)
+    session.append(source)
+    session.finish()
+    await session.waitUntilIdle()
+
+    let blocks = session.snapshot.blocks
+    let first = try #require(blocks.first)
+    let controller = MarkdownSelectionController()
+    controller.updateSnapshot(session.snapshot)
+
+    controller.selectSourceRanges([], selectedBlockIDs: [first.id])
+
+    #expect(controller.selectedBlockIDs.isEmpty)
+    #expect(controller.selectedSourceRanges.isEmpty)
+    #expect(controller.selectedMarkdown(in: session.preparedSnapshot, copyProvider: session.configuration.copyProvider).isEmpty)
+    #expect(controller.selectedMarkdown(in: session.preparedSnapshot, copyProvider: nil).isEmpty)
+    #expect(controller.selectedPlainText(in: session.preparedSnapshot).isEmpty)
+}
+
+@Test
+@MainActor
+func MarkdownSelectionControllerDropsStaleSourceRangeIntentAfterSnapshotShrinks() {
+    let blockID = MarkdownBlockID("stable-tail")
+    let originalBlock = MarkdownBlock(
+        id: blockID,
+        kind: .paragraph,
+        sourceRange: MarkdownSourceRange(byteRange: 0..<18, lineRange: 1..<2),
+        text: "Original tail text",
+        isSealed: false
+    )
+    let shorterBlock = MarkdownBlock(
+        id: blockID,
+        kind: .paragraph,
+        sourceRange: MarkdownSourceRange(byteRange: 0..<5, lineRange: 1..<2),
+        text: "Short",
+        isSealed: false
+    )
+    let original = MarkdownSnapshot(blocks: [originalBlock], sourceLength: 18, generation: 1, isFinished: false)
+    let shorter = MarkdownSnapshot(blocks: [shorterBlock], sourceLength: 5, generation: 2, isFinished: false)
+    let staleRange = MarkdownSourceRange(byteRange: 10..<15, lineRange: 1..<2)
+    let controller = MarkdownSelectionController()
+
+    controller.updateSnapshot(original)
+    controller.selectSourceRanges([staleRange], selectedBlockIDs: [blockID])
+    controller.updateSnapshot(shorter)
+
+    #expect(controller.selectedBlockIDs.isEmpty)
+    #expect(controller.selectedSourceRanges.isEmpty)
+    #expect(controller.selectedMarkdown(
+        in: MarkdownRendererConfiguration.document.prepare(snapshot: shorter),
+        copyProvider: MarkdownCopyProvider(markdownSource: "Short")
+    ).isEmpty)
+}
+
+@Test
+@MainActor
+func MarkdownSelectionControllerUpdateSnapshotToleratesDuplicateBlockIDs() {
+    let source = "First.\nSecond.\n"
+    let duplicateID = MarkdownBlockID("duplicated-renderer-id")
+    let first = MarkdownBlock(
+        id: duplicateID,
+        kind: .paragraph,
+        sourceRange: MarkdownSourceRange(byteRange: 0..<7, lineRange: 1..<2),
+        text: "First.",
+        isSealed: true
+    )
+    let second = MarkdownBlock(
+        id: duplicateID,
+        kind: .paragraph,
+        sourceRange: MarkdownSourceRange(byteRange: 7..<source.utf8.count, lineRange: 2..<3),
+        text: "Second.",
+        isSealed: true
+    )
+    let snapshot = MarkdownSnapshot(
+        blocks: [first, second],
+        sourceLength: source.utf8.count,
+        generation: 1,
+        isFinished: true
+    )
+    let prepared = MarkdownRendererConfiguration.document.prepare(snapshot: snapshot)
+    let controller = MarkdownSelectionController()
+
+    controller.updateSnapshot(snapshot)
+    controller.select(duplicateID)
+
+    #expect(controller.selectedBlockIDs == [duplicateID])
+    #expect(controller.selectedSourceRanges.map(\.byteRange) == [0..<source.utf8.count])
+    #expect(controller.selectedMarkdown(
+        in: prepared,
+        copyProvider: MarkdownCopyProvider(markdownSource: source)
+    ) == source)
+}
+
+@Test
+@MainActor
 func MarkdownSelectionControllerFallsBackToPlainTextWhenSourceIsUnavailable() async throws {
     let session = MarkdownRenderSession(configuration: .document)
     session.append("Plain fallback paragraph.\n")
@@ -166,6 +291,25 @@ func MarkdownSelectionControllerPlainTextFallbackRespectsSelectedSourceRanges() 
 
 @Test
 @MainActor
+func MarkdownSelectionControllerPlainTextFallbackDoesNotExpandEmptySourceRangeToWholeBlock() async throws {
+    let source = "**bold** text\n"
+    let session = MarkdownRenderSession(configuration: .document)
+    session.append(source)
+    session.finish()
+    await session.waitUntilIdle()
+
+    let block = try #require(session.snapshot.blocks.first)
+    let delimiterRange = sourceRange(of: "**", in: source)
+    let controller = MarkdownSelectionController()
+    controller.updateSnapshot(session.snapshot)
+    controller.selectSourceRanges([delimiterRange], selectedBlockIDs: [block.id])
+
+    #expect(controller.selectedMarkdown(in: session.preparedSnapshot, copyProvider: nil).isEmpty)
+    #expect(controller.selectedPlainText(in: session.preparedSnapshot).isEmpty)
+}
+
+@Test
+@MainActor
 func MarkdownSelectionControllerKeepsRangeIntentAcrossSnapshotUpdates() async throws {
     let initial = "Alpha beta gamma.\n\n"
     let appended = "Tail paragraph.\n"
@@ -206,6 +350,32 @@ func MarkdownSelectionControllerSelectAllTracksAppendedDocument() async throws {
     #expect(controller.selectedBlockIDs.count == session.snapshot.blocks.count)
     #expect(controller.selectedSourceRanges.map(\.byteRange) == [0..<session.snapshot.sourceLength])
     #expect(controller.selectedMarkdown(in: session.preparedSnapshot, copyProvider: session.configuration.copyProvider) == initial + appended)
+}
+
+@Test
+@MainActor
+func MarkdownSelectionControllerTracksSelectedActiveTailBlockGrowth() async throws {
+    let initial = "Active tail"
+    let appended = " keeps growing.\n"
+    let session = MarkdownRenderSession(configuration: .document)
+    session.append(initial)
+    await session.waitUntilIdle()
+
+    let controller = MarkdownSelectionController()
+    controller.updateSnapshot(session.snapshot)
+    let selectedBlock = try #require(session.snapshot.blocks.first)
+    controller.select(selectedBlock.id)
+    #expect(controller.selectedSourceRanges.map(\.byteRange) == [selectedBlock.sourceRange.byteRange])
+
+    session.append(appended)
+    await session.waitUntilIdle()
+    controller.updateSnapshot(session.snapshot)
+
+    let updatedBlock = try #require(session.snapshot.blocks.first)
+    #expect(updatedBlock.id == selectedBlock.id)
+    #expect(controller.selectedBlockIDs == [updatedBlock.id])
+    #expect(controller.selectedSourceRanges.map(\.byteRange) == [updatedBlock.sourceRange.byteRange])
+    #expect(controller.selectedMarkdown(in: session.preparedSnapshot, copyProvider: session.configuration.copyProvider) == "Active tail keeps growing.")
 }
 
 @Test

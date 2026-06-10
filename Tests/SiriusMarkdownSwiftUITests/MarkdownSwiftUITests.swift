@@ -524,6 +524,30 @@ func coreTextPaintedLinePlanUsesPreparedLinkPolicyForHitRegions() throws {
 }
 
 @Test
+func coreTextPaintedLinePlanCreatesHitRegionForBareHTTPSURL() throws {
+    #if canImport(CoreText)
+    let bareURL = "https://www.google.com/travel/flights?q=DTW%20to%20ORF%20one%20way%20Jun%2012%202026"
+    var stream = MarkdownStream()
+    stream.append("Friday morning DTW -> Norfolk link:\n\(bareURL)")
+    stream.finish()
+    let snapshot = stream.snapshot()
+    let configuration = MarkdownRendererConfiguration(inlineRenderingMode: .coreTextPaintedLines)
+    let prepared = configuration.prepare(snapshot: snapshot)
+    let block = try #require(snapshot.blocks.first)
+    let inlineLayout = try #require(prepared.preparedContentByBlockID[block.id]?.inlineLayout)
+    let layout = InlineRunsView.lineLayout(for: inlineLayout, containerWidth: 640)
+    let plan = MarkdownCoreTextPaintedLinePlan.make(prepared: inlineLayout, layout: layout)
+    let link = try #require(plan.linkFragments.first { $0.destination == bareURL })
+
+    #expect(inlineLayout.prepared.runs.contains { $0.kind == .link && $0.destination == bareURL })
+    #expect(link.rect.width > 0)
+    #expect(link.rect.height > 0)
+    #else
+    #expect(CoreTextPaintedInlineLineView.isSupported == false)
+    #endif
+}
+
+@Test
 func coreTextPaintedLinePlanSplitsWrappedLinksIntoBoundedHitRegions() throws {
     #if canImport(CoreText)
     var stream = MarkdownStream()
@@ -545,6 +569,214 @@ func coreTextPaintedLinePlanSplitsWrappedLinksIntoBoundedHitRegions() throws {
     #expect(plan.linkFragments.allSatisfy { $0.rect.width > 0 && $0.rect.height > 0 })
     #else
     #expect(CoreTextPaintedInlineLineView.isSupported == false)
+    #endif
+}
+
+@Test
+func coreTextPaintedLinkClickTrackerOpensOnlyStationaryClicks() throws {
+    #if canImport(CoreText)
+    let fragment = MarkdownCoreTextPaintedLinkFragment(
+        lineIndex: 0,
+        destination: "https://example.com",
+        byteRange: 0..<19,
+        rect: CGRect(x: 2, y: 4, width: 80, height: 18)
+    )
+
+    var clickTracker = MarkdownCoreTextPaintedLinkClickTracker()
+    let clickBegan = clickTracker.begin(at: CGPoint(x: 12, y: 10), fragments: [fragment], hitSlop: 2)
+    let clickDestination = clickTracker.finish(at: CGPoint(x: 13, y: 10), fragments: [fragment], hitSlop: 2)
+    #expect(clickBegan)
+    #expect(clickDestination == "https://example.com")
+    #expect(clickTracker.hasPendingClick == false)
+
+    var dragTracker = MarkdownCoreTextPaintedLinkClickTracker()
+    let dragBegan = dragTracker.begin(at: CGPoint(x: 12, y: 10), fragments: [fragment], hitSlop: 2)
+    dragTracker.updateDrag(to: CGPoint(x: 18, y: 10))
+    let dragDestination = dragTracker.finish(at: CGPoint(x: 18, y: 10), fragments: [fragment], hitSlop: 2)
+    #expect(dragBegan)
+    #expect(dragTracker.hasPendingClick == false)
+    #expect(dragDestination == nil)
+
+    var thresholdTracker = MarkdownCoreTextPaintedLinkClickTracker()
+    let thresholdBegan = thresholdTracker.begin(at: CGPoint(x: 12, y: 10), fragments: [fragment], hitSlop: 2)
+    thresholdTracker.updateDrag(to: CGPoint(x: 16, y: 10))
+    let thresholdDestination = thresholdTracker.finish(at: CGPoint(x: 16, y: 10), fragments: [fragment], hitSlop: 2)
+    #expect(thresholdBegan)
+    #expect(thresholdTracker.hasPendingClick == false)
+    #expect(thresholdDestination == nil)
+
+    var outsideTracker = MarkdownCoreTextPaintedLinkClickTracker()
+    let outsideBegan = outsideTracker.begin(at: CGPoint(x: 120, y: 10), fragments: [fragment], hitSlop: 2)
+    #expect(outsideBegan == false)
+    #else
+    #expect(CoreTextPaintedInlineLineView.isSupported == false)
+    #endif
+}
+
+@Test
+@MainActor
+func hostedCoreTextBareURLClickOpensLinkWithDocumentSelectionEnabledOnMacOS() throws {
+    #if canImport(AppKit) && canImport(CoreText)
+    let bareURL = "https://www.google.com/travel/flights?q=DTW%20to%20ORF%20one%20way%20Jun%2012%202026"
+    var stream = MarkdownStream()
+    stream.append(bareURL)
+    stream.finish()
+
+    let recorder = LinkActionRecorder()
+    let controller = MarkdownSelectionController()
+    var configuration = MarkdownRendererConfiguration.compactChat
+    configuration.inlineRenderingMode = .coreTextPaintedLines
+    configuration.documentSelection = .enabled
+    configuration.linkAction = MarkdownLinkAction { destination in
+        recorder.record(destination)
+    }
+    let prepared = configuration.prepare(snapshot: stream.snapshot())
+    controller.updateSnapshot(stream.snapshot())
+
+    let view = StreamingMarkdownView(
+        preparedSnapshot: prepared,
+        configuration: configuration,
+        selectionController: controller
+    )
+    .frame(width: 720, height: 80, alignment: .topLeading)
+    let hostingView = NSHostingView(rootView: view)
+    hostingView.frame = NSRect(origin: .zero, size: NSSize(width: 720, height: 80))
+    let window = NSWindow(
+        contentRect: hostingView.frame,
+        styleMask: [.borderless],
+        backing: .buffered,
+        defer: false
+    )
+    window.animationBehavior = .none
+    window.contentView = hostingView
+    window.orderFrontRegardless()
+    defer { tearDownWindow(window) }
+    pumpLayout(hostingView)
+
+    let linkView = try #require(appKitCoreTextPaintedViews(in: hostingView).first { view in
+        view.accessibilityLabel()?.contains(bareURL) == true
+    })
+    let localPoint = CGPoint(x: 12, y: max(1, linkView.bounds.midY))
+    let windowPoint = linkView.convert(localPoint, to: nil)
+    linkView.mouseDown(with: mouseEvent(type: .leftMouseDown, location: windowPoint, window: window))
+    linkView.mouseUp(with: mouseEvent(type: .leftMouseUp, location: windowPoint, window: window))
+
+    #expect(recorder.destinations == [bareURL])
+    #expect(controller.selectedSourceRanges.isEmpty)
+    #else
+    #expect(CoreTextPaintedInlineLineView.isSupported == false)
+    #endif
+}
+
+@Test
+@MainActor
+func hostedCoreTextBareURLDragSelectsInsteadOfOpeningLinkOnMacOS() throws {
+    #if canImport(AppKit) && canImport(CoreText)
+    let bareURL = "https://www.google.com/travel/flights?q=DTW%20to%20ORF%20one%20way%20Jun%2012%202026"
+    var stream = MarkdownStream()
+    stream.append(bareURL)
+    stream.finish()
+
+    let recorder = LinkActionRecorder()
+    let controller = MarkdownSelectionController()
+    var configuration = MarkdownRendererConfiguration.compactChat
+    configuration.inlineRenderingMode = .coreTextPaintedLines
+    configuration.documentSelection = .enabled
+    configuration.copyProvider = MarkdownCopyProvider(markdownSource: bareURL)
+    configuration.linkAction = MarkdownLinkAction { destination in
+        recorder.record(destination)
+    }
+    let prepared = configuration.prepare(snapshot: stream.snapshot())
+    controller.updateSnapshot(stream.snapshot())
+
+    let view = StreamingMarkdownView(
+        preparedSnapshot: prepared,
+        configuration: configuration,
+        selectionController: controller
+    )
+    .frame(width: 720, height: 80, alignment: .topLeading)
+    let hostingView = NSHostingView(rootView: view)
+    hostingView.frame = NSRect(origin: .zero, size: NSSize(width: 720, height: 80))
+    let window = NSWindow(
+        contentRect: hostingView.frame,
+        styleMask: [.borderless],
+        backing: .buffered,
+        defer: false
+    )
+    window.animationBehavior = .none
+    window.contentView = hostingView
+    window.orderFrontRegardless()
+    defer { tearDownWindow(window) }
+    pumpLayout(hostingView)
+
+    let linkView = try #require(appKitCoreTextPaintedViews(in: hostingView).first { view in
+        view.accessibilityLabel()?.contains(bareURL) == true
+    })
+    let start = linkView.convert(CGPoint(x: 1, y: max(1, linkView.bounds.midY)), to: nil)
+    let end = linkView.convert(CGPoint(x: min(360, linkView.bounds.maxX - 4), y: max(1, linkView.bounds.midY)), to: nil)
+    window.sendEvent(mouseEvent(type: .leftMouseDown, location: start, window: window))
+    window.sendEvent(mouseEvent(type: .leftMouseDragged, location: end, window: window))
+    window.sendEvent(mouseEvent(type: .leftMouseUp, location: end, window: window))
+    pumpLayout(hostingView)
+
+    let selectedMarkdown = controller.selectedMarkdown(in: prepared, copyProvider: configuration.copyProvider)
+    #expect(recorder.destinations.isEmpty)
+    #expect(controller.selectedSourceRanges.isEmpty == false)
+    #expect(selectedMarkdown.hasPrefix("https://"))
+    #expect(bareURL.hasPrefix(selectedMarkdown))
+    #else
+    #expect(CoreTextPaintedInlineLineView.isSupported == false)
+    #endif
+}
+
+@Test
+@MainActor
+func hostedDocumentSelectionDragStartingInEmptySpaceDoesNotSelectNearestTextOnMacOS() throws {
+    #if canImport(AppKit)
+    let markdown = "Selectable text is only near the top."
+    var stream = MarkdownStream()
+    stream.append(markdown)
+    stream.finish()
+
+    let controller = MarkdownSelectionController()
+    var configuration = MarkdownRendererConfiguration.compactChat
+    configuration.copyProvider = MarkdownCopyProvider(markdownSource: markdown)
+    let snapshot = stream.snapshot()
+    let prepared = configuration.prepare(snapshot: snapshot)
+    controller.updateSnapshot(snapshot)
+
+    let view = StreamingMarkdownView(
+        preparedSnapshot: prepared,
+        configuration: configuration,
+        selectionController: controller
+    )
+    .frame(width: 420, height: 260, alignment: .topLeading)
+
+    let hostingView = NSHostingView(rootView: view)
+    hostingView.frame = NSRect(origin: .zero, size: NSSize(width: 420, height: 260))
+    let window = NSWindow(
+        contentRect: hostingView.frame,
+        styleMask: [.borderless],
+        backing: .buffered,
+        defer: false
+    )
+    window.animationBehavior = .none
+    window.contentView = hostingView
+    window.orderFrontRegardless()
+    defer { tearDownWindow(window) }
+    pumpLayout(hostingView)
+
+    let start = hostingView.convert(CGPoint(x: 8, y: 220), to: nil)
+    let end = hostingView.convert(CGPoint(x: 360, y: 235), to: nil)
+    window.sendEvent(mouseEvent(type: .leftMouseDown, location: start, window: window))
+    window.sendEvent(mouseEvent(type: .leftMouseDragged, location: end, window: window))
+    window.sendEvent(mouseEvent(type: .leftMouseUp, location: end, window: window))
+    pumpLayout(hostingView)
+
+    #expect(controller.selectedSourceRanges.isEmpty)
+    #expect(controller.selectedMarkdown(in: prepared, copyProvider: configuration.copyProvider).isEmpty)
+    #else
+    #expect(true)
     #endif
 }
 
@@ -702,7 +934,9 @@ func documentSelectionDefaultsToEnabledWhileNativeSelectionStaysLeafCompatibilit
     #expect(documentView.contains("MarkdownDocumentSelectionLayer"))
     #expect(documentView.contains("#if os(tvOS)"))
     #expect(documentView.contains("TapGesture()"))
-    #expect(documentView.contains("DragGesture(minimumDistance: 0)"))
+    #expect(documentView.contains("MarkdownDocumentSelectionDragActivation"))
+    #expect(documentView.contains("DragGesture(minimumDistance: dragActivation.minimumDistance)"))
+    #expect(documentView.contains("dragActivation.hasActivated"))
     #expect(documentView.contains("MarkdownDocumentSelectionKeyHandler"))
     #expect(documentView.contains("selectSourceRanges"))
     #expect(documentView.contains(".environment(\\.markdownDocumentSelectionContext"))
@@ -1018,15 +1252,54 @@ func defaultDocumentSelectionResolvesWrappedLineDragToExactSourceOnMacOS() throw
     let first = try #require(fragments.first)
     let last = try #require(fragments.last)
     let selection = MarkdownDocumentSelectionFragment.selection(from: first, to: last, in: fragments)
+    let reversedSelection = MarkdownDocumentSelectionFragment.selection(from: last, to: first, in: fragments)
 
     let controller = MarkdownSelectionController()
     controller.updateSnapshot(stream.snapshot())
     controller.selectSourceRanges(selection.ranges, selectedBlockIDs: selection.blockIDs)
 
     #expect(fragments.count > 1)
+    #expect(reversedSelection.ranges == selection.ranges)
+    #expect(reversedSelection.blockIDs == selection.blockIDs)
     #expect(controller.selectedBlockIDs == [block.id])
     #expect(controller.selectedSourceRanges == selection.ranges)
     #expect(controller.selectedMarkdown(in: prepared, copyProvider: configuration.copyProvider) == markdown)
+}
+
+@Test
+@MainActor
+func defaultDocumentSelectionCopiesParagraphBreakLineSourceExactlyOnMacOS() throws {
+    let markdown = "alpha soft\nbeta hard  \ngamma after"
+    let softLineRange = try utf8Range(of: "alpha soft\n", in: markdown)
+    let hardLineRange = try utf8Range(of: "beta hard  \n", in: markdown)
+    var stream = MarkdownStream()
+    stream.append(markdown)
+    stream.finish()
+
+    var configuration = MarkdownRendererConfiguration.compactChat
+    configuration.copyProvider = MarkdownCopyProvider(markdownSource: markdown)
+    let snapshot = stream.snapshot()
+    let prepared = configuration.prepare(snapshot: snapshot)
+    let block = try #require(snapshot.blocks.first)
+    let content = try #require(prepared.preparedContentByBlockID[block.id])
+    let fragments = MarkdownDocumentSelectionFragment.fragments(
+        for: block,
+        preparedContent: content,
+        rect: CGRect(x: 0, y: 0, width: 700, height: 140)
+    ).filter { $0.textGeometry != nil }
+
+    let softLine = try #require(fragments.first { $0.sourceRange.byteRange == softLineRange })
+    let hardLine = try #require(fragments.first { $0.sourceRange.byteRange == hardLineRange })
+    let softSelection = MarkdownDocumentSelectionFragment.selection(from: softLine, to: softLine, in: fragments)
+    let hardSelection = MarkdownDocumentSelectionFragment.selection(from: hardLine, to: hardLine, in: fragments)
+    let controller = MarkdownSelectionController()
+    controller.updateSnapshot(snapshot)
+
+    controller.selectSourceRanges(softSelection.ranges, selectedBlockIDs: softSelection.blockIDs)
+    #expect(controller.selectedMarkdown(in: prepared, copyProvider: configuration.copyProvider) == "alpha soft\n")
+
+    controller.selectSourceRanges(hardSelection.ranges, selectedBlockIDs: hardSelection.blockIDs)
+    #expect(controller.selectedMarkdown(in: prepared, copyProvider: configuration.copyProvider) == "beta hard  \n")
 }
 
 @Test
@@ -1060,6 +1333,168 @@ func defaultDocumentSelectionClipsHighlightsToPartialPreparedLineRangesOnMacOS()
     #expect(highlight.rect.minX > fragment.rect.minX)
     #expect(highlight.rect.maxX < fragment.rect.maxX)
     #expect(highlight.rect.width < fragment.rect.width * 0.8)
+}
+
+@Test
+@MainActor
+func defaultDocumentSelectionOverwideLineEndpointStopsAtVisibleGlyphPositionOnMacOS() throws {
+    let markdown = "abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz"
+    var stream = MarkdownStream()
+    stream.append(markdown)
+    stream.finish()
+
+    var configuration = MarkdownRendererConfiguration.compactChat
+    configuration.copyProvider = MarkdownCopyProvider(markdownSource: markdown)
+    let snapshot = stream.snapshot()
+    let prepared = configuration.prepare(snapshot: snapshot)
+    let block = try #require(snapshot.blocks.first)
+    let content = try #require(prepared.preparedContentByBlockID[block.id])
+    let inlineLayout = try #require(content.inlineLayout)
+    let visibleByteCount = inlineLayout.prepared.naturalText.utf8.count
+    let fragment = try #require(MarkdownDocumentSelectionFragment.inlineLineFragments(
+        blockID: block.id,
+        prepared: inlineLayout,
+        layout: InlineLayoutResult(
+            lines: [InlineLineRange(byteRange: 0..<visibleByteCount, width: 320)],
+            naturalWidth: 320,
+            height: inlineLayout.lineHeight
+        ),
+        rect: CGRect(x: 0, y: 0, width: 96, height: 80),
+        idPrefix: "overwide-test"
+    ).first { $0.textGeometry != nil })
+    let textGeometry = try #require(fragment.textGeometry)
+
+    #expect(textGeometry.lineWidth > fragment.rect.width)
+
+    let start = fragment.endpoint(at: CGPoint(x: fragment.rect.minX, y: fragment.rect.midY))
+    let visibleEdge = fragment.endpoint(at: CGPoint(x: fragment.rect.maxX, y: fragment.rect.midY))
+    let selection = MarkdownDocumentSelectionFragment.selection(from: start, to: visibleEdge, in: [fragment])
+    let selectedRange = try #require(selection.ranges.first)
+
+    let controller = MarkdownSelectionController()
+    controller.updateSnapshot(snapshot)
+    controller.selectSourceRanges(selection.ranges, selectedBlockIDs: selection.blockIDs)
+    let selectedMarkdown = controller.selectedMarkdown(in: prepared, copyProvider: configuration.copyProvider)
+
+    #expect(selectedRange.byteRange.lowerBound == fragment.sourceRange.byteRange.lowerBound)
+    #expect(selectedRange.byteRange.upperBound < fragment.sourceRange.byteRange.upperBound)
+    #expect(selectedMarkdown.utf8.count < markdown.utf8.count)
+    #expect(markdown.hasPrefix(selectedMarkdown))
+}
+
+@Test
+@MainActor
+func defaultDocumentSelectionOverwideLineDoesNotPaintHiddenOnlyRangesOnMacOS() throws {
+    let markdown = "abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz"
+    var stream = MarkdownStream()
+    stream.append(markdown)
+    stream.finish()
+
+    let configuration = MarkdownRendererConfiguration.compactChat
+    let snapshot = stream.snapshot()
+    let prepared = configuration.prepare(snapshot: snapshot)
+    let block = try #require(snapshot.blocks.first)
+    let content = try #require(prepared.preparedContentByBlockID[block.id])
+    let inlineLayout = try #require(content.inlineLayout)
+    let visibleByteCount = inlineLayout.prepared.naturalText.utf8.count
+    let fragment = try #require(MarkdownDocumentSelectionFragment.inlineLineFragments(
+        blockID: block.id,
+        prepared: inlineLayout,
+        layout: InlineLayoutResult(
+            lines: [InlineLineRange(byteRange: 0..<visibleByteCount, width: 320)],
+            naturalWidth: 320,
+            height: inlineLayout.lineHeight
+        ),
+        rect: CGRect(x: 0, y: 0, width: 96, height: 80),
+        idPrefix: "overwide-test"
+    ).first { $0.textGeometry != nil })
+    let textGeometry = try #require(fragment.textGeometry)
+    let visibleEdgeOffset = textGeometry.sourceByteOffset(atX: fragment.rect.width)
+    let hiddenLower = max(visibleEdgeOffset + 1, fragment.sourceRange.byteRange.lowerBound)
+    let hiddenUpper = min(hiddenLower + 2, fragment.sourceRange.byteRange.upperBound)
+    let hiddenRange = MarkdownSourceRange(
+        byteRange: hiddenLower..<hiddenUpper,
+        lineRange: fragment.sourceRange.lineRange
+    )
+
+    #expect(textGeometry.lineWidth > fragment.rect.width)
+    #expect(hiddenRange.byteRange.lowerBound < hiddenRange.byteRange.upperBound)
+    #expect(textGeometry.xOffset(forSourceByteOffset: hiddenRange.byteRange.lowerBound) > fragment.rect.width)
+    #expect(fragment.highlightRects(for: [hiddenRange]).isEmpty)
+}
+
+@Test
+@MainActor
+func defaultDocumentSelectionRTLEdgeEndpointsFollowCoreTextVisualOrderOnMacOS() throws {
+    let markdown = "שלום עולם"
+    var stream = MarkdownStream()
+    stream.append(markdown)
+    stream.finish()
+
+    let configuration = MarkdownRendererConfiguration.compactChat
+    let snapshot = stream.snapshot()
+    let prepared = configuration.prepare(snapshot: snapshot)
+    let block = try #require(snapshot.blocks.first)
+    let content = try #require(prepared.preparedContentByBlockID[block.id])
+    let fragment = try #require(MarkdownDocumentSelectionFragment.fragments(
+        for: block,
+        preparedContent: content,
+        rect: CGRect(x: 0, y: 0, width: 700, height: 80)
+    ).first { $0.textGeometry != nil })
+
+    let leftEdge = fragment.endpoint(at: CGPoint(x: fragment.rect.minX, y: fragment.rect.midY))
+    let rightEdge = fragment.endpoint(at: CGPoint(x: fragment.rect.maxX, y: fragment.rect.midY))
+    let selection = MarkdownDocumentSelectionFragment.selection(from: leftEdge, to: rightEdge, in: [fragment])
+
+    #expect(leftEdge.sourceByteOffset == fragment.sourceRange.byteRange.upperBound)
+    #expect(rightEdge.sourceByteOffset == fragment.sourceRange.byteRange.lowerBound)
+    #expect(selection.ranges.first?.byteRange == fragment.sourceRange.byteRange)
+}
+
+@Test
+@MainActor
+func defaultDocumentSelectionOverwideRTLLineDoesNotPaintHiddenSourcePrefixOnMacOS() throws {
+    let markdown = "שלום עולם שלום עולם שלום עולם שלום עולם"
+    var stream = MarkdownStream()
+    stream.append(markdown)
+    stream.finish()
+
+    let configuration = MarkdownRendererConfiguration.compactChat
+    let snapshot = stream.snapshot()
+    let prepared = configuration.prepare(snapshot: snapshot)
+    let block = try #require(snapshot.blocks.first)
+    let content = try #require(prepared.preparedContentByBlockID[block.id])
+    let inlineLayout = try #require(content.inlineLayout)
+    let visibleByteCount = inlineLayout.prepared.naturalText.utf8.count
+    let fragment = try #require(MarkdownDocumentSelectionFragment.inlineLineFragments(
+        blockID: block.id,
+        prepared: inlineLayout,
+        layout: InlineLayoutResult(
+            lines: [InlineLineRange(byteRange: 0..<visibleByteCount, width: 360)],
+            naturalWidth: 360,
+            height: inlineLayout.lineHeight
+        ),
+        rect: CGRect(x: 0, y: 0, width: 96, height: 80),
+        idPrefix: "overwide-rtl-test"
+    ).first { $0.textGeometry != nil })
+    let textGeometry = try #require(fragment.textGeometry)
+    let visibleBoundary = textGeometry.sourceByteOffset(atX: fragment.rect.width)
+    let hiddenBoundary = textGeometry.sourceByteOffset(
+        atX: min(textGeometry.lineWidth, fragment.rect.width + 80)
+    )
+    let hiddenUpper = max(fragment.sourceRange.byteRange.lowerBound + 1, hiddenBoundary)
+    let hiddenRange = MarkdownSourceRange(
+        byteRange: fragment.sourceRange.byteRange.lowerBound..<hiddenUpper,
+        lineRange: fragment.sourceRange.lineRange
+    )
+
+    #expect(textGeometry.lineWidth > fragment.rect.width)
+    #expect(visibleBoundary > fragment.sourceRange.byteRange.lowerBound)
+    #expect(visibleBoundary < fragment.sourceRange.byteRange.upperBound)
+    #expect(hiddenBoundary > fragment.sourceRange.byteRange.lowerBound)
+    #expect(hiddenBoundary < visibleBoundary)
+    #expect(textGeometry.xOffset(forSourceByteOffset: hiddenRange.byteRange.upperBound) > fragment.rect.width)
+    #expect(fragment.highlightRects(for: [hiddenRange]).isEmpty)
 }
 
 @Test
@@ -2598,6 +3033,43 @@ func selectionSourceRunMarksFormattedRunAsNonOneToOne() {
 }
 
 @Test
+func documentSelectionDragActivationIgnoresTapSizedMovement() {
+    let activation = MarkdownDocumentSelectionDragActivation()
+    let start = CGPoint(x: 20, y: 12)
+
+    #expect(activation.hasActivated(start: start, current: CGPoint(x: 20, y: 12)) == false)
+    #expect(activation.hasActivated(start: start, current: CGPoint(x: 23, y: 12)) == false)
+    #expect(activation.hasActivated(start: start, current: CGPoint(x: 24, y: 12)))
+    #expect(activation.hasActivated(start: start, current: CGPoint(x: 20, y: 16)))
+}
+
+@Test
+func documentSelectionHitFragmentDoesNotFallBackToVerticallyDistantText() {
+    let fragment = MarkdownDocumentSelectionFragment(
+        id: "line:1",
+        blockID: MarkdownBlockID("block-1"),
+        sourceRange: MarkdownSourceRange(byteRange: 0..<11, lineRange: 1..<2),
+        rect: CGRect(x: 24, y: 20, width: 140, height: 18)
+    )
+
+    #expect(MarkdownDocumentSelectionFragment.hitFragment(
+        at: CGPoint(x: 80, y: 24),
+        in: [fragment],
+        hitSlop: 4
+    ) == fragment)
+    #expect(MarkdownDocumentSelectionFragment.hitFragment(
+        at: CGPoint(x: 260, y: 28),
+        in: [fragment],
+        hitSlop: 4
+    ) == fragment)
+    #expect(MarkdownDocumentSelectionFragment.hitFragment(
+        at: CGPoint(x: 80, y: 120),
+        in: [fragment],
+        hitSlop: 4
+    ) == nil)
+}
+
+@Test
 func selectionSourceRunSnapsNonOneToOneRunsToSourceBoundaries() {
     let mapper = MarkdownDocumentSelectionSourceRun(
         visibleByteRange: 0..<4,
@@ -3802,6 +4274,37 @@ private func appKitTextViews(in view: NSView) -> [NSTextView] {
         matches.append(contentsOf: appKitTextViews(in: subview))
     }
     return matches
+}
+
+@MainActor
+private func appKitCoreTextPaintedViews(in view: NSView) -> [NSView] {
+    var matches: [NSView] = []
+    if String(describing: type(of: view)).contains("MarkdownCoreTextPaintedNSView") {
+        matches.append(view)
+    }
+    for subview in view.subviews {
+        matches.append(contentsOf: appKitCoreTextPaintedViews(in: subview))
+    }
+    return matches
+}
+
+@MainActor
+private func mouseEvent(type: NSEvent.EventType, location: CGPoint, window: NSWindow) -> NSEvent {
+    guard let event = NSEvent.mouseEvent(
+        with: type,
+        location: location,
+        modifierFlags: [],
+        timestamp: ProcessInfo.processInfo.systemUptime,
+        windowNumber: window.windowNumber,
+        context: nil,
+        eventNumber: 0,
+        clickCount: 1,
+        pressure: type == .leftMouseUp ? 0 : 1
+    ) else {
+        Issue.record("Unable to create mouse event")
+        fatalError("Unable to create mouse event")
+    }
+    return event
 }
 
 @MainActor

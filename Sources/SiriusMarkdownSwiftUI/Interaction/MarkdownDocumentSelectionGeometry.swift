@@ -34,6 +34,18 @@ struct MarkdownDocumentSelectionHighlight: Identifiable {
     var rect: CGRect
 }
 
+struct MarkdownDocumentSelectionDragActivation: Equatable, Sendable {
+    static let defaultMinimumDistance: CGFloat = 4
+
+    var minimumDistance: CGFloat = Self.defaultMinimumDistance
+
+    func hasActivated(start: CGPoint, current: CGPoint) -> Bool {
+        let dx = current.x - start.x
+        let dy = current.y - start.y
+        return dx * dx + dy * dy >= minimumDistance * minimumDistance
+    }
+}
+
 struct MarkdownDocumentSelectionFragment: Identifiable, Equatable {
     var id: String
     var blockID: MarkdownBlockID
@@ -84,8 +96,21 @@ struct MarkdownDocumentSelectionFragment: Identifiable, Equatable {
         to upper: MarkdownDocumentSelectionFragment,
         in fragments: [MarkdownDocumentSelectionFragment]
     ) -> (ranges: [MarkdownSourceRange], blockIDs: [MarkdownBlockID]) {
-        let lowerEndpoint = lower.endpoint(at: CGPoint(x: lower.rect.minX, y: lower.rect.midY))
-        let upperEndpoint = upper.endpoint(at: CGPoint(x: upper.rect.maxX, y: upper.rect.midY))
+        let selectsForward = lower.sourceRange.byteRange.lowerBound <= upper.sourceRange.byteRange.lowerBound
+        let lowerEndpoint = MarkdownDocumentSelectionEndpoint(
+            blockID: lower.blockID,
+            sourceByteOffset: selectsForward
+                ? lower.sourceRange.byteRange.lowerBound
+                : lower.sourceRange.byteRange.upperBound,
+            line: selectsForward ? lower.sourceRange.lineRange.lowerBound : lower.sourceRange.lineRange.upperBound
+        )
+        let upperEndpoint = MarkdownDocumentSelectionEndpoint(
+            blockID: upper.blockID,
+            sourceByteOffset: selectsForward
+                ? upper.sourceRange.byteRange.upperBound
+                : upper.sourceRange.byteRange.lowerBound,
+            line: selectsForward ? upper.sourceRange.lineRange.upperBound : upper.sourceRange.lineRange.lowerBound
+        )
         return selection(from: lowerEndpoint, to: upperEndpoint, in: fragments)
     }
 
@@ -220,6 +245,25 @@ struct MarkdownDocumentSelectionFragment: Identifiable, Equatable {
         )
     }
 
+    static func hitFragment(
+        at location: CGPoint,
+        in fragments: [MarkdownDocumentSelectionFragment],
+        hitSlop: CGFloat
+    ) -> MarkdownDocumentSelectionFragment? {
+        if let direct = fragments.first(where: { $0.rect.insetBy(dx: -hitSlop, dy: -hitSlop).contains(location) }) {
+            return direct
+        }
+
+        return fragments
+            .filter { fragment in
+                location.y >= fragment.rect.minY - hitSlop &&
+                    location.y <= fragment.rect.maxY + hitSlop
+            }
+            .min { lhs, rhs in
+                lhs.horizontalDistanceSquared(to: location) < rhs.horizontalDistanceSquared(to: location)
+            }
+    }
+
     func intersectsAny(_ ranges: [MarkdownSourceRange]) -> Bool {
         ranges.contains { range in
             sourceRange.byteRange.lowerBound < range.byteRange.upperBound &&
@@ -240,14 +284,16 @@ struct MarkdownDocumentSelectionFragment: Identifiable, Equatable {
                 let upperX = textGeometry.xOffset(forSourceByteOffset: upperBound)
                 let minX = min(lowerX, upperX)
                 let maxX = max(lowerX, upperX)
-                let width = max(1, min(rect.width, maxX) - min(rect.width, minX))
+                let clippedMinX = max(0, min(rect.width, minX))
+                let clippedMaxX = max(0, min(rect.width, maxX))
+                let width = clippedMaxX - clippedMinX
                 guard width.isFinite, width > 0 else {
                     return nil
                 }
                 let highlightRect = CGRect(
-                    x: rect.minX + min(rect.width, max(0, minX)),
+                    x: rect.minX + clippedMinX,
                     y: rect.minY,
-                    width: width,
+                    width: max(1, width),
                     height: rect.height
                 )
                 return MarkdownDocumentSelectionHighlight(
@@ -266,23 +312,11 @@ struct MarkdownDocumentSelectionFragment: Identifiable, Equatable {
     func endpoint(at location: CGPoint) -> MarkdownDocumentSelectionEndpoint {
         if let textGeometry {
             let localX = location.x - rect.minX
-            if localX <= 0 {
-                return MarkdownDocumentSelectionEndpoint(
-                    blockID: blockID,
-                    sourceByteOffset: sourceRange.byteRange.lowerBound,
-                    line: sourceRange.lineRange.lowerBound
-                )
-            }
-            if localX >= rect.width {
-                return MarkdownDocumentSelectionEndpoint(
-                    blockID: blockID,
-                    sourceByteOffset: sourceRange.byteRange.upperBound,
-                    line: sourceRange.lineRange.upperBound
-                )
-            }
+            let visibleMaxX = max(0, min(textGeometry.lineWidth, rect.width))
+            let queryX = min(max(localX, 0), visibleMaxX)
             return MarkdownDocumentSelectionEndpoint(
                 blockID: blockID,
-                sourceByteOffset: textGeometry.sourceByteOffset(atX: localX),
+                sourceByteOffset: textGeometry.sourceByteOffset(atX: queryX),
                 line: sourceRange.lineRange.lowerBound
             )
         }
@@ -297,26 +331,16 @@ struct MarkdownDocumentSelectionFragment: Identifiable, Equatable {
         )
     }
 
-    func distanceSquared(to point: CGPoint) -> CGFloat {
-        let dx: CGFloat
+    private func horizontalDistanceSquared(to point: CGPoint) -> CGFloat {
         if point.x < rect.minX {
-            dx = rect.minX - point.x
-        } else if point.x > rect.maxX {
-            dx = point.x - rect.maxX
-        } else {
-            dx = 0
+            let dx = rect.minX - point.x
+            return dx * dx
         }
-
-        let dy: CGFloat
-        if point.y < rect.minY {
-            dy = rect.minY - point.y
-        } else if point.y > rect.maxY {
-            dy = point.y - rect.maxY
-        } else {
-            dy = 0
+        if point.x > rect.maxX {
+            let dx = point.x - rect.maxX
+            return dx * dx
         }
-
-        return dx * dx + dy * dy
+        return 0
     }
 
     private static func blockFragment(for block: MarkdownBlock, rect: CGRect) -> MarkdownDocumentSelectionFragment {
@@ -451,6 +475,9 @@ struct MarkdownDocumentSelectionTextGeometry: Equatable, Sendable {
     var lineWidth: CGFloat
     private var equalityFingerprint: Int
     private var diagnosticsRecorder: MarkdownDiagnosticsRecorder?
+    #if canImport(CoreText)
+    private var coreTextMetrics: MarkdownDocumentSelectionCoreTextMetrics?
+    #endif
 
     init?(
         prepared: MarkdownPreparedInlineContent,
@@ -514,6 +541,17 @@ struct MarkdownDocumentSelectionTextGeometry: Equatable, Sendable {
             fontSize: fontSize,
             lineWidth: lineWidth
         )
+        #if canImport(CoreText)
+        self.coreTextMetrics = Self.makeCoreTextMetrics(
+            lineText: lineText,
+            visibleByteRange: visibleByteRange,
+            fontRuns: fontRuns,
+            fontProfiles: fontProfiles,
+            fontSize: fontSize,
+            lineWidth: lineWidth,
+            diagnosticsRecorder: diagnosticsRecorder
+        )
+        #endif
     }
 
     static func == (
@@ -543,9 +581,9 @@ struct MarkdownDocumentSelectionTextGeometry: Equatable, Sendable {
         }
 
         #if canImport(CoreText)
-        if let line = coreTextLine(), let scale = coreTextScale(for: line) {
-            let queryX = max(0, min(lineWidth, x)) / scale
-            let index = CTLineGetStringIndexForPosition(line, CGPoint(x: queryX, y: 0))
+        if let coreTextMetrics {
+            let queryX = max(0, min(lineWidth, x)) / coreTextMetrics.scale
+            let index = CTLineGetStringIndexForPosition(coreTextMetrics.line, CGPoint(x: queryX, y: 0))
             if index != kCFNotFound {
                 return visibleByteOffset(forLocalUTF16Offset: index)
             }
@@ -564,10 +602,10 @@ struct MarkdownDocumentSelectionTextGeometry: Equatable, Sendable {
 
         let clamped = min(max(visibleByteOffset, visibleByteRange.lowerBound), visibleByteRange.upperBound)
         #if canImport(CoreText)
-        if let line = coreTextLine(),
-           let scale = coreTextScale(for: line),
+        if let coreTextMetrics,
            let localUTF16Offset = localUTF16Offset(forVisibleByteOffset: clamped) {
-            return CGFloat(CTLineGetOffsetForStringIndex(line, localUTF16Offset, nil)) * scale
+            return CGFloat(CTLineGetOffsetForStringIndex(coreTextMetrics.line, localUTF16Offset, nil)) *
+                coreTextMetrics.scale
         }
         #endif
 
@@ -646,12 +684,18 @@ struct MarkdownDocumentSelectionTextGeometry: Equatable, Sendable {
     }
 
     #if canImport(CoreText)
-    private func coreTextLine() -> CTLine? {
+    private static func makeCoreTextMetrics(
+        lineText: String,
+        visibleByteRange: Range<Int>,
+        fontRuns: [MarkdownDocumentSelectionFontRun],
+        fontProfiles: MarkdownInlineFontProfiles,
+        fontSize: Double,
+        lineWidth: CGFloat,
+        diagnosticsRecorder: MarkdownDiagnosticsRecorder?
+    ) -> MarkdownDocumentSelectionCoreTextMetrics? {
         guard !lineText.isEmpty else {
             return nil
         }
-        diagnosticsRecorder?.recordSelectionCoreTextLineBuild()
-
         let attributed = NSMutableAttributedString(string: lineText)
         if fontRuns.isEmpty {
             attributed.addAttribute(
@@ -665,7 +709,11 @@ struct MarkdownDocumentSelectionTextGeometry: Equatable, Sendable {
             )
         } else {
             for run in fontRuns {
-                guard let range = nsRange(forVisibleByteRange: run.visibleByteRange) else {
+                guard let range = nsRange(
+                    forVisibleByteRange: run.visibleByteRange,
+                    visibleByteRange: visibleByteRange,
+                    lineText: lineText
+                ) else {
                     continue
                 }
                 attributed.addAttribute(
@@ -679,27 +727,58 @@ struct MarkdownDocumentSelectionTextGeometry: Equatable, Sendable {
                 )
             }
         }
-        return CTLineCreateWithAttributedString(attributed)
-    }
-
-    private func coreTextScale(for line: CTLine) -> CGFloat? {
+        let line = CTLineCreateWithAttributedString(attributed)
+        diagnosticsRecorder?.recordSelectionCoreTextLineBuild()
         let measuredWidth = CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil))
         guard measuredWidth.isFinite, measuredWidth > 0, lineWidth.isFinite, lineWidth > 0 else {
             return nil
         }
-        return lineWidth / measuredWidth
+        return MarkdownDocumentSelectionCoreTextMetrics(line: line, scale: lineWidth / measuredWidth)
     }
 
-    private func nsRange(forVisibleByteRange byteRange: Range<Int>) -> NSRange? {
+    private static func nsRange(
+        forVisibleByteRange byteRange: Range<Int>,
+        visibleByteRange: Range<Int>,
+        lineText: String
+    ) -> NSRange? {
         let lower = min(max(byteRange.lowerBound, visibleByteRange.lowerBound), visibleByteRange.upperBound)
         let upper = min(max(byteRange.upperBound, visibleByteRange.lowerBound), visibleByteRange.upperBound)
         guard lower < upper,
-              let lowerOffset = localUTF16Offset(forVisibleByteOffset: lower),
-              let upperOffset = localUTF16Offset(forVisibleByteOffset: upper)
+              let lowerOffset = localUTF16Offset(
+                forVisibleByteOffset: lower,
+                visibleByteRange: visibleByteRange,
+                lineText: lineText
+              ),
+              let upperOffset = localUTF16Offset(
+                forVisibleByteOffset: upper,
+                visibleByteRange: visibleByteRange,
+                lineText: lineText
+              )
         else {
             return nil
         }
         return NSRange(location: lowerOffset, length: max(0, upperOffset - lowerOffset))
+    }
+
+    private static func localUTF16Offset(
+        forVisibleByteOffset visibleByteOffset: Int,
+        visibleByteRange: Range<Int>,
+        lineText: String
+    ) -> Int? {
+        let clamped = min(max(visibleByteOffset, visibleByteRange.lowerBound), visibleByteRange.upperBound)
+        let localByteOffset = clamped - visibleByteRange.lowerBound
+        guard let utf8Index = lineText.utf8.index(
+            lineText.utf8.startIndex,
+            offsetBy: localByteOffset,
+            limitedBy: lineText.utf8.endIndex
+        ),
+            let stringIndex = String.Index(utf8Index, within: lineText),
+            let utf16Index = stringIndex.samePosition(in: lineText.utf16)
+        else {
+            return nil
+        }
+
+        return lineText.utf16.distance(from: lineText.utf16.startIndex, to: utf16Index)
     }
     #endif
 
@@ -816,6 +895,13 @@ struct MarkdownDocumentSelectionFontRun: Equatable, Sendable {
     var visibleByteRange: Range<Int>
     var kind: MarkdownInlineKind
 }
+
+#if canImport(CoreText)
+private struct MarkdownDocumentSelectionCoreTextMetrics: @unchecked Sendable {
+    var line: CTLine
+    var scale: CGFloat
+}
+#endif
 
 private extension MarkdownInlineRun {
     var isAtomicSelectionRun: Bool {

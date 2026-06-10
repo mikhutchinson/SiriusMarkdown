@@ -253,6 +253,27 @@ private func parserPreservesLinkDestinationAcrossInlineBreaks() throws {
 }
 
 @Test
+private func parserAssignsBreakRunsToOriginalSourceBytes() throws {
+    let markdown = "alpha soft\nbeta hard  \ngamma slash\\\ndelta"
+    var stream = MarkdownStream()
+    stream.append(markdown)
+    stream.finish()
+
+    let runs = try #require(stream.snapshot().blocks.first?.inlines)
+    let softBreak = try #require(runs.first { $0.kind == .softBreak })
+    let hardBreaks = runs.filter { $0.kind == .hardBreak }
+    let hardSpaceBreak = try #require(hardBreaks.first)
+    let hardBackslashBreak = try #require(hardBreaks.dropFirst().first)
+    let softBreakRange = try utf8Range(of: "\n", in: markdown)
+    let hardSpaceRange = try utf8Range(of: "  \n", in: markdown)
+    let hardBackslashRange = try utf8Range(of: "\\\n", in: markdown)
+
+    #expect(softBreak.sourceRange?.byteRange == softBreakRange)
+    #expect(hardSpaceBreak.sourceRange?.byteRange == hardSpaceRange)
+    #expect(hardBackslashBreak.sourceRange?.byteRange == hardBackslashRange)
+}
+
+@Test
 private func parserPreservesLinkedImagePresentationAndLinkDestination() throws {
     var stream = MarkdownStream()
     stream.append("[![diagram](diagram.png)](https://example.com/diagram)")
@@ -1703,6 +1724,39 @@ private func inlineSourceRangesRemainByteAccurateAfterMultibytePrefixes() throws
 }
 
 @Test
+private func bareHTTPSURLsBecomeLinkRunsWithByteAccurateSourceRanges() throws {
+    let bareURL = "https://www.google.com/travel/flights?q=DTW%20to%20ORF%20one%20way%20Jun%2012%202026"
+    let markdown = "Friday morning DTW -> Norfolk link:\n\(bareURL)\n\n"
+    var stream = MarkdownStream()
+    stream.append(markdown)
+    stream.finish()
+
+    let block = try #require(stream.snapshot().blocks.first)
+    let link = try #require(block.inlines.first { $0.kind == .link })
+    let linkRange = try #require(link.sourceRange)
+
+    #expect(link.text == bareURL)
+    #expect(link.destination == bareURL)
+    #expect(stream.markdown(in: linkRange) == bareURL)
+    #expect(block.inlines.contains { $0.kind == .softBreak })
+}
+
+@Test
+private func bareURLLinkificationTrimsSentencePunctuationAndSkipsCode() throws {
+    var stream = MarkdownStream()
+    stream.append("Open https://example.com/path?q=1). Code `https://example.com/code` stays literal.")
+    stream.finish()
+
+    let block = try #require(stream.snapshot().blocks.first)
+    let links = block.inlines.filter { $0.kind == .link }
+    let code = try #require(block.inlines.first { $0.kind == .code })
+
+    #expect(links.map(\.destination) == ["https://example.com/path?q=1"])
+    #expect(links.map(\.text) == ["https://example.com/path?q=1"])
+    #expect(code.text == "https://example.com/code")
+}
+
+@Test
 private func tailInlineSourceRangesRemainByteAccurateAfterSealedReferencePrefix() throws {
     let definition = "[ref]: https://example.com/reference\n\n"
     let tail = "😀 Uses [linked text][ref] and \\(x^2\\).\n\n"
@@ -1831,4 +1885,17 @@ func diagnosticsDumpIncludesStableIDsAndKinds() {
     #expect(dump.contains("heading"))
     #expect(dump.contains("paragraph"))
     #expect(dump.contains("stream:0:0:heading"))
+}
+
+private func utf8Range(of needle: String, in haystack: String) throws -> Range<Int> {
+    let range = try #require(haystack.range(of: needle))
+    let lower = haystack.utf8.distance(
+        from: haystack.utf8.startIndex,
+        to: range.lowerBound.samePosition(in: haystack.utf8) ?? haystack.utf8.startIndex
+    )
+    let upper = haystack.utf8.distance(
+        from: haystack.utf8.startIndex,
+        to: range.upperBound.samePosition(in: haystack.utf8) ?? haystack.utf8.endIndex
+    )
+    return lower..<upper
 }

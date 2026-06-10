@@ -293,6 +293,80 @@ private struct MarkdownCoreTextPaintedLinkCandidate {
     var byteRange: Range<Int>
 }
 
+struct MarkdownCoreTextPaintedLinkClickTracker: Equatable {
+    static let defaultActivationDistance: CGFloat = 4
+
+    var activationDistance: CGFloat = Self.defaultActivationDistance
+    private var pendingFragment: MarkdownCoreTextPaintedLinkFragment?
+    private var startPoint: CGPoint?
+
+    var hasPendingClick: Bool {
+        pendingFragment != nil
+    }
+
+    mutating func begin(
+        at point: CGPoint,
+        fragments: [MarkdownCoreTextPaintedLinkFragment],
+        hitSlop: CGFloat
+    ) -> Bool {
+        guard let fragment = Self.hitFragment(at: point, fragments: fragments, hitSlop: hitSlop) else {
+            cancel()
+            return false
+        }
+
+        pendingFragment = fragment
+        startPoint = point
+        return true
+    }
+
+    mutating func updateDrag(to point: CGPoint) {
+        guard let startPoint,
+              hasExceededActivationDistance(from: startPoint, to: point)
+        else {
+            return
+        }
+        cancel()
+    }
+
+    mutating func finish(
+        at point: CGPoint,
+        fragments: [MarkdownCoreTextPaintedLinkFragment],
+        hitSlop: CGFloat
+    ) -> String? {
+        defer { cancel() }
+        guard let pendingFragment,
+              let startPoint,
+              !hasExceededActivationDistance(from: startPoint, to: point),
+              let currentFragment = Self.hitFragment(at: point, fragments: fragments, hitSlop: hitSlop),
+              currentFragment.id == pendingFragment.id
+        else {
+            return nil
+        }
+        return currentFragment.destination
+    }
+
+    mutating func cancel() {
+        pendingFragment = nil
+        startPoint = nil
+    }
+
+    private func hasExceededActivationDistance(from start: CGPoint, to current: CGPoint) -> Bool {
+        let dx = current.x - start.x
+        let dy = current.y - start.y
+        return dx * dx + dy * dy >= activationDistance * activationDistance
+    }
+
+    private static func hitFragment(
+        at point: CGPoint,
+        fragments: [MarkdownCoreTextPaintedLinkFragment],
+        hitSlop: CGFloat
+    ) -> MarkdownCoreTextPaintedLinkFragment? {
+        fragments.first { fragment in
+            fragment.rect.insetBy(dx: -hitSlop, dy: -hitSlop).contains(point)
+        }
+    }
+}
+
 enum MarkdownCoreTextFontBridge {
     static func font(
         profile: MarkdownFontProfile,
@@ -459,6 +533,7 @@ private final class MarkdownCoreTextPaintedNSView: NSView {
     )
     var textColor: CGColor = NSColor.labelColor.cgColor
     var linkAction: MarkdownLinkAction?
+    private var linkClickTracker = MarkdownCoreTextPaintedLinkClickTracker()
 
     override var isFlipped: Bool {
         true
@@ -489,11 +564,32 @@ private final class MarkdownCoreTextPaintedNSView: NSView {
 
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
-        if let fragment = plan.linkFragments.first(where: { $0.rect.insetBy(dx: -2, dy: -2).contains(point) }) {
-            open(fragment.destination)
+        if linkClickTracker.begin(at: point, fragments: plan.linkFragments, hitSlop: 2) {
             return
         }
         super.mouseDown(with: event)
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard linkClickTracker.hasPendingClick else {
+            super.mouseDragged(with: event)
+            return
+        }
+
+        let point = convert(event.locationInWindow, from: nil)
+        linkClickTracker.updateDrag(to: point)
+        if !linkClickTracker.hasPendingClick {
+            super.mouseDragged(with: event)
+        }
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        if let destination = linkClickTracker.finish(at: point, fragments: plan.linkFragments, hitSlop: 2) {
+            open(destination)
+            return
+        }
+        super.mouseUp(with: event)
     }
 
     override func resetCursorRects() {
@@ -571,6 +667,7 @@ private final class MarkdownCoreTextPaintedUIView: UIView {
     )
     var textColor: CGColor = UIColor.label.cgColor
     var linkAction: MarkdownLinkAction?
+    private var linkClickTracker = MarkdownCoreTextPaintedLinkClickTracker()
 
     override func draw(_ rect: CGRect) {
         super.draw(rect)
@@ -595,15 +692,43 @@ private final class MarkdownCoreTextPaintedUIView: UIView {
         context.restoreGState()
     }
 
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+        guard let point = touches.first?.location(in: self),
+              linkClickTracker.begin(at: point, fragments: plan.linkFragments, hitSlop: 8)
+        else {
+            super.touchesBegan(touches, with: event)
+            return
+        }
+    }
+
+    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
+        guard linkClickTracker.hasPendingClick else {
+            super.touchesMoved(touches, with: event)
+            return
+        }
+
+        if let point = touches.first?.location(in: self) {
+            linkClickTracker.updateDrag(to: point)
+        }
+        if !linkClickTracker.hasPendingClick {
+            super.touchesMoved(touches, with: event)
+        }
+    }
+
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
         guard let point = touches.first?.location(in: self),
-              let fragment = plan.linkFragments.first(where: { $0.rect.insetBy(dx: -8, dy: -8).contains(point) })
+              let destination = linkClickTracker.finish(at: point, fragments: plan.linkFragments, hitSlop: 8)
         else {
             super.touchesEnded(touches, with: event)
             return
         }
 
-        open(fragment.destination)
+        open(destination)
+    }
+
+    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
+        linkClickTracker.cancel()
+        super.touchesCancelled(touches, with: event)
     }
 
     private func open(_ destination: String) {

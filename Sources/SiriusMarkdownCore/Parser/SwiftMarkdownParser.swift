@@ -942,7 +942,9 @@ private struct InlineRunConverter {
         let converted = children.flatMap {
             runs(in: $0, presentation: presentation, destination: destination)
         }
-        return coalescedStandaloneDisplayMathRuns(converted)
+        return coalescedStandaloneDisplayMathRuns(
+            resolvedLineBreakSourceRanges(in: converted)
+        )
     }
 
     private func runs(
@@ -965,7 +967,7 @@ private struct InlineRunConverter {
             ]
         case let softBreak as SoftBreak:
             return [
-                run(
+                lineBreakRun(
                     kind: .softBreak,
                     text: "\n",
                     markup: softBreak,
@@ -975,7 +977,7 @@ private struct InlineRunConverter {
             ]
         case let lineBreak as LineBreak:
             return [
-                run(
+                lineBreakRun(
                     kind: .hardBreak,
                     text: "\n",
                     markup: lineBreak,
@@ -1034,6 +1036,102 @@ private struct InlineRunConverter {
         }
     }
 
+    private func resolvedLineBreakSourceRanges(in runs: [MarkdownInlineRun]) -> [MarkdownInlineRun] {
+        guard runs.contains(where: isLineBreakRun) else {
+            return runs
+        }
+
+        var resolved = runs
+        for index in resolved.indices where isLineBreakRun(resolved[index]) {
+            guard let sourceRange = resolvedLineBreakSourceRange(at: index, in: resolved) else {
+                continue
+            }
+            resolved[index].sourceRange = sourceRange
+        }
+        return resolved
+    }
+
+    private func resolvedLineBreakSourceRange(
+        at index: Int,
+        in runs: [MarkdownInlineRun]
+    ) -> MarkdownSourceRange? {
+        let kind = runs[index].kind
+        if let previous = nearestSourceRange(before: index, in: runs),
+           let next = nearestSourceRange(after: index, in: runs),
+           previous.byteRange.upperBound <= next.byteRange.lowerBound,
+           let breakRange = lineBreakByteRange(
+            near: previous.byteRange.upperBound..<next.byteRange.lowerBound,
+            kind: kind
+           ) {
+            return markdownSourceRange(forByteRange: breakRange)
+        }
+
+        if let sourceRange = runs[index].sourceRange,
+           sourceRange != fallbackRange,
+           let breakRange = lineBreakByteRange(near: sourceRange.byteRange, kind: kind) {
+            return markdownSourceRange(forByteRange: breakRange)
+        }
+
+        if let previous = nearestSourceRange(before: index, in: runs),
+           let breakRange = lineBreakByteRange(
+            near: previous.byteRange.upperBound..<previous.byteRange.upperBound,
+            kind: kind
+           ) {
+            return markdownSourceRange(forByteRange: breakRange)
+        }
+
+        if let next = nearestSourceRange(after: index, in: runs),
+           let breakRange = lineBreakByteRange(
+            near: next.byteRange.lowerBound..<next.byteRange.lowerBound,
+            kind: kind
+           ) {
+            return markdownSourceRange(forByteRange: breakRange)
+        }
+
+        return nil
+    }
+
+    private func nearestSourceRange(
+        before index: Int,
+        in runs: [MarkdownInlineRun]
+    ) -> MarkdownSourceRange? {
+        guard index > runs.startIndex else {
+            return nil
+        }
+        var cursor = runs.index(before: index)
+        while cursor >= runs.startIndex {
+            if let range = runs[cursor].sourceRange, range != fallbackRange {
+                return range
+            }
+            if cursor == runs.startIndex {
+                break
+            }
+            cursor = runs.index(before: cursor)
+        }
+        return nil
+    }
+
+    private func nearestSourceRange(
+        after index: Int,
+        in runs: [MarkdownInlineRun]
+    ) -> MarkdownSourceRange? {
+        var cursor = runs.index(after: index)
+        while cursor < runs.endIndex {
+            if let range = runs[cursor].sourceRange, range != fallbackRange {
+                return range
+            }
+            cursor = runs.index(after: cursor)
+        }
+        return nil
+    }
+
+    private func markdownSourceRange(forByteRange byteRange: Range<Int>) -> MarkdownSourceRange {
+        MarkdownSourceRange(
+            byteRange: byteRange,
+            lineRange: lineMap.lineRange(for: byteRange)
+        )
+    }
+
     private func coalescedStandaloneDisplayMathRuns(_ runs: [MarkdownInlineRun]) -> [MarkdownInlineRun] {
         guard runs.count >= 3 else {
             return runs
@@ -1089,8 +1187,8 @@ private struct InlineRunConverter {
         opening: MarkdownInlineRun,
         closing: MarkdownInlineRun
     ) -> String {
-        guard let openingRange = opening.sourceRange?.byteRange,
-              let closingRange = closing.sourceRange?.byteRange,
+        guard let openingRange = displayMathDelimiterByteRange(for: opening),
+              let closingRange = displayMathDelimiterByteRange(for: closing),
               openingRange.upperBound <= closingRange.lowerBound
         else {
             return ""
@@ -1186,13 +1284,13 @@ private struct InlineRunConverter {
 
     private func displayMathOpeningDelimiter(for run: MarkdownInlineRun) -> DisplayMathRunDelimiter? {
         guard run.kind == .text || run.kind == .link,
-              let sourceRange = run.sourceRange,
-              displayMathDelimiterIsStandaloneSourceRun(sourceRange.byteRange)
+              let delimiterRange = displayMathDelimiterByteRange(for: run),
+              displayMathDelimiterIsStandaloneSourceRun(delimiterRange)
         else {
             return nil
         }
 
-        switch sourceText(for: sourceRange.byteRange).trimmingCharacters(in: .whitespacesAndNewlines) {
+        switch sourceText(for: delimiterRange).trimmingCharacters(in: .whitespacesAndNewlines) {
         case "\\[":
             return .bracket
         case "$$":
@@ -1206,13 +1304,13 @@ private struct InlineRunConverter {
 
     private func displayMathClosingDelimiter(for run: MarkdownInlineRun) -> DisplayMathRunDelimiter? {
         guard run.kind == .text || run.kind == .link,
-              let sourceRange = run.sourceRange,
-              displayMathDelimiterIsStandaloneSourceRun(sourceRange.byteRange)
+              let delimiterRange = displayMathDelimiterByteRange(for: run),
+              displayMathDelimiterIsStandaloneSourceRun(delimiterRange)
         else {
             return nil
         }
 
-        switch sourceText(for: sourceRange.byteRange).trimmingCharacters(in: .whitespacesAndNewlines) {
+        switch sourceText(for: delimiterRange).trimmingCharacters(in: .whitespacesAndNewlines) {
         case "\\]":
             return .bracket
         case "$$":
@@ -1222,6 +1320,24 @@ private struct InlineRunConverter {
         default:
             return nil
         }
+    }
+
+    private func displayMathDelimiterByteRange(for run: MarkdownInlineRun) -> Range<Int>? {
+        guard let byteRange = run.sourceRange?.byteRange else {
+            return nil
+        }
+
+        let raw = sourceText(for: byteRange)
+        if raw == "\\",
+           byteRange.upperBound < baseOffset + source.utf8.count {
+            let extended = byteRange.lowerBound..<(byteRange.upperBound + 1)
+            let extendedRaw = sourceText(for: extended)
+            if extendedRaw == "\\[" || extendedRaw == "\\]" {
+                return extended
+            }
+        }
+
+        return byteRange
     }
 
     private func displayMathDelimiterIsStandaloneSourceRun(_ byteRange: Range<Int>) -> Bool {
@@ -1393,8 +1509,8 @@ private struct InlineRunConverter {
         opening: MarkdownInlineRun,
         closing: MarkdownInlineRun
     ) -> MarkdownSourceRange? {
-        guard let openingRange = opening.sourceRange?.byteRange,
-              let closingRange = closing.sourceRange?.byteRange
+        guard let openingRange = displayMathDelimiterByteRange(for: opening),
+              let closingRange = displayMathDelimiterByteRange(for: closing)
         else {
             return nil
         }
@@ -1421,7 +1537,10 @@ private struct InlineRunConverter {
     ) -> [MarkdownInlineRun] {
         guard let sourceRange = sourceRange(for: text) else {
             return applyInlineContext(
-                splitInlineMath(in: text.string, baseRange: fallbackRange),
+                linkifiedBareURLRuns(
+                    splitInlineMath(in: text.string, baseRange: fallbackRange),
+                    alreadyLinked: destination != nil
+                ),
                 presentation: presentation,
                 destination: destination
             )
@@ -1430,17 +1549,242 @@ private struct InlineRunConverter {
         let rawText = sourceText(for: sourceRange.byteRange)
         if rawText != text.string, containsMathDelimiterCandidate(rawText) {
             return applyInlineContext(
-                splitInlineMathInSource(rawText, baseRange: sourceRange),
+                linkifiedBareURLRuns(
+                    splitInlineMathInSource(rawText, baseRange: sourceRange),
+                    alreadyLinked: destination != nil
+                ),
                 presentation: presentation,
                 destination: destination
             )
         }
 
         return applyInlineContext(
-            splitInlineMath(in: text.string, baseRange: sourceRange),
+            linkifiedBareURLRuns(
+                splitInlineMath(in: text.string, baseRange: sourceRange),
+                alreadyLinked: destination != nil
+            ),
             presentation: presentation,
             destination: destination
         )
+    }
+
+    private func linkifiedBareURLRuns(
+        _ runs: [MarkdownInlineRun],
+        alreadyLinked: Bool
+    ) -> [MarkdownInlineRun] {
+        guard !alreadyLinked else {
+            return runs
+        }
+
+        return runs.flatMap { run -> [MarkdownInlineRun] in
+            guard run.kind == .text,
+                  run.destination == nil,
+                  !run.presentation.contains(.code),
+                  !run.presentation.contains(.math),
+                  !run.presentation.contains(.html),
+                  let sourceRange = run.sourceRange
+            else {
+                return [run]
+            }
+            return bareURLRuns(in: run.text, baseRange: sourceRange, presentation: run.presentation)
+        }
+    }
+
+    private func bareURLRuns(
+        in text: String,
+        baseRange: MarkdownSourceRange,
+        presentation: MarkdownInlinePresentation
+    ) -> [MarkdownInlineRun] {
+        var runs: [MarkdownInlineRun] = []
+        var cursor = text.startIndex
+        var plainStart = cursor
+
+        func appendPlain(upTo end: String.Index) {
+            guard plainStart < end else {
+                return
+            }
+            runs.append(
+                MarkdownInlineRun(
+                    kind: primaryStyleKind(for: presentation),
+                    text: String(text[plainStart..<end]),
+                    sourceRange: sourceRange(in: text, localRange: plainStart..<end, baseRange: baseRange),
+                    presentation: presentation
+                )
+            )
+        }
+
+        while cursor < text.endIndex {
+            guard let match = bareURLMatch(in: text, at: cursor) else {
+                cursor = text.index(after: cursor)
+                continue
+            }
+
+            appendPlain(upTo: match.full.lowerBound)
+            let destination = String(text[match.url])
+            runs.append(
+                MarkdownInlineRun(
+                    kind: .link,
+                    text: destination,
+                    sourceRange: sourceRange(in: text, localRange: match.url, baseRange: baseRange),
+                    destination: destination,
+                    presentation: presentation
+                )
+            )
+            cursor = match.full.upperBound
+            plainStart = cursor
+        }
+
+        appendPlain(upTo: text.endIndex)
+        return runs.isEmpty ? [
+            MarkdownInlineRun(
+                kind: primaryStyleKind(for: presentation),
+                text: text,
+                sourceRange: baseRange,
+                presentation: presentation
+            )
+        ] : runs
+    }
+
+    private func bareURLMatch(
+        in text: String,
+        at cursor: String.Index
+    ) -> (url: Range<String.Index>, full: Range<String.Index>)? {
+        guard startsBareURLScheme(in: text, at: cursor),
+              bareURLCanStart(in: text, at: cursor),
+              !bareURLIsReferenceDefinitionDestination(in: text, at: cursor)
+        else {
+            return nil
+        }
+
+        var scan = cursor
+        while scan < text.endIndex, bareURLCanContain(text[scan]) {
+            scan = text.index(after: scan)
+        }
+
+        let full = cursor..<scan
+        let trimmedUpper = trimmedBareURLUpperBound(in: text, range: full)
+        guard cursor < trimmedUpper else {
+            return nil
+        }
+
+        let url = cursor..<trimmedUpper
+        guard bareURLHasHostLikeContent(String(text[url])) else {
+            return nil
+        }
+        return (url: url, full: full)
+    }
+
+    private func bareURLIsReferenceDefinitionDestination(
+        in text: String,
+        at cursor: String.Index
+    ) -> Bool {
+        let lineStart = startOfLine(containing: cursor, in: text)
+        let prefix = String(text[lineStart..<cursor])
+        return linePrefixLooksLikeReferenceDefinitionDestination(prefix)
+    }
+
+    private func linePrefixLooksLikeReferenceDefinitionDestination(_ prefix: String) -> Bool {
+        var current = prefix
+        while true {
+            let stripped = current.drop { $0 == " " || $0 == "\t" }
+            current = String(stripped)
+            if let quote = stripLeadingBlockQuoteMarker(from: current) {
+                current = quote
+                continue
+            }
+            if let list = stripLeadingListItemMarker(from: current) {
+                current = list
+                continue
+            }
+            break
+        }
+
+        let trimmed = current.trimmingCharacters(in: .whitespaces)
+        guard trimmed.hasPrefix("["),
+              let separator = trimmed.range(of: "]:")
+        else {
+            return false
+        }
+        let destinationPrefix = trimmed[separator.upperBound...]
+        return destinationPrefix.allSatisfy { $0 == " " || $0 == "\t" || $0 == "<" }
+    }
+
+    private func startOfLine(containing index: String.Index, in text: String) -> String.Index {
+        var cursor = index
+        while cursor > text.startIndex {
+            let previous = text.index(before: cursor)
+            if text[previous].isNewline {
+                break
+            }
+            cursor = previous
+        }
+        return cursor
+    }
+
+    private func startsBareURLScheme(in text: String, at cursor: String.Index) -> Bool {
+        text[cursor...].hasPrefix("https://") || text[cursor...].hasPrefix("http://")
+    }
+
+    private func bareURLCanStart(in text: String, at cursor: String.Index) -> Bool {
+        guard cursor > text.startIndex else {
+            return true
+        }
+        let previous = text[text.index(before: cursor)]
+        return previous.isWhitespace || "([{\"'".contains(previous)
+    }
+
+    private func bareURLCanContain(_ character: Character) -> Bool {
+        !character.isWhitespace && !"<>\"".contains(character)
+    }
+
+    private func trimmedBareURLUpperBound(
+        in text: String,
+        range: Range<String.Index>
+    ) -> String.Index {
+        var upper = range.upperBound
+        while upper > range.lowerBound {
+            let previous = text.index(before: upper)
+            let character = text[previous]
+            if ".,;:!?".contains(character) {
+                upper = previous
+                continue
+            }
+            if ")]}".contains(character),
+               closingBareURLDelimiterIsUnmatched(character, in: String(text[range.lowerBound..<upper])) {
+                upper = previous
+                continue
+            }
+            break
+        }
+        return upper
+    }
+
+    private func closingBareURLDelimiterIsUnmatched(_ delimiter: Character, in candidate: String) -> Bool {
+        let opener: Character
+        switch delimiter {
+        case ")":
+            opener = "("
+        case "]":
+            opener = "["
+        case "}":
+            opener = "{"
+        default:
+            return false
+        }
+        return candidate.filter { $0 == delimiter }.count > candidate.filter { $0 == opener }.count
+    }
+
+    private func bareURLHasHostLikeContent(_ candidate: String) -> Bool {
+        guard let schemeRange = candidate.range(of: "://") else {
+            return false
+        }
+        let hostStart = schemeRange.upperBound
+        guard hostStart < candidate.endIndex else {
+            return false
+        }
+        let hostEnd = candidate[hostStart...].firstIndex { "/?#".contains($0) } ?? candidate.endIndex
+        let host = candidate[hostStart..<hostEnd]
+        return host.contains(".") || host == "localhost" || host.hasPrefix("localhost:")
     }
 
     private func splitInlineMathInSource(
@@ -2042,6 +2386,135 @@ private struct InlineRunConverter {
             imageSource: imageSource,
             presentation: presentation
         )
+    }
+
+    private func lineBreakRun(
+        kind: MarkdownInlineKind,
+        text: String,
+        markup: Markup,
+        destination: String? = nil,
+        presentation: MarkdownInlinePresentation? = nil
+    ) -> MarkdownInlineRun {
+        let sourceRange = lineBreakSourceRange(for: markup, kind: kind)
+        return MarkdownInlineRun(
+            kind: kind,
+            text: text,
+            sourceRange: sourceRange,
+            destination: destination,
+            presentation: presentation
+        )
+    }
+
+    private func lineBreakSourceRange(for markup: Markup, kind: MarkdownInlineKind) -> MarkdownSourceRange {
+        guard let markupRange = sourceRange(for: markup),
+              let breakRange = lineBreakByteRange(near: markupRange.byteRange, kind: kind)
+        else {
+            return sourceRange(for: markup) ?? fallbackRange
+        }
+        return MarkdownSourceRange(
+            byteRange: breakRange,
+            lineRange: lineMap.lineRange(for: breakRange)
+        )
+    }
+
+    private func lineBreakByteRange(
+        near absoluteRange: Range<Int>,
+        kind: MarkdownInlineKind
+    ) -> Range<Int>? {
+        let localLower = clampedLocalByteOffset(absoluteRange.lowerBound)
+        let localUpper = clampedLocalByteOffset(absoluteRange.upperBound)
+        guard let lineFeed = lineFeedOffset(near: localLower..<localUpper) else {
+            return nil
+        }
+
+        let breakLower = lineFeed > 0 && byte(atLocalOffset: lineFeed - 1) == 13
+            ? lineFeed - 1
+            : lineFeed
+        let breakUpper = min(source.utf8.count, lineFeed + 1)
+        var sourceLower = breakLower
+
+        if kind == .hardBreak {
+            if sourceLower > 0, byte(atLocalOffset: sourceLower - 1) == 92 {
+                sourceLower -= 1
+            } else {
+                let whitespaceLower = trailingInlineWhitespaceLowerBound(before: sourceLower)
+                if sourceLower - whitespaceLower >= 2 {
+                    sourceLower = whitespaceLower
+                }
+            }
+        }
+
+        let absoluteLower = baseOffset + sourceLower
+        let absoluteUpper = baseOffset + breakUpper
+        guard absoluteLower <= absoluteUpper else {
+            return nil
+        }
+        return absoluteLower..<absoluteUpper
+    }
+
+    private func lineFeedOffset(near localRange: Range<Int>) -> Int? {
+        let count = source.utf8.count
+        guard count > 0 else {
+            return nil
+        }
+
+        let anchorLower = min(max(0, localRange.lowerBound), count)
+        let anchorUpper = min(max(anchorLower, localRange.upperBound), count)
+        let searchLower = max(0, anchorLower - 8)
+        let searchUpper = min(count, max(anchorUpper, anchorLower + 8))
+
+        if anchorLower < count, byte(atLocalOffset: anchorLower) == 10 {
+            return anchorLower
+        }
+        if anchorLower > 0, byte(atLocalOffset: anchorLower - 1) == 10 {
+            return anchorLower - 1
+        }
+
+        var forward = anchorLower
+        while forward < searchUpper {
+            if byte(atLocalOffset: forward) == 10 {
+                return forward
+            }
+            forward += 1
+        }
+
+        var backward = min(count - 1, max(searchLower, anchorLower - 1))
+        while backward >= searchLower {
+            if byte(atLocalOffset: backward) == 10 {
+                return backward
+            }
+            if backward == 0 {
+                break
+            }
+            backward -= 1
+        }
+
+        return nil
+    }
+
+    private func trailingInlineWhitespaceLowerBound(before localOffset: Int) -> Int {
+        var cursor = min(max(0, localOffset), source.utf8.count)
+        while cursor > 0 {
+            let previous = cursor - 1
+            let byte = byte(atLocalOffset: previous)
+            guard byte == 32 || byte == 9 else {
+                break
+            }
+            cursor = previous
+        }
+        return cursor
+    }
+
+    private func clampedLocalByteOffset(_ absoluteOffset: Int) -> Int {
+        min(max(0, absoluteOffset - baseOffset), source.utf8.count)
+    }
+
+    private func byte(atLocalOffset offset: Int) -> UInt8? {
+        guard offset >= 0, offset < source.utf8.count else {
+            return nil
+        }
+        let index = source.utf8.index(source.utf8.startIndex, offsetBy: offset)
+        return source.utf8[index]
     }
 
     private func primaryKind(_ kind: MarkdownInlineKind, destination: String?) -> MarkdownInlineKind {
