@@ -36,7 +36,10 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/swiftlang/swift-markdown.git", from: "0.7.3"),
-        .package(url: "https://github.com/mgriebling/SwiftMath.git", from: "1.7.3")
+        .package(
+            url: "https://github.com/mikhutchinson/SwiftMath.git",
+            exact: "1.7.4"
+        )
     ],
     targets: [
         .target(

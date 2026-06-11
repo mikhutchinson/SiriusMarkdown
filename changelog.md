@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.7 - 2026-06-11
+
+- Fixed packaged macOS app math rendering by pinning SwiftMath to patched
+  version `1.7.4`, which resolves `mathFonts.bundle` from signed app resource
+  locations without entering SwiftPM's generated `Bundle.module` accessor.
+
 ## 0.5.5 - 2026-06-06
 
 - Fixed shipped-app JavaScript resource lookup for bundled HighlightJS and Mermaid runtimes by searching the main app bundle, SwiftPM resource bundles, framework bundles, and adjacent resource directories before disabling preparation.
