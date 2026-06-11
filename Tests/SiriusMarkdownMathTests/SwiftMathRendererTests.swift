@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 import SiriusMarkdownCore
 import SiriusMarkdownSwiftUI
@@ -18,6 +19,21 @@ func nativeMathRendererProducesTypesetImageForValidLatex() throws {
     #expect(image.pointHeight > 0)
     #expect(image.scale == NativeMarkdownMathRenderer.renderScale)
     #expect(image.latex == "x^2 + \\alpha")
+}
+
+@Test
+func swiftMathTypesetterRejectsPackagedAppWhenGeneratedResourcePathIsMissing() {
+    #if canImport(SwiftMath)
+    let appURL = URL(fileURLWithPath: "/tmp/Sirius.app", isDirectory: true)
+
+    #expect(!SwiftMathTypesetter.canEnterSwiftMath(mainBundleURL: appURL) { _ in false })
+    #expect(SwiftMathTypesetter.canEnterSwiftMath(mainBundleURL: appURL) { path in
+        path.hasSuffix("SwiftMath_SwiftMath.bundle/mathFonts.bundle")
+    })
+
+    let testHostURL = URL(fileURLWithPath: "/tmp/SiriusMarkdownPackageTests.xctest", isDirectory: true)
+    #expect(SwiftMathTypesetter.canEnterSwiftMath(mainBundleURL: testHostURL) { _ in false })
+    #endif
 }
 
 @Test

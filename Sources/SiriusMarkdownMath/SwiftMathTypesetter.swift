@@ -32,6 +32,10 @@ final class SwiftMathTypesetter: @unchecked Sendable {
         fontSize: Double,
         scale: Double
     ) -> MarkdownPreparedMathImage? {
+        guard Self.canEnterSwiftMath() else {
+            return nil
+        }
+
         let trimmed = latex.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
             return nil
@@ -71,6 +75,24 @@ final class SwiftMathTypesetter: @unchecked Sendable {
                 latex: latex
             )
         }
+    }
+
+    static func canEnterSwiftMath(
+        mainBundleURL: URL = Bundle.main.bundleURL,
+        fileExists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }
+    ) -> Bool {
+        let swiftPMResourceBundle = mainBundleURL
+            .appendingPathComponent("SwiftMath_SwiftMath.bundle", isDirectory: true)
+            .appendingPathComponent("mathFonts.bundle", isDirectory: true)
+
+        if fileExists(swiftPMResourceBundle.path) {
+            return true
+        }
+
+        // SwiftMath's generated Bundle.module accessor fatals when a packaged
+        // app lacks the root SwiftMath_SwiftMath.bundle path. SwiftPM test and
+        // command-line contexts can still rely on the accessor's build path.
+        return mainBundleURL.pathExtension.lowercased() != "app"
     }
 
     /// Re-rasterizes the typeset equation at the requested pixel scale so the

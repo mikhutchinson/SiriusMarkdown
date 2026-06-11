@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.7 - 2026-06-10
+
+- Fixed native math rendering in signed packaged apps where SwiftMath's generated `Bundle.module` accessor would fatal if `SwiftMath_SwiftMath.bundle` was not present at the app bundle root. `SiriusMarkdownMath` now checks the generated accessor's required packaged-app resource path before entering SwiftMath and falls back to text rendering when that path is unavailable, preserving the signed app bundle layout under `Contents/Resources`.
+- Added a regression covering packaged `.app` bundle lookup versus SwiftPM test contexts so consuming apps do not need to fork or repin SwiftMath to avoid the crash.
+
 ## 0.5.5 - 2026-06-06
 
 - Fixed shipped-app JavaScript resource lookup for bundled HighlightJS and Mermaid runtimes by searching the main app bundle, SwiftPM resource bundles, framework bundles, and adjacent resource directories before disabling preparation.
