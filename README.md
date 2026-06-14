@@ -18,9 +18,11 @@ The core contract is simple:
 
 ## Current Release
 
-`0.5.6` supports clickable prepared-line links with document selection enabled
-and hardens source-backed selection against duplicate renderer IDs observed in
-streamed host apps. `0.5.5` shipped
+`0.5.8` fixes long-generation render-session slowdown by batching fast append
+bursts, skipping reset-superseded work before parsing or highlighting, and
+reusing exact-match prepared block content across append-only streaming
+snapshots. `0.5.7` hardened packaged-app native math fallback, and `0.5.5`
+shipped
 `MarkdownInlineRenderingMode.coreTextPaintedLines` as the default
 for `MarkdownRendererConfiguration()`, `.compactChat`, and `.document`.
 Prepared line ranges come from SiriusMarkdown's layout engine; AppKit/UIKit
@@ -46,7 +48,7 @@ selection depend on SwiftUI's private selection overlay.
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/mikhutchinson/SiriusMarkdown.git", from: "0.5.6")
+    .package(url: "https://github.com/mikhutchinson/SiriusMarkdown.git", from: "0.5.8")
 ],
 targets: [
     .target(
@@ -223,7 +225,7 @@ git diff --check
 
 ## Release
 
-`0.5.6` is ready only when the docs describe the current public package surface,
+`0.5.8` is ready only when the docs describe the current public package surface,
 `bash Tools/product-check.sh` passes from the repository root, `git diff --check`
 is clean, the public remote is correct, and the release commit is tagged and
-pushed as `0.5.6`.
+pushed as `0.5.8`.

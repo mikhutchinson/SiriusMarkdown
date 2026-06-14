@@ -71,11 +71,17 @@ func renderSessionLookupUpdatesAfterAppendAndReset() async throws {
 @Test
 @MainActor
 func renderSessionResetSuppressesStaleQueuedAppendPublication() async {
+    let streamRecorder = MarkdownDiagnosticsRecorder()
+    let renderRecorder = MarkdownDiagnosticsRecorder()
     let configuration = MarkdownRendererConfiguration(
         theme: .document,
         codeHighlighter: SlowCodeHighlighter(delay: 0.05)
     )
-    let session = MarkdownRenderSession(configuration: configuration)
+    let session = MarkdownRenderSession(
+        configuration: configuration,
+        streamDiagnosticsRecorder: streamRecorder,
+        renderDiagnosticsRecorder: renderRecorder
+    )
     var resetIssued = false
     var postResetSourceLengths: [Int] = []
     let cancellable = session.$snapshot.dropFirst().sink { snapshot in
@@ -99,6 +105,8 @@ func renderSessionResetSuppressesStaleQueuedAppendPublication() async {
     #expect(postResetSourceLengths == [0])
     #expect(session.snapshot.sourceLength == 0)
     #expect(session.preparedSnapshot.snapshot.sourceLength == 0)
+    #expect(streamRecorder.snapshot().parseCount == 0)
+    #expect(renderRecorder.snapshot().codeHighlightCount == 0)
 }
 
 @Test
@@ -113,6 +121,91 @@ func renderSessionTailAppendKeepsRevealTargetStable() async throws {
     await session.waitUntilIdle()
     let during = try #require(session.blockID(containingSourceLine: 1))
     #expect(before == during)
+}
+
+@Test
+@MainActor
+func renderSessionCoalescesAppendBurstBeforePreparing() async throws {
+    let streamRecorder = MarkdownDiagnosticsRecorder()
+    let renderRecorder = MarkdownDiagnosticsRecorder()
+    let session = MarkdownRenderSession(
+        configuration: .document,
+        streamDiagnosticsRecorder: streamRecorder,
+        renderDiagnosticsRecorder: renderRecorder
+    )
+    let chunkCount = 64
+
+    for index in 0..<chunkCount {
+        session.append(
+            "Paragraph \(index) has **strong text** and [a link](https://example.com/\(index)).\n\n"
+        )
+    }
+
+    await session.waitUntilIdle()
+
+    let streamCounters = streamRecorder.snapshot()
+    let renderCounters = renderRecorder.snapshot()
+
+    #expect(session.snapshot.blocks.count == chunkCount)
+    #expect(streamCounters.parseCount == 1)
+    #expect(streamCounters.sealedRegionParseCount == 1)
+    #expect(renderCounters.renderPreparationCount == chunkCount)
+    #expect(renderCounters.prepareCount == chunkCount)
+}
+
+@Test
+@MainActor
+func renderSessionReusesPreparedLongTranscriptBeyondCacheCapacity() async throws {
+    let renderRecorder = MarkdownDiagnosticsRecorder()
+    let session = MarkdownRenderSession(
+        configuration: .document,
+        renderDiagnosticsRecorder: renderRecorder
+    )
+    let initialBlockCount = 320
+
+    for index in 0..<initialBlockCount {
+        session.append(
+            "Paragraph \(index) has **strong text** and [a link](https://example.com/\(index)).\n\n"
+        )
+    }
+    await session.waitUntilIdle()
+
+    let afterInitial = renderRecorder.snapshot()
+    session.append(
+        "Paragraph \(initialBlockCount) has **fresh strong text** and [a link](https://example.com/final).\n\n"
+    )
+    await session.waitUntilIdle()
+    let afterAppend = renderRecorder.snapshot()
+
+    #expect(session.snapshot.blocks.count == initialBlockCount + 1)
+    #expect(afterInitial.renderPreparationCount == initialBlockCount)
+    #expect(afterInitial.prepareCount == initialBlockCount)
+    #expect(afterAppend.renderPreparationCount == afterInitial.renderPreparationCount + 1)
+    #expect(afterAppend.prepareCount == afterInitial.prepareCount + 1)
+}
+
+@Test
+@MainActor
+func renderSessionCoalescingPreservesHostBoundaryOrdering() async throws {
+    let session = MarkdownRenderSession(configuration: .document)
+    let first = "Before native insertion.\n\n"
+    let second = "After native insertion.\n\n"
+
+    session.append(first)
+    session.appendHostBoundary(id: MarkdownHostBoundaryID("native-card"))
+    session.append(second)
+    await session.waitUntilIdle()
+
+    #expect(session.snapshot.blocks.map(\.text) == ["Before native insertion.", "After native insertion."])
+    #expect(session.preparedSnapshot.items.count == 3)
+
+    guard case let .hostBoundary(boundary) = session.preparedSnapshot.items[1] else {
+        Issue.record("Expected host boundary between coalesced append batches.")
+        return
+    }
+
+    #expect(boundary.id == MarkdownHostBoundaryID("native-card"))
+    #expect(boundary.sourceOffset == first.utf8.count)
 }
 
 @Test

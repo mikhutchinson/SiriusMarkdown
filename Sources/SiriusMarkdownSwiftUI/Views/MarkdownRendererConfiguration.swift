@@ -414,13 +414,42 @@ public struct MarkdownRendererConfiguration: Sendable {
     }
 
     public func prepare(snapshot: MarkdownSnapshot) -> MarkdownPreparedSnapshot {
+        prepare(snapshot: snapshot, reusing: nil)
+    }
+
+    func prepare(
+        snapshot: MarkdownSnapshot,
+        reusing previousSnapshot: MarkdownPreparedSnapshot?
+    ) -> MarkdownPreparedSnapshot {
         var preparedContentByBlockID: [MarkdownBlockID: MarkdownPreparedBlockContent] = [:]
         var preparedItems: [MarkdownPreparedSnapshotItem] = []
+        preparedContentByBlockID.reserveCapacity(snapshot.blocks.count)
+        preparedItems.reserveCapacity(snapshot.items.count)
 
-        for item in snapshot.items {
+        let previousItems = previousSnapshot?.items ?? []
+        var fallbackReuse: MarkdownPreparedSnapshotReuse?
+
+        for (index, item) in snapshot.items.enumerated() {
+            if index < previousItems.count,
+               let reused = Self.reusedPreparedItem(for: item, previousItem: previousItems[index]) {
+                switch reused {
+                case let .block(block, prepared):
+                    preparedContentByBlockID[block.id] = prepared
+                case .hostBoundary:
+                    break
+                }
+                preparedItems.append(reused)
+                continue
+            }
+
             switch item {
             case let .block(block):
-                let prepared = prepare(block: block)
+                if fallbackReuse == nil, previousSnapshot != nil {
+                    fallbackReuse = MarkdownPreparedSnapshotReuse(
+                        previousItems: previousItems.dropFirst(index)
+                    )
+                }
+                let prepared = fallbackReuse?.content(for: block) ?? prepare(block: block)
                 preparedContentByBlockID[block.id] = prepared
                 preparedItems.append(.block(block, prepared))
             case let .hostBoundary(boundary):
@@ -433,6 +462,22 @@ public struct MarkdownRendererConfiguration: Sendable {
             items: preparedItems,
             preparedContentByBlockID: preparedContentByBlockID
         )
+    }
+
+    private static func reusedPreparedItem(
+        for item: MarkdownSnapshotItem,
+        previousItem: MarkdownPreparedSnapshotItem
+    ) -> MarkdownPreparedSnapshotItem? {
+        switch (item, previousItem) {
+        case let (.block(block), .block(previousBlock, previousContent))
+            where block == previousBlock:
+            return .block(block, previousContent)
+        case let (.hostBoundary(boundary), .hostBoundary(previousBoundary))
+            where boundary == previousBoundary:
+            return .hostBoundary(boundary)
+        default:
+            return nil
+        }
     }
 
     func unpreparedSnapshot(for snapshot: MarkdownSnapshot) -> MarkdownPreparedSnapshot {
@@ -1315,6 +1360,37 @@ private struct MarkdownPreparedImageDecision {
 private struct MarkdownPreparedMathDecision {
     var run: MarkdownInlineRun
     var policyDecision: MarkdownPolicyDecision
+}
+
+private struct MarkdownPreparedSnapshotReuse {
+    private var contentsByBlockID: [MarkdownBlockID: [(block: MarkdownBlock, content: MarkdownPreparedBlockContent)]]
+
+    init(previousItems: ArraySlice<MarkdownPreparedSnapshotItem>) {
+        var contentsByBlockID: [MarkdownBlockID: [(block: MarkdownBlock, content: MarkdownPreparedBlockContent)]] = [:]
+        for item in previousItems {
+            guard case let .block(block, content) = item else {
+                continue
+            }
+            contentsByBlockID[block.id, default: []].append((block, content))
+        }
+        self.contentsByBlockID = contentsByBlockID
+    }
+
+    mutating func content(for block: MarkdownBlock) -> MarkdownPreparedBlockContent? {
+        guard var candidates = contentsByBlockID[block.id],
+              let index = candidates.firstIndex(where: { $0.block == block })
+        else {
+            return nil
+        }
+
+        let match = candidates.remove(at: index)
+        if candidates.isEmpty {
+            contentsByBlockID.removeValue(forKey: block.id)
+        } else {
+            contentsByBlockID[block.id] = candidates
+        }
+        return match.content
+    }
 }
 
 public struct MarkdownPreparedInlineContent: Sendable {

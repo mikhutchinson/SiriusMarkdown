@@ -15,6 +15,7 @@ public final class MarkdownRenderSession: ObservableObject {
     private let sourceCopyStore: MarkdownMutableSourceCopyStore
     private let parserCacheCapacity: Int
     private var renderTask: Task<Void, Never>?
+    private var pendingOperations: [MarkdownRenderSessionOperation] = []
     private var presentationRevision: Int = 0
 
     public init(
@@ -100,23 +101,95 @@ public final class MarkdownRenderSession: ObservableObject {
 
     private func schedule(_ operation: MarkdownRenderSessionOperation) {
         presentationRevision += 1
-        let revision = presentationRevision
-        let previousTask = renderTask
+        pendingOperations.append(operation)
+
+        guard renderTask == nil else {
+            return
+        }
+
         let pipeline = pipeline
         renderTask = Task(priority: .userInitiated) { [weak self] in
-            await previousTask?.value
-            let state = await pipeline.apply(operation)
-            await MainActor.run {
-                guard let self else {
+            while true {
+                let batch = await MainActor.run { () -> MarkdownRenderSessionBatch? in
+                    guard let self else {
+                        return nil
+                    }
+
+                    guard !self.pendingOperations.isEmpty else {
+                        self.renderTask = nil
+                        return nil
+                    }
+
+                    let operations = self.drainPendingOperations()
+                    return MarkdownRenderSessionBatch(
+                        operations: operations,
+                        revision: self.presentationRevision
+                    )
+                }
+
+                guard let batch else {
                     return
                 }
-                guard revision == self.presentationRevision else {
-                    return
+
+                let state = await pipeline.apply(batch.operations)
+                await MainActor.run {
+                    guard let self else {
+                        return
+                    }
+                    guard batch.revision == self.presentationRevision else {
+                        return
+                    }
+                    self.snapshot = state.snapshot
+                    self.preparedSnapshot = state.preparedSnapshot
                 }
-                self.snapshot = state.snapshot
-                self.preparedSnapshot = state.preparedSnapshot
             }
         }
+    }
+
+    private func drainPendingOperations() -> [MarkdownRenderSessionOperation] {
+        let operations = pendingOperations
+        pendingOperations.removeAll(keepingCapacity: true)
+        return Self.coalescedOperations(operations)
+    }
+
+    private static func coalescedOperations(
+        _ operations: [MarkdownRenderSessionOperation]
+    ) -> [MarkdownRenderSessionOperation] {
+        let effectiveOperations: ArraySlice<MarkdownRenderSessionOperation>
+        if let lastResetIndex = operations.lastIndex(where: { operation in
+            if case .reset = operation {
+                return true
+            }
+            return false
+        }) {
+            effectiveOperations = operations[lastResetIndex...]
+        } else {
+            effectiveOperations = operations[...]
+        }
+
+        var coalesced: [MarkdownRenderSessionOperation] = []
+        var pendingAppendChunks: [String] = []
+
+        func flushPendingAppend() {
+            guard !pendingAppendChunks.isEmpty else {
+                return
+            }
+            coalesced.append(.append(pendingAppendChunks.joined()))
+            pendingAppendChunks.removeAll(keepingCapacity: true)
+        }
+
+        for operation in effectiveOperations {
+            switch operation {
+            case let .append(markdown):
+                pendingAppendChunks.append(markdown)
+            case .appendHostBoundary, .finish, .reset:
+                flushPendingAppend()
+                coalesced.append(operation)
+            }
+        }
+
+        flushPendingAppend()
+        return coalesced
     }
 }
 
@@ -148,9 +221,15 @@ private struct MarkdownRenderSessionState: Sendable {
     var preparedSnapshot: MarkdownPreparedSnapshot
 }
 
+private struct MarkdownRenderSessionBatch: Sendable {
+    var operations: [MarkdownRenderSessionOperation]
+    var revision: Int
+}
+
 private actor MarkdownRenderSessionPipeline {
     private var stream: MarkdownStream
     private var configuration: MarkdownRendererConfiguration
+    private var preparedSnapshot: MarkdownPreparedSnapshot?
     private let parserCacheCapacity: Int
     private let diagnosticsRecorder: MarkdownDiagnosticsRecorder
 
@@ -162,32 +241,41 @@ private actor MarkdownRenderSessionPipeline {
         self.configuration = configuration
         self.parserCacheCapacity = parserCacheCapacity
         self.diagnosticsRecorder = diagnosticsRecorder
+        self.preparedSnapshot = nil
         self.stream = MarkdownStream(
             parserCacheCapacity: parserCacheCapacity,
             diagnosticsRecorder: diagnosticsRecorder
         )
     }
 
-    func apply(_ operation: MarkdownRenderSessionOperation) -> MarkdownRenderSessionState {
-        switch operation {
-        case let .append(markdown):
-            stream.append(markdown)
-        case let .appendHostBoundary(id):
-            stream.appendHostBoundary(id: id)
-        case .finish:
-            stream.finish()
-        case .reset:
-            stream = MarkdownStream(
-                parserCacheCapacity: parserCacheCapacity,
-                diagnosticsRecorder: diagnosticsRecorder
-            )
-            configuration.preparationCache.removeAll()
+    func apply(_ operations: [MarkdownRenderSessionOperation]) -> MarkdownRenderSessionState {
+        for operation in operations {
+            switch operation {
+            case let .append(markdown):
+                stream.append(markdown)
+            case let .appendHostBoundary(id):
+                stream.appendHostBoundary(id: id)
+            case .finish:
+                stream.finish()
+            case .reset:
+                stream = MarkdownStream(
+                    parserCacheCapacity: parserCacheCapacity,
+                    diagnosticsRecorder: diagnosticsRecorder
+                )
+                configuration.preparationCache.removeAll()
+                preparedSnapshot = nil
+            }
         }
 
         let snapshot = stream.snapshot()
+        let preparedSnapshot = configuration.prepare(
+            snapshot: snapshot,
+            reusing: preparedSnapshot
+        )
+        self.preparedSnapshot = preparedSnapshot
         return MarkdownRenderSessionState(
             snapshot: snapshot,
-            preparedSnapshot: configuration.prepare(snapshot: snapshot)
+            preparedSnapshot: preparedSnapshot
         )
     }
 }

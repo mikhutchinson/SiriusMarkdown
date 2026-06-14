@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.8 - 2026-06-14
+
+- Fixed long-generation render-session slowdown where rapid append bursts queued obsolete snapshot preparation work. `MarkdownRenderSession` now drains pending operations in batches, coalesces consecutive appends, preserves host-boundary ordering, and drops queued work superseded by reset before parsing or preparing it.
+- Reused prepared block content across append-only streaming snapshots. Stable blocks from the prior prepared snapshot are now reused by exact block identity/content match, so appending one paragraph to a long transcript prepares the changed/new tail instead of walking back through hundreds of sealed blocks after the render-preparation cache capacity is exceeded.
+- Added render-session performance regressions covering append-burst coalescing, reset skipping stale highlighter work, host-boundary ordering through coalesced batches, and a 320-block transcript append that must prepare exactly one new block. A release-mode probe measured a 320-block append dropping from 321 preparations and about 257 ms on the full-snapshot path to 1 preparation and about 1.6 ms through `MarkdownRenderSession`.
+- Updated the release gate for `511` Swift tests and made the new render-session long-generation regressions required release checks.
+
 ## 0.5.7 - 2026-06-10
 
 - Fixed native math rendering in signed packaged apps where SwiftMath's generated `Bundle.module` accessor would fatal if `SwiftMath_SwiftMath.bundle` was not present at the app bundle root. `SiriusMarkdownMath` now checks the generated accessor's required packaged-app resource path before entering SwiftMath and falls back to text rendering when that path is unavailable, preserving the signed app bundle layout under `Contents/Resources`.
