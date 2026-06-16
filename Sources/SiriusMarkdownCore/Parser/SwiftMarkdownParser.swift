@@ -694,6 +694,18 @@ private struct MarkdownMathDelimiterScanner {
         var cursor = text.startIndex
 
         while cursor < text.endIndex {
+            if let span = singleLineDisplayMathSpan(open: "\\[", close: "\\]", in: text, at: cursor) {
+                spans.append(span)
+                cursor = span.full.upperBound
+                continue
+            }
+
+            if let span = singleLineDisplayMathSpan(open: "$$", close: "$$", in: text, at: cursor) {
+                spans.append(span)
+                cursor = span.full.upperBound
+                continue
+            }
+
             if hasToken("\\[", in: text, at: cursor),
                let openUpper = text.index(cursor, offsetBy: 2, limitedBy: text.endIndex),
                isOnlyTokenOnLine(cursor..<openUpper, in: text),
@@ -831,6 +843,56 @@ private struct MarkdownMathDelimiterScanner {
         return nil
     }
 
+    private static func singleLineDisplayMathSpan(
+        open: String,
+        close: String,
+        in text: String,
+        at cursor: String.Index
+    ) -> DisplayMathSpan? {
+        guard hasToken(open, in: text, at: cursor),
+              let openUpper = text.index(cursor, offsetBy: open.count, limitedBy: text.endIndex)
+        else {
+            return nil
+        }
+
+        let lineStart = startOfLine(containing: cursor, in: text)
+        var prefixCursor = lineStart
+        while prefixCursor < cursor {
+            guard text[prefixCursor].isWhitespace, !text[prefixCursor].isNewline else {
+                return nil
+            }
+            prefixCursor = text.index(after: prefixCursor)
+        }
+
+        let lineEnd = endOfLine(containing: cursor, in: text)
+        guard openUpper < lineEnd,
+              let closeRange = text.range(
+                of: close,
+                options: .backwards,
+                range: openUpper..<lineEnd
+              ),
+              let content = trimmedNonEmptyRange(
+                in: text,
+                localRange: openUpper..<closeRange.lowerBound
+              )
+        else {
+            return nil
+        }
+
+        var suffixCursor = closeRange.upperBound
+        while suffixCursor < lineEnd {
+            guard text[suffixCursor].isWhitespace, !text[suffixCursor].isNewline else {
+                return nil
+            }
+            suffixCursor = text.index(after: suffixCursor)
+        }
+
+        return DisplayMathSpan(
+            full: cursor..<closeRange.upperBound,
+            content: content
+        )
+    }
+
     private static func displaySpan(
         open: Range<String.Index>,
         close: Range<String.Index>,
@@ -873,6 +935,14 @@ private struct MarkdownMathDelimiterScanner {
                 break
             }
             cursor = previous
+        }
+        return cursor
+    }
+
+    private static func endOfLine(containing index: String.Index, in text: String) -> String.Index {
+        var cursor = index
+        while cursor < text.endIndex, !text[cursor].isNewline {
+            cursor = text.index(after: cursor)
         }
         return cursor
     }
@@ -923,6 +993,20 @@ private struct InlineRunConverter {
     var fallbackRange: MarkdownSourceRange
 
     private static let currencyCodeSuffixes = Set(Locale.Currency.isoCurrencies.map(\.identifier))
+    private static let bareTexCommands: Set<String> = [
+        "alpha", "approx", "beta", "cdot", "chi", "cos", "delta", "div",
+        "epsilon", "equiv", "eta", "frac", "gamma", "ge", "geq", "gt",
+        "in", "infty", "int", "lambda", "le", "leftarrow", "leq", "lim",
+        "ln", "log", "lt", "mu", "neq", "notin", "omega", "phi", "pi",
+        "pm", "prod", "propto", "rightarrow", "rho", "sigma", "sim",
+        "sin", "sqrt", "sum", "tan", "tau", "text", "theta", "times",
+        "to", "varepsilon", "varphi", "xi"
+    ]
+    private static let bareTexInfixCommands: Set<String> = [
+        "approx", "cdot", "div", "equiv", "ge", "geq", "gt", "in", "le",
+        "leftarrow", "leq", "lt", "neq", "notin", "pm", "propto",
+        "rightarrow", "sim", "times", "to"
+    ]
 
     private enum DisplayMathRunDelimiter {
         case bracket
@@ -1884,6 +1968,25 @@ private struct InlineRunConverter {
                 continue
             }
 
+            if rawText[cursor] == "\\",
+               let bareTex = bareTexMathRange(in: rawText, at: cursor) {
+                appendPlain(upTo: bareTex.full.lowerBound)
+                runs.append(
+                    MarkdownInlineRun(
+                        kind: .math,
+                        text: String(rawText[bareTex.content]),
+                        sourceRange: sourceRange(
+                            in: rawText,
+                            localRange: bareTex.full,
+                            baseRange: baseRange
+                        )
+                    )
+                )
+                cursor = bareTex.full.upperBound
+                plainStart = cursor
+                continue
+            }
+
             cursor = rawText.index(after: cursor)
         }
 
@@ -1984,6 +2087,25 @@ private struct InlineRunConverter {
                     continue
                 }
 
+                if text[cursor] == "\\",
+                   let bareTex = bareTexMathRange(in: text, at: cursor) {
+                    appendPlain(upTo: bareTex.full.lowerBound)
+                    runs.append(
+                        MarkdownInlineRun(
+                            kind: .math,
+                            text: String(text[bareTex.content]),
+                            sourceRange: sourceRange(
+                                in: text,
+                                localRange: bareTex.full,
+                                baseRange: baseRange
+                            )
+                        )
+                    )
+                    cursor = bareTex.full.upperBound
+                    plainStart = cursor
+                    continue
+                }
+
                 cursor = text.index(after: cursor)
                 continue
             }
@@ -2015,7 +2137,26 @@ private struct InlineRunConverter {
             text.contains("\\(") ||
             text.contains("\\[") ||
             text.hasPrefix("[") ||
-            text.contains("\n[")
+            text.contains("\n[") ||
+            containsBareTexCommandCandidate(text)
+    }
+
+    private func containsBareTexCommandCandidate(_ text: String) -> Bool {
+        var cursor = text.startIndex
+        while cursor < text.endIndex {
+            guard text[cursor] == "\\" else {
+                cursor = text.index(after: cursor)
+                continue
+            }
+
+            if let command = texCommandName(in: text, at: cursor),
+               Self.bareTexCommands.contains(command.name) {
+                return true
+            }
+
+            cursor = text.index(after: cursor)
+        }
+        return false
     }
 
     private func isPotentialOpeningDollar(in text: String, at index: String.Index) -> Bool {
@@ -2063,6 +2204,284 @@ private struct InlineRunConverter {
         }
 
         return nil
+    }
+
+    private func bareTexMathRange(
+        in text: String,
+        at cursor: String.Index
+    ) -> (content: Range<String.Index>, full: Range<String.Index>)? {
+        guard text[cursor] == "\\",
+              !isEscapedDelimiter(in: text, at: cursor),
+              bareTexCommandCanStart(in: text, at: cursor),
+              let command = texCommandName(in: text, at: cursor),
+              Self.bareTexCommands.contains(command.name)
+        else {
+            return nil
+        }
+
+        let lower: String.Index
+        if Self.bareTexInfixCommands.contains(command.name),
+           let operandStart = leftMathOperandStart(before: cursor, in: text) {
+            lower = operandStart
+        } else {
+            lower = cursor
+        }
+
+        let upper = bareTexExpressionUpperBound(in: text, from: cursor)
+        guard lower < upper else {
+            return nil
+        }
+
+        let expression = String(text[lower..<upper])
+        guard bareTexExpressionLooksSafe(expression) else {
+            return nil
+        }
+
+        return (lower..<upper, lower..<upper)
+    }
+
+    private func bareTexCommandCanStart(in text: String, at cursor: String.Index) -> Bool {
+        guard cursor > text.startIndex else {
+            return true
+        }
+
+        let previous = text[text.index(before: cursor)]
+        return previous.isWhitespace || "([{=+-*/_^".contains(previous)
+    }
+
+    private func bareTexExpressionUpperBound(
+        in text: String,
+        from commandStart: String.Index
+    ) -> String.Index {
+        var cursor = commandStart
+        var lastContentEnd = commandStart
+
+        while cursor < text.endIndex {
+            let tokenStart = cursor
+            if let command = texCommandName(in: text, at: cursor),
+               Self.bareTexCommands.contains(command.name),
+               !isEscapedDelimiter(in: text, at: cursor) {
+                cursor = command.upperBound
+                while let groupEnd = balancedGroupUpperBound(in: text, at: cursor, open: "{", close: "}") {
+                    cursor = groupEnd
+                }
+                lastContentEnd = cursor
+                continue
+            }
+
+            if text[cursor].isWhitespace {
+                let whitespaceStart = cursor
+                repeat {
+                    cursor = text.index(after: cursor)
+                } while cursor < text.endIndex && text[cursor].isWhitespace && !text[cursor].isNewline
+
+                guard cursor < text.endIndex,
+                      !text[cursor].isNewline,
+                      canContinueBareTexExpression(in: text, at: cursor)
+                else {
+                    return lastContentEnd
+                }
+
+                lastContentEnd = whitespaceStart
+                continue
+            }
+
+            if let groupEnd = balancedGroupUpperBound(in: text, at: cursor, open: "(", close: ")") {
+                cursor = groupEnd
+                lastContentEnd = cursor
+                continue
+            }
+
+            if let groupEnd = balancedGroupUpperBound(in: text, at: cursor, open: "{", close: "}") {
+                cursor = groupEnd
+                lastContentEnd = cursor
+                continue
+            }
+
+            if isBareTexOperator(text[cursor]) {
+                cursor = text.index(after: cursor)
+                lastContentEnd = cursor
+                continue
+            }
+
+            if let operandEnd = simpleBareTexOperandUpperBound(in: text, at: cursor) {
+                cursor = operandEnd
+                lastContentEnd = cursor
+                continue
+            }
+
+            return tokenStart == commandStart ? commandStart : lastContentEnd
+        }
+
+        return lastContentEnd
+    }
+
+    private func canContinueBareTexExpression(in text: String, at cursor: String.Index) -> Bool {
+        if let command = texCommandName(in: text, at: cursor),
+           Self.bareTexCommands.contains(command.name),
+           !isEscapedDelimiter(in: text, at: cursor) {
+            return true
+        }
+
+        if isBareTexOperator(text[cursor]) {
+            return true
+        }
+
+        return simpleBareTexOperandUpperBound(in: text, at: cursor) != nil
+    }
+
+    private func simpleBareTexOperandUpperBound(
+        in text: String,
+        at cursor: String.Index
+    ) -> String.Index? {
+        guard cursor < text.endIndex else {
+            return nil
+        }
+
+        if text[cursor].isNumber {
+            var scan = cursor
+            while scan < text.endIndex, text[scan].isNumber || text[scan] == "." {
+                scan = text.index(after: scan)
+            }
+            return scan
+        }
+
+        guard text[cursor].isLetter else {
+            return nil
+        }
+
+        var scan = cursor
+        var count = 0
+        while scan < text.endIndex, text[scan].isLetter || text[scan].isNumber {
+            count += 1
+            guard count <= 1 else {
+                return nil
+            }
+            scan = text.index(after: scan)
+        }
+
+        return scan
+    }
+
+    private func leftMathOperandStart(
+        before commandStart: String.Index,
+        in text: String
+    ) -> String.Index? {
+        guard commandStart > text.startIndex else {
+            return nil
+        }
+
+        var cursor = commandStart
+        while cursor > text.startIndex {
+            let previous = text.index(before: cursor)
+            guard text[previous].isWhitespace, !text[previous].isNewline else {
+                break
+            }
+            cursor = previous
+        }
+
+        let operandEnd = cursor
+        guard operandEnd > text.startIndex else {
+            return nil
+        }
+
+        var operandStart = operandEnd
+        while operandStart > text.startIndex {
+            let previous = text.index(before: operandStart)
+            guard text[previous].isLetter || text[previous].isNumber || text[previous] == "." else {
+                break
+            }
+            operandStart = previous
+        }
+
+        guard operandStart < operandEnd else {
+            return nil
+        }
+
+        let token = String(text[operandStart..<operandEnd])
+        guard token.count <= 3 || token.allSatisfy({ $0.isNumber || $0 == "." }) else {
+            return nil
+        }
+
+        return operandStart
+    }
+
+    private func bareTexExpressionLooksSafe(_ expression: String) -> Bool {
+        let trimmed = expression.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.contains("\\"),
+              trimmed.range(of: #"\\[A-Za-z]+"#, options: .regularExpression) != nil
+        else {
+            return false
+        }
+
+        return trimmed.contains(where: { character in
+            character == "{" ||
+                character == "}" ||
+                character == "_" ||
+                character == "^" ||
+                character == "=" ||
+                character.isNumber ||
+                character == "\\"
+        })
+    }
+
+    private func texCommandName(
+        in text: String,
+        at cursor: String.Index
+    ) -> (name: String, upperBound: String.Index)? {
+        guard cursor < text.endIndex,
+              text[cursor] == "\\"
+        else {
+            return nil
+        }
+
+        var scan = text.index(after: cursor)
+        guard scan < text.endIndex,
+              text[scan].isLetter
+        else {
+            return nil
+        }
+
+        let nameStart = scan
+        repeat {
+            scan = text.index(after: scan)
+        } while scan < text.endIndex && text[scan].isLetter
+
+        return (String(text[nameStart..<scan]).lowercased(), scan)
+    }
+
+    private func balancedGroupUpperBound(
+        in text: String,
+        at cursor: String.Index,
+        open: Character,
+        close: Character
+    ) -> String.Index? {
+        guard cursor < text.endIndex,
+              text[cursor] == open
+        else {
+            return nil
+        }
+
+        var depth = 0
+        var scan = cursor
+        while scan < text.endIndex {
+            if text[scan] == open {
+                depth += 1
+            } else if text[scan] == close {
+                depth -= 1
+                if depth == 0 {
+                    return text.index(after: scan)
+                }
+            } else if text[scan].isNewline {
+                return nil
+            }
+            scan = text.index(after: scan)
+        }
+        return nil
+    }
+
+    private func isBareTexOperator(_ character: Character) -> Bool {
+        "+-=*/_^".contains(character)
     }
 
     private func dollarInlineMathRange(

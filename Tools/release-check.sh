@@ -12,7 +12,7 @@ TEST_LIST_FILE="$(mktemp)"
 trap 'rm -f "$TEST_LIST_FILE"; rm -rf "${CONSUMER_DIR:-}"' EXIT
 swift test list > "$TEST_LIST_FILE"
 TEST_COUNT="$(grep -Ec '^[A-Za-z0-9_]+Tests\.' "$TEST_LIST_FILE")"
-MINIMUM_TEST_COUNT=512
+MINIMUM_TEST_COUNT=518
 if (( TEST_COUNT < MINIMUM_TEST_COUNT )); then
   echo "error: swift test list discovered $TEST_COUNT tests; expected at least $MINIMUM_TEST_COUNT" >&2
   exit 1
@@ -180,6 +180,11 @@ for required_test in \
   "SiriusMarkdownCoreTests.displayMathInsideListItemProducesMathRun()" \
   "SiriusMarkdownCoreTests.linkedLiteralDisplayMathDelimiterDoesNotCoalesceAcrossFollowingLines()" \
   "SiriusMarkdownCoreTests.degradedBareDisplayBracketsWithLatexContentParseAsMathBlock()" \
+  "SiriusMarkdownCoreTests.singleLineDollarDisplayMathBetweenProseSplitsIntoMathBlock()" \
+  "SiriusMarkdownCoreTests.singleLineBracketDisplayMathBetweenProseSplitsIntoMathBlock()" \
+  "SiriusMarkdownCoreTests.bareTexCommandsInProseBecomeMathRuns()" \
+  "SiriusMarkdownCoreTests.adjacentBareTexCommandsStayTogetherWithoutEatingProse()" \
+  "SiriusMarkdownCoreTests.bareTexRecoveryDoesNotRewritePathsUnknownCommandsOrEscapedMarkdown()" \
   "SiriusMarkdownMathTests.paragraphEmbeddedDisplayMathPreparesTypesetImage()" \
   "SiriusMarkdownMathTests.degradedBareDisplayBracketMathPreparesTypesetImage()" \
   "SiriusMarkdownSwiftUITests.documentSelectionDefaultsToEnabledWhileNativeSelectionStaysLeafCompatibilityKnob()" \
@@ -203,6 +208,7 @@ for required_test in \
   "SiriusMarkdownSwiftUITests.sourcelessImageInlineCacheDoesNotRequireImagePolicyIdentity()" \
   "SiriusMarkdownSwiftUITests.preparedInlineLinksUsePolicyNormalizedDestinations()" \
   "SiriusMarkdownSwiftUITests.deniedInlineMathCacheDoesNotRequireRendererIdentity()" \
+  "SiriusMarkdownSwiftUITests.bareTexInlineMathPreparationUsesConfiguredImageRenderer()" \
   "SiriusMarkdownSwiftUITests.ProductDefaultCodeHighlighterHandlesLongSwiftStringLiteralsWithoutCrashing()" \
   "SiriusMarkdownSwiftUITests.ProductDefaultSwiftCodeHighlighterKeepsNestedInterpolationStringsColored()" \
   "SiriusMarkdownSwiftUITests.ProductDefaultSwiftCodeHighlighterRecognizesModernSwiftKeywords()" \
@@ -271,5 +277,5 @@ xcrun docc convert Docs/SiriusMarkdown.docc \
   --additional-symbol-graph-dir "$SYMBOL_GRAPH_DIR" \
   --fallback-display-name SiriusMarkdown \
   --fallback-bundle-identifier com.sirius.markdown \
-  --fallback-bundle-version 0.5.9 \
+  --fallback-bundle-version 0.5.10 \
   --output-path /tmp/SiriusMarkdown.doccarchive

@@ -202,6 +202,36 @@ func dollarDisplayMathStillParsesAsMathBlock() throws {
 }
 
 @Test
+func singleLineDollarDisplayMathBetweenProseSplitsIntoMathBlock() throws {
+    let markdown = """
+    Look at how the analytical Z-score is calculated:
+    $$Z = \\frac{\\ln(\\text{Spot} / \\text{Strike})}{\\sigma \\cdot \\sqrt{t}}$$
+    As time shrinks toward zero.
+    """
+    let snapshot = snapshot(markdown)
+
+    #expect(snapshot.blocks.map(\.kind) == [.paragraph, .mathBlock, .paragraph])
+    let mathBlock = try #require(snapshot.blocks.first { $0.kind == .mathBlock })
+    let mathRun = try #require(mathBlock.inlines.first { $0.kind == .math })
+    #expect(mathRun.text == "Z = \\frac{\\ln(\\text{Spot} / \\text{Strike})}{\\sigma \\cdot \\sqrt{t}}")
+}
+
+@Test
+func singleLineBracketDisplayMathBetweenProseSplitsIntoMathBlock() throws {
+    let markdown = """
+    Then:
+    \\[x^2 + y^2 = z^2\\]
+    done.
+    """
+    let snapshot = snapshot(markdown)
+
+    #expect(snapshot.blocks.map(\.kind) == [.paragraph, .mathBlock, .paragraph])
+    let mathBlock = try #require(snapshot.blocks.first { $0.kind == .mathBlock })
+    let mathRun = try #require(mathBlock.inlines.first { $0.kind == .math })
+    #expect(mathRun.text == "x^2 + y^2 = z^2")
+}
+
+@Test
 func latexParenInlineMathIsDetected() throws {
     let snapshot = snapshot("Limit is \\(\\frac{0}{0}\\) here.")
 

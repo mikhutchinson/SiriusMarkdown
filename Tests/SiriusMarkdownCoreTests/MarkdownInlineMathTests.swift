@@ -206,6 +206,48 @@ func inlineMathKeepsPresentationAndLinkContext() throws {
 }
 
 @Test
+func bareTexCommandsInProseBecomeMathRuns() throws {
+    var stream = MarkdownStream()
+    stream.append("The strike price (Z \\approx 0) and volatility scales with \\sqrt{t}.")
+    stream.finish()
+
+    let block = try #require(stream.snapshot().blocks.first)
+    let mathRuns = block.inlines.filter { $0.kind == .math }
+
+    #expect(mathRuns.map(\.text) == ["Z \\approx 0", "\\sqrt{t}"])
+    #expect(block.inlines.map(\.text).joined() == "The strike price (Z \\approx 0) and volatility scales with \\sqrt{t}.")
+}
+
+@Test
+func adjacentBareTexCommandsStayTogetherWithoutEatingProse() throws {
+    var stream = MarkdownStream()
+    stream.append("The denominator \\sigma \\sqrt{t} shrinks as time falls.")
+    stream.finish()
+
+    let block = try #require(stream.snapshot().blocks.first)
+    let mathRuns = block.inlines.filter { $0.kind == .math }
+
+    #expect(mathRuns.map(\.text) == ["\\sigma \\sqrt{t}"])
+    #expect(block.inlines.contains { $0.kind == .text && $0.text == " shrinks as time falls." })
+}
+
+@Test
+func bareTexRecoveryDoesNotRewritePathsUnknownCommandsOrEscapedMarkdown() throws {
+    var stream = MarkdownStream()
+    stream.append("Path C:\\Users\\mike and C:\\theta\\sqrt, unknown \\foobar, and escaped \\*text\\* stay prose while \\sqrt{x} renders.")
+    stream.finish()
+
+    let block = try #require(stream.snapshot().blocks.first)
+    let mathRuns = block.inlines.filter { $0.kind == .math }
+
+    #expect(mathRuns.map(\.text) == ["\\sqrt{x}"])
+    #expect(block.inlines.map(\.text).joined().contains("C:\\Users\\mike"))
+    #expect(block.inlines.map(\.text).joined().contains("C:\\theta\\sqrt"))
+    #expect(block.inlines.map(\.text).joined().contains("\\foobar"))
+    #expect(block.inlines.map(\.text).joined().contains("*text*"))
+}
+
+@Test
 func styledAndLinkedCurrencyDoesNotBecomeInlineMath() throws {
     var stream = MarkdownStream()
     stream.append("Strong **$5 USD$**, linked [$108,500](https://example.com/reward), formula **$2x$**.")

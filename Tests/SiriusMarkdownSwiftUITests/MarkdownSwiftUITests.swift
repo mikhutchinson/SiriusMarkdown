@@ -2906,6 +2906,25 @@ func imageBackedInlineMathPreparationDoesNotCallRenderedFallback() throws {
 }
 
 @Test
+func bareTexInlineMathPreparationUsesConfiguredImageRenderer() throws {
+    let block = try firstBlock("Timing uses Z \\approx 0 and volatility uses \\sqrt{t}.")
+    let renderer = CountingImageMathRenderer()
+    let configuration = MarkdownRendererConfiguration(mathRenderer: renderer)
+
+    let inline = try #require(configuration.prepare(block: block).inlineLayout)
+    let mathPieces = try #require(inline.mathTextPieces)
+    let mathImageCount = mathPieces.filter { piece in
+        if case .math = piece { return true }
+        return false
+    }.count
+
+    #expect(inline.prepared.runs.filter { $0.presentation.contains(.math) }.map(\.text) == ["Z \\approx 0", "\\sqrt{t}"])
+    #expect(mathImageCount == 2)
+    #expect(renderer.preparedCount == 2)
+    #expect(renderer.renderedCount == 0)
+}
+
+@Test
 @MainActor
 func imageBackedInlineMathTextUsesConfiguredLinkAction() {
     var linkedText = AttributedString("x^2")

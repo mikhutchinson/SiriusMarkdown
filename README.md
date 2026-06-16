@@ -18,13 +18,17 @@ The core contract is simple:
 
 ## Current Release
 
-`0.5.9` fixes wide code-block containment in constrained chat/document columns:
-code blocks keep their natural-width content inside the horizontal scroll
-surface while the rendered block remains bound to the host column. `0.5.8`
-fixed long-generation render-session slowdown by batching fast append bursts,
-skipping reset-superseded work before parsing or highlighting, and reusing
-exact-match prepared block content across append-only streaming snapshots.
-`0.5.7` hardened packaged-app native math fallback, and `0.5.5` shipped
+`0.5.10` fixes chat-style LaTeX recovery for single-line display math and
+common bare TeX commands such as `Z \approx 0`, `\sqrt{t}`, and
+`\sigma \sqrt{t}` while preserving code spans, paths, escaped Markdown,
+currency amounts, and adjacent prose. `0.5.9` fixed wide code-block containment
+in constrained chat/document columns: code blocks keep their natural-width
+content inside the horizontal scroll surface while the rendered block remains
+bound to the host column. `0.5.8` fixed long-generation render-session slowdown
+by batching fast append bursts, skipping reset-superseded work before parsing or
+highlighting, and reusing exact-match prepared block content across append-only
+streaming snapshots. `0.5.7` hardened packaged-app native math fallback, and
+`0.5.5` shipped
 `MarkdownInlineRenderingMode.coreTextPaintedLines` as the default
 for `MarkdownRendererConfiguration()`, `.compactChat`, and `.document`.
 Prepared line ranges come from SiriusMarkdown's layout engine; AppKit/UIKit
@@ -50,7 +54,7 @@ selection depend on SwiftUI's private selection overlay.
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/mikhutchinson/SiriusMarkdown.git", from: "0.5.9")
+    .package(url: "https://github.com/mikhutchinson/SiriusMarkdown.git", from: "0.5.10")
 ],
 targets: [
     .target(
@@ -227,7 +231,7 @@ git diff --check
 
 ## Release
 
-`0.5.9` is ready only when the docs describe the current public package surface,
+`0.5.10` is ready only when the docs describe the current public package surface,
 `bash Tools/product-check.sh` passes from the repository root, `git diff --check`
 is clean, the public remote is correct, and the release commit is tagged and
-pushed as `0.5.9`.
+pushed as `0.5.10`.

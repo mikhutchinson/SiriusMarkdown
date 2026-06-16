@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.10 - 2026-06-16
+
+- Fixed chat-style LaTeX recovery for single-line display math inside prose paragraphs. Lines such as `$$...$$` and `\[...\]` now split into source-backed paragraph/math/paragraph blocks instead of leaking literal delimiters through the renderer.
+- Added conservative bare-TeX inline recovery for common math commands such as `Z \approx 0`, `\sqrt{t}`, and `\sigma \sqrt{t}` so configured math renderers receive real math runs even when model output omits `$...$` or `\(...\)` delimiters. The recovery stays out of code spans and preserves paths, unknown commands, escaped Markdown punctuation, currency amounts, and adjacent prose.
+- Added Core parser and SwiftUI render-preparation regressions for the recovered LaTeX shapes.
+
 ## 0.5.9 - 2026-06-16
 
 - Fixed wide code blocks stretching constrained transcript/document columns. Prepared code content now keeps its natural width inside the horizontal scroll view while the code block itself remains bound to the host column, preserving inspectable long lines without inflating the surrounding SwiftUI layout.
