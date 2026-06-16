@@ -78,6 +78,14 @@ struct SiriusMarkdownRenderProbe {
             exit(EXIT_FAILURE)
         }
 
+        if overflowResult.fittingWidth > overflowResult.maximumFittingWidth {
+            fputs(
+                "error: code/table overflow probe fitting width was \(overflowResult.fittingWidth); expected <= \(overflowResult.maximumFittingWidth) so wide code scrolls inside the host column instead of stretching the transcript.\n",
+                stderr
+            )
+            exit(EXIT_FAILURE)
+        }
+
         if containmentResult.darkRightmostX > containmentResult.maximumDarkRightmostX {
             fputs(
                 "error: prepared native containment probe leaked dark text to x=\(containmentResult.darkRightmostX); expected no normal inline text beyond x=\(containmentResult.maximumDarkRightmostX).\n",
@@ -173,7 +181,7 @@ struct SiriusMarkdownRenderProbe {
         print("Compact transcript wrapping probe: dark text reached x=\(transcriptWrapResult.darkRightmostX), fitting width \(transcriptWrapResult.fittingWidth)")
         print("Multilingual render probe: \(multilingualResult.nonWhitePixels) non-white pixels, \(multilingualResult.distinctColorBuckets) color buckets")
         print("Inline attribute crossing probe: \(attributeResult.nonWhitePixels) non-white pixels, \(attributeResult.distinctColorBuckets) color buckets")
-        print("Overflow containment probe: \(overflowResult.nonWhitePixels) non-white pixels, \(overflowResult.distinctColorBuckets) color buckets")
+        print("Overflow containment probe: \(overflowResult.nonWhitePixels) non-white pixels, \(overflowResult.distinctColorBuckets) color buckets, fitting width \(overflowResult.fittingWidth)")
         print("Code highlighting probe: \(codeHighlightResult.nonWhitePixels) non-white pixels, \(codeHighlightResult.distinctColorBuckets) color buckets")
         print("Break and long-word probe: \(breakResult.nonWhitePixels) non-white pixels, \(breakResult.distinctColorBuckets) color buckets")
         print("Prepared inline width probe: dark text reached x=\(widthResult.darkRightmostX)")
@@ -360,21 +368,53 @@ struct SiriusMarkdownRenderProbe {
 
     @MainActor
     private static func renderOverflowContainmentProbe() -> RenderResult {
-        renderDocument(
-            markdown:
-                """
-                | Region | Very Wide Evidence |
-                | - | - |
-                | Code | `abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz` |
+        let markdown =
+            """
+            | Region | Very Wide Evidence |
+            | - | - |
+            | Code | `abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz` |
 
-                ```swift
-                let veryLongIdentifierName = "abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz"
-                ```
-                """,
-            configuration: .document,
-            size: NSSize(width: 560, height: 300),
-            outputPath: nil
+            ```swift
+            let veryLongIdentifierName = "abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz"
+            ```
+            """
+        let configuration = MarkdownRendererConfiguration.document
+        var stream = MarkdownStream()
+        stream.append(markdown)
+        stream.finish()
+        let prepared = configuration.prepare(snapshot: stream.snapshot())
+        let columnWidth = CGFloat(320)
+        let leadingInset = CGFloat(32)
+        let size = NSSize(width: 640, height: 320)
+
+        let fittingView = NSHostingView(
+            rootView: MarkdownDocumentView(preparedSnapshot: prepared, configuration: configuration)
+                .frame(width: columnWidth, alignment: .leading)
         )
+        fittingView.frame = NSRect(origin: .zero, size: NSSize(width: columnWidth, height: 1_000))
+        fittingView.layoutSubtreeIfNeeded()
+        let fittingWidth = fittingView.fittingSize.width
+
+        let root = HStack(spacing: 0) {
+            Color.white.frame(width: leadingInset)
+            MarkdownDocumentView(preparedSnapshot: prepared, configuration: configuration)
+                .frame(width: columnWidth, alignment: .leading)
+                .clipped()
+            Color.white
+        }
+        .frame(width: size.width, height: size.height, alignment: .topLeading)
+        .background(Color.white)
+        .environment(\.colorScheme, .light)
+
+        var result = renderHosted(
+            root,
+            size: size,
+            outputPath: ProcessInfo.processInfo.environment["SIRIUS_MARKDOWN_OVERFLOW_PROBE_OUTPUT"]
+        )
+        result.maximumDarkRightmostX = Int(Double(leadingInset + columnWidth + 8) * result.pixelScale)
+        result.fittingWidth = fittingWidth
+        result.maximumFittingWidth = Double(columnWidth + 1)
+        return result
     }
 
     @MainActor

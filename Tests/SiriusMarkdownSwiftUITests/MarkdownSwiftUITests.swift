@@ -3370,6 +3370,37 @@ func siriusTranscriptCommandHostedLayoutRecomputesAfterWidthNarrowing() throws {
 
 @Test
 @MainActor
+func wideCodeBlockHostedFittingWidthStaysWithinHostColumn() throws {
+    #if canImport(AppKit)
+    let source = """
+    ```plaintext
+    Here is a long diagnostic line that must remain horizontally scrollable without forcing the host transcript column to adopt its natural width: abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz
+    ```
+    """
+    var stream = MarkdownStream()
+    stream.append(source)
+    stream.finish()
+
+    let configuration = MarkdownRendererConfiguration(
+        theme: siriusTranscriptLikeTheme(),
+        inlineRenderingMode: .preparedNativeLines
+    )
+    let prepared = configuration.prepare(snapshot: stream.snapshot())
+    let width = CGFloat(320)
+    let view = StreamingMarkdownView(preparedSnapshot: prepared, configuration: configuration)
+        .frame(width: width, alignment: .leading)
+    let hostingView = NSHostingView(rootView: view)
+    hostingView.frame = NSRect(origin: .zero, size: NSSize(width: width, height: 240))
+    hostingView.layoutSubtreeIfNeeded()
+
+    #expect(hostingView.fittingSize.width <= width + 1)
+    #expect(hostingView.fittingSize.height < 140)
+    #expect(hostingView.fittingSize.height > CGFloat(configuration.theme.codeLineHeight))
+    #endif
+}
+
+@Test
+@MainActor
 func preparedNativeResizeRenderKeepsPaintInsideNarrowedColumn() throws {
     #if canImport(AppKit)
     let configuration = MarkdownRendererConfiguration.document

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.9 - 2026-06-16
+
+- Fixed wide code blocks stretching constrained transcript/document columns. Prepared code content now keeps its natural width inside the horizontal scroll view while the code block itself remains bound to the host column, preserving inspectable long lines without inflating the surrounding SwiftUI layout.
+- Added hosted AppKit regression coverage for plaintext-style wide code blocks in a 320-point transcript column, including width and height assertions so the block neither stretches nor collapses.
+- Hardened `Tools/RenderProbe` overflow coverage so it now asserts the hosted fitting width stays contained, not just that wide pixels render. The release gate now discovers `512` Swift tests and requires the new wide-code containment regression.
+
 ## 0.5.8 - 2026-06-14
 
 - Fixed long-generation render-session slowdown where rapid append bursts queued obsolete snapshot preparation work. `MarkdownRenderSession` now drains pending operations in batches, coalesces consecutive appends, preserves host-boundary ordering, and drops queued work superseded by reset before parsing or preparing it.

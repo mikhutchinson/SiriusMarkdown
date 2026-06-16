@@ -225,8 +225,9 @@ public struct MarkdownBlockView: View {
                             .padding(.horizontal, 10)
                             .padding(.top, showsCodeBlockHeader ? 4 : 10)
                             .padding(.bottom, 10)
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .fixedSize(horizontal: true, vertical: false)
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 } else {
                     Text("\(Self.codeCopyText(for: block).utf8.count.formatted()) bytes hidden")
                         .font(.caption)
@@ -236,20 +237,29 @@ public struct MarkdownBlockView: View {
                         .accessibilityLabel("Code block collapsed")
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
             .background(theme.codeBackground)
             .clipShape(RoundedRectangle(cornerRadius: 6))
         } else if let reason = preparedContent.policyDenialReason {
             policyDeniedView(reason: reason)
         } else {
-            selectableText(
-                AttributedString(MarkdownRendererConfiguration.codeText(for: block)),
-                font: theme.codeFont,
-                textColor: theme.textColor,
-                selectionMode: configuration.nativeTextSelection,
-                metrics: codeTextMetrics,
-                wraps: false,
-                selectionInlineLayout: preparedContent.selectionInlineLayout
-            )
+            ScrollView(.horizontal) {
+                selectableText(
+                    AttributedString(MarkdownRendererConfiguration.codeText(for: block)),
+                    font: theme.codeFont,
+                    textColor: theme.textColor,
+                    selectionMode: configuration.nativeTextSelection,
+                    metrics: codeTextMetrics,
+                    wraps: false,
+                    selectionInlineLayout: preparedContent.selectionInlineLayout
+                )
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 10)
+                    .fixedSize(horizontal: true, vertical: false)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(theme.codeBackground)
+            .clipShape(RoundedRectangle(cornerRadius: 6))
         }
     }
 
