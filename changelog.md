@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.11 - 2026-06-21
+
+- Fixed generated bare-TeX recovery so chat/math output such as score formulas, `\operatorname`, `\mathbb`, `\partial`, `\nabla`, `cases`, `align*`, `equation`, angle-bracket pairs, Greek/font-style commands, and common relation operators stay together as one source-backed math run instead of splitting at each command.
+- Hardened `SiriusMarkdownMath`'s SwiftMath bridge for common generated LaTeX by normalizing `\operatorname` / `\operatorname*`, one-column `cases` shorthand, wrapper environments such as `equation` / `displaymath`, and `align` / `align*` / `multline` aliases before typesetting while preserving the original LaTeX source on prepared math images.
+- Added parser, native-math-renderer, and negative code/path regressions for generated formula families, Windows-style paths, code spans, unknown commands, and escaped Markdown. The release gate now discovers `522` Swift tests and requires the new math recovery and renderer regressions.
+
 ## 0.5.10 - 2026-06-16
 
 - Fixed chat-style LaTeX recovery for single-line display math inside prose paragraphs. Lines such as `$$...$$` and `\[...\]` now split into source-backed paragraph/math/paragraph blocks instead of leaking literal delimiters through the renderer.

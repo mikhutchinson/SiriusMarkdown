@@ -1,6 +1,6 @@
 # Runbook
 
-This runbook is the local release authority for `SiriusMarkdown`. For the current public package release, use `0.5.10` as the tag and do not publish unless every release blocker below is clear.
+This runbook is the local release authority for `SiriusMarkdown`. For the current public package release, use `0.5.11` as the tag and do not publish unless every release blocker below is clear.
 
 ## Build
 
@@ -17,7 +17,7 @@ swift test
 ```
 
 Current status: `swift test` must pass with strict Swift-vs-Pretext comparison enabled across the required product fixture groups. Missing groups, duplicate fixture names/groups, absent fixture metadata, or known-drift allowlists are release blockers.
-The release-gate discovery floor for this slice is `518` Swift tests.
+The release-gate discovery floor for this slice is `522` Swift tests.
 
 Count the Swift test functions reported by the runner and keep the release-gate discovery floor current:
 
@@ -47,7 +47,7 @@ Layout and renderer acceptance for the current slice:
 - Document and code affordances must stay generic, source-backed, and replaceable. `MarkdownDocumentSurface` may own copy/export/collapse chrome, `MarkdownCodeBlockAffordances` may own code chrome visibility, and `MarkdownAffordanceActionHandler` may own platform actions; none of these APIs may hardcode private Sirius app concepts. Shared affordance icons are decorative SF Symbols; accessibility labels and help text belong on the enclosing buttons.
 - Mermaid rendering must stay package-owned and prepared before SwiftUI body evaluation. `DefaultMarkdownMermaidRenderer` may produce ASCII plus concrete-color SVG and prepared root geometry; `MarkdownBlockView` may render the prepared image in a bounded pan/zoom viewport with controls from `MarkdownTheme.mermaidAffordances`. Mermaid zoom/fit/reset buttons must keep explicit accessibility labels while their decorative SF Symbol images stay hidden from accessibility synthesis. Do not add WebKit, app-private Mermaid wrappers, or a second Mermaid semantic engine.
 - Heading typography must resolve H1-H6 through `MarkdownTheme.headings`. Visual SwiftUI `Font` and prepared-line CoreText measurement inputs (`fontSize`, `lineHeight`, `MarkdownInlineFontProfiles`) must come from the same `MarkdownTextStyle`; do not infer measurement profiles from arbitrary SwiftUI fonts.
-- Inline math detection must remain source-preserving and must not rewrite code spans, fenced code, or Markdown source before `swift-markdown` parsing. Dollar-delimited inline math must not consume common currency/reward amounts such as `$100 - $5,500`, `$108,500`, or compact ISO currency-code amounts; compact currency-code coverage should derive from Foundation's `Locale.Currency.isoCurrencies` rather than a hand-maintained code list.
+- Inline math detection must remain source-preserving and must not rewrite code spans, fenced code, or Markdown source before `swift-markdown` parsing. Dollar-delimited inline math must not consume common currency/reward amounts such as `$100 - $5,500`, `$108,500`, or compact ISO currency-code amounts; compact currency-code coverage should derive from Foundation's `Locale.Currency.isoCurrencies` rather than a hand-maintained code list. Bare-TeX recovery is only a conservative routing layer for generated math; it must keep code spans, paths, unknown commands, escaped Markdown, and prose out of math while preserving whole generated formula families as source-backed math runs.
 - Image handling must produce prepared decisions and placeholders by default; no network image fetch is allowed without an explicit host resolver.
 - Document selection must default on through
   `MarkdownRendererConfiguration.documentSelection` for `compactChat`,
@@ -134,7 +134,7 @@ Run this before claiming native-renderer product quality. It wraps the release g
 
 ## Public Release Checklist
 
-Use this checklist for `0.5.10`.
+Use this checklist for `0.5.11`.
 
 1. Confirm public hygiene:
 
@@ -169,15 +169,15 @@ Use this checklist for `0.5.10`.
 
    ```sh
    git add README.md runbook.md NOTICE.md changelog.md bugfix.md Docs Sources Tests Examples Tools Package.swift Package.resolved
-   git commit -m "Prepare SiriusMarkdown 0.5.10 release"
+   git commit -m "Prepare SiriusMarkdown 0.5.11 release"
    ```
 
 6. Tag and push:
 
    ```sh
-   git tag -a 0.5.10 -m "SiriusMarkdown 0.5.10"
+   git tag -a 0.5.11 -m "SiriusMarkdown 0.5.11"
    git push origin HEAD
-   git push origin 0.5.10
+   git push origin 0.5.11
    ```
 
 7. After pushing, create the public release notes from `changelog.md`. The release notes must keep the claim precise: native SwiftUI block rendering, CoreText-painted prepared-line inline rendering, streaming snapshots, safe policies, language-aware default code highlighting, package-owned Mermaid pan/zoom over prepared SVG/ASCII, explicit accessibility labels for package-owned affordance controls, Pretext-backed layout gate, and demo/product probes. Do not claim a new Mermaid semantic engine or a WebKit renderer.

@@ -42,8 +42,9 @@ final class SwiftMathTypesetter: @unchecked Sendable {
         }
 
         return lock.withLock {
+            let typesetLatex = Self.swiftMathCompatibleLatex(latex)
             let mathImage = MTMathImage(
-                latex: latex,
+                latex: typesetLatex,
                 fontSize: CGFloat(fontSize),
                 textColor: MTColor.black,
                 labelMode: isBlock ? .display : .text,
@@ -75,6 +76,108 @@ final class SwiftMathTypesetter: @unchecked Sendable {
                 latex: latex
             )
         }
+    }
+
+    private static func swiftMathCompatibleLatex(_ latex: String) -> String {
+        replacingCasesEnvironment(
+            in: replacingEnvironmentAliases(
+                in: replacingOperatorNameCommands(in: latex)
+            )
+        )
+    }
+
+    private static func replacingEnvironmentAliases(in latex: String) -> String {
+        var result = latex
+        for wrapper in ["equation", "equation*", "displaymath"] {
+            result = result
+                .replacingOccurrences(of: "\\begin{\(wrapper)}", with: "")
+                .replacingOccurrences(of: "\\end{\(wrapper)}", with: "")
+        }
+
+        for (source, target) in [
+            ("align", "aligned"),
+            ("align*", "aligned"),
+            ("multline", "gather"),
+            ("multline*", "gather")
+        ] {
+            result = result
+                .replacingOccurrences(of: "\\begin{\(source)}", with: "\\begin{\(target)}")
+                .replacingOccurrences(of: "\\end{\(source)}", with: "\\end{\(target)}")
+        }
+
+        return result
+    }
+
+    private static func replacingCasesEnvironment(in latex: String) -> String {
+        latex
+            .replacingOccurrences(of: "\\begin{cases}", with: "\\left\\{\\begin{matrix}")
+            .replacingOccurrences(of: "\\end{cases}", with: "\\end{matrix}\\right.")
+    }
+
+    private static func replacingOperatorNameCommands(in latex: String) -> String {
+        let token = "\\operatorname"
+        var result = ""
+        var cursor = latex.startIndex
+
+        while cursor < latex.endIndex {
+            guard latex[cursor...].hasPrefix(token),
+                  var groupStart = latex.index(cursor, offsetBy: token.count, limitedBy: latex.endIndex)
+            else {
+                result.append(latex[cursor])
+                cursor = latex.index(after: cursor)
+                continue
+            }
+
+            if groupStart < latex.endIndex, latex[groupStart] == "*" {
+                groupStart = latex.index(after: groupStart)
+            }
+
+            guard groupStart < latex.endIndex,
+                  latex[groupStart] == "{"
+            else {
+                result.append(latex[cursor])
+                cursor = latex.index(after: cursor)
+                continue
+            }
+
+            let contentStart = latex.index(after: groupStart)
+            guard
+                  let contentEnd = balancedGroupContentEnd(in: latex, contentStart: contentStart)
+            else {
+                result.append(latex[cursor])
+                cursor = latex.index(after: cursor)
+                continue
+            }
+
+            result.append("\\mathrm{")
+            result.append(contentsOf: latex[contentStart..<contentEnd])
+            result.append("}")
+            cursor = latex.index(after: contentEnd)
+        }
+
+        return result
+    }
+
+    private static func balancedGroupContentEnd(
+        in latex: String,
+        contentStart: String.Index
+    ) -> String.Index? {
+        var depth = 1
+        var cursor = contentStart
+
+        while cursor < latex.endIndex {
+            if latex[cursor] == "{" {
+                depth += 1
+            } else if latex[cursor] == "}" {
+                depth -= 1
+                if depth == 0 {
+                    return cursor
+                }
+            }
+            cursor = latex.index(after: cursor)
+        }
+
+        return nil
     }
 
     static func canEnterSwiftMath(

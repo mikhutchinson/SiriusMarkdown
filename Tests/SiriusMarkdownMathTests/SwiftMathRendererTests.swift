@@ -62,6 +62,58 @@ func nativeMathRendererFallsBackToTextForInvalidLatex() {
 }
 
 @Test
+func nativeMathRendererTypesetsChatScoreFormula() throws {
+    let renderer = NativeMarkdownMathRenderer()
+    let prepared = renderer.preparedMath(
+        "S_c = w₁ · \\text{Match}\\text{NPI} + w₂ · \\text{Match}\\text{Google} + w₃ · \\text{Match}\\text{Website} - \\text{Penalty}\\text{Conflicts}",
+        isBlock: true,
+        fontSize: 18
+    )
+
+    guard case .image = prepared else {
+        Issue.record("Expected a typeset image for the chat score formula, got \(prepared).")
+        return
+    }
+}
+
+@Test
+func nativeMathRendererTypesetsGeneratedFormulaFamilies() throws {
+    let renderer = NativeMarkdownMathRenderer()
+    let formulas = [
+        "p(y \\mid x) = \\operatorname{softmax}(Wx + b)_y",
+        "\\mathbb{E}[X] = \\sum_i p_i x_i",
+        "\\hat{\\theta} = \\arg\\max_\\theta \\log p(D \\mid \\theta)",
+        "\\partial L / \\partial w = 0",
+        "\\nabla_\\theta J(\\theta) = \\mathbb{E}[r \\nabla_\\theta \\log \\pi_\\theta(a \\mid s)]",
+        "\\mathrm{score}(x) = \\log p(x)",
+        "\\Pr(A \\mid B) = \\frac{\\Pr(B \\mid A)\\Pr(A)}{\\Pr(B)}",
+        "\\left\\|x\\right\\|_2 = \\sqrt{x^\\top x}",
+        "\\mathbf{x}^{\\top}\\mathbf{w} + b",
+        "x_i \\in \\mathbb{R}^d",
+        "\\begin{cases} x + y = 5 \\\\ 2x - y = 1 \\end{cases}",
+        "f(x) = \\begin{cases} x^2 & x \\ge 0 \\\\ -x & x < 0 \\end{cases}",
+        "\\operatorname*{argmax}_{x \\in \\mathbb{R}^d} f(x)",
+        "\\left\\langle x, y \\right\\rangle = \\sum_i x_i y_i",
+        "\\begin{equation} x^2 + y^2 = z^2 \\end{equation}",
+        "\\begin{align*} x &= y + 1 \\\\ y &= z - 1 \\end{align*}",
+        "\\psi(t) = e^{-i\\omega t}",
+        "\\mathfrak{g} \\oplus \\mathcal{h}",
+        "\\Delta E \\approx \\hbar\\omega",
+        "A \\subseteq B \\Rightarrow A \\cap C \\subseteq B \\cap C",
+        "\\det(A) \\neq 0 \\iff A^{-1}\\text{ exists}",
+        "\\mu \\pm 1.96\\sigma"
+    ]
+
+    for formula in formulas {
+        let prepared = renderer.preparedMath(formula, isBlock: true, fontSize: 18)
+        guard case .image = prepared else {
+            Issue.record("Expected a typeset image for generated formula: \(formula)")
+            continue
+        }
+    }
+}
+
+@Test
 func nativeMathRendererExposesStableCacheIdentity() {
     let renderer = NativeMarkdownMathRenderer()
     #expect(!renderer.mathRendererCacheIdentity.isEmpty)

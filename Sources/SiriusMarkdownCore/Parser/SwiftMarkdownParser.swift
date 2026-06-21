@@ -968,7 +968,9 @@ private struct MarkdownMathDelimiterScanner {
             "\\frac", "\\lim", "\\sum", "\\int", "\\sqrt", "\\begin{", "\\end{",
             "\\left", "\\right", "\\sin", "\\cos", "\\tan", "\\log", "\\ln",
             "\\alpha", "\\beta", "\\gamma", "\\delta", "\\theta", "\\lambda",
-            "\\rightarrow", "\\leftarrow", "\\infty"
+            "\\rightarrow", "\\leftarrow", "\\infty", "\\operatorname",
+            "\\mathrm", "\\mathbf", "\\mathbb", "\\mathcal", "\\partial",
+            "\\nabla", "\\Pr"
         ]
         if commonCommands.contains(where: { body.contains($0) }) {
             return true
@@ -994,18 +996,29 @@ private struct InlineRunConverter {
 
     private static let currencyCodeSuffixes = Set(Locale.Currency.isoCurrencies.map(\.identifier))
     private static let bareTexCommands: Set<String> = [
-        "alpha", "approx", "beta", "cdot", "chi", "cos", "delta", "div",
-        "epsilon", "equiv", "eta", "frac", "gamma", "ge", "geq", "gt",
-        "in", "infty", "int", "lambda", "le", "leftarrow", "leq", "lim",
-        "ln", "log", "lt", "mu", "neq", "notin", "omega", "phi", "pi",
-        "pm", "prod", "propto", "rightarrow", "rho", "sigma", "sim",
-        "sin", "sqrt", "sum", "tan", "tau", "text", "theta", "times",
-        "to", "varepsilon", "varphi", "xi"
+        "aleph", "alpha", "angle", "approx", "arg", "ast", "bar", "because", "begin", "beta",
+        "bf", "bm", "bot", "bullet", "cal", "cap", "cdot",
+        "cdotp", "cdots", "chi", "circ", "cong", "cos", "cup", "ddots", "delta", "det", "dim", "div",
+        "emptyset", "end", "epsilon", "equiv", "eta", "exists", "exp",
+        "forall", "frac", "frak", "gamma", "ge", "geq", "gt", "hat", "hbar", "iff", "imath", "in",
+        "infty", "int", "iota", "jmath", "kappa", "land",
+        "lambda", "langle", "lceil", "ldots", "le", "left", "leftarrow", "leftrightarrow", "leq", "lfloor", "lim", "ln",
+        "log", "lor", "lt", "lvert", "mapsto", "mathbb", "mathbf", "mathcal", "mathrm",
+        "mathbfit", "mathfrak", "mathit", "mathnormal", "mathsf", "mathtt", "max", "mid", "min", "mit", "mod", "mu", "nabla", "neq", "ni", "notin",
+        "nu", "neg", "omega", "oplus", "operatorname", "oslash", "otimes", "overline", "parallel", "partial", "phi", "pi", "pm",
+        "pr", "prod", "propto", "psi", "qquad", "quad", "rank", "rightarrow",
+        "rangle", "rceil", "rfloor", "rho", "right", "rvert", "setminus", "sigma", "sim",
+        "simeq", "sin", "sqrt", "star", "subset",
+        "subseteq", "sum", "supset", "supseteq", "tan", "tau", "text",
+        "textbf", "textit", "textrm", "textsf", "texttt", "therefore", "theta", "tilde", "times", "to", "top", "tr", "trace",
+        "triangle", "uparrow", "updownarrow", "upsilon", "varepsilon", "varphi", "varpi", "varrho",
+        "varsigma", "vartheta", "vdots", "vec", "vee", "vert", "wedge", "widehat", "widetilde", "wp", "xi", "zeta"
     ]
     private static let bareTexInfixCommands: Set<String> = [
-        "approx", "cdot", "div", "equiv", "ge", "geq", "gt", "in", "le",
-        "leftarrow", "leq", "lt", "neq", "notin", "pm", "propto",
-        "rightarrow", "sim", "times", "to"
+        "approx", "ast", "cap", "cdot", "cdotp", "circ", "cong", "cup", "div", "equiv", "ge", "geq", "gt",
+        "iff", "in", "land", "le", "leftarrow", "leftrightarrow", "leq", "lor", "lt", "mapsto", "mid", "neq",
+        "ni", "notin", "oplus", "oslash", "otimes", "parallel", "pm", "propto", "rightarrow", "setminus", "sim", "simeq", "star", "subset",
+        "subseteq", "supset", "supseteq", "times", "to", "vee", "wedge"
     ]
 
     private enum DisplayMathRunDelimiter {
@@ -1027,7 +1040,9 @@ private struct InlineRunConverter {
             runs(in: $0, presentation: presentation, destination: destination)
         }
         return coalescedStandaloneDisplayMathRuns(
-            resolvedLineBreakSourceRanges(in: converted)
+            coalescedBareTexEnvironmentRuns(
+                resolvedLineBreakSourceRanges(in: converted)
+            )
         )
     }
 
@@ -1265,6 +1280,107 @@ private struct InlineRunConverter {
         }
 
         return coalesced
+    }
+
+    private func coalescedBareTexEnvironmentRuns(_ runs: [MarkdownInlineRun]) -> [MarkdownInlineRun] {
+        guard runs.count >= 2 else {
+            return runs
+        }
+
+        var coalesced: [MarkdownInlineRun] = []
+        coalesced.reserveCapacity(runs.count)
+
+        var index = runs.startIndex
+        while index < runs.endIndex {
+            let run = runs[index]
+            guard run.kind == .math,
+                  run.destination == nil,
+                  run.text.contains("\\begin{"),
+                  !run.text.contains("\\end{")
+            else {
+                coalesced.append(run)
+                index += 1
+                continue
+            }
+
+            var scan = runs.index(after: index)
+            var closingIndex: Int?
+            var canMerge = true
+
+            while scan < runs.endIndex {
+                let candidate = runs[scan]
+                if candidate.kind == .math, candidate.destination == nil {
+                    if candidate.text.contains("\\end{") {
+                        closingIndex = scan
+                        break
+                    }
+                    scan = runs.index(after: scan)
+                    continue
+                }
+
+                if isBareTexEnvironmentSeparatorRun(candidate) {
+                    scan = runs.index(after: scan)
+                    continue
+                }
+
+                canMerge = false
+                break
+            }
+
+            guard canMerge,
+                  let closingIndex,
+                  let mergedRange = mergedSourceRange(from: run, through: runs[closingIndex])
+            else {
+                coalesced.append(run)
+                index += 1
+                continue
+            }
+
+            coalesced.append(
+                MarkdownInlineRun(
+                    kind: .math,
+                    text: sourceText(for: mergedRange.byteRange),
+                    sourceRange: mergedRange
+                )
+            )
+            index = runs.index(after: closingIndex)
+        }
+
+        return coalesced
+    }
+
+    private func isBareTexEnvironmentSeparatorRun(_ run: MarkdownInlineRun) -> Bool {
+        if isLineBreakRun(run) {
+            return true
+        }
+
+        guard run.kind == .text,
+              run.destination == nil
+        else {
+            return false
+        }
+
+        return run.text.allSatisfy { character in
+            character.isWhitespace || character == "\\"
+        }
+    }
+
+    private func mergedSourceRange(
+        from first: MarkdownInlineRun,
+        through last: MarkdownInlineRun
+    ) -> MarkdownSourceRange? {
+        guard let firstRange = first.sourceRange,
+              let lastRange = last.sourceRange,
+              firstRange.byteRange.lowerBound <= lastRange.byteRange.upperBound
+        else {
+            return nil
+        }
+
+        let byteRange = firstRange.byteRange.lowerBound..<lastRange.byteRange.upperBound
+        return MarkdownSourceRange(
+            byteRange: byteRange,
+            lineRange: lineMap.lineRange(for: byteRange)
+        )
     }
 
     private func rawDisplayMathText(
@@ -2220,14 +2336,16 @@ private struct InlineRunConverter {
         }
 
         let lower: String.Index
-        if Self.bareTexInfixCommands.contains(command.name),
-           let operandStart = leftMathOperandStart(before: cursor, in: text) {
+        if let expressionStart = leftBareTexExpressionStart(before: cursor, in: text) {
+            lower = expressionStart
+        } else if Self.bareTexInfixCommands.contains(command.name),
+                  let operandStart = leftMathOperandStart(before: cursor, in: text) {
             lower = operandStart
         } else {
             lower = cursor
         }
 
-        let upper = bareTexExpressionUpperBound(in: text, from: cursor)
+        let upper = bareTexExpressionUpperBound(in: text, from: cursor, lowerBound: lower)
         guard lower < upper else {
             return nil
         }
@@ -2246,15 +2364,20 @@ private struct InlineRunConverter {
         }
 
         let previous = text[text.index(before: cursor)]
-        return previous.isWhitespace || "([{=+-*/_^".contains(previous)
+        return previous.isWhitespace || isBareTexOperator(previous) || "([{".contains(previous)
     }
 
     private func bareTexExpressionUpperBound(
         in text: String,
-        from commandStart: String.Index
+        from commandStart: String.Index,
+        lowerBound: String.Index
     ) -> String.Index {
         var cursor = commandStart
         var lastContentEnd = commandStart
+        var openDelimiters = unmatchedOpeningDelimiters(
+            in: text,
+            range: lowerBound..<commandStart
+        )
 
         while cursor < text.endIndex {
             let tokenStart = cursor
@@ -2265,6 +2388,12 @@ private struct InlineRunConverter {
                 while let groupEnd = balancedGroupUpperBound(in: text, at: cursor, open: "{", close: "}") {
                     cursor = groupEnd
                 }
+                lastContentEnd = cursor
+                continue
+            }
+
+            if let symbolEnd = texSymbolUpperBound(in: text, at: cursor) {
+                cursor = symbolEnd
                 lastContentEnd = cursor
                 continue
             }
@@ -2292,8 +2421,41 @@ private struct InlineRunConverter {
                 continue
             }
 
+            if let groupEnd = balancedGroupUpperBound(in: text, at: cursor, open: "[", close: "]") {
+                cursor = groupEnd
+                lastContentEnd = cursor
+                continue
+            }
+
             if let groupEnd = balancedGroupUpperBound(in: text, at: cursor, open: "{", close: "}") {
                 cursor = groupEnd
+                lastContentEnd = cursor
+                continue
+            }
+
+            if closesOpenBareTexDelimiter(text[cursor], stack: &openDelimiters) {
+                cursor = text.index(after: cursor)
+                lastContentEnd = cursor
+                continue
+            }
+
+            if isBareTexInternalSeparator(text[cursor]) {
+                let separatorEnd = text.index(after: cursor)
+                var continuation = separatorEnd
+                while continuation < text.endIndex,
+                      text[continuation].isWhitespace,
+                      !text[continuation].isNewline {
+                    continuation = text.index(after: continuation)
+                }
+
+                guard continuation < text.endIndex,
+                      !text[continuation].isNewline,
+                      canContinueBareTexExpression(in: text, at: continuation)
+                else {
+                    return tokenStart == commandStart ? commandStart : lastContentEnd
+                }
+
+                cursor = separatorEnd
                 lastContentEnd = cursor
                 continue
             }
@@ -2314,6 +2476,58 @@ private struct InlineRunConverter {
         }
 
         return lastContentEnd
+    }
+
+    private func unmatchedOpeningDelimiters(
+        in text: String,
+        range: Range<String.Index>
+    ) -> [Character] {
+        var stack: [Character] = []
+        var cursor = range.lowerBound
+
+        while cursor < range.upperBound {
+            let character = text[cursor]
+            if isBareTexOpeningDelimiter(character) {
+                stack.append(character)
+            } else if let expected = matchingBareTexOpeningDelimiter(forClosing: character),
+                      stack.last == expected {
+                stack.removeLast()
+            }
+            cursor = text.index(after: cursor)
+        }
+
+        return stack
+    }
+
+    private func closesOpenBareTexDelimiter(
+        _ character: Character,
+        stack: inout [Character]
+    ) -> Bool {
+        guard let expected = matchingBareTexOpeningDelimiter(forClosing: character),
+              stack.last == expected
+        else {
+            return false
+        }
+
+        stack.removeLast()
+        return true
+    }
+
+    private func isBareTexOpeningDelimiter(_ character: Character) -> Bool {
+        character == "(" || character == "[" || character == "{"
+    }
+
+    private func matchingBareTexOpeningDelimiter(forClosing character: Character) -> Character? {
+        switch character {
+        case ")":
+            return "("
+        case "]":
+            return "["
+        case "}":
+            return "{"
+        default:
+            return nil
+        }
     }
 
     private func canContinueBareTexExpression(in text: String, at cursor: String.Index) -> Bool {
@@ -2338,29 +2552,172 @@ private struct InlineRunConverter {
             return nil
         }
 
-        if text[cursor].isNumber {
-            var scan = cursor
-            while scan < text.endIndex, text[scan].isNumber || text[scan] == "." {
-                scan = text.index(after: scan)
-            }
-            return scan
+        var scan = cursor
+        while scan < text.endIndex, isBareTexOperandCharacter(text[scan]) {
+            scan = text.index(after: scan)
         }
 
-        guard text[cursor].isLetter else {
+        if let trimmed = trimmedBareTexOperandUpperBound(in: text, lower: cursor, upper: scan) {
+            return trimmed
+        }
+
+        return nil
+    }
+
+    private func trimmedBareTexOperandUpperBound(
+        in text: String,
+        lower: String.Index,
+        upper: String.Index
+    ) -> String.Index? {
+        var candidateUpper = upper
+        while lower < candidateUpper {
+            let token = String(text[lower..<candidateUpper])
+            if bareTexOperandTokenLooksSafe(token) {
+                return candidateUpper
+            }
+
+            let previous = text.index(before: candidateUpper)
+            guard text[previous] == "." else {
+                return nil
+            }
+            candidateUpper = previous
+        }
+
+        return nil
+    }
+
+    private func leftBareTexExpressionStart(
+        before commandStart: String.Index,
+        in text: String
+    ) -> String.Index? {
+        guard commandStart > text.startIndex else {
             return nil
         }
 
-        var scan = cursor
-        var count = 0
-        while scan < text.endIndex, text[scan].isLetter || text[scan].isNumber {
-            count += 1
-            guard count <= 1 else {
+        var cursor = commandStart
+        var lower = commandStart
+        var sawOperator = false
+
+        while cursor > text.startIndex {
+            while cursor > text.startIndex {
+                let previous = text.index(before: cursor)
+                guard text[previous].isWhitespace, !text[previous].isNewline else {
+                    break
+                }
+                cursor = previous
+            }
+
+            guard cursor > text.startIndex else {
+                break
+            }
+
+            let previous = text.index(before: cursor)
+            if isBareTexOperator(text[previous]) {
+                sawOperator = true
+                lower = previous
+                cursor = previous
+                continue
+            }
+
+            if let groupedOperandStart = simpleBareTexGroupedOperandLowerBound(
+                endingAt: cursor,
+                in: text
+            ) {
+                lower = groupedOperandStart
+                cursor = groupedOperandStart
+                continue
+            }
+
+            if let operandStart = simpleBareTexOperandLowerBound(endingAt: cursor, in: text) {
+                lower = operandStart
+                cursor = operandStart
+                continue
+            }
+
+            if text[previous] == "(",
+               let functionStart = simpleBareTexOperandLowerBound(endingAt: previous, in: text) {
+                lower = functionStart
+                cursor = functionStart
+                sawOperator = true
+                continue
+            }
+
+            break
+        }
+
+        guard sawOperator, lower < commandStart else {
+            return nil
+        }
+
+        return lower
+    }
+
+    private func simpleBareTexGroupedOperandLowerBound(
+        endingAt upperBound: String.Index,
+        in text: String
+    ) -> String.Index? {
+        guard upperBound > text.startIndex else {
+            return nil
+        }
+
+        let closingIndex = text.index(before: upperBound)
+        guard let expectedOpening = matchingBareTexOpeningDelimiter(forClosing: text[closingIndex]) else {
+            return nil
+        }
+
+        var depth = 1
+        var scan = closingIndex
+        while scan > text.startIndex {
+            scan = text.index(before: scan)
+            let character = text[scan]
+            if character == text[closingIndex] {
+                depth += 1
+            } else if character == expectedOpening {
+                depth -= 1
+                if depth == 0 {
+                    if let functionStart = simpleBareTexOperandLowerBound(endingAt: scan, in: text) {
+                        return functionStart
+                    }
+                    return scan
+                }
+            } else if character.isNewline {
+                return nil
+            }
+        }
+
+        return nil
+    }
+
+    private func simpleBareTexOperandLowerBound(
+        endingAt upperBound: String.Index,
+        in text: String
+    ) -> String.Index? {
+        guard upperBound > text.startIndex else {
+            return nil
+        }
+
+        var scan = upperBound
+        while scan > text.startIndex {
+            let previous = text.index(before: scan)
+            guard isBareTexOperandCharacter(text[previous]) else {
+                break
+            }
+            scan = previous
+        }
+
+        while scan < upperBound {
+            let token = String(text[scan..<upperBound])
+            if bareTexOperandTokenLooksSafe(token) {
+                return scan
+            }
+
+            guard text[scan] == "." else {
                 return nil
             }
             scan = text.index(after: scan)
         }
 
-        return scan
+        return nil
     }
 
     private func leftMathOperandStart(
@@ -2385,25 +2742,67 @@ private struct InlineRunConverter {
             return nil
         }
 
-        var operandStart = operandEnd
-        while operandStart > text.startIndex {
-            let previous = text.index(before: operandStart)
-            guard text[previous].isLetter || text[previous].isNumber || text[previous] == "." else {
-                break
-            }
-            operandStart = previous
-        }
-
-        guard operandStart < operandEnd else {
-            return nil
-        }
-
-        let token = String(text[operandStart..<operandEnd])
-        guard token.count <= 3 || token.allSatisfy({ $0.isNumber || $0 == "." }) else {
+        guard let operandStart = simpleBareTexOperandLowerBound(endingAt: operandEnd, in: text) else {
             return nil
         }
 
         return operandStart
+    }
+
+    private func isBareTexOperandCharacter(_ character: Character) -> Bool {
+        character.isLetter ||
+            character.isNumber ||
+            character == "." ||
+            character == "_" ||
+            character == "^" ||
+            isScriptCharacter(character)
+    }
+
+    private func bareTexOperandTokenLooksSafe(_ token: String) -> Bool {
+        guard !token.isEmpty else {
+            return false
+        }
+
+        let scalars = Array(token.unicodeScalars)
+        let isNumeric = scalars.allSatisfy { scalar in
+            CharacterSet.decimalDigits.contains(scalar) || scalar == "."
+        }
+        if isNumeric {
+            let dotCount = scalars.filter { $0 == "." }.count
+            return scalars.contains { CharacterSet.decimalDigits.contains($0) } &&
+                dotCount <= 1 &&
+                !token.hasPrefix(".") &&
+                !token.hasSuffix(".")
+        }
+
+        guard !token.hasPrefix("."),
+              !token.hasSuffix(".")
+        else {
+            return false
+        }
+
+        let containsScriptMarker = token.contains("_") ||
+            token.contains("^") ||
+            token.contains(where: isScriptCharacter)
+        if containsScriptMarker {
+            return token.count <= 8 && token.contains(where: { $0.isLetter || $0.isNumber })
+        }
+
+        if token.count == 1, token.first?.isLetter == true {
+            return true
+        }
+
+        if token.count <= 3,
+           token.first?.isLetter == true,
+           token.dropFirst().allSatisfy(\.isNumber) {
+            return true
+        }
+
+        if isCompactNumberLetterProduct(token) {
+            return true
+        }
+
+        return false
     }
 
     private func bareTexExpressionLooksSafe(_ expression: String) -> Bool {
@@ -2480,8 +2879,43 @@ private struct InlineRunConverter {
         return nil
     }
 
+    private func texSymbolUpperBound(in text: String, at cursor: String.Index) -> String.Index? {
+        guard cursor < text.endIndex,
+              text[cursor] == "\\"
+        else {
+            return nil
+        }
+
+        let symbol = text.index(after: cursor)
+        guard symbol < text.endIndex,
+              !text[symbol].isLetter,
+              text[symbol] == "\\" || "|{}[](),;:!".contains(text[symbol])
+        else {
+            return nil
+        }
+
+        return text.index(after: symbol)
+    }
+
     private func isBareTexOperator(_ character: Character) -> Bool {
-        "+-=*/_^".contains(character)
+        "+-=*/_^·−×÷≤≥<>|&".contains(character)
+    }
+
+    private func isBareTexInternalSeparator(_ character: Character) -> Bool {
+        character == ","
+    }
+
+    private func isScriptCharacter(_ character: Character) -> Bool {
+        guard character.unicodeScalars.count == 1,
+              let scalar = character.unicodeScalars.first
+        else {
+            return false
+        }
+
+        return scalar.value == 0x00B2 ||
+            scalar.value == 0x00B3 ||
+            scalar.value == 0x00B9 ||
+            (0x2070...0x209F).contains(scalar.value)
     }
 
     private func dollarInlineMathRange(

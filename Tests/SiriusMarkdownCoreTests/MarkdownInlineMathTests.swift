@@ -234,7 +234,7 @@ func adjacentBareTexCommandsStayTogetherWithoutEatingProse() throws {
 @Test
 func bareTexRecoveryDoesNotRewritePathsUnknownCommandsOrEscapedMarkdown() throws {
     var stream = MarkdownStream()
-    stream.append("Path C:\\Users\\mike and C:\\theta\\sqrt, unknown \\foobar, and escaped \\*text\\* stay prose while \\sqrt{x} renders.")
+    stream.append("Path C:\\Users\\mike, C:\\theta\\sqrt, and C:\\mathbb\\operatorname stay prose; unknown \\foobar and escaped \\*text\\* stay prose while \\sqrt{x} renders.")
     stream.finish()
 
     let block = try #require(stream.snapshot().blocks.first)
@@ -243,6 +243,7 @@ func bareTexRecoveryDoesNotRewritePathsUnknownCommandsOrEscapedMarkdown() throws
     #expect(mathRuns.map(\.text) == ["\\sqrt{x}"])
     #expect(block.inlines.map(\.text).joined().contains("C:\\Users\\mike"))
     #expect(block.inlines.map(\.text).joined().contains("C:\\theta\\sqrt"))
+    #expect(block.inlines.map(\.text).joined().contains("C:\\mathbb\\operatorname"))
     #expect(block.inlines.map(\.text).joined().contains("\\foobar"))
     #expect(block.inlines.map(\.text).joined().contains("*text*"))
 }
@@ -271,12 +272,67 @@ func styledAndLinkedCurrencyDoesNotBecomeInlineMath() throws {
 @Test
 func codeSpansDoNotParseLatexOrDollarDelimiters() throws {
     var stream = MarkdownStream()
-    stream.append("Code `\\(x\\)` and `$y$` stay code, while \\(z\\) is math.")
+    stream.append("Code `\\(x\\)`, `$y$`, `\\operatorname{softmax}`, `\\mathbb{R}`, and `\\partial L` stay code, while \\(z\\) is math.")
     stream.finish()
 
     let block = try #require(stream.snapshot().blocks.first)
 
     #expect(block.inlines.contains { $0.kind == .code && $0.text == "\\(x\\)" })
     #expect(block.inlines.contains { $0.kind == .code && $0.text == "$y$" })
+    #expect(block.inlines.contains { $0.kind == .code && $0.text == "\\operatorname{softmax}" })
+    #expect(block.inlines.contains { $0.kind == .code && $0.text == "\\mathbb{R}" })
+    #expect(block.inlines.contains { $0.kind == .code && $0.text == "\\partial L" })
     #expect(block.inlines.filter { $0.kind == .math }.map(\.text) == ["z"])
+}
+
+@Test
+func bareTextCommandFormulaStaysTogetherAsOneMathRun() throws {
+    let formula = "S_c = w₁ · \\text{Match}\\text{NPI} + w₂ · \\text{Match}\\text{Google} + w₃ · \\text{Match}\\text{Website} - \\text{Penalty}\\text{Conflicts}"
+    var stream = MarkdownStream()
+    stream.append("Formula: \(formula).")
+    stream.finish()
+
+    let block = try #require(stream.snapshot().blocks.first)
+    let mathRuns = block.inlines.filter { $0.kind == .math }
+
+    #expect(mathRuns.map(\.text) == [formula])
+}
+
+@Test
+func bareTexRecoveryKeepsGeneratedFormulaFamiliesTogether() throws {
+    let cases = [
+        "p(y \\mid x) = \\operatorname{softmax}(Wx + b)_y",
+        "\\mathbb{E}[X] = \\sum_i p_i x_i",
+        "\\hat{\\theta} = \\arg\\max_\\theta \\log p(D \\mid \\theta)",
+        "\\partial L / \\partial w = 0",
+        "\\nabla_\\theta J(\\theta) = \\mathbb{E}[r \\nabla_\\theta \\log \\pi_\\theta(a \\mid s)]",
+        "\\mathrm{score}(x) = \\log p(x)",
+        "\\Pr(A \\mid B) = \\frac{\\Pr(B \\mid A)\\Pr(A)}{\\Pr(B)}",
+        "\\left\\|x\\right\\|_2 = \\sqrt{x^\\top x}",
+        "\\mathbf{x}^{\\top}\\mathbf{w} + b",
+        "x_i \\in \\mathbb{R}^d",
+        "\\begin{cases} x + y = 5 \\\\ 2x - y = 1 \\end{cases}",
+        "f(x) = \\begin{cases} x^2 & x \\ge 0 \\\\ -x & x < 0 \\end{cases}",
+        "\\operatorname*{argmax}_{x \\in \\mathbb{R}^d} f(x)",
+        "\\left\\langle x, y \\right\\rangle = \\sum_i x_i y_i",
+        "\\begin{equation} x^2 + y^2 = z^2 \\end{equation}",
+        "\\begin{align*} x &= y + 1 \\\\ y &= z - 1 \\end{align*}",
+        "\\psi(t) = e^{-i\\omega t}",
+        "\\mathfrak{g} \\oplus \\mathcal{h}",
+        "\\Delta E \\approx \\hbar\\omega",
+        "A \\subseteq B \\Rightarrow A \\cap C \\subseteq B \\cap C",
+        "\\det(A) \\neq 0 \\iff A^{-1}\\text{ exists}",
+        "\\mu \\pm 1.96\\sigma"
+    ]
+
+    for formula in cases {
+        var stream = MarkdownStream()
+        stream.append("Formula: \(formula).")
+        stream.finish()
+
+        let block = try #require(stream.snapshot().blocks.first)
+        let mathRuns = block.inlines.filter { $0.kind == .math }
+
+        #expect(mathRuns.map(\.text) == [formula])
+    }
 }
