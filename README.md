@@ -18,7 +18,12 @@ The core contract is simple:
 
 ## Current Release
 
-`0.5.11` fixes generated-LaTeX recovery for chat and document math: score
+`0.5.12` hardens the renderer pipeline after the bug sweep: cache and source
+buffer public inputs no longer trap on invalid capacities or byte ranges,
+public theme/table/font metrics are sanitized before SwiftUI rendering,
+selection limits clamp to a valid range, and opt-in RenderProbe artifacts render
+through an offscreen AppKit host while still being measured. `0.5.11` fixed
+generated-LaTeX recovery for chat and document math: score
 formulas, `\operatorname`, `\mathbb`, `\partial`, `\nabla`, `cases`,
 `align*`, `equation`, angle-bracket pairs, Greek/font-style commands, and common
 relation operators now stay together as one source-backed math run instead of
@@ -57,7 +62,7 @@ selection depend on SwiftUI's private selection overlay.
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/mikhutchinson/SiriusMarkdown.git", from: "0.5.11")
+    .package(url: "https://github.com/mikhutchinson/SiriusMarkdown.git", from: "0.5.12")
 ],
 targets: [
     .target(
@@ -235,7 +240,7 @@ git diff --check
 
 ## Release
 
-`0.5.11` is ready only when the docs describe the current public package surface,
+`0.5.12` is ready only when the docs describe the current public package surface,
 `bash Tools/product-check.sh` passes from the repository root, `git diff --check`
 is clean, the public remote is correct, and the release commit is tagged and
-pushed as `0.5.11`.
+pushed as `0.5.12`.

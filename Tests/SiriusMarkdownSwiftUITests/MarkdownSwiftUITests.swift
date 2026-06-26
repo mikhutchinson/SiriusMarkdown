@@ -1208,6 +1208,7 @@ func defaultJavaScriptResourceLoadingUsesNonTrappingLookup() throws {
 @Test
 func releaseAndProductChecksKeepRenderProbeVisualsOptIn() throws {
     let root = packageRootURL()
+    let currentReleaseVersion = "0.5.12"
     let releaseCheck = try String(
         contentsOf: root.appending(path: "Tools/release-check.sh"),
         encoding: .utf8
@@ -1226,6 +1227,10 @@ func releaseAndProductChecksKeepRenderProbeVisualsOptIn() throws {
     )
     let architecture = try String(
         contentsOf: root.appending(path: "Docs/architecture.md"),
+        encoding: .utf8
+    )
+    let runbook = try String(
+        contentsOf: root.appending(path: "runbook.md"),
         encoding: .utf8
     )
     let renderProbe = try String(
@@ -1250,6 +1255,12 @@ func releaseAndProductChecksKeepRenderProbeVisualsOptIn() throws {
 
     #expect(architecture.contains("opt-in `Tools/RenderProbe` offscreen AppKit host"))
     #expect(architecture.contains("SIRIUS_MARKDOWN_RUN_VISUAL_PROBES=1"))
+
+    #expect(readme.contains(".package(url: \"https://github.com/mikhutchinson/SiriusMarkdown.git\", from: \"\(currentReleaseVersion)\")"))
+    #expect(readme.contains("pushed as `\(currentReleaseVersion)`"))
+    #expect(runbook.contains("current public package release, use `\(currentReleaseVersion)` as the tag"))
+    #expect(runbook.contains("git tag -a \(currentReleaseVersion) -m \"SiriusMarkdown \(currentReleaseVersion)\""))
+    #expect(releaseCheck.contains("--fallback-bundle-version \(currentReleaseVersion)"))
 
     #expect(!renderProbe.contains(forbiddenOrderFront))
 }
