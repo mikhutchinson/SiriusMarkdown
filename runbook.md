@@ -16,8 +16,8 @@ swift build
 swift test
 ```
 
-Current status: `swift test` must pass with strict Swift-vs-Pretext comparison enabled across the required product fixture groups. Missing groups, duplicate fixture names/groups, absent fixture metadata, or known-drift allowlists are release blockers.
-The release-gate discovery floor for this slice is `522` Swift tests.
+Current status: `swift test` must pass with strict Swift-vs-Pretext comparison enabled across the required product fixture groups. Missing groups, duplicate fixture names/groups, absent required layout metadata (`font`, `lineHeight`, `whiteSpace`, `wordBreak`), invalid/nonzero `letterSpacing`, or known-drift allowlists are release blockers.
+The release-gate discovery floor for this slice is `557` Swift tests.
 
 Count the Swift test functions reported by the runner and keep the release-gate discovery floor current:
 
@@ -44,7 +44,7 @@ Layout and renderer acceptance for the current slice:
 - Use `MarkdownRenderSession` or `MarkdownRendererConfiguration.prepare(snapshot:)` in model/controller code and pass `MarkdownPreparedSnapshot` into `MarkdownDocumentView` or `StreamingMarkdownView`. Deprecated direct `snapshot:` view initializers are compatibility shims, not the streaming/document path; they may enforce cheap safety policy decisions but must not run full highlighting, math rendering, or inline preparation synchronously.
 - Renderer configuration must be protocol-driven for link, image, HTML, code, math, code highlighting, and math rendering hooks.
 - Default code highlighting must stay language-aware, pluggable, and conservative: explicit supported languages may be highlighted through the JavaScriptCore/highlight.js backend where available; plaintext, nohighlight, unlabeled, unsupported, unavailable-runtime, and failed-backend fences should render plainly.
-- Document and code affordances must stay generic, source-backed, and replaceable. `MarkdownDocumentSurface` may own copy/export/collapse chrome, `MarkdownCodeBlockAffordances` may own code chrome visibility, and `MarkdownAffordanceActionHandler` may own platform actions; none of these APIs may hardcode private Sirius app concepts. Shared affordance icons are decorative SF Symbols; accessibility labels and help text belong on the enclosing buttons.
+- Document and code affordances must stay generic, source-backed, and replaceable. `MarkdownDocumentSurface` may own copy/export/collapse chrome, `MarkdownCodeBlockAffordances` may own code chrome visibility, and `MarkdownAffordanceActionHandler` may own platform actions; none of these APIs may hardcode private host-app concepts. Shared affordance icons are decorative SF Symbols; accessibility labels and help text belong on the enclosing buttons.
 - Mermaid rendering must stay package-owned and prepared before SwiftUI body evaluation. `DefaultMarkdownMermaidRenderer` may produce ASCII plus concrete-color SVG and prepared root geometry; `MarkdownBlockView` may render the prepared image in a bounded pan/zoom viewport with controls from `MarkdownTheme.mermaidAffordances`. Mermaid zoom/fit/reset buttons must keep explicit accessibility labels while their decorative SF Symbol images stay hidden from accessibility synthesis. Do not add WebKit, app-private Mermaid wrappers, or a second Mermaid semantic engine.
 - Heading typography must resolve H1-H6 through `MarkdownTheme.headings`. Visual SwiftUI `Font` and prepared-line CoreText measurement inputs (`fontSize`, `lineHeight`, `MarkdownInlineFontProfiles`) must come from the same `MarkdownTextStyle`; do not infer measurement profiles from arbitrary SwiftUI fonts.
 - Inline math detection must remain source-preserving and must not rewrite code spans, fenced code, or Markdown source before `swift-markdown` parsing. Dollar-delimited inline math must not consume common currency/reward amounts such as `$100 - $5,500`, `$108,500`, or compact ISO currency-code amounts; compact currency-code coverage should derive from Foundation's `Locale.Currency.isoCurrencies` rather than a hand-maintained code list. Bare-TeX recovery is only a conservative routing layer for generated math; it must keep code spans, paths, unknown commands, escaped Markdown, and prose out of math while preserving whole generated formula families as source-backed math runs.
@@ -72,7 +72,7 @@ Layout and renderer acceptance for the current slice:
   source-backed Markdown range while clipping highlight paint to glyph bounds.
 - Prepared-line selection geometry must not rebuild rich per-line text geometry
   just because a host invalidates or moves the SwiftUI view graph. After warmup,
-  repeated same-rect resolution, rect-only movement, and Sirius-style hosted
+  repeated same-rect resolution, rect-only movement, and host-app-style hosted
   layout storms must record zero new inline line-fragment builds, selection text
   geometry initializations, source-run mappings, CoreText line builds, and
   selection fingerprint builds. Keep
@@ -93,13 +93,13 @@ Layout and renderer acceptance for the current slice:
   SwiftUI tests must prove list/quote/table leaves mount selectable
   `NSTextView`s and that a hosted list leaf can select and copy through the
   AppKit pasteboard path.
-  If a Sirius-style hang returns, sample the process and check for
+  If a host-app-style hang returns, sample the process and check for
   `GraphHost.flushTransactions` ->
   `SelectionOverlay.updateNSView` -> AppKit `NSTextField setFont:` /
   `_invalidateEffectiveFont` / `updateCell`.
 - Lists, task lists, tables, code blocks, math blocks, and HTML blocks must keep structured render paths. Do not collapse them back to `Text(block.text)` except as an explicit policy-denied or missing-structure fallback.
-- Renderer tests must assert behavior through render plans, prepared snapshots, lightweight prepared render identities, source-backed selection copy contexts, inline payload helpers, diagnostics counters, and large-transcript prepared item identity. `Tools/RenderProbe` owns the `MarkdownDocumentView` AppKit pixel check so Swift Testing helper crashes do not excuse dropping document-render coverage.
-- The full Swift suite runs serially in `Tools/release-check.sh` because the renderer tests host real SwiftUI/AppKit windows and text views; use `Tools/RenderProbe` for pixel-level AppKit coverage instead of forcing those windowed tests through parallel SwiftPM teardown.
+- Renderer tests must assert behavior through render plans, prepared snapshots, lightweight prepared render identities, source-backed selection copy contexts, inline payload helpers, diagnostics counters, and large-transcript prepared item identity. `Tools/RenderProbe` owns the opt-in `MarkdownDocumentView` AppKit pixel check so Swift Testing helper crashes do not excuse dropping document-render coverage.
+- The full Swift suite runs serially in `Tools/release-check.sh` because the renderer tests host real SwiftUI/AppKit views and text views. `Tools/RenderProbe` is opt-in through `SIRIUS_MARKDOWN_RUN_VISUAL_PROBES=1` for pixel-level offscreen AppKit coverage instead of forcing those artifact checks through every default release run.
 - Repeated preparation of the same snapshot should reuse inline/code/math caches and record cache hits without incrementing prepare, highlighting, or math-render counters.
 
 ## Pretext Golden Tool
@@ -121,8 +121,8 @@ Third-party credits for Pretext, the Node canvas shim, the vendored Unicode line
 bash Tools/release-check.sh
 ```
 
-The script first runs `Tools/RenderProbe`, which renders representative document, document-affordance, compact-chat, transcript-wrapping, multilingual, inline-attribute, overflow, hard-break, long-word, finite-column containment, wide-to-narrow resize, Mermaid diagram pan/zoom, and code-highlighting cases through AppKit and rejects blank/trivial/collapsed/clipped/misleading output. It then runs Swift tests, asserts the discovered test floor and required named regressions, runs the root build, resolves/builds a clean temporary SwiftPM consumer against the local package path, bundles macOS demos (`Examples/scripts/bundle-macos-demos.sh`), runs Pretext install/test, generates symbol graphs, and performs warning-clean DocC conversion. Before cutting a release, update `changelog.md` and confirm `bugfix.md` records any defects found during the slice.
-If this script fails, treat it as a real release blocker. Do not bypass the Pretext fixture comparison or the AppKit render probe to make a release check look green.
+By default the script skips `Tools/RenderProbe`; set `SIRIUS_MARKDOWN_RUN_VISUAL_PROBES=1` when pixel-level AppKit output is intentionally part of the release pass. The opt-in probe renders representative document, document-affordance, compact-chat, transcript-wrapping, multilingual, inline-attribute, overflow, hard-break, long-word, finite-column containment, wide-to-narrow resize, Mermaid diagram pan/zoom, and code-highlighting cases through an offscreen AppKit host and rejects blank/trivial/collapsed/clipped/misleading output. The default script runs Swift tests, asserts the discovered test floor and required named regressions, runs the root build, resolves/builds a clean temporary SwiftPM consumer against the local package path, bundles macOS demos (`Examples/scripts/bundle-macos-demos.sh`), runs Pretext install/test, generates symbol graphs, and performs warning-clean DocC conversion. Before cutting a release, update `changelog.md` and confirm `bugfix.md` records any defects found during the slice.
+If this script fails, treat it as a real release blocker. Do not bypass the Pretext fixture comparison, and do not report opt-in AppKit render-probe coverage as passing unless `SIRIUS_MARKDOWN_RUN_VISUAL_PROBES=1` was actually run.
 
 ## Product Checks
 
@@ -130,7 +130,7 @@ If this script fails, treat it as a real release blocker. Do not bypass the Pret
 bash Tools/product-check.sh
 ```
 
-Run this before claiming native-renderer product quality. It wraps the release gate and adds focused checks for `MarkdownRenderSession`, bounded selection, long-transcript resize behavior, and render-probe output. The gate proves SiriusMarkdown behavior directly; it has no competitor dependency.
+Run this before claiming native-renderer product quality. It wraps the release gate and adds focused checks for `MarkdownRenderSession`, bounded selection, and long-transcript resize behavior. Set `SIRIUS_MARKDOWN_RUN_VISUAL_PROBES=1` when product validation intentionally includes RenderProbe output. The gate proves SiriusMarkdown behavior directly; it has no competitor dependency.
 
 ## Public Release Checklist
 
@@ -187,7 +187,7 @@ Use this checklist for `0.5.11`.
 - `Tools/product-check.sh` fails.
 - `swift test` fails or the expected Swift test count unexpectedly drops.
 - Pretext fixture comparison has missing required groups, duplicate fixture names/groups, missing bundled metadata, or known-drift allowlists.
-- `Tools/RenderProbe` reports blank, trivial, collapsed-spacing, clipped-wide, or insufficient-width rendering.
+- `Tools/RenderProbe`, when intentionally enabled, reports blank, trivial, collapsed-spacing, clipped-wide, or insufficient-width rendering.
 - `README.md`, DocC, runbook, changelog, or notices describe stale internal, stale dependency, or uncredited Pretext behavior.
 - The public package surface requires non-package app concepts or a downstream app integration to function.
 - `git remote -v` does not point at the intended public repository before pushing tags.

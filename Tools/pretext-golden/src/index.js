@@ -1,5 +1,6 @@
 import { readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { createCanvas } from "@napi-rs/canvas";
 import { layoutWithLines, measureNaturalWidth, prepareWithSegments } from "@chenglou/pretext";
 import LineBreaker from "../vendor/linebreak/package/dist/module.mjs";
@@ -57,7 +58,7 @@ function loadFixtures() {
     .filter((name) => name.endsWith(".json"))
     .sort()
     .map((name) => {
-      const file = join(fixturesDir.pathname, name);
+      const file = fixturePath(fixturesDir, name);
       return { name, fixture: JSON.parse(readFileSync(file, "utf8")) };
     });
 }
@@ -216,7 +217,7 @@ function expectedLayout(fixture) {
 }
 
 function writeFixture(name, fixture, directory) {
-  const file = join(directory.pathname, name);
+  const file = fixturePath(directory, name);
   writeFileSync(file, `${JSON.stringify(orderedFixture(fixture), null, 2)}\n`);
 }
 
@@ -230,6 +231,7 @@ function orderedFixture(fixture) {
     containerWidth: fixture.containerWidth,
     font: fixture.font ?? defaultFont,
     lineHeight: fixture.lineHeight ?? defaultLineHeight,
+    letterSpacing: fixture.letterSpacing ?? 0,
     whiteSpace: fixture.whiteSpace ?? "pre-wrap",
     wordBreak: fixture.wordBreak ?? "normal",
     expected: fixture.expected,
@@ -248,9 +250,10 @@ function validateFixtureSet(entries) {
     requireString(fixture, "group", entry.name);
     requireString(fixture, "description", entry.name);
     requireString(fixture, "markdown", entry.name);
-    requireFiniteNumber(fixture, "containerWidth", entry.name);
+    requirePositiveFiniteNumber(fixture, "containerWidth", entry.name);
     requireString(fixture, "font", entry.name);
-    requireFiniteNumber(fixture, "lineHeight", entry.name);
+    requirePositiveFiniteNumber(fixture, "lineHeight", entry.name);
+    requireOptionalFiniteNumber(fixture, "letterSpacing", entry.name);
     requireString(fixture, "whiteSpace", entry.name);
     requireString(fixture, "wordBreak", entry.name);
 
@@ -277,9 +280,15 @@ function requireString(fixture, field, fileName) {
   }
 }
 
-function requireFiniteNumber(fixture, field, fileName) {
-  if (typeof fixture[field] !== "number" || !Number.isFinite(fixture[field])) {
-    throw new Error(`${fileName}.${field} must be a finite number`);
+function requirePositiveFiniteNumber(fixture, field, fileName) {
+  if (typeof fixture[field] !== "number" || !Number.isFinite(fixture[field]) || fixture[field] <= 0) {
+    throw new Error(`${fileName}.${field} must be a positive finite number`);
+  }
+}
+
+function requireOptionalFiniteNumber(fixture, field, fileName) {
+  if (fixture[field] !== undefined && (typeof fixture[field] !== "number" || !Number.isFinite(fixture[field]))) {
+    throw new Error(`${fileName}.${field} must be a finite number when present`);
   }
 }
 
@@ -311,7 +320,7 @@ function assertExpectedMatches(name, expected, actual) {
 }
 
 function assertMirrorMatches(name, fixture) {
-  const mirrorFile = join(mirrorFixturesDir.pathname, name);
+  const mirrorFile = fixturePath(mirrorFixturesDir, name);
   const mirror = JSON.parse(readFileSync(mirrorFile, "utf8"));
   if (JSON.stringify(mirror) !== JSON.stringify(fixture)) {
     throw new Error(`${name} differs between Swift resources and Tools/pretext-golden/fixtures`);
@@ -328,8 +337,16 @@ function assertArrayLength(name, field, expected, actual) {
 }
 
 function assertClose(name, field, expected, actual, fieldTolerance) {
+  assertFiniteComparable(name, field, "expected", expected);
+  assertFiniteComparable(name, field, "actual", actual);
   if (Math.abs(expected - actual) > fieldTolerance) {
     throw new Error(`${name}.${field} expected ${expected}, got ${actual}`);
+  }
+}
+
+function assertFiniteComparable(name, field, side, value) {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    throw new Error(`${name}.${field} ${side} value must be a finite number, got ${JSON.stringify(value)}`);
   }
 }
 
@@ -364,6 +381,10 @@ function byteLength(text) {
 
 function round(value) {
   return Math.round(value * 100) / 100;
+}
+
+function fixturePath(directoryURL, name) {
+  return join(fileURLToPath(directoryURL), name);
 }
 
 main();

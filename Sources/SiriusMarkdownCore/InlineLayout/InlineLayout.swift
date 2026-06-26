@@ -402,7 +402,10 @@ public struct CoreTextInlineMeasurer: InlineMeasuring {
             text as CFString,
             [kCTFontAttributeName: font] as CFDictionary
         )
-        let line = CTLineCreateWithAttributedString(attributed!)
+        guard let attributed else {
+            return 0
+        }
+        let line = CTLineCreateWithAttributedString(attributed)
         return CTLineGetTypographicBounds(line, nil, nil, nil)
     }
 
@@ -468,6 +471,7 @@ public struct VariableWidthLineWalker<Measurer: InlineMeasuring>: Sendable {
         fontSize: Double = 14,
         includesUnitMeasurements: Bool = false
     ) -> MeasuredInlineContent {
+        let fontSize = sanitizedPositive(fontSize, fallback: 14)
         var measuredSegments: [MeasuredInlineSegment] = []
         var currentLineWidth = 0.0
         var naturalWidth = 0.0
@@ -480,7 +484,7 @@ public struct VariableWidthLineWalker<Measurer: InlineMeasuring>: Sendable {
                 continue
             }
 
-            let width = measurer.width(of: segment, fontSize: fontSize)
+            let width = measuredWidth(of: segment, fontSize: fontSize)
             let measured = MeasuredInlineSegment(
                 segment: segment,
                 width: width,
@@ -510,7 +514,13 @@ public struct VariableWidthLineWalker<Measurer: InlineMeasuring>: Sendable {
             return InlineLayoutResult(lines: [], naturalWidth: 0, height: 0)
         }
 
-        let containerWidth = max(0, options.containerWidth)
+        let containerWidth = options.containerWidth.isFinite
+            ? max(0, options.containerWidth)
+            : 0
+        let lineHeight = sanitizedPositive(
+            options.lineHeight,
+            fallback: sanitizedPositive(measured.fontSize, fallback: 14)
+        )
         var lines: [InlineLineRange] = []
         var currentWidth = 0.0
         var currentStart = 0
@@ -568,7 +578,7 @@ public struct VariableWidthLineWalker<Measurer: InlineMeasuring>: Sendable {
         return InlineLayoutResult(
             lines: lines,
             naturalWidth: measured.naturalWidth,
-            height: Double(lines.count) * options.lineHeight
+            height: Double(lines.count) * lineHeight
         )
     }
 
@@ -647,7 +657,7 @@ public struct VariableWidthLineWalker<Measurer: InlineMeasuring>: Sendable {
                 isHardBreak: false,
                 isBreakOpportunity: false
             )
-            let width = measurer.width(of: pieceSegment, fontSize: fontSize)
+            let width = measuredWidth(of: pieceSegment, fontSize: fontSize)
             guard width > containerWidth, piece.text.count > 1 else {
                 return [
                     MeasuredInlineUnit(
@@ -674,7 +684,7 @@ public struct VariableWidthLineWalker<Measurer: InlineMeasuring>: Sendable {
             units.append(
                 MeasuredInlineUnit(
                     byteRange: cursor..<upper,
-                    width: measurer.width(
+                    width: measuredWidth(
                         of: PreparedInlineSegment(
                             kind: segment.kind,
                             presentation: segment.presentation,
@@ -735,6 +745,18 @@ public struct VariableWidthLineWalker<Measurer: InlineMeasuring>: Sendable {
 
         flush(upTo: cursor)
         return pieces.isEmpty ? [(segment.text, segment.byteRange)] : pieces
+    }
+
+    private func measuredWidth(of segment: PreparedInlineSegment, fontSize: Double) -> Double {
+        let width = measurer.width(of: segment, fontSize: fontSize)
+        guard width.isFinite, width > 0 else {
+            return 0
+        }
+        return width
+    }
+
+    private func sanitizedPositive(_ value: Double, fallback: Double) -> Double {
+        value.isFinite && value > 0 ? value : fallback
     }
 }
 
@@ -897,8 +919,9 @@ public struct InlineLayoutEngine<Measurer: InlineMeasuring>: Sendable {
         diagnosticsRecorder.recordCacheMiss()
         diagnosticsRecorder.recordWidthRelayout()
         diagnosticsRecorder.recordLayout()
+        let containerWidth = sanitizedContainerWidth(options.containerWidth)
         let measuredForLayout = allowsOverwideFallback
-            ? measuredWithCachedOverwideUnits(measured, containerWidth: options.containerWidth)
+            ? measuredWithCachedOverwideUnits(measured, containerWidth: containerWidth)
             : measured
         let result = MarkdownDiagnostics().signpost("InlineLayout", category: "InlineLayout") {
             walker.layout(
@@ -1021,14 +1044,20 @@ public struct InlineLayoutEngine<Measurer: InlineMeasuring>: Sendable {
     private func inlineContentHash(_ runs: [MarkdownInlineRun]) -> UInt64 {
         var hash: UInt64 = 0xcbf29ce484222325
         for run in runs {
-            hash = append(run.kind.rawValue, to: hash)
-            hash = append(String(run.presentation.rawValue), to: hash)
-            hash = append(run.text, to: hash)
-            if let destination = run.destination {
-                hash = append(destination, to: hash)
-            }
-            if let imageSource = run.imageSource {
-                hash = append(imageSource, to: hash)
+            hash = appendField("run", value: "start", to: hash)
+            hash = appendField("kind", value: run.kind.rawValue, to: hash)
+            hash = appendField("presentation", value: String(run.presentation.rawValue), to: hash)
+            hash = appendField("text", value: run.text, to: hash)
+            hash = appendOptionalField("destination", value: run.destination, to: hash)
+            hash = appendOptionalField("imageSource", value: run.imageSource, to: hash)
+            if let sourceRange = run.sourceRange {
+                hash = appendField("source.present", value: "1", to: hash)
+                hash = appendField("source.byte.lower", value: String(sourceRange.byteRange.lowerBound), to: hash)
+                hash = appendField("source.byte.upper", value: String(sourceRange.byteRange.upperBound), to: hash)
+                hash = appendField("source.line.lower", value: String(sourceRange.lineRange.lowerBound), to: hash)
+                hash = appendField("source.line.upper", value: String(sourceRange.lineRange.upperBound), to: hash)
+            } else {
+                hash = appendField("source.present", value: "0", to: hash)
             }
         }
         return hash
@@ -1048,12 +1077,13 @@ public struct InlineLayoutEngine<Measurer: InlineMeasuring>: Sendable {
 
     private func preparedSegmentHash(_ segment: PreparedInlineSegment, initialHash: UInt64) -> UInt64 {
         var hash = initialHash
-        hash = append(segment.kind.rawValue, to: hash)
-        hash = append(String(segment.presentation.rawValue), to: hash)
-        hash = append(segment.text, to: hash)
-        hash = append("\(segment.byteRange.lowerBound)..<\(segment.byteRange.upperBound)", to: hash)
-        hash = append(segment.isHardBreak ? "hard" : "soft", to: hash)
-        hash = append(segment.isBreakOpportunity ? "break" : "nobreak", to: hash)
+        hash = appendField("segment.kind", value: segment.kind.rawValue, to: hash)
+        hash = appendField("segment.presentation", value: String(segment.presentation.rawValue), to: hash)
+        hash = appendField("segment.text", value: segment.text, to: hash)
+        hash = appendField("segment.byte.lower", value: String(segment.byteRange.lowerBound), to: hash)
+        hash = appendField("segment.byte.upper", value: String(segment.byteRange.upperBound), to: hash)
+        hash = appendField("segment.breakKind", value: segment.isHardBreak ? "hard" : "soft", to: hash)
+        hash = appendField("segment.breakOpportunity", value: segment.isBreakOpportunity ? "break" : "nobreak", to: hash)
         return hash
     }
 
@@ -1085,12 +1115,13 @@ public struct InlineLayoutEngine<Measurer: InlineMeasuring>: Sendable {
         preferredBreakPieces(for: segment).enumerated().flatMap { index, piece -> [MeasuredInlineUnit] in
             let pieceSegment = PreparedInlineSegment(
                 kind: segment.kind,
+                presentation: segment.presentation,
                 text: piece.text,
                 byteRange: piece.byteRange,
                 isHardBreak: false,
                 isBreakOpportunity: false
             )
-            let width = walker.measurer.width(of: pieceSegment, fontSize: fontSize)
+            let width = measuredWidth(of: pieceSegment, fontSize: fontSize)
             guard width > containerWidth, piece.text.count > 1 else {
                 return [
                     MeasuredInlineUnit(
@@ -1114,25 +1145,36 @@ public struct InlineLayoutEngine<Measurer: InlineMeasuring>: Sendable {
         for character in segment.text {
             let characterText = String(character)
             let upper = cursor + characterText.utf8.count
+            let characterSegment = PreparedInlineSegment(
+                kind: segment.kind,
+                presentation: segment.presentation,
+                text: characterText,
+                byteRange: cursor..<upper,
+                isHardBreak: false,
+                isBreakOpportunity: false
+            )
             units.append(
                 MeasuredInlineUnit(
                     byteRange: cursor..<upper,
-                    width: walker.measurer.width(
-                        of: PreparedInlineSegment(
-                            kind: segment.kind,
-                            text: characterText,
-                            byteRange: cursor..<upper,
-                            isHardBreak: false,
-                            isBreakOpportunity: false
-                        ),
-                        fontSize: fontSize
-                    )
+                    width: measuredWidth(of: characterSegment, fontSize: fontSize)
                 )
             )
             cursor = upper
         }
 
         return units
+    }
+
+    private func measuredWidth(of segment: PreparedInlineSegment, fontSize: Double) -> Double {
+        let width = walker.measurer.width(of: segment, fontSize: fontSize)
+        guard width.isFinite, width > 0 else {
+            return 0
+        }
+        return width
+    }
+
+    private func sanitizedContainerWidth(_ value: Double) -> Double {
+        value.isFinite ? max(0, value) : 0
     }
 
     private func preferredBreakPieces(
@@ -1187,6 +1229,22 @@ public struct InlineLayoutEngine<Measurer: InlineMeasuring>: Sendable {
         }
         return hash
     }
+
+    private func appendOptionalField(_ name: String, value: String?, to initialHash: UInt64) -> UInt64 {
+        var hash = appendField("\(name).present", value: value == nil ? "0" : "1", to: initialHash)
+        if let value {
+            hash = appendField("\(name).value", value: value, to: hash)
+        }
+        return hash
+    }
+
+    private func appendField(_ name: String, value: String, to initialHash: UInt64) -> UInt64 {
+        var hash = append(name, to: initialHash)
+        hash = append("#\(value.utf8.count):", to: hash)
+        hash = append(value, to: hash)
+        hash = append("|", to: hash)
+        return hash
+    }
 }
 
 private final class OverwideUnitCache: @unchecked Sendable {
@@ -1196,8 +1254,7 @@ private final class OverwideUnitCache: @unchecked Sendable {
     private let capacity: Int
 
     init(capacity: Int) {
-        precondition(capacity > 0)
-        self.capacity = capacity
+        self.capacity = max(1, capacity)
     }
 
     private func withLock<T>(_ body: () throws -> T) rethrows -> T {

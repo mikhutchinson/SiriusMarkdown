@@ -744,7 +744,7 @@ struct SiriusMarkdownRenderProbe {
 
             model.append(
                 """
-                Assistant stream with [a link](https://example.com), **strong text**, `inline code`, and a long path `/tmp/sirius/selection-overlay/stress/probe/transcript-renderer.log`.
+                Assistant stream with [a link](https://example.com), **strong text**, `inline code`, and a long path `/tmp/markdown/selection-overlay/stress/probe/transcript-renderer.log`.
 
                 - Streaming list item with enough text to wrap across prepared native lines while selection is enabled.
                   - Nested child item with `inline code` and a URL https://example.com/native-selection/probe.
@@ -769,7 +769,7 @@ struct SiriusMarkdownRenderProbe {
                     | Surface | Evidence |
                     | - | - |
                     | Transcript | Native selection is mounted on bounded AppKit text leaves. |
-                    | Path | `/private/tmp/sirius-selection-overlay-stress/abcdefghijklmnopqrstuvwxyz` |
+                    | Path | `/private/tmp/markdown-selection-overlay-stress/abcdefghijklmnopqrstuvwxyz` |
 
                     """
                 )
@@ -843,8 +843,8 @@ struct SiriusMarkdownRenderProbe {
             defer: false
         )
         window.animationBehavior = .none
+        window.isReleasedWhenClosed = false
         window.contentView = hostingView
-        window.orderFrontRegardless()
 
         for _ in 0..<4 {
             hostingView.needsLayout = true

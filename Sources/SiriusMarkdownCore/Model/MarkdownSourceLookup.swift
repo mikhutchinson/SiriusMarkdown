@@ -125,7 +125,7 @@ private extension MarkdownSnapshot {
         }
 
         let documentLineUpperBound = blocks.map(\.sourceRange.lineRange.upperBound).max() ?? 1
-        guard line < documentLineUpperBound else {
+        guard line <= documentLineUpperBound else {
             return nil
         }
 
@@ -137,7 +137,7 @@ private extension MarkdownSnapshot {
     }
 
     static func nearestBlock(forByteOffset offset: Int, in blocks: [MarkdownBlock], sourceLength: Int) -> MarkdownBlock? {
-        guard !blocks.isEmpty, offset >= 0, offset < sourceLength else {
+        guard !blocks.isEmpty, offset >= 0, offset <= sourceLength else {
             return nil
         }
 

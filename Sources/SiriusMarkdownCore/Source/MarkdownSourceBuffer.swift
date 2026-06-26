@@ -136,8 +136,15 @@ public struct MarkdownSourceBuffer: Sendable, Hashable {
 
     @discardableResult
     public mutating func append(_ text: String) -> MarkdownSourceRange {
-        let bytes = Array(text.utf8)
         let lowerBound = byteCount
+        guard !text.isEmpty else {
+            return MarkdownSourceRange(
+                byteRange: lowerBound..<lowerBound,
+                lineRange: lineMap.lineRange(for: lowerBound..<lowerBound)
+            )
+        }
+
+        let bytes = Array(text.utf8)
 
         for (index, byte) in bytes.enumerated() where byte == 10 {
             newlineByteOffsets.append(lowerBound + index)
@@ -154,8 +161,7 @@ public struct MarkdownSourceBuffer: Sendable, Hashable {
     }
 
     public func slice(_ byteRange: Range<Int>) -> MarkdownSourceSlice {
-        precondition(byteRange.lowerBound >= 0)
-        precondition(byteRange.upperBound <= byteCount)
+        let byteRange = normalizedByteRange(byteRange)
 
         guard !byteRange.isEmpty else {
             return MarkdownSourceSlice(byteRange: byteRange, text: "")
@@ -185,8 +191,7 @@ public struct MarkdownSourceBuffer: Sendable, Hashable {
     }
 
     public func lines(in byteRange: Range<Int>) -> [MarkdownSourceLine] {
-        precondition(byteRange.lowerBound >= 0)
-        precondition(byteRange.upperBound <= byteCount)
+        let byteRange = normalizedByteRange(byteRange)
 
         guard !byteRange.isEmpty else {
             return []
@@ -257,8 +262,7 @@ public struct MarkdownSourceBuffer: Sendable, Hashable {
     }
 
     public func containsByte(_ target: UInt8, in byteRange: Range<Int>) -> Bool {
-        precondition(byteRange.lowerBound >= 0)
-        precondition(byteRange.upperBound <= byteCount)
+        let byteRange = normalizedByteRange(byteRange)
 
         guard !byteRange.isEmpty else {
             return false
@@ -297,10 +301,17 @@ public struct MarkdownSourceBuffer: Sendable, Hashable {
     }
 
     public func sourceRange(for byteRange: Range<Int>) -> MarkdownSourceRange {
-        MarkdownSourceRange(
+        let byteRange = normalizedByteRange(byteRange)
+        return MarkdownSourceRange(
             byteRange: byteRange,
             lineRange: lineMap.lineRange(for: byteRange)
         )
+    }
+
+    private func normalizedByteRange(_ byteRange: Range<Int>) -> Range<Int> {
+        let lower = min(max(0, byteRange.lowerBound), byteCount)
+        let upper = min(max(lower, byteRange.upperBound), byteCount)
+        return lower..<upper
     }
 
     private func firstChunkIndex(intersecting byteRange: Range<Int>) -> Int {

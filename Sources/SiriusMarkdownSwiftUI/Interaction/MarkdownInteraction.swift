@@ -100,7 +100,12 @@ public final class MarkdownSelectionController: ObservableObject {
     @Published public private(set) var selectedBlockIDs: [MarkdownBlockID] = []
     @Published public private(set) var selectedSourceRanges: [MarkdownSourceRange] = []
 
-    public var maximumSelectedBlockCount: Int
+    public var maximumSelectedBlockCount: Int {
+        didSet {
+            maximumSelectedBlockCount = max(1, maximumSelectedBlockCount)
+            trimSelectionIfNeeded()
+        }
+    }
     private var blockOrder: [MarkdownBlockID] = []
     private var sourceRangeByBlockID: [MarkdownBlockID: MarkdownSourceRange] = [:]
     private var snapshotSourceLength: Int = 0
@@ -115,8 +120,7 @@ public final class MarkdownSelectionController: ObservableObject {
     }
 
     public init(maximumSelectedBlockCount: Int = 512) {
-        precondition(maximumSelectedBlockCount > 0)
-        self.maximumSelectedBlockCount = maximumSelectedBlockCount
+        self.maximumSelectedBlockCount = max(1, maximumSelectedBlockCount)
     }
 
     public func updateSnapshot(_ snapshot: MarkdownSnapshot) {
@@ -601,11 +605,21 @@ public final class MarkdownSelectionController: ObservableObject {
             return joinedPlainText(block.listItems.compactMap { plainText(in: selectedRange, for: $0) })
         case .table:
             guard let table = block.table else {
-                return plainText(in: selectedRange, runs: block.inlines, fallbackText: block.text)
+                return plainText(
+                    in: selectedRange,
+                    runs: block.inlines,
+                    fallbackText: block.text,
+                    fallbackSourceRange: block.sourceRange.byteRange
+                )
             }
             return plainText(in: selectedRange, for: table)
         default:
-            return plainText(in: selectedRange, runs: block.inlines, fallbackText: block.text)
+            return plainText(
+                in: selectedRange,
+                runs: block.inlines,
+                fallbackText: block.text,
+                fallbackSourceRange: block.sourceRange.byteRange
+            )
         }
     }
 
@@ -620,7 +634,12 @@ public final class MarkdownSelectionController: ObservableObject {
             return plainText(for: item)
         }
 
-        let ownText = plainText(in: selectedRange, runs: item.inlines, fallbackText: item.text)
+        let ownText = plainText(
+            in: selectedRange,
+            runs: item.inlines,
+            fallbackText: item.text,
+            fallbackSourceRange: item.sourceRange.byteRange
+        )
         let childText = item.childItems.compactMap { plainText(in: selectedRange, for: $0) }
         return joinedPlainText(([ownText] + childText).compactMap { $0 })
     }
@@ -637,7 +656,12 @@ public final class MarkdownSelectionController: ObservableObject {
                 if selectedRange.contains(cell.sourceRange.byteRange) {
                     return cell.text
                 }
-                return plainText(in: selectedRange, runs: cell.inlines, fallbackText: cell.text)
+                return plainText(
+                    in: selectedRange,
+                    runs: cell.inlines,
+                    fallbackText: cell.text,
+                    fallbackSourceRange: cell.sourceRange.byteRange
+                )
             }
             guard !cells.isEmpty else {
                 return nil
@@ -650,7 +674,8 @@ public final class MarkdownSelectionController: ObservableObject {
     private static func plainText(
         in selectedRange: Range<Int>,
         runs: [MarkdownInlineRun],
-        fallbackText: String
+        fallbackText: String,
+        fallbackSourceRange: Range<Int>
     ) -> String? {
         let text = runs.map { plainText(in: selectedRange, for: $0) }.joined()
         if !text.isEmpty {
@@ -660,7 +685,34 @@ public final class MarkdownSelectionController: ObservableObject {
         guard runs.isEmpty else {
             return nil
         }
-        return fallbackText.isEmpty ? nil : fallbackText
+        guard !fallbackText.isEmpty else {
+            return nil
+        }
+        if selectedRange.contains(fallbackSourceRange) {
+            return fallbackText
+        }
+
+        let overlap = max(selectedRange.lowerBound, fallbackSourceRange.lowerBound)..<min(selectedRange.upperBound, fallbackSourceRange.upperBound)
+        guard !overlap.isEmpty else {
+            return nil
+        }
+        if fallbackSourceRange.count == fallbackText.utf8.count {
+            let visibleRange = (overlap.lowerBound - fallbackSourceRange.lowerBound)..<(overlap.upperBound - fallbackSourceRange.lowerBound)
+            return substring(fallbackText, utf8Range: visibleRange)
+        }
+
+        let visibleLower = visibleByteOffset(
+            forSourceByteOffset: overlap.lowerBound,
+            sourceRange: fallbackSourceRange,
+            visibleByteCount: fallbackText.utf8.count
+        )
+        let visibleUpper = visibleByteOffset(
+            forSourceByteOffset: overlap.upperBound,
+            sourceRange: fallbackSourceRange,
+            visibleByteCount: fallbackText.utf8.count
+        )
+        let sliced = substring(fallbackText, utf8Range: min(visibleLower, visibleUpper)..<max(visibleLower, visibleUpper))
+        return sliced.isEmpty ? nil : sliced
     }
 
     private static func plainText(

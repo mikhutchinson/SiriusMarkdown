@@ -22,11 +22,22 @@ public enum MarkdownFontProfile: Sendable, Hashable {
     public var cacheKey: String {
         switch self {
         case let .system(weight, design):
-            return "system:\(design.rawValue):\(weight.rawValue)"
+            return markdownFontCacheKey([
+                ("kind", "system"),
+                ("design", design.rawValue),
+                ("weight", weight.rawValue)
+            ])
         case let .monospacedSystem(weight):
-            return "system:monospaced:\(weight.rawValue)"
+            return markdownFontCacheKey([
+                ("kind", "monospaced-system"),
+                ("weight", weight.rawValue)
+            ])
         case let .named(name, weight):
-            return "named:\(name):\(weight.rawValue)"
+            return markdownFontCacheKey([
+                ("kind", "named"),
+                ("name", name),
+                ("weight", weight.rawValue)
+            ])
         }
     }
 }
@@ -67,14 +78,14 @@ public struct MarkdownInlineFontProfiles: Sendable, Hashable {
     }
 
     public var cacheKey: String {
-        [
-            "body=\(body.cacheKey)",
-            "emphasis=\(emphasis.cacheKey)",
-            "strong=\(strong.cacheKey)",
-            "code=\(code.cacheKey)",
-            "math=\(math.cacheKey)",
-            "image=\(imagePlaceholder.cacheKey)"
-        ].joined(separator: "|")
+        markdownFontCacheKey([
+            ("body", body.cacheKey),
+            ("emphasis", emphasis.cacheKey),
+            ("strong", strong.cacheKey),
+            ("code", code.cacheKey),
+            ("math", math.cacheKey),
+            ("image", imagePlaceholder.cacheKey)
+        ])
     }
 
     public func profile(for kind: MarkdownInlineKind) -> MarkdownFontProfile {
@@ -120,4 +131,11 @@ public struct MarkdownInlineFontProfiles: Sendable, Hashable {
 
         return body
     }
+}
+
+private func markdownFontCacheKey(_ fields: [(String, String)]) -> String {
+    fields.map { name, value in
+        "\(name)#\(value.utf8.count):\(value)"
+    }
+    .joined(separator: "|")
 }

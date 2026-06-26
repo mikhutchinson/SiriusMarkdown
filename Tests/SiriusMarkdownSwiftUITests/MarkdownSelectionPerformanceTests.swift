@@ -253,15 +253,7 @@ private func runHostedInvalidationStorm(
 
     let hostingView = NSHostingView(rootView: root)
     hostingView.frame = NSRect(origin: .zero, size: NSSize(width: width, height: height))
-    let window = NSWindow(
-        contentRect: hostingView.frame,
-        styleMask: [.borderless],
-        backing: .buffered,
-        defer: false
-    )
-    window.animationBehavior = .none
-    window.contentView = hostingView
-    window.orderFrontRegardless()
+    let window = offscreenSelectionPerformanceWindow(hostingView)
     defer { tearDownSelectionPerformanceWindow(window) }
 
     pumpSelectionPerformanceLayout(hostingView, iterations: 10)
@@ -310,6 +302,20 @@ private extension EnvironmentValues {
         get { self[SelectionInvalidationTestTokenKey.self] }
         set { self[SelectionInvalidationTestTokenKey.self] = newValue }
     }
+}
+
+@MainActor
+private func offscreenSelectionPerformanceWindow<V: View>(_ hostingView: NSHostingView<V>) -> NSWindow {
+    let window = NSWindow(
+        contentRect: hostingView.frame,
+        styleMask: [.borderless],
+        backing: .buffered,
+        defer: false
+    )
+    window.animationBehavior = .none
+    window.isReleasedWhenClosed = false
+    window.contentView = hostingView
+    return window
 }
 
 @MainActor

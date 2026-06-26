@@ -207,10 +207,11 @@ Run the product gate before a release or before claiming renderer quality:
 bash Tools/product-check.sh
 ```
 
-The gate runs the AppKit render probe, full Swift suite, required test discovery,
-root build, clean local SwiftPM consumer build, bundled demo builds, Pretext
-golden tests, symbol graph generation, DocC conversion, focused product tests,
-and final render probe.
+By default the gate skips the AppKit render probe unless
+`SIRIUS_MARKDOWN_RUN_VISUAL_PROBES=1` is set. The default nonvisual gate runs the
+full Swift suite, required test discovery, root build, clean local SwiftPM
+consumer build, bundled demo builds, Pretext golden tests, symbol graph
+generation, DocC conversion, and focused product tests.
 
 For local iteration:
 

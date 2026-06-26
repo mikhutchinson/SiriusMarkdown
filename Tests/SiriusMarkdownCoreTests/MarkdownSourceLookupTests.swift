@@ -216,15 +216,29 @@ func crlfInputMapsSourceLinesToExpectedBlocks() throws {
 }
 
 @Test
-func trailingOutOfDocumentLineReturnsNoRevealTarget() throws {
+func trailingEndOfDocumentLineReturnsLastBlockForNearestReveal() throws {
     let markdown = "First.\n\nSecond.\n"
     let snapshot = finishedSnapshot(from: markdown)
     let second = try #require(snapshot.blocks.last)
     let trailingGapLine = second.sourceRange.lineRange.upperBound
 
     #expect(snapshot.blockID(containingSourceLine: trailingGapLine, policy: .exactOnly) == nil)
-    #expect(snapshot.blockID(containingSourceLine: trailingGapLine, policy: .nearestRenderedBlock) == nil)
+    #expect(snapshot.blockID(containingSourceLine: trailingGapLine, policy: .nearestRenderedBlock) == second.id)
 
     let lastContentLine = second.sourceRange.lineRange.lowerBound
     #expect(snapshot.blockID(containingSourceLine: lastContentLine) == second.id)
+}
+
+@Test
+func firstBlockIDFallsBackToLastBlockAtEndOfDocumentByteOffset() throws {
+    let markdown = "First.\n\nSecond.\n"
+    let snapshot = finishedSnapshot(from: markdown)
+    let second = try #require(snapshot.blocks.last)
+    let eofRange = MarkdownSourceRange(
+        byteRange: snapshot.sourceLength..<snapshot.sourceLength,
+        lineRange: 0..<0
+    )
+
+    #expect(snapshot.firstBlockID(overlappingSourceRange: eofRange, policy: .exactOnly) == nil)
+    #expect(snapshot.firstBlockID(overlappingSourceRange: eofRange, policy: .nearestRenderedBlock) == second.id)
 }

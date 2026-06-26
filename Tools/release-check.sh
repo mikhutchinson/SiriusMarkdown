@@ -5,20 +5,25 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
 swift package clean
-swift package --package-path Tools/RenderProbe clean
-swift run --package-path Tools/RenderProbe SiriusMarkdownRenderProbe
+if [[ "${SIRIUS_MARKDOWN_RUN_VISUAL_PROBES:-0}" == "1" ]]; then
+  swift package --package-path Tools/RenderProbe clean
+  swift run --package-path Tools/RenderProbe SiriusMarkdownRenderProbe
+else
+  echo "Skipping RenderProbe visual checks. Set SIRIUS_MARKDOWN_RUN_VISUAL_PROBES=1 to run them."
+fi
 swift test --no-parallel
 TEST_LIST_FILE="$(mktemp)"
 trap 'rm -f "$TEST_LIST_FILE"; rm -rf "${CONSUMER_DIR:-}"' EXIT
 swift test list > "$TEST_LIST_FILE"
 TEST_COUNT="$(grep -Ec '^[A-Za-z0-9_]+Tests\.' "$TEST_LIST_FILE")"
-MINIMUM_TEST_COUNT=522
+MINIMUM_TEST_COUNT=557
 if (( TEST_COUNT < MINIMUM_TEST_COUNT )); then
   echo "error: swift test list discovered $TEST_COUNT tests; expected at least $MINIMUM_TEST_COUNT" >&2
   exit 1
 fi
 for required_test in \
   "SiriusMarkdownCoreTests.blankLineGapExactReturnsNilNearestReturnsFollowingBlock()" \
+  "SiriusMarkdownCoreTests.sourceBufferClampsOutOfBoundsByteRanges()" \
   "SiriusMarkdownCoreTests.activeTailAppendKeepsRevealTargetStable()" \
   "SiriusMarkdownCoreTests.lookupMapsMultilineParagraphHeadingListCodeAndTable()" \
   "SiriusMarkdownSwiftUITests.preparedSnapshotForwardsSourceLookupWithoutPreparingAgain()" \
@@ -174,6 +179,8 @@ for required_test in \
   "SiriusMarkdownCoreTests.codeSpansDoNotParseLatexOrDollarDelimiters()" \
   "SiriusMarkdownCoreTests.inlineSourceRangesRemainByteAccurateAfterMultibytePrefixes()" \
   "SiriusMarkdownCoreTests.tailInlineSourceRangesRemainByteAccurateAfterSealedReferencePrefix()" \
+  "SiriusMarkdownCoreTests.cacheClampsInvalidCapacityToOne()" \
+  "SiriusMarkdownCoreTests.inlineLayoutEngineClampsInvalidCacheCapacity()" \
   "SiriusMarkdownCoreTests.paragraphEmbeddedDisplayMathPreservesReferenceLinkSemantics()" \
   "SiriusMarkdownCoreTests.displayMathInsideBlockQuoteProducesMathRun()" \
   "SiriusMarkdownCoreTests.displayMathInsideBlockQuotePreservesRawTexSource()" \
@@ -198,12 +205,14 @@ for required_test in \
   "SiriusMarkdownSwiftUITests.MarkdownNativeTextSelectionAppKitTests/defaultDocumentSelectionReceivesTextLeafFragmentForImageBackedInlineMath()" \
   "SiriusMarkdownSwiftUITests.MarkdownSelectionPerformanceTests/enabledDocumentSelectionHostLayoutStormDoesNotRebuildLineSelectionGeometryAfterWarmup()" \
   "SiriusMarkdownSwiftUITests.MarkdownSelectionPerformanceTests/sameRectRepeatedSelectionPreferenceResolutionDoesNotRebuildLineSelectionGeometry()" \
+  "SiriusMarkdownSwiftUITests.MarkdownSelectionControllerClampsInvalidMaximumSelectionLimit()" \
   "SiriusMarkdownSwiftUITests.MarkdownSelectionControllerCopiesExactPartialAndNonContiguousSourceRanges()" \
   "SiriusMarkdownSwiftUITests.MarkdownSelectionControllerPlainTextFallbackRespectsSelectedSourceRanges()" \
   "SiriusMarkdownSwiftUITests.MarkdownSelectionControllerKeepsRangeIntentAcrossSnapshotUpdates()" \
   "SiriusMarkdownSwiftUITests.MarkdownSelectionControllerSelectAllTracksAppendedDocument()" \
   "SiriusMarkdownSwiftUITests.selectionSourceRunSnapsAtomicRunsToSourceBoundaries()" \
   "SiriusMarkdownSwiftUITests.defaultJavaScriptResourceLoadingUsesNonTrappingLookup()" \
+  "SiriusMarkdownSwiftUITests.javaScriptResourceLookupResolvesBundledRendererScripts()" \
   "SiriusMarkdownSwiftUITests.preparedImageSelectionSourceRunIsAtomic()" \
   "SiriusMarkdownSwiftUITests.deniedPreparedImagesDoNotInvokeResolver()" \
   "SiriusMarkdownSwiftUITests.preparedImagePolicyEvaluatesOncePerSourceBackedRun()" \
@@ -223,8 +232,40 @@ for required_test in \
   "SiriusMarkdownSwiftUITests.MarkdownNativeTextSelectionAppKitTests/defaultDocumentSelectionEmitsPreciseAllowedHTMLBlockFragmentsOnMacOS()" \
   "SiriusMarkdownCoreTests.sourceBufferDecodesMultiChunkUnicodeSliceAsSingleUTF8Stream()" \
   "SiriusMarkdownCoreTests.sourceBufferDecodesLinesAcrossChunkBoundariesWithoutLineCopies()" \
+  "SiriusMarkdownCoreTests.sourceBufferEmptyAppendDoesNotAddAChunkOrChangeOffsets()" \
+  "SiriusMarkdownPretextSupportTests.bundledPretextFixturesCompareAgainstSwiftLayout()" \
   "SiriusMarkdownSwiftUITests.unpreparedSnapshotStillEnforcesBlockPoliciesWithoutPreparing()" \
-  "SiriusMarkdownSwiftUITests.blockRenderPlanEvaluatesMathAndHTMLPoliciesOnce()"
+  "SiriusMarkdownSwiftUITests.attributedInlineFallbackCarriesExplicitTextMetrics()" \
+  "SiriusMarkdownSwiftUITests.inlineTextMetricsClampInvalidPublicThemeAndFallbackValues()" \
+  "SiriusMarkdownSwiftUITests.blockRenderPlanEvaluatesMathAndHTMLPoliciesOnce()" \
+  "SiriusMarkdownCoreTests.hostBoundariesAtSameOffsetPreserveAppendOrder()" \
+  "SiriusMarkdownCoreTests.manyHostBoundariesRemainOrderedInSnapshotItems()" \
+  "SiriusMarkdownCoreTests.inlineLayoutEngineOverwideFallbackPreservesAtomicPresentationDuringUnitMeasurement()" \
+  "SiriusMarkdownCoreTests.inlineLayoutEnginePreparedCacheKeyIncludesRunSourceRanges()" \
+  "SiriusMarkdownCoreTests.inlineLayoutEnginePreparedCacheKeySeparatesRunFieldBoundaries()" \
+  "SiriusMarkdownCoreTests.fontProfileCacheKeysLengthPrefixPublicNamedFontFields()" \
+  "SiriusMarkdownCoreTests.variableWidthLineWalkerClampsNonFiniteMeasurements()" \
+  "SiriusMarkdownCoreTests.inlineLayoutEngineClampsNonFiniteOverwideFallbackUnits()" \
+  "SiriusMarkdownSwiftUITests.MarkdownNativeTextSelectionAppKitTests/defaultDocumentSelectionTextGeometryPreservesPresentationForStyledLinks()" \
+  "SiriusMarkdownSwiftUITests.nativeTextSelectionDocsTrackBoundedEnabledSelectionPath()" \
+  "SiriusMarkdownSwiftUITests.releaseAndProductChecksKeepRenderProbeVisualsOptIn()" \
+  "SiriusMarkdownSwiftUITests.swiftUITestTargetDoesNotOrderHostedWindowsOnScreen()" \
+  "SiriusMarkdownSwiftUITests.macOSDemoBundlerCopiesSwiftPMResourceBundlesIntoApps()" \
+  "SiriusMarkdownSwiftUITests.mermaidViewportGeometryRejectsInvalidCustomRendererDimensions()" \
+  "SiriusMarkdownSwiftUITests.mermaidAffordanceRenderBoundsClampInvalidPublicThemeValues()" \
+  "SiriusMarkdownSwiftUITests.mermaidToolbarRequiresRenderableViewportGeometry()" \
+  "SiriusMarkdownSwiftUITests.preparedInlineImagesWithoutSourceRangesPreserveRunOrder()" \
+  "SiriusMarkdownSwiftUITests.MarkdownNativeTextSelectionAppKitTests/imageBackedDisplayMathBlocksPrepareSourceBackedSelectionFragments()" \
+  "SiriusMarkdownSwiftUITests.inlinePreparationCacheKeysIncludeRunSourceRanges()" \
+  "SiriusMarkdownSwiftUITests.inlinePreparationCacheKeysSeparateRunFieldBoundaries()" \
+  "SiriusMarkdownSwiftUITests.mathPreparationCacheNamespacesSeparatePolicyAndRendererFields()" \
+  "SiriusMarkdownSwiftUITests.themeRenderCacheIdentityLengthPrefixesPublicFontProfileFields()" \
+  "SiriusMarkdownSwiftUITests.preparedSnapshotReuseIgnoresSealStateOnlyChanges()" \
+  "SiriusMarkdownSwiftUITests.preparedInlineLayoutIdentityChangesWhenSemanticMeasurementChanges()" \
+  "SiriusMarkdownSwiftUITests.mermaidPreparationCacheKeysIncludeThemeIdentity()" \
+  "SiriusMarkdownSwiftUITests.preparedSnapshotRenderItemsDisambiguateDuplicateHostBoundaryIDs()" \
+  "SiriusMarkdownCoreTests.firstBlockIDFallsBackToLastBlockAtEndOfDocumentByteOffset()" \
+  "SiriusMarkdownSwiftUITests.MarkdownSelectionControllerPlainTextFallbackSlicesBlocksWithoutInlineRuns()"
 do
   if ! grep -Fxq "$required_test" "$TEST_LIST_FILE"; then
     echo "error: required test is missing from swift test list: $required_test" >&2

@@ -96,6 +96,7 @@ private func assertProductFixtureCoverage(_ fixtures: [PretextFixture]) {
         #expect(fixture.description?.isEmpty == false, "\(fixture.name) must describe the contract it covers.")
         #expect(fixture.font?.isEmpty == false, "\(fixture.name) must pin the Pretext font profile.")
         #expect(fixture.lineHeight != nil, "\(fixture.name) must pin lineHeight.")
+        #expect(fixture.letterSpacing == nil || fixture.letterSpacing == 0, "\(fixture.name) uses letterSpacing before Swift layout supports that fixture input.")
         #expect(fixture.whiteSpace?.isEmpty == false, "\(fixture.name) must pin whiteSpace.")
         #expect(fixture.wordBreak?.isEmpty == false, "\(fixture.name) must pin wordBreak.")
     }

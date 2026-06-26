@@ -22,13 +22,16 @@ func nativeMathRendererProducesTypesetImageForValidLatex() throws {
 }
 
 @Test
-func swiftMathTypesetterRejectsPackagedAppWhenGeneratedResourcePathIsMissing() {
+func swiftMathTypesetterRejectsPackagedAppOnlyWhenResourcePathsAreMissing() {
     #if canImport(SwiftMath)
     let appURL = URL(fileURLWithPath: "/tmp/Sirius.app", isDirectory: true)
 
     #expect(!SwiftMathTypesetter.canEnterSwiftMath(mainBundleURL: appURL) { _ in false })
     #expect(SwiftMathTypesetter.canEnterSwiftMath(mainBundleURL: appURL) { path in
         path.hasSuffix("SwiftMath_SwiftMath.bundle/mathFonts.bundle")
+    })
+    #expect(SwiftMathTypesetter.canEnterSwiftMath(mainBundleURL: appURL) { path in
+        path.hasSuffix("Contents/Resources/SwiftMath_SwiftMath.bundle/mathFonts.bundle")
     })
 
     let testHostURL = URL(fileURLWithPath: "/tmp/SiriusMarkdownPackageTests.xctest", isDirectory: true)

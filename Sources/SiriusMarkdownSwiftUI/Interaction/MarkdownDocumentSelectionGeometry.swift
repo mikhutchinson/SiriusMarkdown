@@ -522,7 +522,8 @@ struct MarkdownDocumentSelectionTextGeometry: Equatable, Sendable {
                 fontRuns.append(
                     MarkdownDocumentSelectionFontRun(
                         visibleByteRange: overlapLower..<overlapUpper,
-                        kind: run.kind
+                        kind: run.kind,
+                        presentation: run.presentation
                     )
                 )
             }
@@ -719,7 +720,7 @@ struct MarkdownDocumentSelectionTextGeometry: Equatable, Sendable {
                 attributed.addAttribute(
                     NSAttributedString.Key(kCTFontAttributeName as String),
                     value: MarkdownDocumentSelectionCTFont.font(
-                        profile: fontProfiles.profile(for: run.kind),
+                        profile: fontProfiles.profile(for: run.presentation, kind: run.kind),
                         kind: run.kind,
                         size: fontSize
                     ),
@@ -835,6 +836,7 @@ struct MarkdownDocumentSelectionTextGeometry: Equatable, Sendable {
             hasher.combine(run.visibleByteRange.lowerBound)
             hasher.combine(run.visibleByteRange.upperBound)
             hasher.combine(run.kind)
+            hasher.combine(run.presentation)
         }
         return hasher.finalize()
     }
@@ -894,6 +896,7 @@ struct MarkdownDocumentSelectionSourceRun: Equatable, Sendable {
 struct MarkdownDocumentSelectionFontRun: Equatable, Sendable {
     var visibleByteRange: Range<Int>
     var kind: MarkdownInlineKind
+    var presentation: MarkdownInlinePresentation
 }
 
 #if canImport(CoreText)

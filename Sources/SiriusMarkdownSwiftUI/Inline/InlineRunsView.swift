@@ -24,6 +24,7 @@ public struct InlineRunsView: View {
     private var prepared: MarkdownPreparedInlineContent?
     private var theme: MarkdownTheme
     private var baseFont: Font
+    private var fallbackMetrics: MarkdownInlineFallbackMetrics
     private var linkAction: MarkdownLinkAction?
     private var inlineRenderingMode: MarkdownInlineRenderingMode
     private var nativeTextSelection: MarkdownNativeTextSelection
@@ -36,7 +37,10 @@ public struct InlineRunsView: View {
         inlineRenderingMode: MarkdownInlineRenderingMode = .coreTextPaintedLines,
         nativeTextSelection: MarkdownNativeTextSelection = .disabled,
         linkPolicy: any MarkdownLinkPolicy = DefaultMarkdownPolicy(),
-        imagePolicy: any MarkdownImagePolicy = DefaultMarkdownPolicy()
+        imagePolicy: any MarkdownImagePolicy = DefaultMarkdownPolicy(),
+        fontSize: Double? = nil,
+        lineHeight: Double? = nil,
+        fontProfile: MarkdownFontProfile? = nil
     ) {
         self.attributed = Self.attributedString(
             for: runs,
@@ -46,6 +50,11 @@ public struct InlineRunsView: View {
         self.prepared = nil
         self.theme = theme
         self.baseFont = baseFont ?? theme.paragraphFont
+        self.fallbackMetrics = MarkdownInlineFallbackMetrics(
+            fontSize: fontSize ?? theme.paragraphFontSize,
+            lineHeight: lineHeight ?? theme.paragraphLineHeight,
+            fontProfile: fontProfile ?? theme.paragraphFontProfiles.body
+        )
         self.linkAction = linkAction
         self.inlineRenderingMode = inlineRenderingMode
         self.nativeTextSelection = nativeTextSelection
@@ -57,12 +66,20 @@ public struct InlineRunsView: View {
         baseFont: Font? = nil,
         linkAction: MarkdownLinkAction? = nil,
         inlineRenderingMode: MarkdownInlineRenderingMode = .coreTextPaintedLines,
-        nativeTextSelection: MarkdownNativeTextSelection = .disabled
+        nativeTextSelection: MarkdownNativeTextSelection = .disabled,
+        fontSize: Double? = nil,
+        lineHeight: Double? = nil,
+        fontProfile: MarkdownFontProfile? = nil
     ) {
         self.attributed = attributed
         self.prepared = nil
         self.theme = theme
         self.baseFont = baseFont ?? theme.paragraphFont
+        self.fallbackMetrics = MarkdownInlineFallbackMetrics(
+            fontSize: fontSize ?? theme.paragraphFontSize,
+            lineHeight: lineHeight ?? theme.paragraphLineHeight,
+            fontProfile: fontProfile ?? theme.paragraphFontProfiles.body
+        )
         self.linkAction = linkAction
         self.inlineRenderingMode = inlineRenderingMode
         self.nativeTextSelection = nativeTextSelection
@@ -80,9 +97,18 @@ public struct InlineRunsView: View {
         self.prepared = prepared
         self.theme = theme
         self.baseFont = baseFont ?? theme.paragraphFont
+        self.fallbackMetrics = MarkdownInlineFallbackMetrics(
+            fontSize: prepared.fontSize,
+            lineHeight: prepared.lineHeight,
+            fontProfile: prepared.fontProfiles.body
+        )
         self.linkAction = linkAction
         self.inlineRenderingMode = inlineRenderingMode
         self.nativeTextSelection = nativeTextSelection
+    }
+
+    var fallbackTextMetrics: MarkdownInlineFallbackMetrics {
+        fallbackMetrics
     }
 
     @ViewBuilder
@@ -110,9 +136,9 @@ public struct InlineRunsView: View {
             MarkdownSelectableText(
                 attributed: attributed,
                 font: baseFont,
-                fontSize: theme.paragraphFontSize,
-                lineHeight: theme.paragraphLineHeight,
-                fontProfile: theme.paragraphFontProfiles.body,
+                fontSize: fallbackMetrics.fontSize,
+                lineHeight: fallbackMetrics.lineHeight,
+                fontProfile: fallbackMetrics.fontProfile,
                 textColor: theme.textColor,
                 linkAction: linkAction,
                 nativeTextSelection: nativeTextSelection
@@ -478,6 +504,39 @@ public struct InlineRunsView: View {
     }
 }
 
+struct MarkdownInlineFallbackMetrics: Sendable, Hashable {
+    var fontSize: Double
+    var lineHeight: Double
+    var fontProfile: MarkdownFontProfile
+
+    init(fontSize: Double, lineHeight: Double, fontProfile: MarkdownFontProfile) {
+        self.init(
+            fontSize: fontSize,
+            lineHeight: lineHeight,
+            fontProfile: fontProfile,
+            fallbackFontSize: 14,
+            fallbackLineHeight: 14
+        )
+    }
+
+    init(
+        fontSize: Double,
+        lineHeight: Double,
+        fontProfile: MarkdownFontProfile,
+        fallbackFontSize: Double,
+        fallbackLineHeight: Double
+    ) {
+        let safeFontSize = Self.sanitizedPositive(fontSize, fallback: fallbackFontSize)
+        self.fontSize = safeFontSize
+        self.lineHeight = Self.sanitizedPositive(lineHeight, fallback: max(fallbackLineHeight, safeFontSize))
+        self.fontProfile = fontProfile
+    }
+
+    private static func sanitizedPositive(_ value: Double, fallback: Double) -> Double {
+        value.isFinite && value > 0 ? value : fallback
+    }
+}
+
 nonisolated func markdownLinkURL(for destination: String, policy: any MarkdownLinkPolicy) -> URL? {
     guard case .allow = policy.evaluateLink(destination: destination) else {
         return nil
@@ -511,11 +570,10 @@ private extension MarkdownInlineRun {
     }
 }
 
-private struct PreparedInlineLayoutIdentity: Hashable {
-    var sourceRange: MarkdownSourceRange?
-    var naturalText: String
-    var fontSize: Double
+struct PreparedInlineLayoutIdentity: Hashable {
+    var measured: MeasuredInlineContent
     var lineHeight: Double
+    var fontProfilesCacheKey: String
 }
 
 private struct PreparedInlineTextView: View {
@@ -536,10 +594,9 @@ private struct PreparedInlineTextView: View {
 
     private var layoutIdentity: PreparedInlineLayoutIdentity {
         PreparedInlineLayoutIdentity(
-            sourceRange: prepared.prepared.sourceRange,
-            naturalText: prepared.prepared.naturalText,
-            fontSize: prepared.fontSize,
-            lineHeight: prepared.lineHeight
+            measured: prepared.measured,
+            lineHeight: prepared.lineHeight,
+            fontProfilesCacheKey: prepared.fontProfiles.cacheKey
         )
     }
 

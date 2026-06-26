@@ -79,6 +79,29 @@ func MarkdownSelectionControllerCopiesBoundedSourceBackedSelection() async throw
 
 @Test
 @MainActor
+func MarkdownSelectionControllerClampsInvalidMaximumSelectionLimit() async throws {
+    let source = "# Title\n\nFirst paragraph.\n\nSecond paragraph.\n\n"
+    let session = MarkdownRenderSession(configuration: .document)
+    session.append(source)
+    session.finish()
+    await session.waitUntilIdle()
+
+    let controller = MarkdownSelectionController(maximumSelectedBlockCount: 0)
+    controller.updateSnapshot(session.snapshot)
+    let first = try #require(session.snapshot.blocks.first?.id)
+    let last = try #require(session.snapshot.blocks.last?.id)
+    controller.selectRange(from: first, to: last)
+
+    #expect(controller.maximumSelectedBlockCount == 1)
+    #expect(controller.selectedBlockIDs.count == 1)
+
+    controller.maximumSelectedBlockCount = -8
+    #expect(controller.maximumSelectedBlockCount == 1)
+    #expect(controller.selectedBlockIDs.count == 1)
+}
+
+@Test
+@MainActor
 func MarkdownSelectionControllerCopiesExactPartialAndNonContiguousSourceRanges() async throws {
     let source = "Alpha beta gamma.\n\nSecond paragraph.\n\nThird paragraph.\n"
     let session = MarkdownRenderSession(configuration: .document)
@@ -306,6 +329,38 @@ func MarkdownSelectionControllerPlainTextFallbackDoesNotExpandEmptySourceRangeTo
 
     #expect(controller.selectedMarkdown(in: session.preparedSnapshot, copyProvider: nil).isEmpty)
     #expect(controller.selectedPlainText(in: session.preparedSnapshot).isEmpty)
+}
+
+@Test
+@MainActor
+func MarkdownSelectionControllerPlainTextFallbackSlicesBlocksWithoutInlineRuns() {
+    let block = MarkdownBlock(
+        id: MarkdownBlockID("manual-paragraph"),
+        kind: .paragraph,
+        sourceRange: MarkdownSourceRange(byteRange: 0..<16, lineRange: 1..<2),
+        text: "Alpha beta gamma",
+        inlines: [],
+        isSealed: true
+    )
+    let snapshot = MarkdownSnapshot(
+        blocks: [block],
+        sourceLength: 16,
+        generation: 1,
+        isFinished: true
+    )
+    let preparedSnapshot = MarkdownPreparedSnapshot(
+        snapshot: snapshot,
+        items: [.block(block, MarkdownPreparedBlockContent(blockID: block.id))],
+        preparedContentByBlockID: [block.id: MarkdownPreparedBlockContent(blockID: block.id)]
+    )
+    let selectedRange = MarkdownSourceRange(byteRange: 6..<10, lineRange: 1..<2)
+    let controller = MarkdownSelectionController()
+
+    controller.updateSnapshot(snapshot)
+    controller.selectSourceRanges([selectedRange], selectedBlockIDs: [block.id])
+
+    #expect(controller.selectedMarkdown(in: preparedSnapshot, copyProvider: nil) == "beta")
+    #expect(controller.selectedPlainText(in: preparedSnapshot) == "beta")
 }
 
 @Test

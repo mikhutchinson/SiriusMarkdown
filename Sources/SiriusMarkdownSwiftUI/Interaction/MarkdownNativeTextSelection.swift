@@ -8,10 +8,10 @@ import SwiftUI
 /// `MarkdownRendererConfiguration.documentSelection` and do not require this
 /// setting to be enabled.
 ///
-/// Regression history: macOS 26 Sirius samples could peg the main thread
-/// when SwiftUI's private `SelectionOverlay.updateNSView` path repeatedly
-/// invalidated AppKit `NSTextField` font/layout state while `GraphHost`
-/// flushed transactions. The default stays `.disabled` as a conservative
+/// Regression history: some macOS host updates can peg the main thread when
+/// SwiftUI's private `SelectionOverlay.updateNSView` path repeatedly
+/// invalidates AppKit `NSTextField` font/layout state while `GraphHost`
+/// flushes transactions. The default stays `.disabled` as a conservative
 /// public-package default. When enabled on macOS, SiriusMarkdown uses
 /// package-owned AppKit selectable text leaves so SwiftUI's private
 /// SelectionOverlay is not mounted during host view transitions. On other

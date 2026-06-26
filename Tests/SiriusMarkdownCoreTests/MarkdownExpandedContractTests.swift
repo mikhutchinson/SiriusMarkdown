@@ -1353,6 +1353,27 @@ final class SegmentPresentationRecordingMeasurer: InlineMeasuring, @unchecked Se
     }
 }
 
+struct NonFiniteWidthMeasurer: InlineMeasuring {
+    var measurementCacheKey: String {
+        "non-finite-width"
+    }
+
+    func width(of text: String, fontSize: Double) -> Double {
+        switch text {
+        case "nan":
+            return .nan
+        case "inf":
+            return .infinity
+        case "neg", "k":
+            return -4
+        case "o":
+            return .infinity
+        default:
+            return Double(text.utf8.count)
+        }
+    }
+}
+
 private struct LayoutCase: Sendable {
     var text: String
     var width: Double
@@ -1385,6 +1406,48 @@ private func layoutWalkerProducesDeterministicLineCounts(layoutCase: LayoutCase)
     #expect(result.lines.count == layoutCase.expectedLineCount)
     #expect(result.height == layoutCase.expectedHeight)
     #expect(result.lines.allSatisfy { !$0.byteRange.isEmpty })
+}
+
+@Test
+private func variableWidthLineWalkerClampsNonFiniteMeasurements() {
+    let prepared = PreparedInlineContent(
+        runs: [MarkdownInlineRun(kind: .text, text: "nan inf neg ok")]
+    )
+    let walker = VariableWidthLineWalker(measurer: NonFiniteWidthMeasurer())
+    let measured = walker.prepare(prepared, fontSize: .nan)
+
+    #expect(measured.fontSize == 14)
+    #expect(measured.naturalWidth.isFinite)
+    #expect(measured.naturalWidth >= 0)
+    #expect(measured.segments.allSatisfy { $0.width.isFinite && $0.width >= 0 })
+
+    let layout = walker.layout(
+        measured,
+        options: InlineLayoutOptions(containerWidth: .nan, fontSize: .nan, lineHeight: .nan)
+    )
+
+    #expect(layout.naturalWidth.isFinite)
+    #expect(layout.height.isFinite)
+    #expect(layout.height == Double(layout.lines.count) * 14)
+    #expect(layout.lines.allSatisfy { $0.width.isFinite && $0.width >= 0 })
+}
+
+@Test
+private func inlineLayoutEngineClampsNonFiniteOverwideFallbackUnits() {
+    let prepared = PreparedInlineContent(
+        runs: [MarkdownInlineRun(kind: .text, text: "ok")]
+    )
+    var engine = InlineLayoutEngine(measurer: NonFiniteWidthMeasurer())
+    let layout = engine.layout(
+        prepared,
+        options: InlineLayoutOptions(containerWidth: 1, fontSize: 14, lineHeight: 18),
+        allowsOverwideFallback: true
+    )
+
+    #expect(layout.naturalWidth.isFinite)
+    #expect(layout.height.isFinite)
+    #expect(layout.lines.isEmpty == false)
+    #expect(layout.lines.allSatisfy { $0.width.isFinite && $0.width >= 0 })
 }
 
 @Test
@@ -1430,6 +1493,18 @@ private func fontProfilesProduceDistinctMeasurementCacheKeys() {
         menlo.measurementCacheKey,
         mixed.measurementCacheKey
     ]).count == 4)
+}
+
+@Test
+private func fontProfileCacheKeysLengthPrefixPublicNamedFontFields() {
+    let trickyName = "A|weight=bold:named"
+    let profileKey = MarkdownFontProfile.named(trickyName, weight: .semibold).cacheKey
+    let profilesKey = MarkdownInlineFontProfiles(uniform: .named(trickyName, weight: .semibold)).cacheKey
+
+    #expect(profileKey.contains("kind#5:named"))
+    #expect(profileKey.contains("name#\(trickyName.utf8.count):\(trickyName)"))
+    #expect(profileKey.contains("weight#8:semibold"))
+    #expect(profilesKey.contains("body#\(profileKey.utf8.count):\(profileKey)"))
 }
 
 @Test
@@ -1524,6 +1599,29 @@ private func overwideFallbackPreservesAtomicPresentationDuringUnitMeasurement() 
     let measured = walker.prepare(prepared, fontSize: 1)
 
     _ = walker.layout(
+        measured,
+        options: InlineLayoutOptions(containerWidth: 1, fontSize: 1, lineHeight: 2)
+    )
+
+    let unitMeasurements = measurer.segments.filter { $0.text.utf8.count == 1 }
+    #expect(unitMeasurements.count >= 5)
+    #expect(unitMeasurements.allSatisfy { $0.presentation.contains(.math) })
+}
+
+@Test
+private func inlineLayoutEngineOverwideFallbackPreservesAtomicPresentationDuringUnitMeasurement() {
+    let run = MarkdownInlineRun(
+        kind: .link,
+        text: "x + y",
+        destination: "https://example.com/math",
+        presentation: .math
+    )
+    let prepared = PreparedInlineContent(runs: [run])
+    let measurer = SegmentPresentationRecordingMeasurer()
+    var engine = InlineLayoutEngine(measurer: measurer, cacheCapacity: 8)
+    let measured = engine.prepareMeasuredContent(prepared, fontSize: 1)
+
+    _ = engine.layout(
         measured,
         options: InlineLayoutOptions(containerWidth: 1, fontSize: 1, lineHeight: 2)
     )
@@ -1708,15 +1806,23 @@ private func sourceBackedCopyReturnsBoundedMarkdownSlice() throws {
 
 @Test
 private func inlineSourceRangesRemainByteAccurateAfterMultibytePrefixes() throws {
-    let markdown = "😀 [link](https://example.com) and \\(x^2\\)"
+    let markdown = "😀 **bold** and [link](https://example.com) and \\(x^2\\)"
     var stream = MarkdownStream()
     stream.append(markdown)
     stream.finish()
 
     let block = try #require(stream.snapshot().blocks.first)
+    let strong = try #require(block.inlines.first { $0.kind == .strong })
+    let strongRange = try #require(strong.sourceRange)
+    let expectedStrongRange = try utf8Range(of: "bold", in: markdown)
+    #expect(stream.markdown(in: strongRange) == "bold")
+    #expect(strongRange.byteRange == expectedStrongRange)
+
     let link = try #require(block.inlines.first { $0.kind == .link })
     let linkRange = try #require(link.sourceRange)
+    let expectedLinkRange = try utf8Range(of: "link", in: markdown)
     #expect(stream.markdown(in: linkRange) == "link")
+    #expect(linkRange.byteRange == expectedLinkRange)
 
     let math = try #require(block.inlines.first { $0.kind == .math })
     let mathRange = try #require(math.sourceRange)
@@ -1827,6 +1933,62 @@ private func inlineLayoutEngineCachesMeasuredContentAndLayoutResults() {
 }
 
 @Test
+private func inlineLayoutEnginePreparedCacheKeyIncludesRunSourceRanges() {
+    let sourceRange = MarkdownSourceRange(byteRange: 0..<16, lineRange: 1..<2)
+    let firstRunRange = MarkdownSourceRange(byteRange: 2..<6, lineRange: 1..<2)
+    let secondRunRange = MarkdownSourceRange(byteRange: 8..<12, lineRange: 1..<2)
+    var engine = InlineLayoutEngine(measurer: CountingWidthMeasurer(), cacheCapacity: 8)
+
+    let first = engine.prepare(
+        runs: [
+            MarkdownInlineRun(kind: .strong, text: "same", sourceRange: firstRunRange)
+        ],
+        sourceRange: sourceRange
+    )
+    let afterFirst = engine.diagnosticsCounters
+
+    let second = engine.prepare(
+        runs: [
+            MarkdownInlineRun(kind: .strong, text: "same", sourceRange: secondRunRange)
+        ],
+        sourceRange: sourceRange
+    )
+    let afterSecond = engine.diagnosticsCounters
+
+    #expect(first.runs.first?.sourceRange == firstRunRange)
+    #expect(second.runs.first?.sourceRange == secondRunRange)
+    #expect(afterSecond.cacheMissCount == afterFirst.cacheMissCount + 1)
+}
+
+@Test
+private func inlineLayoutEnginePreparedCacheKeySeparatesRunFieldBoundaries() {
+    let sourceRange = MarkdownSourceRange(byteRange: 0..<3, lineRange: 1..<2)
+    var engine = InlineLayoutEngine(measurer: CountingWidthMeasurer(), cacheCapacity: 8)
+
+    let first = engine.prepare(
+        runs: [
+            MarkdownInlineRun(kind: .link, text: "a", destination: "bc")
+        ],
+        sourceRange: sourceRange
+    )
+    let afterFirst = engine.diagnosticsCounters
+
+    let second = engine.prepare(
+        runs: [
+            MarkdownInlineRun(kind: .link, text: "ab", destination: "c")
+        ],
+        sourceRange: sourceRange
+    )
+    let afterSecond = engine.diagnosticsCounters
+
+    #expect(first.runs.first?.text == "a")
+    #expect(first.runs.first?.destination == "bc")
+    #expect(second.runs.first?.text == "ab")
+    #expect(second.runs.first?.destination == "c")
+    #expect(afterSecond.cacheMissCount == afterFirst.cacheMissCount + 1)
+}
+
+@Test
 func tailIDSurvivesSealing() {
     var stream = MarkdownStream()
     stream.append("Paragraph")
@@ -1857,6 +2019,21 @@ func cacheEvictsOldestEntryWhenCapacityIsExceeded() {
 }
 
 @Test
+func cacheClampsInvalidCapacityToOne() {
+    let range = MarkdownSourceRange(byteRange: 0..<1, lineRange: 1..<2)
+    var cache = BoundedMarkdownCache<String>(capacity: 0)
+    let first = MarkdownCacheKey(sourceRange: range, contentHash: 1, namespace: "test")
+    let second = MarkdownCacheKey(sourceRange: range, contentHash: 2, namespace: "test")
+
+    cache[first] = "first"
+    cache[second] = "second"
+
+    #expect(cache.capacity == 1)
+    #expect(cache.value(forKey: first) == nil)
+    #expect(cache.value(forKey: second) == "second")
+}
+
+@Test
 func cacheEvictsLeastRecentlyUsedEntryWhenCapacityIsExceeded() {
     let range = MarkdownSourceRange(byteRange: 0..<1, lineRange: 1..<2)
     var cache = BoundedMarkdownCache<String>(capacity: 2)
@@ -1873,6 +2050,39 @@ func cacheEvictsLeastRecentlyUsedEntryWhenCapacityIsExceeded() {
     #expect(cache.value(forKey: first) == "first")
     #expect(cache.value(forKey: second) == nil)
     #expect(cache.value(forKey: third) == "third")
+}
+
+@Test
+private func inlineLayoutEngineClampsInvalidCacheCapacity() {
+    let runs = [MarkdownInlineRun(kind: .text, text: "abcdef")]
+    let range = MarkdownSourceRange(byteRange: 0..<6, lineRange: 1..<2)
+    let measurer = CountingWidthMeasurer()
+    var engine = InlineLayoutEngine(measurer: measurer, cacheCapacity: 0)
+
+    let first = engine.prepareMeasuredContent(runs: runs, sourceRange: range, fontSize: 1)
+    let afterFirst = engine.diagnosticsCounters
+    let second = engine.prepareMeasuredContent(runs: runs, sourceRange: range, fontSize: 1)
+    let afterSecond = engine.diagnosticsCounters
+
+    #expect(second == first)
+    #expect(afterFirst.prepareCount == 1)
+    #expect(afterSecond.prepareCount == afterFirst.prepareCount)
+    #expect(afterSecond.cacheHitCount == afterFirst.cacheHitCount + 2)
+
+    let narrow = engine.layout(
+        first,
+        options: InlineLayoutOptions(containerWidth: 2, fontSize: 1, lineHeight: 2)
+    )
+    let afterFirstLayout = engine.diagnosticsCounters
+    let cachedNarrow = engine.layout(
+        first,
+        options: InlineLayoutOptions(containerWidth: 2, fontSize: 1, lineHeight: 2)
+    )
+    let afterCachedLayout = engine.diagnosticsCounters
+
+    #expect(cachedNarrow == narrow)
+    #expect(afterCachedLayout.layoutCount == afterFirstLayout.layoutCount)
+    #expect(afterCachedLayout.cacheHitCount == afterFirstLayout.cacheHitCount + 1)
 }
 
 @Test

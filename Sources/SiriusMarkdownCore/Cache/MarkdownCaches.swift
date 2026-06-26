@@ -18,8 +18,7 @@ public struct BoundedMarkdownCache<Value: Sendable>: Sendable {
     public private(set) var capacity: Int
 
     public init(capacity: Int) {
-        precondition(capacity > 0)
-        self.capacity = capacity
+        self.capacity = max(1, capacity)
         self.storage = [:]
         self.order = []
     }

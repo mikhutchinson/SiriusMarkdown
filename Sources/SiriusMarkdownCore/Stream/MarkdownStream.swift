@@ -978,25 +978,39 @@ public struct MarkdownStream: Sendable {
 
     private func snapshotItems(blocks: [MarkdownBlock]) -> [MarkdownSnapshotItem] {
         var items: [MarkdownSnapshotItem] = []
-        var remainingBoundaries = hostBoundaries.sorted { $0.sourceOffset < $1.sourceOffset }
+        let orderedBoundaries = hostBoundaries.enumerated()
+            .sorted { lhs, rhs in
+                if lhs.element.sourceOffset == rhs.element.sourceOffset {
+                    return lhs.offset < rhs.offset
+                }
+                return lhs.element.sourceOffset < rhs.element.sourceOffset
+            }
+            .map(\.element)
+        var boundaryIndex = orderedBoundaries.startIndex
 
-        for block in blocks.sorted(by: { $0.sourceRange.byteRange.lowerBound < $1.sourceRange.byteRange.lowerBound }) {
-            while let boundary = remainingBoundaries.first,
-                  boundary.sourceOffset <= block.sourceRange.byteRange.lowerBound {
+        for block in blocks {
+            while boundaryIndex < orderedBoundaries.endIndex {
+                let boundary = orderedBoundaries[boundaryIndex]
+                if boundary.sourceOffset > block.sourceRange.byteRange.lowerBound {
+                    break
+                }
                 items.append(.hostBoundary(boundary))
-                remainingBoundaries.removeFirst()
+                boundaryIndex = orderedBoundaries.index(after: boundaryIndex)
             }
 
             items.append(.block(block))
 
-            while let boundary = remainingBoundaries.first,
-                  boundary.sourceOffset <= block.sourceRange.byteRange.upperBound {
+            while boundaryIndex < orderedBoundaries.endIndex {
+                let boundary = orderedBoundaries[boundaryIndex]
+                if boundary.sourceOffset > block.sourceRange.byteRange.upperBound {
+                    break
+                }
                 items.append(.hostBoundary(boundary))
-                remainingBoundaries.removeFirst()
+                boundaryIndex = orderedBoundaries.index(after: boundaryIndex)
             }
         }
 
-        items.append(contentsOf: remainingBoundaries.map { .hostBoundary($0) })
+        items.append(contentsOf: orderedBoundaries[boundaryIndex...].map { .hostBoundary($0) })
         return items
     }
 }

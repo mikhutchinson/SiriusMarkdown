@@ -184,18 +184,39 @@ final class SwiftMathTypesetter: @unchecked Sendable {
         mainBundleURL: URL = Bundle.main.bundleURL,
         fileExists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }
     ) -> Bool {
-        let swiftPMResourceBundle = mainBundleURL
-            .appendingPathComponent("SwiftMath_SwiftMath.bundle", isDirectory: true)
-            .appendingPathComponent("mathFonts.bundle", isDirectory: true)
-
-        if fileExists(swiftPMResourceBundle.path) {
-            return true
+        for resourceDirectory in swiftMathResourceDirectories(mainBundleURL: mainBundleURL) {
+            let mathFontsBundle = resourceDirectory
+                .appendingPathComponent("SwiftMath_SwiftMath.bundle", isDirectory: true)
+                .appendingPathComponent("mathFonts.bundle", isDirectory: true)
+            if fileExists(mathFontsBundle.path) {
+                return true
+            }
         }
 
         // SwiftMath's generated Bundle.module accessor fatals when a packaged
-        // app lacks the root SwiftMath_SwiftMath.bundle path. SwiftPM test and
-        // command-line contexts can still rely on the accessor's build path.
+        // app lacks SwiftMath_SwiftMath.bundle. SwiftPM test and command-line
+        // contexts can still rely on the accessor's build path.
         return mainBundleURL.pathExtension.lowercased() != "app"
+    }
+
+    private static func swiftMathResourceDirectories(mainBundleURL: URL) -> [URL] {
+        var directories: [URL] = []
+        var seen = Set<URL>()
+
+        func append(_ url: URL) {
+            let standardized = url.standardizedFileURL
+            guard seen.insert(standardized).inserted else {
+                return
+            }
+            directories.append(standardized)
+        }
+
+        append(mainBundleURL)
+        if mainBundleURL.pathExtension.lowercased() == "app" {
+            append(mainBundleURL.appendingPathComponent("Contents/Resources", isDirectory: true))
+        }
+
+        return directories
     }
 
     /// Re-rasterizes the typeset equation at the requested pixel scale so the

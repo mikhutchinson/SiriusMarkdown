@@ -437,6 +437,99 @@ public struct MarkdownTheme: Sendable, Hashable {
     public func headingStyle(for level: Int?) -> MarkdownTextStyle {
         headings.style(for: level)
     }
+
+    var renderCacheIdentity: String {
+        markdownThemeCacheKey([
+            ("paragraphSize", String(paragraphFontSize)),
+            ("paragraphLine", String(paragraphLineHeight)),
+            ("codeSize", String(codeFontSize)),
+            ("codeLine", String(codeLineHeight)),
+            ("blockSpacing", String(Double(blockSpacing))),
+            ("tableCorner", String(Double(tableCornerRadius))),
+            ("tableHPad", String(Double(tableHorizontalCellPadding))),
+            ("tableVPad", String(Double(tableVerticalCellPadding))),
+            ("paragraphProfiles", paragraphFontProfiles.cacheKey),
+            ("codeProfiles", codeFontProfiles.cacheKey),
+            ("headings", headings.renderCacheIdentity),
+            ("syntax", syntaxHighlightingPalette.cacheIdentity),
+            ("codeAffordances", codeBlockAffordances.renderCacheIdentity),
+            ("mermaidAffordances", mermaidAffordances.renderCacheIdentity)
+        ])
+    }
+}
+
+private extension MarkdownTextStyle {
+    var renderCacheIdentity: String {
+        markdownThemeCacheKey([
+            ("size", String(fontSize)),
+            ("line", String(lineHeight)),
+            ("profiles", fontProfiles.cacheKey)
+        ])
+    }
+}
+
+private extension MarkdownHeadingStyles {
+    var renderCacheIdentity: String {
+        markdownThemeCacheKey([
+            ("h1", h1.renderCacheIdentity),
+            ("h2", h2.renderCacheIdentity),
+            ("h3", h3.renderCacheIdentity),
+            ("h4", h4.renderCacheIdentity),
+            ("h5", h5.renderCacheIdentity),
+            ("h6", h6.renderCacheIdentity)
+        ])
+    }
+}
+
+private extension MarkdownCodeBlockAffordances {
+    var renderCacheIdentity: String {
+        markdownThemeCacheKey([
+            ("language", String(showsLanguageLabel)),
+            ("copy", String(showsCopyButton)),
+            ("export", String(showsExportButton)),
+            ("collapse", String(showsCollapseButton)),
+            ("collapsed", String(startsCollapsed))
+        ])
+    }
+}
+
+private extension MarkdownMermaidDiagramAffordances {
+    var renderCacheIdentity: String {
+        markdownThemeCacheKey([
+            ("toolbar", String(showsToolbar)),
+            ("zoom", String(showsZoomControls)),
+            ("fit", String(showsFitButton)),
+            ("reset", String(showsResetButton)),
+            ("fitted", String(startsFittedToWidth)),
+            ("minScale", String(minimumScale)),
+            ("maxScale", String(maximumScale)),
+            ("scaleStep", String(scaleStep)),
+            ("minHeight", String(Double(minimumViewportHeight))),
+            ("maxHeight", String(Double(maximumViewportHeight)))
+        ])
+    }
+}
+
+extension MarkdownTheme {
+    var renderBlockSpacing: CGFloat {
+        sanitizedNonNegative(blockSpacing, fallback: 8)
+    }
+
+    var renderTableCornerRadius: CGFloat {
+        sanitizedNonNegative(tableCornerRadius, fallback: 8)
+    }
+
+    var renderTableHorizontalCellPadding: CGFloat {
+        sanitizedNonNegative(tableHorizontalCellPadding, fallback: 12)
+    }
+
+    var renderTableVerticalCellPadding: CGFloat {
+        sanitizedNonNegative(tableVerticalCellPadding, fallback: 9)
+    }
+
+    private func sanitizedNonNegative(_ value: CGFloat, fallback: CGFloat) -> CGFloat {
+        value.isFinite && value >= 0 ? value : fallback
+    }
 }
 
 public struct MarkdownSyntaxHighlightingPalette: Sendable, Hashable {
@@ -490,10 +583,22 @@ public struct MarkdownSyntaxHighlightingPalette: Sendable, Hashable {
     public static let `default` = MarkdownSyntaxHighlightingPalette()
 
     public var cacheIdentity: String {
-        [
-            keyword, string, number, comment, property, type, function, literal,
-            operatorToken, punctuation, addition, deletion, meta, section
-        ].map(\.cacheIdentity).joined(separator: "|")
+        markdownThemeCacheKey([
+            ("keyword", keyword.cacheIdentity),
+            ("string", string.cacheIdentity),
+            ("number", number.cacheIdentity),
+            ("comment", comment.cacheIdentity),
+            ("property", property.cacheIdentity),
+            ("type", type.cacheIdentity),
+            ("function", function.cacheIdentity),
+            ("literal", literal.cacheIdentity),
+            ("operator", operatorToken.cacheIdentity),
+            ("punctuation", punctuation.cacheIdentity),
+            ("addition", addition.cacheIdentity),
+            ("deletion", deletion.cacheIdentity),
+            ("meta", meta.cacheIdentity),
+            ("section", section.cacheIdentity)
+        ])
     }
 
     func foregroundColor(for classes: [String]) -> Color? {
@@ -580,6 +685,13 @@ public struct MarkdownSyntaxHighlightingColor: Sendable, Hashable {
     var cacheIdentity: String {
         "\(red),\(green),\(blue),\(opacity)"
     }
+}
+
+private func markdownThemeCacheKey(_ fields: [(String, String)]) -> String {
+    fields.map { name, value in
+        "\(name)#\(value.utf8.count):\(value)"
+    }
+    .joined(separator: "|")
 }
 
 public extension MarkdownInlineFontProfiles {

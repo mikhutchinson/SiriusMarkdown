@@ -68,6 +68,12 @@ bundle_one() {
   cp "${plist}" "${contents}/Info.plist"
   cp "${icon}" "${resources}/${name}.icns"
 
+  for bundle in "${bin_root}"/*.bundle; do
+    [[ -d "${bundle}" ]] || continue
+    rm -rf "${resources}/$(basename "${bundle}")"
+    cp -R "${bundle}" "${resources}/"
+  done
+
   printf 'bundled %s -> %s\n' "${name}" "${app}"
 }
 

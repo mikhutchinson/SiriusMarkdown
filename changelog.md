@@ -4,7 +4,9 @@
 
 - Fixed generated bare-TeX recovery so chat/math output such as score formulas, `\operatorname`, `\mathbb`, `\partial`, `\nabla`, `cases`, `align*`, `equation`, angle-bracket pairs, Greek/font-style commands, and common relation operators stay together as one source-backed math run instead of splitting at each command.
 - Hardened `SiriusMarkdownMath`'s SwiftMath bridge for common generated LaTeX by normalizing `\operatorname` / `\operatorname*`, one-column `cases` shorthand, wrapper environments such as `equation` / `displaymath`, and `align` / `align*` / `multline` aliases before typesetting while preserving the original LaTeX source on prepared math images.
-- Added parser, native-math-renderer, and negative code/path regressions for generated formula families, Windows-style paths, code spans, unknown commands, and escaped Markdown. The release gate now discovers `522` Swift tests and requires the new math recovery and renderer regressions.
+- Fixed bug-sweep regressions for same-offset host-boundary ordering, host-heavy snapshot item assembly, duplicate host-boundary render IDs, EOF nearest source reveal, plain-text fallback copy for blocks without inline runs, empty source-buffer appends, prepared native-line semantic layout identity, overwide atomic inline presentation measurement, styled-link document-selection geometry, duplicate sourceless image display text, Mermaid theme cache identity, Mermaid custom-renderer geometry validation and toolbar visibility, Pretext fixture metadata validation, SwiftMath packaged-app resource lookup, macOS demo resource packaging, CoreText measurement hardening, image-backed display-math selection fragments, source-range-aware and field-bounded inline cache keys, field-bounded font/theme/render-preparation namespaces, seal-state-only prepared snapshot reuse, visual-probe release/docs gating, and public native-selection incident wording.
+- RenderProbe remains opt-in but now renders through an offscreen AppKit host instead of ordering its window on screen, so artifact-producing visual checks can run without flashing probe windows.
+- Added parser, native-math-renderer, and negative code/path regressions for generated formula families, Windows-style paths, code spans, unknown commands, escaped Markdown, empty source appends, source-range-aware and field-bounded inline cache keys, font/theme/render-preparation namespace boundaries, image-backed display-math selection geometry, Mermaid invalid-geometry toolbar gating, seal-state-only prepared snapshot reuse, and fixed-width prepared layout identity changes. The release gate now discovers `557` Swift tests and requires the new math recovery, renderer, host-boundary, source-lookup, fallback-copy, inline-layout, image-preparation, Mermaid-cache/geometry, Pretext fixture-comparison, source-buffer, demo-resource-packaging, visual-probe-gating, and selection-geometry regressions.
 
 ## 0.5.10 - 2026-06-16
 
@@ -111,7 +113,7 @@
 
 ## 0.4.17 - 2026-05-17
 
-- Fixed a Sirius transcript layout storm where a live sample of the host app spent the main thread under SwiftUI `GraphHost.flushTransactions`, `LayoutChildGeometries`, nested stack/flex-frame layout, and `ForEachState` while copying `MarkdownPreparedSnapshotItem` / `MarkdownBlockID` values during prepared Markdown rendering.
+- Fixed a host-app transcript layout storm where a live sample spent the main thread under SwiftUI `GraphHost.flushTransactions`, `LayoutChildGeometries`, nested stack/flex-frame layout, and `ForEachState` while copying `MarkdownPreparedSnapshotItem` / `MarkdownBlockID` values during prepared Markdown rendering.
 - Added lightweight `MarkdownPreparedSnapshotRenderItem` identities so `MarkdownDocumentView` and `StreamingMarkdownView` iterate small stable render records instead of using heavyweight prepared snapshot items as SwiftUI `ForEach` data.
 - Reduced default document-selection preference churn by giving selection text geometry a cached equality fingerprint, so SwiftUI preference comparisons do not repeatedly walk prepared source/font-run arrays during layout.
 - Fixed the document-selection Cmd-C AppKit bridge lifecycle by replacing the retained SwiftUI method closure with an explicit copy context and teardown hook, keeping `Tools/RenderProbe` stable with document selection still default-on.
@@ -143,7 +145,7 @@
 
 ## 0.4.12 - 2026-05-13
 
-- Fixed the remaining native-selection hang path reproduced in Sirius' right-panel DiffTree Markdown preview. A live sample showed SwiftUI back in `GraphHost.flushTransactions` -> `SelectionOverlay.updateNSView` -> AppKit `NSTextField` font invalidation with `MarkdownLeadingContentLayout` and prepared snapshot frames in the same graph.
+- Fixed the remaining native-selection hang path reproduced in a host-side Markdown preview pane. A live sample showed SwiftUI back in `GraphHost.flushTransactions` -> `SelectionOverlay.updateNSView` -> AppKit `NSTextField` font invalidation with `MarkdownLeadingContentLayout` and prepared snapshot frames in the same graph.
 - Kept `MarkdownRendererConfiguration(nativeTextSelection: .enabled)` available for stable Markdown text leaves, but prevents SwiftUI native selection from mounting inside custom leading layouts and composite table grids where the private selection overlay can re-enter layout.
 - Filled prepared native-line separator and blank-line glyphs with explicit font attributes so selectable attributed payloads do not contain unowned font runs.
 
@@ -156,19 +158,19 @@
 ## 0.4.10 - 2026-05-13
 
 - Documented the SwiftUI native text-selection hang as unresolved rather than fixed. The current mitigation keeps `MarkdownRendererConfiguration.nativeTextSelection` defaulted to `.disabled` so SiriusMarkdown does not mount SwiftUI's private `SelectionOverlay` path by default.
-- Added public doc and doc-comment breadcrumbs for future debugging: sample Sirius and look for `GraphHost.flushTransactions` -> `SelectionOverlay.updateNSView` -> `NSTextField setFont:` / `_invalidateEffectiveFont` if the hang returns.
+- Added public doc and doc-comment breadcrumbs for future debugging: sample the host app and look for `GraphHost.flushTransactions` -> `SelectionOverlay.updateNSView` -> `NSTextField setFont:` / `_invalidateEffectiveFont` if the hang returns.
 - Clarified that this mitigation only controls SwiftUI's explicit native-selection overlay. Source-backed copy affordances, `MarkdownSelectionController`, and any host/AppKit selection behavior outside that overlay are separate.
 
 ## 0.4.9 - 2026-05-13
 
-- Mitigated the follow-up Sirius hang sample where root-scoping `.textSelection(.enabled)` was still enough to drive SwiftUI's private `SelectionOverlay.updateNSView` loop through AppKit `NSTextField` font and intrinsic-size invalidation.
+- Mitigated the follow-up host-app hang sample where root-scoping `.textSelection(.enabled)` was still enough to drive SwiftUI's private `SelectionOverlay.updateNSView` loop through AppKit `NSTextField` font and intrinsic-size invalidation.
 - Changed `MarkdownRendererConfiguration.nativeTextSelection` to default to `.disabled`, keeping source-backed copy affordances and `MarkdownSelectionController` available without mounting SwiftUI's private selection overlay in host views.
 - Kept `.enabled` as an explicit host opt-in for consumers that can tolerate SwiftUI's native selection overlay on their target macOS/runtime mix.
 - Updated regression coverage so packaged presets and raw configurations use the safe selection policy by default while still proving the opt-in remains available.
 
 ## 0.4.8 - 2026-05-13
 
-- Bounded the first observed Sirius host hang profile where the main thread spun in SwiftUI's private `SelectionOverlay.updateNSView` path and AppKit repeatedly invalidated `NSTextField` font/layout state while flushing `GraphHost` transactions.
+- Bounded the first observed host-app hang profile where the main thread spun in SwiftUI's private `SelectionOverlay.updateNSView` path and AppKit repeatedly invalidated `NSTextField` font/layout state while flushing `GraphHost` transactions.
 - Kept native text selection enabled by default, but bounded the SwiftUI selection modifier to renderer roots (`MarkdownDocumentView`, `StreamingMarkdownView`, and `MarkdownDocumentSurface`) instead of attaching `.textSelection(.enabled)` to every paragraph, list item, table cell, code block, math block, HTML fallback, policy denial, and Mermaid ASCII fallback.
 - Added `MarkdownNativeTextSelection` and `MarkdownRendererConfiguration.nativeTextSelection` so hosts can explicitly opt out where needed without changing the default selectable Markdown behavior.
 - Added regression coverage that rejects per-block selection modifiers and proves the renderer roots remain the only SwiftUI native-selection activation points.
@@ -182,7 +184,7 @@
 - Hardened prepared SVG output by stripping root-level Google-font imports, resolving light/dark CSS variables, and forcing local Apple/system font fallback before AppKit/UIKit image decoding.
 - Expanded unit and product coverage for Mermaid geometry parsing, cache reuse, render-plan controls, affordance opt-out, and nil-renderer fallback, and added an AppKit render probe for Mermaid diagram containment and toolbar pixels.
 - Hid decorative SF Symbol images inside package-owned Markdown affordance buttons from accessibility synthesis while preserving each button's explicit accessibility label and help text. This avoids forcing SwiftUI/AppKit to localize symbol descriptions for copy/export/collapse and Mermaid zoom controls during host updates.
-- Fixed a Sirius host hang profile dominated by SwiftUI `GraphHost` layout, `LayoutChildGeometries`, `StackLayout`, and `_FlexFrameLayout` while rendering prepared native lines. The renderer now joins prepared attributed line slices into one fixed-height `Text(AttributedString)` payload instead of building a `VStack`/`ForEach` child tree with one `Text` per prepared line, preserving the prepared-line contract while reducing SwiftUI layout work.
+- Fixed a host-app hang profile dominated by SwiftUI `GraphHost` layout, `LayoutChildGeometries`, `StackLayout`, and `_FlexFrameLayout` while rendering prepared native lines. The renderer now joins prepared attributed line slices into one fixed-height `Text(AttributedString)` payload instead of building a `VStack`/`ForEach` child tree with one `Text` per prepared line, preserving the prepared-line contract while reducing SwiftUI layout work.
 - Debounced Mermaid diagram width preference updates so unchanged geometry does not trigger redundant SwiftUI state writes during layout passes.
 
 ## 0.4.6 - 2026-05-06
@@ -237,7 +239,7 @@
 
 ## 0.3.3 - 2026-05-02
 
-- Fixed prepared native-line width observation so split-view and right-panel resizing relayouts against the current proposed width instead of a stale rendered line frame.
+- Fixed prepared native-line width observation so split-view and side-panel resizing relayouts against the current proposed width instead of a stale rendered line frame.
 - Added an AppKit wide-to-narrow resize probe that keeps the SwiftUI view alive while shrinking the host column, then asserts prepared native text stays inside the new column and fitting width remains bounded.
 
 ## 0.3.2 - 2026-05-02

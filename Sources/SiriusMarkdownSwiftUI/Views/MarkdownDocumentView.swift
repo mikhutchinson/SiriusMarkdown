@@ -84,7 +84,7 @@ public struct MarkdownDocumentView: View {
 
     @ViewBuilder
     private func selectionDocumentContent(selectionController: MarkdownSelectionController?) -> some View {
-        let content = LazyVStack(alignment: .leading, spacing: theme.blockSpacing) {
+        let content = LazyVStack(alignment: .leading, spacing: theme.renderBlockSpacing) {
             ForEach(preparedSnapshot.renderItems) { item in
                 preparedRenderItemView(item, selectionController: selectionController)
             }
@@ -222,7 +222,7 @@ public struct StreamingMarkdownView: View {
 
     @ViewBuilder
     private func selectionDocumentContent(selectionController: MarkdownSelectionController?) -> some View {
-        let content = LazyVStack(alignment: .leading, spacing: theme.blockSpacing) {
+        let content = LazyVStack(alignment: .leading, spacing: theme.renderBlockSpacing) {
             ForEach(preparedSnapshot.renderItems) { item in
                 preparedRenderItemView(item, selectionController: selectionController)
             }

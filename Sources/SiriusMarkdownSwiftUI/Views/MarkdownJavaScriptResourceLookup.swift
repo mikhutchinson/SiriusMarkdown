@@ -52,7 +52,6 @@ enum MarkdownJavaScriptResourceLookup {
             bundles.append(bundle)
         }
 
-        append(.main)
         append(Bundle(for: BundleToken.self))
 
         for bundle in Bundle.allBundles {
@@ -61,6 +60,7 @@ enum MarkdownJavaScriptResourceLookup {
         for bundle in Bundle.allFrameworks {
             append(bundle)
         }
+        append(.main)
 
         for directory in candidateResourceDirectories() {
             for bundleName in resourceBundleNames {
@@ -83,8 +83,6 @@ enum MarkdownJavaScriptResourceLookup {
         }
 
         let tokenBundle = Bundle(for: BundleToken.self)
-        append(Bundle.main.resourceURL)
-        append(Bundle.main.bundleURL.appendingPathComponent("Contents/Resources"))
         append(tokenBundle.resourceURL)
         append(tokenBundle.bundleURL.deletingLastPathComponent())
 
@@ -93,6 +91,8 @@ enum MarkdownJavaScriptResourceLookup {
             append(bundle.bundleURL)
             append(bundle.bundleURL.deletingLastPathComponent())
         }
+        append(Bundle.main.resourceURL)
+        append(Bundle.main.bundleURL.appendingPathComponent("Contents/Resources"))
 
         return directories
     }

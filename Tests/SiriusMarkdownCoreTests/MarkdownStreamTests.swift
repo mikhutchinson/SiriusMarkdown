@@ -612,6 +612,48 @@ func hostBoundarySealsCurrentTail() {
 }
 
 @Test
+func hostBoundariesAtSameOffsetPreserveAppendOrder() {
+    var stream = MarkdownStream()
+    stream.append("Before native insertions\n\n")
+    stream.appendHostBoundary(id: MarkdownHostBoundaryID("first-native-card"))
+    stream.appendHostBoundary(id: MarkdownHostBoundaryID("second-native-card"))
+
+    let boundaries = stream.snapshot().items.compactMap { item -> MarkdownHostBoundaryID? in
+        guard case let .hostBoundary(boundary) = item else {
+            return nil
+        }
+        return boundary.id
+    }
+
+    #expect(boundaries == [
+        MarkdownHostBoundaryID("first-native-card"),
+        MarkdownHostBoundaryID("second-native-card")
+    ])
+}
+
+@Test
+func manyHostBoundariesRemainOrderedInSnapshotItems() {
+    var stream = MarkdownStream()
+    let expectedIDs = (0..<512).map { MarkdownHostBoundaryID("native-card-\($0)") }
+
+    for (index, id) in expectedIDs.enumerated() {
+        stream.append("Paragraph \(index)\n\n")
+        stream.appendHostBoundary(id: id)
+    }
+
+    let snapshot = stream.snapshot()
+    let actualIDs = snapshot.items.compactMap { item -> MarkdownHostBoundaryID? in
+        guard case let .hostBoundary(boundary) = item else {
+            return nil
+        }
+        return boundary.id
+    }
+
+    #expect(snapshot.items.count == snapshot.blocks.count + expectedIDs.count)
+    #expect(actualIDs == expectedIDs)
+}
+
+@Test
 func hostBoundaryPreservesSealedReferenceDefinitionsForLaterTail() {
     let definitions = [
         "[ref]: https://example.com/reference\n\n",

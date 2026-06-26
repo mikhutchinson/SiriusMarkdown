@@ -10,6 +10,7 @@ public struct PretextFixture: Codable, Sendable, Hashable {
     public var containerWidth: Double
     public var font: String?
     public var lineHeight: Double?
+    public var letterSpacing: Double?
     public var whiteSpace: String?
     public var wordBreak: String?
     public var expected: PretextExpectedLayout
@@ -25,6 +26,7 @@ public struct PretextFixture: Codable, Sendable, Hashable {
         containerWidth: Double,
         font: String? = nil,
         lineHeight: Double? = nil,
+        letterSpacing: Double? = nil,
         whiteSpace: String? = nil,
         wordBreak: String? = nil,
         expected: PretextExpectedLayout,
@@ -39,6 +41,7 @@ public struct PretextFixture: Codable, Sendable, Hashable {
         self.containerWidth = containerWidth
         self.font = font
         self.lineHeight = lineHeight
+        self.letterSpacing = letterSpacing
         self.whiteSpace = whiteSpace
         self.wordBreak = wordBreak
         self.expected = expected

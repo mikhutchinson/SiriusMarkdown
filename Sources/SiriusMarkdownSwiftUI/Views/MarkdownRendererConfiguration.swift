@@ -124,9 +124,9 @@ public struct MarkdownRendererConfiguration: Sendable {
     public var inlineRenderingMode: MarkdownInlineRenderingMode
     /// Native text leaf selection policy.
     ///
-    /// Disabled by default while an unresolved macOS 26/Sirius hang remains
-    /// traceable to SwiftUI's private `SelectionOverlay.updateNSView` path
-    /// under `GraphHost.flushTransactions`. Copy affordances and
+    /// Disabled by default while macOS host-update hangs remain traceable to
+    /// SwiftUI's private `SelectionOverlay.updateNSView` path under
+    /// `GraphHost.flushTransactions`. Copy affordances and
     /// `MarkdownSelectionController` remain available without mounting that
     /// overlay. Cross-block document selection is controlled separately by
     /// `documentSelection`.
@@ -470,7 +470,7 @@ public struct MarkdownRendererConfiguration: Sendable {
     ) -> MarkdownPreparedSnapshotItem? {
         switch (item, previousItem) {
         case let (.block(block), .block(previousBlock, previousContent))
-            where block == previousBlock:
+            where Self.renderPreparationEquivalent(block, previousBlock):
             return .block(block, previousContent)
         case let (.hostBoundary(boundary), .hostBoundary(previousBoundary))
             where boundary == previousBoundary:
@@ -478,6 +478,17 @@ public struct MarkdownRendererConfiguration: Sendable {
         default:
             return nil
         }
+    }
+
+    fileprivate static func renderPreparationEquivalent(
+        _ lhs: MarkdownBlock,
+        _ rhs: MarkdownBlock
+    ) -> Bool {
+        var lhs = lhs
+        var rhs = rhs
+        lhs.isSealed = false
+        rhs.isSealed = false
+        return lhs == rhs
     }
 
     func unpreparedSnapshot(for snapshot: MarkdownSnapshot) -> MarkdownPreparedSnapshot {
@@ -535,6 +546,7 @@ public struct MarkdownRendererConfiguration: Sendable {
 
         return MarkdownPreparedBlockContent(
             blockID: block.id,
+            inline: unpreparedInline(block.inlines),
             listItems: block.listItems.map { unpreparedListItem($0, parentID: block.id.rawValue) },
             table: unpreparedTable(block.table, parentID: block.id.rawValue)
         )
@@ -648,6 +660,13 @@ public struct MarkdownRendererConfiguration: Sendable {
         )
     }
 
+    private nonisolated static func cacheNamespace(_ fields: [(String, String)]) -> String {
+        fields.map { name, value in
+            "\(name)#\(value.utf8.count):\(value)"
+        }
+        .joined(separator: "|")
+    }
+
     private func blockMathCacheKey(for block: MarkdownBlock, fontSize: Double) -> MarkdownCacheKey? {
         guard let mathPolicyIdentity,
               let mathRendererIdentity
@@ -657,17 +676,18 @@ public struct MarkdownRendererConfiguration: Sendable {
 
         return Self.cacheKey(
             for: block,
-            namespace: [
-                "rendered-math:block:v3",
-                "policy=\(mathPolicyIdentity)",
-                "renderer=\(mathRendererIdentity)",
-                "fontSize=\(fontSize)"
-            ].joined(separator: ":")
+            namespace: Self.cacheNamespace([
+                ("cache", "rendered-math:block"),
+                ("version", "4"),
+                ("policy", mathPolicyIdentity),
+                ("renderer", mathRendererIdentity),
+                ("fontSize", String(fontSize))
+            ])
         )
     }
 
     var mathBlockFontSize: Double {
-        (theme.paragraphFontSize * 1.3).rounded()
+        (Self.sanitizedPositive(theme.paragraphFontSize, fallback: 16) * 1.3).rounded()
     }
 
     private func mathBlockContent(
@@ -688,8 +708,14 @@ public struct MarkdownRendererConfiguration: Sendable {
                 mathRender: .text(attributed)
             )
         case let .image(image):
+            let sourceText = Self.mathText(for: block)
             return MarkdownPreparedBlockContent(
                 blockID: block.id,
+                selectionInlineLayout: preparedVisibleTextSelectionInline(
+                    text: sourceText.isEmpty ? image.latex : sourceText,
+                    sourceRange: mathSelectionSourceRange(for: block),
+                    block: block
+                ),
                 math: AttributedString(image.latex),
                 mathRender: .image(image)
             )
@@ -756,12 +782,13 @@ public struct MarkdownRendererConfiguration: Sendable {
         return MarkdownCacheKey(
             sourceRange: block.sourceRange,
             contentHash: stableHash(code),
-            namespace: [
-                "highlighted-code:v2",
-                "language=\(language.cacheIdentity)",
-                "palette=\(palette.cacheIdentity)",
-                "highlighter=\(highlighterIdentity)"
-            ].joined(separator: ":")
+            namespace: cacheNamespace([
+                ("cache", "highlighted-code"),
+                ("version", "3"),
+                ("language", language.cacheIdentity),
+                ("palette", palette.cacheIdentity),
+                ("highlighter", highlighterIdentity)
+            ])
         )
     }
 
@@ -778,11 +805,12 @@ public struct MarkdownRendererConfiguration: Sendable {
         return MarkdownCacheKey(
             sourceRange: block.sourceRange,
             contentHash: stableHash(code),
-            namespace: [
-                "rendered-mermaid:v1",
-                "renderer=\(rendererIdentity)",
-                "theme=\(themeIdentity)"
-            ].joined(separator: ":")
+            namespace: cacheNamespace([
+                ("cache", "rendered-mermaid"),
+                ("version", "2"),
+                ("renderer", rendererIdentity),
+                ("theme", themeIdentity)
+            ])
         )
     }
 
@@ -807,7 +835,7 @@ public struct MarkdownRendererConfiguration: Sendable {
     }
 
     private var mermaidThemeCacheIdentity: String {
-        return String(theme.hashValue)
+        theme.renderCacheIdentity
     }
 
     private var linkPolicyIdentity: String? {
@@ -998,25 +1026,26 @@ public struct MarkdownRendererConfiguration: Sendable {
         imageDecisions: [MarkdownPreparedImageDecision],
         mathDecisions: [MarkdownPreparedMathDecision]
     ) -> String? {
-        var components = [
-            "inline-prepared:v2",
-            "fontSize=\(metrics.fontSize)",
-            "lineHeight=\(metrics.lineHeight)",
-            "fontProfiles=\(metrics.fontProfiles.cacheKey)"
+        var components: [(String, String)] = [
+            ("cache", "inline-prepared"),
+            ("version", "3"),
+            ("fontSize", String(metrics.fontSize)),
+            ("lineHeight", String(metrics.lineHeight)),
+            ("fontProfiles", metrics.fontProfiles.cacheKey)
         ]
 
         if runs.contains(where: { $0.isLinkPresentation }) {
             guard let linkPolicyIdentity else {
                 return nil
             }
-            components.append("linkPolicy=\(linkPolicyIdentity)")
+            components.append(("linkPolicy", linkPolicyIdentity))
         }
 
         if !imageDecisions.isEmpty {
             guard let imagePolicyIdentity else {
                 return nil
             }
-            components.append("imagePolicy=\(imagePolicyIdentity)")
+            components.append(("imagePolicy", imagePolicyIdentity))
             if imageDecisions.contains(where: { decision in
                 if case .allow = decision.policyDecision {
                     return true
@@ -1026,7 +1055,7 @@ public struct MarkdownRendererConfiguration: Sendable {
                 guard let imageResolverIdentity else {
                     return nil
                 }
-                components.append("imageResolver=\(imageResolverIdentity)")
+                components.append(("imageResolver", imageResolverIdentity))
             }
         }
 
@@ -1034,7 +1063,7 @@ public struct MarkdownRendererConfiguration: Sendable {
             guard let mathPolicyIdentity else {
                 return nil
             }
-            components.append("mathPolicy=\(mathPolicyIdentity)")
+            components.append(("mathPolicy", mathPolicyIdentity))
             if mathDecisions.contains(where: { decision in
                 if case .allow = decision.policyDecision {
                     return true
@@ -1044,11 +1073,11 @@ public struct MarkdownRendererConfiguration: Sendable {
                 guard let mathRendererIdentity else {
                     return nil
                 }
-                components.append("mathRenderer=\(mathRendererIdentity)")
+                components.append(("mathRenderer", mathRendererIdentity))
             }
         }
 
-        return components.joined(separator: ":")
+        return Self.cacheNamespace(components)
     }
 
     private func preparedImageDecisions(for runs: [MarkdownInlineRun]) -> [MarkdownPreparedImageDecision] {
@@ -1091,6 +1120,7 @@ public struct MarkdownRendererConfiguration: Sendable {
         var pieces: [MarkdownInlineMathPiece] = []
         var pendingText = AttributedString()
         var producedMathImage = false
+        var imageIndex = 0
         var mathDecisionIndex = 0
 
         func flushPendingText() {
@@ -1103,7 +1133,14 @@ public struct MarkdownRendererConfiguration: Sendable {
 
         for run in runs {
             if run.isImagePresentation {
-                let displayRun = preparedImageDisplayRun(for: run, images: images)
+                let image: MarkdownPreparedImage?
+                if run.resolvedImageSource != nil, imageIndex < images.count {
+                    image = images[imageIndex]
+                    imageIndex += 1
+                } else {
+                    image = nil
+                }
+                let displayRun = preparedImageDisplayRun(for: run, image: image)
                 displayRuns.append(displayRun)
                 let piece = InlineRunsView.attributedString(
                     for: [displayRun],
@@ -1208,12 +1245,9 @@ public struct MarkdownRendererConfiguration: Sendable {
 
     private func preparedImageDisplayRun(
         for run: MarkdownInlineRun,
-        images: [MarkdownPreparedImage]
+        image: MarkdownPreparedImage?
     ) -> MarkdownInlineRun {
-        guard let image = images.first(where: { preparedImage in
-            preparedImage.source == run.resolvedImageSource &&
-                preparedImage.sourceRange == run.sourceRange
-        }) else {
+        guard let image else {
             return run
         }
 
@@ -1310,28 +1344,78 @@ public struct MarkdownRendererConfiguration: Sendable {
         for block: MarkdownBlock?
     ) -> (fontSize: Double, lineHeight: Double, fontProfiles: MarkdownInlineFontProfiles) {
         guard let block else {
-            return (theme.paragraphFontSize, theme.paragraphLineHeight, theme.paragraphFontProfiles)
+            return Self.sanitizedInlineMetrics(
+                fontSize: theme.paragraphFontSize,
+                lineHeight: theme.paragraphLineHeight,
+                fontProfiles: theme.paragraphFontProfiles,
+                fallbackFontSize: 16,
+                fallbackLineHeight: 22
+            )
         }
 
         switch block.kind {
         case .heading:
             let style = theme.headingStyle(for: block.headingLevel)
-            return (style.fontSize, style.lineHeight, style.fontProfiles)
+            return Self.sanitizedInlineMetrics(
+                fontSize: style.fontSize,
+                lineHeight: style.lineHeight,
+                fontProfiles: style.fontProfiles,
+                fallbackFontSize: 20,
+                fallbackLineHeight: 28
+            )
         case .codeBlock, .htmlBlock, .mathBlock:
-            return (theme.codeFontSize, theme.codeLineHeight, theme.codeFontProfiles)
+            return Self.sanitizedInlineMetrics(
+                fontSize: theme.codeFontSize,
+                lineHeight: theme.codeLineHeight,
+                fontProfiles: theme.codeFontProfiles,
+                fallbackFontSize: 14,
+                fallbackLineHeight: 20
+            )
         default:
-            return (theme.paragraphFontSize, theme.paragraphLineHeight, theme.paragraphFontProfiles)
+            return Self.sanitizedInlineMetrics(
+                fontSize: theme.paragraphFontSize,
+                lineHeight: theme.paragraphLineHeight,
+                fontProfiles: theme.paragraphFontProfiles,
+                fallbackFontSize: 16,
+                fallbackLineHeight: 22
+            )
         }
+    }
+
+    private nonisolated static func sanitizedInlineMetrics(
+        fontSize: Double,
+        lineHeight: Double,
+        fontProfiles: MarkdownInlineFontProfiles,
+        fallbackFontSize: Double,
+        fallbackLineHeight: Double
+    ) -> (fontSize: Double, lineHeight: Double, fontProfiles: MarkdownInlineFontProfiles) {
+        let safeFontSize = Self.sanitizedPositive(fontSize, fallback: fallbackFontSize)
+        let safeLineHeight = Self.sanitizedPositive(lineHeight, fallback: max(fallbackLineHeight, safeFontSize))
+        return (safeFontSize, safeLineHeight, fontProfiles)
+    }
+
+    private nonisolated static func sanitizedPositive(_ value: Double, fallback: Double) -> Double {
+        value.isFinite && value > 0 ? value : fallback
     }
 
     private nonisolated static func inlineHash(_ runs: [MarkdownInlineRun]) -> UInt64 {
         var hash: UInt64 = 0xcbf29ce484222325
         for run in runs {
-            hash = append(run.kind.rawValue, to: hash)
-            hash = append(String(run.presentation.rawValue), to: hash)
-            hash = append(run.text, to: hash)
-            hash = append(run.destination ?? "", to: hash)
-            hash = append(run.imageSource ?? "", to: hash)
+            hash = appendField("run", value: "start", to: hash)
+            hash = appendField("kind", value: run.kind.rawValue, to: hash)
+            hash = appendField("presentation", value: String(run.presentation.rawValue), to: hash)
+            hash = appendField("text", value: run.text, to: hash)
+            hash = appendOptionalField("destination", value: run.destination, to: hash)
+            hash = appendOptionalField("imageSource", value: run.imageSource, to: hash)
+            if let sourceRange = run.sourceRange {
+                hash = appendField("source.present", value: "1", to: hash)
+                hash = appendField("source.byte.lower", value: String(sourceRange.byteRange.lowerBound), to: hash)
+                hash = appendField("source.byte.upper", value: String(sourceRange.byteRange.upperBound), to: hash)
+                hash = appendField("source.line.lower", value: String(sourceRange.lineRange.lowerBound), to: hash)
+                hash = appendField("source.line.upper", value: String(sourceRange.lineRange.upperBound), to: hash)
+            } else {
+                hash = appendField("source.present", value: "0", to: hash)
+            }
         }
         return hash
     }
@@ -1347,6 +1431,22 @@ public struct MarkdownRendererConfiguration: Sendable {
             hash ^= UInt64(byte)
             hash &*= 0x100000001b3
         }
+        return hash
+    }
+
+    private nonisolated static func appendOptionalField(_ name: String, value: String?, to initialHash: UInt64) -> UInt64 {
+        var hash = appendField("\(name).present", value: value == nil ? "0" : "1", to: initialHash)
+        if let value {
+            hash = appendField("\(name).value", value: value, to: hash)
+        }
+        return hash
+    }
+
+    private nonisolated static func appendField(_ name: String, value: String, to initialHash: UInt64) -> UInt64 {
+        var hash = append(name, to: initialHash)
+        hash = append("#\(value.utf8.count):", to: hash)
+        hash = append(value, to: hash)
+        hash = append("|", to: hash)
         return hash
     }
 }
@@ -1378,7 +1478,7 @@ private struct MarkdownPreparedSnapshotReuse {
 
     mutating func content(for block: MarkdownBlock) -> MarkdownPreparedBlockContent? {
         guard var candidates = contentsByBlockID[block.id],
-              let index = candidates.firstIndex(where: { $0.block == block })
+              let index = candidates.firstIndex(where: { MarkdownRendererConfiguration.renderPreparationEquivalent($0.block, block) })
         else {
             return nil
         }
@@ -1417,15 +1517,50 @@ public struct MarkdownPreparedInlineContent: Sendable {
         layoutCache: MarkdownInlineLayoutCache = MarkdownInlineLayoutCache(),
         mathTextPieces: [MarkdownInlineMathPiece]? = nil
     ) {
+        let safeFontSize = Self.sanitizedPositive(fontSize, fallback: 14)
+        let safeLineHeight = Self.sanitizedPositive(lineHeight, fallback: safeFontSize)
         self.attributed = attributed
         self.prepared = prepared
-        self.measured = measured
+        self.measured = Self.sanitizedMeasured(measured, fontSize: safeFontSize)
         self.images = images
-        self.fontSize = fontSize
-        self.lineHeight = lineHeight
+        self.fontSize = safeFontSize
+        self.lineHeight = safeLineHeight
         self.fontProfiles = fontProfiles
         self.layoutCache = layoutCache
         self.mathTextPieces = mathTextPieces
+    }
+
+    private static func sanitizedPositive(_ value: Double, fallback: Double) -> Double {
+        value.isFinite && value > 0 ? value : fallback
+    }
+
+    private static func sanitizedNonNegative(_ value: Double) -> Double {
+        value.isFinite && value >= 0 ? value : 0
+    }
+
+    private static func sanitizedMeasured(
+        _ measured: MeasuredInlineContent,
+        fontSize: Double
+    ) -> MeasuredInlineContent {
+        let segments = measured.segments.map { measuredSegment in
+            MeasuredInlineSegment(
+                segment: measuredSegment.segment,
+                width: sanitizedNonNegative(measuredSegment.width),
+                units: measuredSegment.units.map { unit in
+                    MeasuredInlineUnit(
+                        byteRange: unit.byteRange,
+                        width: sanitizedNonNegative(unit.width),
+                        startsPreferredBreakUnit: unit.startsPreferredBreakUnit
+                    )
+                }
+            )
+        }
+        return MeasuredInlineContent(
+            prepared: measured.prepared,
+            segments: segments,
+            naturalWidth: sanitizedNonNegative(measured.naturalWidth),
+            fontSize: fontSize
+        )
     }
 
     public func layout(
@@ -1686,9 +1821,7 @@ public struct MarkdownPreparedSnapshot: Sendable {
     ) {
         self.snapshot = snapshot
         self.items = items
-        let resolvedRenderItems = renderItems ?? items.enumerated().map { index, item in
-            MarkdownPreparedSnapshotRenderItem(id: item.id, itemIndex: index)
-        }
+        let resolvedRenderItems = renderItems ?? Self.defaultRenderItems(for: items)
         self.renderItems = resolvedRenderItems
         self.itemIDs = resolvedRenderItems.map(\.id)
         self.preparedContentByBlockID = preparedContentByBlockID
@@ -1703,6 +1836,27 @@ public struct MarkdownPreparedSnapshot: Sendable {
             return nil
         }
         return items[index]
+    }
+
+    private static func defaultRenderItems(
+        for items: [MarkdownPreparedSnapshotItem]
+    ) -> [MarkdownPreparedSnapshotRenderItem] {
+        var occurrencesByID: [String: Int] = [:]
+        var usedIDs: Set<String> = []
+        return items.enumerated().map { index, item in
+            let baseID = item.id
+            let occurrence = occurrencesByID[baseID, default: 0]
+            occurrencesByID[baseID] = occurrence + 1
+
+            var renderID = occurrence == 0 ? baseID : "\(baseID)#\(occurrence)"
+            var collisionIndex = 1
+            while usedIDs.contains(renderID) {
+                renderID = "\(baseID)#\(occurrence)#\(collisionIndex)"
+                collisionIndex += 1
+            }
+            usedIDs.insert(renderID)
+            return MarkdownPreparedSnapshotRenderItem(id: renderID, itemIndex: index)
+        }
     }
 }
 

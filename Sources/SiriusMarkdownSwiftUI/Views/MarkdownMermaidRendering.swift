@@ -406,6 +406,8 @@ enum MermaidSVGGeometryParser {
             .compactMap { Double($0) }
 
         guard parts.count == 4,
+              isValidCoordinate(parts[0]),
+              isValidCoordinate(parts[1]),
               isValidDimension(parts[2]),
               isValidDimension(parts[3])
         else {
@@ -422,6 +424,10 @@ enum MermaidSVGGeometryParser {
 
     private static func isValidDimension(_ value: Double) -> Bool {
         value.isFinite && value > 0
+    }
+
+    private static func isValidCoordinate(_ value: Double) -> Bool {
+        value.isFinite
     }
 }
 

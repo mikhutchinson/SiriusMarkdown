@@ -25,6 +25,20 @@ func sourceBufferReturnsFullTextAcrossChunks() {
 }
 
 @Test
+func sourceBufferEmptyAppendDoesNotAddAChunkOrChangeOffsets() {
+    var buffer = MarkdownSourceBuffer()
+    buffer.append("alpha")
+    let empty = buffer.append("")
+    buffer.append("beta")
+
+    #expect(empty.byteRange == 5..<5)
+    #expect(buffer.byteCount == 9)
+    #expect(buffer.fullText() == "alphabeta")
+    #expect(buffer.slice(0..<buffer.byteCount).text == "alphabeta")
+    #expect(buffer.lines(in: 0..<buffer.byteCount).map(\.text) == ["alphabeta"])
+}
+
+@Test
 func sourceBufferDecodesMultiChunkUnicodeSliceAsSingleUTF8Stream() {
     var buffer = MarkdownSourceBuffer()
     buffer.append("alpha ")
@@ -57,4 +71,22 @@ func sourceBufferDecodesLinesAcrossChunkBoundariesWithoutLineCopies() {
         "first line\n".utf8.count..<"first line\nsecond 日本語".utf8.count,
         "first line\nsecond 日本語\n".utf8.count..<"first line\nsecond 日本語\nthird 😀".utf8.count
     ])
+}
+
+@Test
+func sourceBufferClampsOutOfBoundsByteRanges() {
+    var buffer = MarkdownSourceBuffer()
+    buffer.append("alpha\nbeta")
+
+    #expect(buffer.slice((-4)..<99).byteRange == 0..<10)
+    #expect(buffer.slice((-4)..<99).text == "alpha\nbeta")
+    #expect(buffer.slice(99..<120).byteRange == 10..<10)
+    #expect(buffer.slice(99..<120).text == "")
+    #expect(buffer.lines(in: (-4)..<99).map(\.text) == ["alpha", "beta"])
+    #expect(buffer.lines(in: 99..<120).isEmpty)
+    #expect(buffer.containsByte(10, in: (-4)..<99))
+    #expect(!buffer.containsByte(10, in: 99..<120))
+    #expect(buffer.sourceRange(for: (-4)..<99).byteRange == 0..<10)
+    #expect(buffer.sourceRange(for: (-4)..<99).lineRange == 1..<3)
+    #expect(buffer.sourceRange(for: 99..<120).byteRange == 10..<10)
 }

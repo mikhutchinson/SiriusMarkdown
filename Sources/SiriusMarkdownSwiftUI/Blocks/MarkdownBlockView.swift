@@ -7,6 +7,7 @@ public struct MarkdownBlockView: View {
     private var preparedContent: MarkdownPreparedBlockContent
     @State private var isCodeBlockCollapsed: Bool
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.markdownDocumentSelectionContext) private var documentSelectionContext
 
     private var theme: MarkdownTheme {
         configuration.theme
@@ -114,7 +115,10 @@ public struct MarkdownBlockView: View {
                 baseFont: baseFont,
                 linkAction: configuration.linkAction,
                 inlineRenderingMode: configuration.inlineRenderingMode,
-                nativeTextSelection: selectionMode
+                nativeTextSelection: selectionMode,
+                fontSize: fallbackTextMetrics.fontSize,
+                lineHeight: fallbackTextMetrics.lineHeight,
+                fontProfile: fallbackTextMetrics.fontProfile
             )
             .frame(maxWidth: .infinity, alignment: .leading)
         } else if block.inlines.isEmpty {
@@ -135,7 +139,10 @@ public struct MarkdownBlockView: View {
                 inlineRenderingMode: configuration.inlineRenderingMode,
                 nativeTextSelection: selectionMode,
                 linkPolicy: configuration.linkPolicy,
-                imagePolicy: configuration.imagePolicy
+                imagePolicy: configuration.imagePolicy,
+                fontSize: fallbackTextMetrics.fontSize,
+                lineHeight: fallbackTextMetrics.lineHeight,
+                fontProfile: fallbackTextMetrics.fontProfile
             )
             .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -170,11 +177,17 @@ public struct MarkdownBlockView: View {
         switch block.kind {
         case .heading:
             let style = theme.headingStyle(for: block.headingLevel)
-            return (style.fontSize, style.lineHeight, style.fontProfiles.body)
+            return sanitizedTextMetrics(
+                fontSize: style.fontSize,
+                lineHeight: style.lineHeight,
+                fontProfile: style.fontProfiles.body,
+                fallbackFontSize: 20,
+                fallbackLineHeight: 28
+            )
         case .codeBlock, .htmlBlock, .mathBlock:
-            return (theme.codeFontSize, theme.codeLineHeight, theme.codeFontProfiles.body)
+            return codeTextMetrics
         default:
-            return (theme.paragraphFontSize, theme.paragraphLineHeight, theme.paragraphFontProfiles.body)
+            return paragraphTextMetrics
         }
     }
 
@@ -366,9 +379,9 @@ public struct MarkdownBlockView: View {
                     }
                 }
                 .background(theme.tableBackground)
-                .clipShape(RoundedRectangle(cornerRadius: theme.tableCornerRadius))
+                .clipShape(RoundedRectangle(cornerRadius: theme.renderTableCornerRadius))
                 .overlay {
-                    RoundedRectangle(cornerRadius: theme.tableCornerRadius)
+                    RoundedRectangle(cornerRadius: theme.renderTableCornerRadius)
                         .stroke(theme.tableBorderColor)
                 }
                 .padding(.vertical, 4)
@@ -441,6 +454,60 @@ public struct MarkdownBlockView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .center)
+        .background(mathImageSelectionFragmentPreference)
+    }
+
+    private var mathImageSelectionFragmentPreference: some View {
+        GeometryReader { proxy in
+            let rect = proxy.frame(in: .named(markdownDocumentSelectionCoordinateSpaceName))
+            Color.clear.preference(
+                key: MarkdownDocumentSelectionFragmentsKey.self,
+                value: mathImageSelectionFragments(rect: rect)
+            )
+        }
+        .allowsHitTesting(false)
+    }
+
+    private func mathImageSelectionFragments(rect: CGRect) -> [MarkdownDocumentSelectionFragment] {
+        guard let documentSelectionContext,
+              let selectionInlineLayout = preparedContent.selectionInlineLayout,
+              rect.width.isFinite,
+              rect.height.isFinite,
+              rect.width > 0,
+              rect.height > 0
+        else {
+            return []
+        }
+
+        let layoutWidth = max(
+            InlineRunsView.nativeLineLayoutWidth(
+                for: selectionInlineLayout,
+                containerWidth: Double(rect.width)
+            ),
+            selectionInlineLayout.measured.naturalWidth
+        )
+        let fragments = MarkdownDocumentSelectionFragment.inlineLineFragments(
+            blockID: documentSelectionContext.blockID,
+            prepared: selectionInlineLayout,
+            layout: selectionInlineLayout.layout(
+                containerWidth: layoutWidth,
+                allowsOverwideFallback: false
+            ),
+            rect: rect,
+            idPrefix: "math-image-block"
+        )
+        if !fragments.isEmpty {
+            return fragments
+        }
+
+        return [
+            MarkdownDocumentSelectionFragment.fallbackTextFragment(
+                blockID: documentSelectionContext.blockID,
+                sourceRange: selectionInlineLayout.prepared.sourceRange ?? block.sourceRange,
+                rect: rect,
+                idPrefix: "math-image-block"
+            )
+        ]
     }
 
     @ViewBuilder
@@ -501,13 +568,16 @@ public struct MarkdownBlockView: View {
                     baseFont: isHeader ? theme.paragraphFont.bold() : theme.paragraphFont,
                     linkAction: configuration.linkAction,
                     inlineRenderingMode: configuration.inlineRenderingMode,
-                    nativeTextSelection: selectionModeInsideCompositeGrid
+                    nativeTextSelection: selectionModeInsideCompositeGrid,
+                    fontSize: paragraphTextMetrics.fontSize,
+                    lineHeight: paragraphTextMetrics.lineHeight,
+                    fontProfile: paragraphTextMetrics.fontProfile
                 )
             }
         }
         .foregroundStyle(theme.textColor)
-        .padding(.horizontal, theme.tableHorizontalCellPadding)
-        .padding(.vertical, theme.tableVerticalCellPadding)
+        .padding(.horizontal, theme.renderTableHorizontalCellPadding)
+        .padding(.vertical, theme.renderTableVerticalCellPadding)
         .frame(width: width, alignment: tableAlignment(column))
         .frame(minHeight: 38)
         .overlay(alignment: .trailing) {
@@ -538,7 +608,7 @@ public struct MarkdownBlockView: View {
 
         return (0..<columnCount).map { column in
             let naturalWidth = tableNaturalWidth(table: table, column: column)
-            let paddedWidth = naturalWidth + (theme.tableHorizontalCellPadding * 2) + 18
+            let paddedWidth = naturalWidth + (theme.renderTableHorizontalCellPadding * 2) + 18
             let minimum = columnCount > 3 ? CGFloat(112) : CGFloat(132)
             let maximum = columnCount <= 2 ? CGFloat(520) : CGFloat(360)
             return min(max(CGFloat(paddedWidth), minimum), maximum)
@@ -554,7 +624,7 @@ public struct MarkdownBlockView: View {
 
         let measuredWidths = cells.map { cell in
             cell.inlineLayout?.measured.naturalWidth ??
-                Double(cell.inline?.characters.count ?? 0) * theme.paragraphFontSize * 0.56
+                Double(cell.inline?.characters.count ?? 0) * paragraphTextMetrics.fontSize * 0.56
         }
         return measuredWidths.max() ?? 0
     }
@@ -583,7 +653,40 @@ public struct MarkdownBlockView: View {
     }
 
     private var codeTextMetrics: (fontSize: Double, lineHeight: Double, fontProfile: MarkdownFontProfile) {
-        (theme.codeFontSize, theme.codeLineHeight, theme.codeFontProfiles.body)
+        sanitizedTextMetrics(
+            fontSize: theme.codeFontSize,
+            lineHeight: theme.codeLineHeight,
+            fontProfile: theme.codeFontProfiles.body,
+            fallbackFontSize: 14,
+            fallbackLineHeight: 20
+        )
+    }
+
+    private var paragraphTextMetrics: (fontSize: Double, lineHeight: Double, fontProfile: MarkdownFontProfile) {
+        sanitizedTextMetrics(
+            fontSize: theme.paragraphFontSize,
+            lineHeight: theme.paragraphLineHeight,
+            fontProfile: theme.paragraphFontProfiles.body,
+            fallbackFontSize: 16,
+            fallbackLineHeight: 22
+        )
+    }
+
+    private func sanitizedTextMetrics(
+        fontSize: Double,
+        lineHeight: Double,
+        fontProfile: MarkdownFontProfile,
+        fallbackFontSize: Double,
+        fallbackLineHeight: Double
+    ) -> (fontSize: Double, lineHeight: Double, fontProfile: MarkdownFontProfile) {
+        let metrics = MarkdownInlineFallbackMetrics(
+            fontSize: fontSize,
+            lineHeight: lineHeight,
+            fontProfile: fontProfile,
+            fallbackFontSize: fallbackFontSize,
+            fallbackLineHeight: fallbackLineHeight
+        )
+        return (metrics.fontSize, metrics.lineHeight, metrics.fontProfile)
     }
 
     private func policyDeniedView(reason: String) -> some View {
@@ -871,7 +974,10 @@ private struct MarkdownListItemRow: View {
                 baseFont: theme.paragraphFont,
                 linkAction: configuration.linkAction,
                 inlineRenderingMode: configuration.inlineRenderingMode,
-                nativeTextSelection: selectionModeInsideLeadingLayout
+                nativeTextSelection: selectionModeInsideLeadingLayout,
+                fontSize: paragraphTextMetrics.fontSize,
+                lineHeight: paragraphTextMetrics.lineHeight,
+                fontProfile: paragraphTextMetrics.fontProfile
             )
         }
     }
@@ -895,7 +1001,7 @@ private struct MarkdownListItemRow: View {
             Image(systemName: taskState == .checked ? "checkmark.square.fill" : "square")
                 .font(.system(size: taskMarkerFontSize, weight: .semibold))
                 .foregroundStyle(taskState == .checked ? Color.accentColor : theme.secondaryTextColor)
-                .frame(height: theme.paragraphLineHeight, alignment: .trailing)
+                .frame(height: paragraphTextMetrics.lineHeight, alignment: .trailing)
         } else {
             Text(marker)
                 .font(theme.codeFont)
@@ -908,7 +1014,17 @@ private struct MarkdownListItemRow: View {
     }
 
     private var taskMarkerFontSize: CGFloat {
-        CGFloat(min(max(theme.paragraphFontSize - 2, 12), 14))
+        CGFloat(min(max(paragraphTextMetrics.fontSize - 2, 12), 14))
+    }
+
+    private var paragraphTextMetrics: MarkdownInlineFallbackMetrics {
+        MarkdownInlineFallbackMetrics(
+            fontSize: theme.paragraphFontSize,
+            lineHeight: theme.paragraphLineHeight,
+            fontProfile: theme.paragraphFontProfiles.body,
+            fallbackFontSize: 16,
+            fallbackLineHeight: 22
+        )
     }
 }
 

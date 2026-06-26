@@ -58,7 +58,7 @@ struct MarkdownMermaidDiagramView: View {
 
     @ViewBuilder
     private var diagramSurface: some View {
-        if let platformImage, let geometry = mermaid.geometry {
+        if let platformImage, let geometry = mermaid.geometry, geometry.isRenderableViewportGeometry {
             imageViewport(image: platformImage, geometry: geometry)
         } else if let platformImage {
             ScrollView([.horizontal, .vertical]) {
@@ -66,7 +66,7 @@ struct MarkdownMermaidDiagramView: View {
                     .padding(8)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .frame(maxHeight: theme.mermaidAffordances.maximumViewportHeight)
+            .frame(maxHeight: theme.mermaidAffordances.renderViewportHeightBounds.upperBound)
         } else {
             asciiFallback
         }
@@ -112,7 +112,7 @@ struct MarkdownMermaidDiagramView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .frame(maxHeight: theme.mermaidAffordances.maximumViewportHeight)
+        .frame(maxHeight: theme.mermaidAffordances.renderViewportHeightBounds.upperBound)
     }
 
     private var toolbar: some View {
@@ -124,14 +124,14 @@ struct MarkdownMermaidDiagramView: View {
                     accessibilityLabel: "Zoom out diagram",
                     isDisabled: currentScale <= scaleBounds.lowerBound + 0.0001
                 ) {
-                    zoom(by: -theme.mermaidAffordances.scaleStep)
+                    zoom(by: -theme.mermaidAffordances.renderScaleStep)
                 }
                 diagramButton(
                     systemImage: MarkdownAffordanceSymbols.zoomIn,
                     accessibilityLabel: "Zoom in diagram",
                     isDisabled: currentScale >= scaleBounds.upperBound - 0.0001
                 ) {
-                    zoom(by: theme.mermaidAffordances.scaleStep)
+                    zoom(by: theme.mermaidAffordances.renderScaleStep)
                 }
             }
             if theme.mermaidAffordances.showsFitButton {
@@ -172,7 +172,7 @@ struct MarkdownMermaidDiagramView: View {
     private var controlsVisible: Bool {
         theme.mermaidAffordances.showsToolbar &&
             platformImage != nil &&
-            mermaid.geometry != nil
+            mermaid.geometry?.isRenderableViewportGeometry == true
     }
 
     private func zoom(by delta: Double) {
@@ -187,6 +187,9 @@ struct MarkdownMermaidDiagramView: View {
     }
 
     private func effectiveScale(for geometry: MarkdownMermaidDiagramGeometry) -> CGFloat {
+        guard geometry.isRenderableViewportGeometry else {
+            return 1
+        }
         let scale: Double
         switch scaleMode {
         case .fitWidth:
@@ -201,25 +204,22 @@ struct MarkdownMermaidDiagramView: View {
     }
 
     private func clampScale(_ scale: Double) -> Double {
-        min(max(scale, scaleBounds.lowerBound), scaleBounds.upperBound)
+        guard scale.isFinite else {
+            return scaleBounds.lowerBound
+        }
+        return min(max(scale, scaleBounds.lowerBound), scaleBounds.upperBound)
     }
 
     private var scaleBounds: ClosedRange<Double> {
-        let lower = max(0.05, min(theme.mermaidAffordances.minimumScale, theme.mermaidAffordances.maximumScale))
-        let upper = max(lower, theme.mermaidAffordances.maximumScale)
-        return lower...upper
+        theme.mermaidAffordances.renderScaleBounds
     }
 
     private func clampedViewportHeight(forScaledHeight scaledHeight: CGFloat) -> CGFloat {
-        let lower = min(
-            theme.mermaidAffordances.minimumViewportHeight,
-            theme.mermaidAffordances.maximumViewportHeight
-        )
-        let upper = max(
-            lower,
-            theme.mermaidAffordances.maximumViewportHeight
-        )
-        return min(max(scaledHeight, lower), upper)
+        let bounds = theme.mermaidAffordances.renderViewportHeightBounds
+        guard scaledHeight.isFinite else {
+            return bounds.lowerBound
+        }
+        return min(max(scaledHeight, bounds.lowerBound), bounds.upperBound)
     }
 
     private var widthReader: some View {
@@ -247,6 +247,36 @@ struct MarkdownMermaidDiagramView: View {
     }
 }
 
+extension MarkdownMermaidDiagramAffordances {
+    var renderScaleBounds: ClosedRange<Double> {
+        let rawMinimum = finitePositive(minimumScale, fallback: 0.5)
+        let rawMaximum = finitePositive(maximumScale, fallback: max(rawMinimum, 3.0))
+        let lower = max(0.05, min(rawMinimum, rawMaximum))
+        let upper = max(lower, rawMinimum, rawMaximum)
+        return lower...upper
+    }
+
+    var renderScaleStep: Double {
+        finitePositive(scaleStep, fallback: 0.2)
+    }
+
+    var renderViewportHeightBounds: ClosedRange<CGFloat> {
+        let rawMinimum = finitePositive(minimumViewportHeight, fallback: 120)
+        let rawMaximum = finitePositive(maximumViewportHeight, fallback: max(rawMinimum, 420))
+        let lower = min(rawMinimum, rawMaximum)
+        let upper = max(rawMinimum, rawMaximum)
+        return lower...upper
+    }
+
+    private func finitePositive(_ value: Double, fallback: Double) -> Double {
+        value.isFinite && value > 0 ? value : fallback
+    }
+
+    private func finitePositive(_ value: CGFloat, fallback: CGFloat) -> CGFloat {
+        value.isFinite && value > 0 ? value : fallback
+    }
+}
+
 private struct MarkdownMermaidWidthPreferenceKey: PreferenceKey {
     static let defaultValue: CGFloat = 0
 
@@ -255,6 +285,12 @@ private struct MarkdownMermaidWidthPreferenceKey: PreferenceKey {
         if next > 0 {
             value = next
         }
+    }
+}
+
+extension MarkdownMermaidDiagramGeometry {
+    var isRenderableViewportGeometry: Bool {
+        width.isFinite && height.isFinite && width > 0 && height > 0
     }
 }
 

@@ -90,6 +90,19 @@ func deprecatedSnapshotViewInitializersDoNotPrepareSynchronously() throws {
 }
 
 @Test
+func javaScriptResourceLookupResolvesBundledRendererScripts() throws {
+    let highlighterScript = try #require(
+        MarkdownJavaScriptResourceLookup.script(named: "highlight.min", subdirectory: "HighlightJS")
+    )
+    let mermaidScript = try #require(
+        MarkdownJavaScriptResourceLookup.script(named: "beautiful-mermaid.bundle", subdirectory: "MermaidJS")
+    )
+
+    #expect(highlighterScript.contains("var hljs"))
+    #expect(mermaidScript.contains("renderMermaid"))
+}
+
+@Test
 func unpreparedSnapshotKeepsStructuredCompatibilityDataWithoutPreparing() throws {
     var stream = MarkdownStream()
     stream.append(
@@ -135,6 +148,8 @@ func unpreparedSnapshotStillEnforcesBlockPoliciesWithoutPreparing() throws {
     var stream = MarkdownStream()
     stream.append(
         """
+        Paragraph with [safe](https://example.com) and ![](https://example.com/image.png).
+
         ```swift
         let x = 1
         ```
@@ -162,7 +177,11 @@ func unpreparedSnapshotStillEnforcesBlockPoliciesWithoutPreparing() throws {
         }
         return (block.kind, content)
     }
+    let paragraph = try #require(contents.first { $0.0 == .paragraph }?.1)
+    let paragraphInline = try #require(paragraph.inline)
 
+    #expect(String(paragraphInline.characters) == "Paragraph with safe and [image].")
+    #expect(paragraph.inlineLayout == nil)
     #expect(contents.first { $0.0 == .codeBlock }?.1.policyDenialReason == "code denied")
     #expect(contents.first { $0.0 == .mathBlock }?.1.policyDenialReason == "math denied")
     #expect(contents.first { $0.0 == .htmlBlock }?.1.policyDenialReason == "counted html denied")
@@ -171,6 +190,119 @@ func unpreparedSnapshotStillEnforcesBlockPoliciesWithoutPreparing() throws {
     #expect(recorder.snapshot().prepareCount == 0)
     #expect(recorder.snapshot().codeHighlightCount == 0)
     #expect(recorder.snapshot().mathRenderCount == 0)
+}
+
+@Test
+@MainActor
+func attributedInlineFallbackCarriesExplicitTextMetrics() {
+    let theme = MarkdownTheme.document
+    let heading = theme.headingStyle(for: 1)
+    let attributed = AttributedString("Heading")
+    let view = InlineRunsView(
+        attributed: attributed,
+        theme: theme,
+        baseFont: heading.font,
+        fontSize: heading.fontSize,
+        lineHeight: heading.lineHeight,
+        fontProfile: heading.fontProfiles.body
+    )
+
+    #expect(view.fallbackTextMetrics.fontSize == heading.fontSize)
+    #expect(view.fallbackTextMetrics.lineHeight == heading.lineHeight)
+    #expect(view.fallbackTextMetrics.fontProfile == heading.fontProfiles.body)
+
+    let defaultView = InlineRunsView(
+        attributed: attributed,
+        theme: theme,
+        baseFont: heading.font
+    )
+    #expect(defaultView.fallbackTextMetrics.fontSize == theme.paragraphFontSize)
+    #expect(defaultView.fallbackTextMetrics.lineHeight == theme.paragraphLineHeight)
+    #expect(defaultView.fallbackTextMetrics.fontProfile == theme.paragraphFontProfiles.body)
+}
+
+@Test
+@MainActor
+func inlineTextMetricsClampInvalidPublicThemeAndFallbackValues() throws {
+    var theme = MarkdownTheme()
+    theme.paragraphFontSize = .nan
+    theme.paragraphLineHeight = -1
+    theme.blockSpacing = -.infinity
+    theme.tableCornerRadius = .nan
+    theme.tableHorizontalCellPadding = -.infinity
+    theme.tableVerticalCellPadding = .nan
+    theme.headings.h1.fontSize = .infinity
+    theme.headings.h1.lineHeight = .nan
+
+    let paragraph = try firstBlock("Paragraph text")
+    let heading = try firstBlock("# Heading")
+    let configuration = MarkdownRendererConfiguration(theme: theme)
+    let paragraphInline = try #require(configuration.prepare(block: paragraph).inlineLayout)
+    let headingInline = try #require(configuration.prepare(block: heading).inlineLayout)
+
+    #expect(paragraphInline.fontSize == 16)
+    #expect(paragraphInline.lineHeight == 22)
+    #expect(headingInline.fontSize == 20)
+    #expect(headingInline.lineHeight == 28)
+    #expect(configuration.mathBlockFontSize == 21)
+    #expect(theme.renderBlockSpacing == 8)
+    #expect(theme.renderTableCornerRadius == 8)
+    #expect(theme.renderTableHorizontalCellPadding == 12)
+    #expect(theme.renderTableVerticalCellPadding == 9)
+
+    let fallbackView = InlineRunsView(
+        attributed: AttributedString("Fallback"),
+        fontSize: .nan,
+        lineHeight: -.infinity
+    )
+    #expect(fallbackView.fallbackTextMetrics.fontSize == 14)
+    #expect(fallbackView.fallbackTextMetrics.lineHeight == 14)
+
+    let paragraphFallbackMetrics = MarkdownInlineFallbackMetrics(
+        fontSize: .nan,
+        lineHeight: -.infinity,
+        fontProfile: theme.paragraphFontProfiles.body,
+        fallbackFontSize: 16,
+        fallbackLineHeight: 22
+    )
+    #expect(paragraphFallbackMetrics.fontSize == 16)
+    #expect(paragraphFallbackMetrics.lineHeight == 22)
+
+    let prepared = PreparedInlineContent(runs: [
+        MarkdownInlineRun(kind: .text, text: "Prepared")
+    ])
+    let segment = PreparedInlineSegment(
+        kind: .text,
+        text: "Prepared",
+        byteRange: 0..<8
+    )
+    let measured = MeasuredInlineContent(
+        prepared: prepared,
+        segments: [
+            MeasuredInlineSegment(
+                segment: segment,
+                width: .nan,
+                units: [
+                    MeasuredInlineUnit(byteRange: 0..<8, width: .infinity)
+                ]
+            )
+        ],
+        naturalWidth: .nan,
+        fontSize: .nan
+    )
+    let direct = MarkdownPreparedInlineContent(
+        attributed: AttributedString("Prepared"),
+        prepared: prepared,
+        measured: measured,
+        fontSize: -.infinity,
+        lineHeight: .nan
+    )
+    #expect(direct.fontSize == 14)
+    #expect(direct.lineHeight == 14)
+    #expect(direct.measured.fontSize == 14)
+    #expect(direct.measured.naturalWidth == 0)
+    #expect(direct.measured.segments.first?.width == 0)
+    #expect(direct.measured.segments.first?.units.first?.width == 0)
 }
 
 @Test
@@ -188,6 +320,36 @@ func preparedSnapshotExposesLightweightRenderItems() throws {
         let item = try #require(prepared.item(at: renderItem.itemIndex))
         #expect(item.id == renderItem.id)
     }
+}
+
+@Test
+func preparedSnapshotRenderItemsDisambiguateDuplicateHostBoundaryIDs() {
+    let firstBoundary = MarkdownHostBoundary(id: MarkdownHostBoundaryID("native-card"), sourceOffset: 0)
+    let secondBoundary = MarkdownHostBoundary(id: MarkdownHostBoundaryID("native-card"), sourceOffset: 0)
+    let snapshot = MarkdownSnapshot(
+        blocks: [],
+        items: [
+            .hostBoundary(firstBoundary),
+            .hostBoundary(secondBoundary)
+        ],
+        sourceLength: 0,
+        generation: 1,
+        isFinished: false
+    )
+    let prepared = MarkdownPreparedSnapshot(
+        snapshot: snapshot,
+        items: [
+            .hostBoundary(firstBoundary),
+            .hostBoundary(secondBoundary)
+        ],
+        preparedContentByBlockID: [:]
+    )
+
+    #expect(prepared.itemIDs.count == 2)
+    #expect(Set(prepared.itemIDs).count == 2)
+    #expect(prepared.itemIDs.first == "host:native-card")
+    #expect(prepared.itemIDs.last?.hasPrefix("host:native-card#") == true)
+    #expect(prepared.renderItems.map(\.itemIndex) == [0, 1])
 }
 
 @Test
@@ -641,15 +803,7 @@ func hostedCoreTextBareURLClickOpensLinkWithDocumentSelectionEnabledOnMacOS() th
     .frame(width: 720, height: 80, alignment: .topLeading)
     let hostingView = NSHostingView(rootView: view)
     hostingView.frame = NSRect(origin: .zero, size: NSSize(width: 720, height: 80))
-    let window = NSWindow(
-        contentRect: hostingView.frame,
-        styleMask: [.borderless],
-        backing: .buffered,
-        defer: false
-    )
-    window.animationBehavior = .none
-    window.contentView = hostingView
-    window.orderFrontRegardless()
+    let window = offscreenTestWindow(hostingView)
     defer { tearDownWindow(window) }
     pumpLayout(hostingView)
 
@@ -697,15 +851,7 @@ func hostedCoreTextBareURLDragSelectsInsteadOfOpeningLinkOnMacOS() throws {
     .frame(width: 720, height: 80, alignment: .topLeading)
     let hostingView = NSHostingView(rootView: view)
     hostingView.frame = NSRect(origin: .zero, size: NSSize(width: 720, height: 80))
-    let window = NSWindow(
-        contentRect: hostingView.frame,
-        styleMask: [.borderless],
-        backing: .buffered,
-        defer: false
-    )
-    window.animationBehavior = .none
-    window.contentView = hostingView
-    window.orderFrontRegardless()
+    let window = offscreenTestWindow(hostingView)
     defer { tearDownWindow(window) }
     pumpLayout(hostingView)
 
@@ -754,15 +900,7 @@ func hostedDocumentSelectionDragStartingInEmptySpaceDoesNotSelectNearestTextOnMa
 
     let hostingView = NSHostingView(rootView: view)
     hostingView.frame = NSRect(origin: .zero, size: NSSize(width: 420, height: 260))
-    let window = NSWindow(
-        contentRect: hostingView.frame,
-        styleMask: [.borderless],
-        backing: .buffered,
-        defer: false
-    )
-    window.animationBehavior = .none
-    window.contentView = hostingView
-    window.orderFrontRegardless()
+    let window = offscreenTestWindow(hostingView)
     defer { tearDownWindow(window) }
     pumpLayout(hostingView)
 
@@ -1068,6 +1206,91 @@ func defaultJavaScriptResourceLoadingUsesNonTrappingLookup() throws {
 }
 
 @Test
+func releaseAndProductChecksKeepRenderProbeVisualsOptIn() throws {
+    let root = packageRootURL()
+    let releaseCheck = try String(
+        contentsOf: root.appending(path: "Tools/release-check.sh"),
+        encoding: .utf8
+    )
+    let productCheck = try String(
+        contentsOf: root.appending(path: "Tools/product-check.sh"),
+        encoding: .utf8
+    )
+    let readme = try String(
+        contentsOf: root.appending(path: "README.md"),
+        encoding: .utf8
+    )
+    let docC = try String(
+        contentsOf: root.appending(path: "Docs/SiriusMarkdown.docc/SiriusMarkdown.md"),
+        encoding: .utf8
+    )
+    let architecture = try String(
+        contentsOf: root.appending(path: "Docs/architecture.md"),
+        encoding: .utf8
+    )
+    let renderProbe = try String(
+        contentsOf: root.appending(path: "Tools/RenderProbe/Sources/SiriusMarkdownRenderProbe/main.swift"),
+        encoding: .utf8
+    )
+    let forbiddenOrderFront = "." + "orderFront" + "Regardless()"
+
+    for script in [releaseCheck, productCheck] {
+        #expect(script.contains("SIRIUS_MARKDOWN_RUN_VISUAL_PROBES"))
+        #expect(script.contains("Skipping RenderProbe visual checks."))
+        #expect(script.contains("swift run --package-path Tools/RenderProbe SiriusMarkdownRenderProbe"))
+    }
+
+    #expect(readme.contains("By default the gate skips the AppKit render probe"))
+    #expect(readme.contains("SIRIUS_MARKDOWN_RUN_VISUAL_PROBES=1"))
+    #expect(!readme.contains("The gate runs the AppKit render probe"))
+
+    #expect(docC.contains("AppKit render probes remain available as an explicit `SIRIUS_MARKDOWN_RUN_VISUAL_PROBES=1` opt-in"))
+    #expect(docC.contains("render probes are opt-in visual checks"))
+    #expect(!docC.contains("release gate covering strict Swift-vs-Pretext fixture comparison, AppKit render probes"))
+
+    #expect(architecture.contains("opt-in `Tools/RenderProbe` offscreen AppKit host"))
+    #expect(architecture.contains("SIRIUS_MARKDOWN_RUN_VISUAL_PROBES=1"))
+
+    #expect(!renderProbe.contains(forbiddenOrderFront))
+}
+
+@Test
+func swiftUITestTargetDoesNotOrderHostedWindowsOnScreen() throws {
+    let root = packageRootURL()
+    let testsRoot = root.appending(path: "Tests/SiriusMarkdownSwiftUITests")
+    let fileManager = FileManager.default
+    let enumerator = try #require(fileManager.enumerator(
+        at: testsRoot,
+        includingPropertiesForKeys: nil
+    ))
+    var offenders: [String] = []
+    let forbiddenCall = "." + "orderFront" + "Regardless()"
+
+    for case let url as URL in enumerator where url.pathExtension == "swift" {
+        let source = try String(contentsOf: url, encoding: .utf8)
+        if source.contains(forbiddenCall) {
+            offenders.append(url.lastPathComponent)
+        }
+    }
+
+    #expect(offenders.isEmpty)
+}
+
+@Test
+func macOSDemoBundlerCopiesSwiftPMResourceBundlesIntoApps() throws {
+    let root = packageRootURL()
+    let script = try String(
+        contentsOf: root.appending(path: "Examples/scripts/bundle-macos-demos.sh"),
+        encoding: .utf8
+    )
+
+    #expect(script.contains("for bundle in \"${bin_root}\"/*.bundle"))
+    #expect(script.contains("[[ -d \"${bundle}\" ]] || continue"))
+    #expect(script.contains("cp -R \"${bundle}\" \"${resources}/\""))
+    #expect(script.contains("local resources=\"${contents}/Resources\""))
+}
+
+@Test
 func defaultDocumentSelectionEmitsTextLeafRectsForListRows() throws {
     let markdown = """
     - List selection should be bounded to the text leaf instead of the full transcript row.
@@ -1158,15 +1381,7 @@ func enabledNativeTextSelectionReachesCompositeMarkdownLeavesOnMacOS() throws {
 
     let hostingView = NSHostingView(rootView: view)
     hostingView.frame = NSRect(origin: .zero, size: NSSize(width: 520, height: 420))
-    let window = NSWindow(
-        contentRect: hostingView.frame,
-        styleMask: [.borderless],
-        backing: .buffered,
-        defer: false
-    )
-    window.animationBehavior = .none
-    window.contentView = hostingView
-    window.orderFrontRegardless()
+    let window = offscreenTestWindow(hostingView)
     defer { tearDownWindow(window) }
     pumpLayout(hostingView)
 
@@ -1205,15 +1420,7 @@ func enabledNativeTextSelectionCanSelectAndCopyListTextLeafOnMacOS() throws {
 
     let hostingView = NSHostingView(rootView: view)
     hostingView.frame = NSRect(origin: .zero, size: NSSize(width: 360, height: 160))
-    let window = NSWindow(
-        contentRect: hostingView.frame,
-        styleMask: [.borderless],
-        backing: .buffered,
-        defer: false
-    )
-    window.animationBehavior = .none
-    window.contentView = hostingView
-    window.orderFrontRegardless()
+    let window = offscreenTestWindow(hostingView)
     defer { tearDownWindow(window) }
     pumpLayout(hostingView)
 
@@ -1333,6 +1540,34 @@ func defaultDocumentSelectionClipsHighlightsToPartialPreparedLineRangesOnMacOS()
     #expect(highlight.rect.minX > fragment.rect.minX)
     #expect(highlight.rect.maxX < fragment.rect.maxX)
     #expect(highlight.rect.width < fragment.rect.width * 0.8)
+}
+
+@Test
+@MainActor
+func defaultDocumentSelectionTextGeometryPreservesPresentationForStyledLinks() throws {
+    let markdown = "[**Styled link**](https://example.com)"
+    var stream = MarkdownStream()
+    stream.append(markdown)
+    stream.finish()
+
+    let configuration = MarkdownRendererConfiguration.compactChat
+    let snapshot = stream.snapshot()
+    let prepared = configuration.prepare(snapshot: snapshot)
+    let block = try #require(snapshot.blocks.first)
+    let run = try #require(block.inlines.first)
+    let content = try #require(prepared.preparedContentByBlockID[block.id])
+    let fragment = try #require(MarkdownDocumentSelectionFragment.fragments(
+        for: block,
+        preparedContent: content,
+        rect: CGRect(x: 0, y: 0, width: 700, height: 80)
+    ).first { $0.textGeometry != nil })
+    let textGeometry = try #require(fragment.textGeometry)
+    let fontRun = try #require(textGeometry.fontRuns.first)
+
+    #expect(run.kind == .link)
+    #expect(run.presentation.contains(.strong))
+    #expect(fontRun.kind == .link)
+    #expect(fontRun.presentation.contains(.strong))
 }
 
 @Test
@@ -1588,15 +1823,7 @@ func defaultDocumentSelectionEmitsPreciseCodeBlockTextFragmentsOnMacOS() throws 
 
     let hostingView = NSHostingView(rootView: view)
     hostingView.frame = NSRect(origin: .zero, size: NSSize(width: 420, height: 180))
-    let window = NSWindow(
-        contentRect: hostingView.frame,
-        styleMask: [.borderless],
-        backing: .buffered,
-        defer: false
-    )
-    window.animationBehavior = .none
-    window.contentView = hostingView
-    window.orderFrontRegardless()
+    let window = offscreenTestWindow(hostingView)
     defer { tearDownWindow(window) }
     pumpLayout(hostingView)
 
@@ -1658,15 +1885,7 @@ func defaultDocumentSelectionUsesRenderedTableCellGeometryForExactCopyOnMacOS() 
 
     let hostingView = NSHostingView(rootView: view)
     hostingView.frame = NSRect(origin: .zero, size: NSSize(width: 520, height: 180))
-    let window = NSWindow(
-        contentRect: hostingView.frame,
-        styleMask: [.borderless],
-        backing: .buffered,
-        defer: false
-    )
-    window.animationBehavior = .none
-    window.contentView = hostingView
-    window.orderFrontRegardless()
+    let window = offscreenTestWindow(hostingView)
     defer { tearDownWindow(window) }
     pumpLayout(hostingView)
 
@@ -1843,6 +2062,55 @@ func defaultDocumentSelectionCommandASelectsAndCopiesFullDocumentMarkdownOnMacOS
 
 @Test
 @MainActor
+func imageBackedDisplayMathBlocksPrepareSourceBackedSelectionFragments() throws {
+    let markdown = """
+    \\[
+    x^2 + y^2
+    \\]
+    """
+    var stream = MarkdownStream()
+    stream.append(markdown)
+    stream.finish()
+
+    let configuration = MarkdownRendererConfiguration(mathRenderer: CountingImageMathRenderer())
+    let snapshot = stream.snapshot()
+    let block = try #require(snapshot.blocks.first { $0.kind == .mathBlock })
+    let content = configuration.prepare(block: block)
+    guard case .image = content.mathRender else {
+        Issue.record("Expected image-backed display math.")
+        return
+    }
+
+    let selectionInline = try #require(content.selectionInlineLayout)
+    let mathSourceRange = try #require(block.inlines.first { $0.kind == .math }?.sourceRange)
+    let layoutWidth = max(
+        InlineRunsView.nativeLineLayoutWidth(
+            for: selectionInline,
+            containerWidth: 320
+        ),
+        selectionInline.measured.naturalWidth
+    )
+    let fragments = MarkdownDocumentSelectionFragment.inlineLineFragments(
+        blockID: block.id,
+        prepared: selectionInline,
+        layout: selectionInline.layout(
+            containerWidth: layoutWidth,
+            allowsOverwideFallback: false
+        ),
+        rect: CGRect(x: 0, y: 0, width: 320, height: 80),
+        idPrefix: "test-math-image"
+    )
+
+    #expect(content.emitsTextLeafSelectionFragments)
+    #expect(selectionInline.prepared.sourceRange == mathSourceRange)
+    #expect(selectionInline.prepared.naturalText == "x^2 + y^2")
+    #expect(fragments.count == 1)
+    #expect(fragments.first?.sourceRange == mathSourceRange)
+    #expect(fragments.first?.textGeometry != nil)
+}
+
+@Test
+@MainActor
 func defaultDocumentSelectionReceivesTextLeafFragmentForImageBackedInlineMath() throws {
     let markdown = "Before $x^2$ after"
     var stream = MarkdownStream()
@@ -1875,15 +2143,7 @@ func defaultDocumentSelectionReceivesTextLeafFragmentForImageBackedInlineMath() 
 
     let hostingView = NSHostingView(rootView: view)
     hostingView.frame = NSRect(origin: .zero, size: NSSize(width: 320, height: 80))
-    let window = NSWindow(
-        contentRect: hostingView.frame,
-        styleMask: [.borderless],
-        backing: .buffered,
-        defer: false
-    )
-    window.animationBehavior = .none
-    window.contentView = hostingView
-    window.orderFrontRegardless()
+    let window = offscreenTestWindow(hostingView)
     defer { tearDownWindow(window) }
     pumpLayout(hostingView)
 
@@ -1950,15 +2210,7 @@ func defaultDocumentSelectionEmitsPreciseTextMathBlockFragmentsOnMacOS() throws 
 
     let hostingView = NSHostingView(rootView: view)
     hostingView.frame = NSRect(origin: .zero, size: NSSize(width: 420, height: 120))
-    let window = NSWindow(
-        contentRect: hostingView.frame,
-        styleMask: [.borderless],
-        backing: .buffered,
-        defer: false
-    )
-    window.animationBehavior = .none
-    window.contentView = hostingView
-    window.orderFrontRegardless()
+    let window = offscreenTestWindow(hostingView)
     defer { tearDownWindow(window) }
     pumpLayout(hostingView)
 
@@ -2021,15 +2273,7 @@ func defaultDocumentSelectionEmitsPreciseAllowedHTMLBlockFragmentsOnMacOS() thro
 
     let hostingView = NSHostingView(rootView: view)
     hostingView.frame = NSRect(origin: .zero, size: NSSize(width: 520, height: 90))
-    let window = NSWindow(
-        contentRect: hostingView.frame,
-        styleMask: [.borderless],
-        backing: .buffered,
-        defer: false
-    )
-    window.animationBehavior = .none
-    window.contentView = hostingView
-    window.orderFrontRegardless()
+    let window = offscreenTestWindow(hostingView)
     defer { tearDownWindow(window) }
     pumpLayout(hostingView)
 
@@ -2078,7 +2322,12 @@ func nativeTextSelectionDocsTrackBoundedEnabledSelectionPath() throws {
     let readme = try String(contentsOf: root.appending(path: "README.md"), encoding: .utf8)
     let runbook = try String(contentsOf: root.appending(path: "runbook.md"), encoding: .utf8)
     let bugfix = try String(contentsOf: root.appending(path: "bugfix.md"), encoding: .utf8)
-    let combined = [docComment, readme, runbook, bugfix].joined(separator: "\n")
+    let changelog = try String(contentsOf: root.appending(path: "changelog.md"), encoding: .utf8)
+    let renderProbe = try String(
+        contentsOf: root.appending(path: "Tools/RenderProbe/Sources/SiriusMarkdownRenderProbe/main.swift"),
+        encoding: .utf8
+    )
+    let combined = [docComment, readme, runbook, bugfix, changelog, renderProbe].joined(separator: "\n")
 
     #expect(combined.contains("nativeTextSelection"))
     #expect(combined.contains("bounded text leaves"))
@@ -2088,6 +2337,17 @@ func nativeTextSelectionDocsTrackBoundedEnabledSelectionPath() throws {
     #expect(combined.contains("_invalidateEffectiveFont"))
     #expect(combined.contains("MarkdownSelectionController"))
     #expect(combined.contains("enabled-selection AppKit"))
+    #expect(!combined.contains("Sirius samples"))
+    #expect(!combined.contains("Sirius hang"))
+    #expect(!combined.contains("sample Sirius"))
+    #expect(!combined.contains("macOS 26/Sirius"))
+    #expect(!combined.contains("Sirius DiffTree"))
+    #expect(!combined.contains("Sirius host"))
+    #expect(!combined.contains("Sirius-style"))
+    #expect(!combined.contains("Sirius transcript"))
+    #expect(!combined.contains("sirius-selection-overlay"))
+    #expect(!combined.contains("DiffTree"))
+    #expect(!combined.contains("right-panel"))
 }
 
 @Test
@@ -2152,6 +2412,40 @@ func preparedInlineImageUsesResolverPlaceholderWhenAltTextIsEmpty() throws {
 
     #expect(inlineLayout.images.first?.source == "diagram.png")
     #expect(inlineLayout.prepared.naturalText.contains("Image loading is disabled by default."))
+}
+
+@Test
+func preparedInlineImagesWithoutSourceRangesPreserveRunOrder() throws {
+    let sourceRange = MarkdownSourceRange(byteRange: 0..<38, lineRange: 1..<2)
+    let block = MarkdownBlock(
+        id: MarkdownBlockID("manual-images"),
+        kind: .paragraph,
+        sourceRange: sourceRange,
+        text: "![first](same.png) ![second](same.png)",
+        inlines: [
+            MarkdownInlineRun(
+                kind: .image,
+                text: "first",
+                destination: "same.png",
+                imageSource: "same.png"
+            ),
+            MarkdownInlineRun(kind: .text, text: " "),
+            MarkdownInlineRun(
+                kind: .image,
+                text: "second",
+                destination: "same.png",
+                imageSource: "same.png"
+            )
+        ],
+        isSealed: true
+    )
+
+    let prepared = MarkdownRendererConfiguration().prepare(block: block)
+    let inlineLayout = try #require(prepared.inlineLayout)
+
+    #expect(inlineLayout.images.map(\.altText) == ["first", "second"])
+    #expect(inlineLayout.prepared.runs.map(\.text).joined() == "first second")
+    #expect(String(inlineLayout.attributed.characters) == "first second")
 }
 
 @Test
@@ -2452,6 +2746,40 @@ func rendererPreparationCacheSeparatesIncompatibleFontProfiles() throws {
 }
 
 @Test
+func preparedInlineLayoutIdentityChangesWhenSemanticMeasurementChanges() {
+    let range = MarkdownSourceRange(byteRange: 0..<11, lineRange: 1..<2)
+    let plain = preparedInlineIdentityFixture(
+        runs: [
+            MarkdownInlineRun(kind: .text, text: "alpha beta", sourceRange: range)
+        ],
+        sourceRange: range
+    )
+    let code = preparedInlineIdentityFixture(
+        runs: [
+            MarkdownInlineRun(kind: .code, text: "alpha beta", sourceRange: range)
+        ],
+        sourceRange: range
+    )
+
+    let plainIdentity = PreparedInlineLayoutIdentity(
+        measured: plain.measured,
+        lineHeight: plain.lineHeight,
+        fontProfilesCacheKey: plain.fontProfiles.cacheKey
+    )
+    let codeIdentity = PreparedInlineLayoutIdentity(
+        measured: code.measured,
+        lineHeight: code.lineHeight,
+        fontProfilesCacheKey: code.fontProfiles.cacheKey
+    )
+
+    #expect(plain.prepared.sourceRange == code.prepared.sourceRange)
+    #expect(plain.prepared.naturalText == code.prepared.naturalText)
+    #expect(plain.fontSize == code.fontSize)
+    #expect(plain.lineHeight == code.lineHeight)
+    #expect(plainIdentity != codeIdentity)
+}
+
+@Test
 func headingStylesResolveEveryHeadingLevelThroughTheme() throws {
     let styles = testHeadingStyles()
     let configuration = MarkdownRendererConfiguration(theme: MarkdownTheme(headings: styles))
@@ -2666,12 +2994,22 @@ func mermaidSVGGeometryParserHandlesDimensionsViewBoxAndInvalidValues() throws {
     #expect(viewBoxOnly.viewBox?.minX == -10)
     #expect(viewBoxOnly.viewBox?.minY == -20)
 
+    let invalidViewBoxWithExplicitSize = try #require(MermaidSVGGeometryParser.geometry(
+        in: #"<svg viewBox="NaN 0 480 240" width="480" height="240"></svg>"#
+    ))
+    #expect(invalidViewBoxWithExplicitSize.width == 480)
+    #expect(invalidViewBoxWithExplicitSize.height == 240)
+    #expect(invalidViewBoxWithExplicitSize.viewBox == nil)
+
     let invalidSVGs = [
         #"<svg width="0" height="160"></svg>"#,
         #"<svg width="-1" height="160"></svg>"#,
         #"<svg width="NaN" height="160"></svg>"#,
         #"<svg width="Infinity" height="160"></svg>"#,
         #"<svg width="100%" height="160"></svg>"#,
+        #"<svg viewBox="NaN 0 120 80"></svg>"#,
+        #"<svg viewBox="Infinity 0 120 80"></svg>"#,
+        #"<svg viewBox="0 -Infinity 120 80"></svg>"#,
         #"<svg viewBox="0 0 0 120"></svg>"#,
         #"<svg viewBox="0 0 120 -4"></svg>"#,
         #"<not-svg width="120" height="80"></not-svg>"#
@@ -2680,6 +3018,62 @@ func mermaidSVGGeometryParserHandlesDimensionsViewBoxAndInvalidValues() throws {
     for invalid in invalidSVGs {
         #expect(MermaidSVGGeometryParser.geometry(in: invalid) == nil)
     }
+}
+
+@Test
+func mermaidAffordanceRenderBoundsClampInvalidPublicThemeValues() {
+    var invalid = MarkdownMermaidDiagramAffordances()
+    invalid.minimumScale = .nan
+    invalid.maximumScale = .infinity
+    invalid.scaleStep = -1
+    invalid.minimumViewportHeight = .nan
+    invalid.maximumViewportHeight = -.infinity
+
+    #expect(invalid.renderScaleBounds.lowerBound == 0.5)
+    #expect(invalid.renderScaleBounds.upperBound == 3.0)
+    #expect(invalid.renderScaleStep == 0.2)
+    #expect(invalid.renderViewportHeightBounds.lowerBound == 120)
+    #expect(invalid.renderViewportHeightBounds.upperBound == 420)
+
+    var inverted = MarkdownMermaidDiagramAffordances()
+    inverted.minimumScale = 2
+    inverted.maximumScale = 1
+    inverted.minimumViewportHeight = 500
+    inverted.maximumViewportHeight = 100
+
+    #expect(inverted.renderScaleBounds.lowerBound == 1)
+    #expect(inverted.renderScaleBounds.upperBound == 2)
+    #expect(inverted.renderViewportHeightBounds.lowerBound == 100)
+    #expect(inverted.renderViewportHeightBounds.upperBound == 500)
+}
+
+@Test
+func mermaidViewportGeometryRejectsInvalidCustomRendererDimensions() {
+    let valid = MarkdownMermaidDiagramGeometry(width: 120, height: 80)
+    let invalid = [
+        MarkdownMermaidDiagramGeometry(width: 0, height: 80),
+        MarkdownMermaidDiagramGeometry(width: -1, height: 80),
+        MarkdownMermaidDiagramGeometry(width: .infinity, height: 80),
+        MarkdownMermaidDiagramGeometry(width: .nan, height: 80),
+        MarkdownMermaidDiagramGeometry(width: 120, height: 0),
+        MarkdownMermaidDiagramGeometry(width: 120, height: -.infinity)
+    ]
+
+    #expect(valid.isRenderableViewportGeometry)
+    for geometry in invalid {
+        #expect(!geometry.isRenderableViewportGeometry)
+    }
+}
+
+@Test
+func mermaidToolbarRequiresRenderableViewportGeometry() throws {
+    let source = try String(
+        contentsOf: packageRootURL().appending(path: "Sources/SiriusMarkdownSwiftUI/Blocks/MarkdownMermaidDiagramView.swift"),
+        encoding: .utf8
+    )
+
+    #expect(source.contains("mermaid.geometry?.isRenderableViewportGeometry == true"))
+    #expect(!source.contains("platformImage != nil &&\n            mermaid.geometry != nil"))
 }
 
 @Test
@@ -2780,6 +3174,61 @@ func mermaidPreparationCacheKeysIncludeRendererIdentityAndSupportOptOut() throws
 }
 
 @Test
+func mermaidPreparationCacheKeysIncludeThemeIdentity() throws {
+    let mermaidBlock = try firstBlock("```mermaid\ngraph LR\nA[Start] --> B[Done]\n```")
+    let cache = MarkdownRenderPreparationCache()
+    let recorder = MarkdownDiagnosticsRecorder()
+    let renderer = ThemeEchoMermaidRenderer()
+    let firstTheme = MarkdownTheme()
+    var secondTheme = firstTheme
+    secondTheme.syntaxHighlightingPalette.section = .red
+
+    let firstConfiguration = MarkdownRendererConfiguration(
+        theme: firstTheme,
+        mermaidRenderer: renderer,
+        preparationCache: cache,
+        diagnosticsRecorder: recorder
+    )
+    let firstPrepared = firstConfiguration.prepare(block: mermaidBlock)
+    let afterFirst = recorder.snapshot()
+
+    let cachedFirstPrepared = firstConfiguration.prepare(block: mermaidBlock)
+    let afterCachedFirst = recorder.snapshot()
+
+    let secondConfiguration = MarkdownRendererConfiguration(
+        theme: secondTheme,
+        mermaidRenderer: renderer,
+        preparationCache: cache,
+        diagnosticsRecorder: recorder
+    )
+    let secondPrepared = secondConfiguration.prepare(block: mermaidBlock)
+    let afterSecondTheme = recorder.snapshot()
+
+    #expect(firstTheme.renderCacheIdentity != secondTheme.renderCacheIdentity)
+    #expect(firstPrepared.mermaid?.ascii == firstTheme.renderCacheIdentity)
+    #expect(cachedFirstPrepared.mermaid?.ascii == firstPrepared.mermaid?.ascii)
+    #expect(secondPrepared.mermaid?.ascii == secondTheme.renderCacheIdentity)
+    #expect(afterFirst.mermaidRenderCount == 1)
+    #expect(afterCachedFirst.mermaidRenderCount == afterFirst.mermaidRenderCount)
+    #expect(afterCachedFirst.cacheHitCount == afterFirst.cacheHitCount + 1)
+    #expect(afterSecondTheme.mermaidRenderCount == afterCachedFirst.mermaidRenderCount + 1)
+    #expect(renderer.count == 2)
+}
+
+@Test
+func themeRenderCacheIdentityLengthPrefixesPublicFontProfileFields() {
+    let trickyName = "Body|codeProfiles=named:other"
+    var theme = MarkdownTheme()
+    theme.paragraphFontProfiles = MarkdownInlineFontProfiles(uniform: .named(trickyName, weight: .semibold))
+
+    let profileKey = theme.paragraphFontProfiles.cacheKey
+    let identity = theme.renderCacheIdentity
+
+    #expect(identity.contains("paragraphProfiles#\(profileKey.utf8.count):\(profileKey)"))
+    #expect(identity.contains("syntax#\(theme.syntaxHighlightingPalette.cacheIdentity.utf8.count):\(theme.syntaxHighlightingPalette.cacheIdentity)"))
+}
+
+@Test
 func inlinePreparationCacheKeysIncludePolicyIdentity() throws {
     let linkBlock = try firstBlock("[safe](https://example.com)")
     let cache = MarkdownRenderPreparationCache()
@@ -2804,6 +3253,122 @@ func inlinePreparationCacheKeysIncludePolicyIdentity() throws {
     #expect(attributedStringContainsLink(allowed.inline) == true)
     #expect(attributedStringContainsLink(denied.inline) == false)
     #expect(afterDeny.cacheMissCount == afterAllow.cacheMissCount + 1)
+}
+
+@Test
+func inlinePreparationCacheKeysIncludeRunSourceRanges() throws {
+    let cache = MarkdownRenderPreparationCache()
+    let recorder = MarkdownDiagnosticsRecorder()
+    let configuration = MarkdownRendererConfiguration(
+        preparationCache: cache,
+        diagnosticsRecorder: recorder
+    )
+    let blockRange = MarkdownSourceRange(byteRange: 0..<16, lineRange: 1..<2)
+    let firstRunRange = MarkdownSourceRange(byteRange: 2..<6, lineRange: 1..<2)
+    let secondRunRange = MarkdownSourceRange(byteRange: 8..<12, lineRange: 1..<2)
+    let firstBlock = MarkdownBlock(
+        id: MarkdownBlockID("same-block"),
+        kind: .paragraph,
+        sourceRange: blockRange,
+        text: "same rendered",
+        inlines: [
+            MarkdownInlineRun(kind: .strong, text: "same", sourceRange: firstRunRange)
+        ],
+        contentHash: 1,
+        isSealed: false
+    )
+    let secondBlock = MarkdownBlock(
+        id: MarkdownBlockID("same-block"),
+        kind: .paragraph,
+        sourceRange: blockRange,
+        text: "same rendered",
+        inlines: [
+            MarkdownInlineRun(kind: .strong, text: "same", sourceRange: secondRunRange)
+        ],
+        contentHash: 2,
+        isSealed: false
+    )
+
+    let first = try #require(configuration.prepare(block: firstBlock).inlineLayout)
+    let afterFirst = recorder.snapshot()
+    let second = try #require(configuration.prepare(block: secondBlock).inlineLayout)
+    let afterSecond = recorder.snapshot()
+
+    #expect(first.prepared.runs.first?.sourceRange == firstRunRange)
+    #expect(second.prepared.runs.first?.sourceRange == secondRunRange)
+    #expect(afterSecond.cacheMissCount == afterFirst.cacheMissCount + 1)
+}
+
+@Test
+func inlinePreparationCacheKeysSeparateRunFieldBoundaries() throws {
+    let cache = MarkdownRenderPreparationCache()
+    let recorder = MarkdownDiagnosticsRecorder()
+    let configuration = MarkdownRendererConfiguration(
+        linkPolicy: IdentityLinkPolicy(identity: "allow", decision: .allow),
+        preparationCache: cache,
+        diagnosticsRecorder: recorder
+    )
+    let blockRange = MarkdownSourceRange(byteRange: 0..<3, lineRange: 1..<2)
+    let firstBlock = MarkdownBlock(
+        id: MarkdownBlockID("same-block"),
+        kind: .paragraph,
+        sourceRange: blockRange,
+        text: "a",
+        inlines: [
+            MarkdownInlineRun(kind: .link, text: "a", destination: "bc")
+        ],
+        contentHash: 1,
+        isSealed: false
+    )
+    let secondBlock = MarkdownBlock(
+        id: MarkdownBlockID("same-block"),
+        kind: .paragraph,
+        sourceRange: blockRange,
+        text: "ab",
+        inlines: [
+            MarkdownInlineRun(kind: .link, text: "ab", destination: "c")
+        ],
+        contentHash: 2,
+        isSealed: false
+    )
+
+    let first = try #require(configuration.prepare(block: firstBlock).inlineLayout)
+    let afterFirst = recorder.snapshot()
+    let second = try #require(configuration.prepare(block: secondBlock).inlineLayout)
+    let afterSecond = recorder.snapshot()
+
+    #expect(first.prepared.runs.first?.text == "a")
+    #expect(first.prepared.runs.first?.destination == "bc")
+    #expect(second.prepared.runs.first?.text == "ab")
+    #expect(second.prepared.runs.first?.destination == "c")
+    #expect(plainString(configuration.prepare(block: secondBlock).inline) == "ab")
+    #expect(afterSecond.cacheMissCount == afterFirst.cacheMissCount + 1)
+}
+
+@Test
+func preparedSnapshotReuseIgnoresSealStateOnlyChanges() throws {
+    var stream = MarkdownStream()
+    stream.append("Streaming **text**")
+    let activeSnapshot = stream.snapshot()
+    let activeBlock = try #require(activeSnapshot.blocks.first)
+    let recorder = MarkdownDiagnosticsRecorder()
+    let configuration = MarkdownRendererConfiguration(diagnosticsRecorder: recorder)
+    let activePrepared = configuration.prepare(snapshot: activeSnapshot)
+    let afterActivePrepare = recorder.snapshot()
+
+    stream.append("\n\n")
+    let sealedSnapshot = stream.snapshot()
+    let sealedBlock = try #require(sealedSnapshot.blocks.first)
+    let sealedPrepared = configuration.prepare(snapshot: sealedSnapshot, reusing: activePrepared)
+    let afterSealedPrepare = recorder.snapshot()
+
+    #expect(activeBlock.id == sealedBlock.id)
+    #expect(activeBlock.sourceRange == sealedBlock.sourceRange)
+    #expect(activeBlock.isSealed == false)
+    #expect(sealedBlock.isSealed)
+    #expect(sealedPrepared.preparedContentByBlockID[sealedBlock.id]?.inlineLayout?.prepared.naturalText == "Streaming text")
+    #expect(afterSealedPrepare.renderPreparationCount == afterActivePrepare.renderPreparationCount)
+    #expect(afterSealedPrepare.prepareCount == afterActivePrepare.prepareCount)
 }
 
 @Test
@@ -2856,6 +3421,38 @@ func mathPreparationCacheKeysIncludeRendererIdentity() throws {
     #expect(afterTwo.mathRenderCount == afterOne.mathRenderCount + 2)
     #expect(rendererOne.count == 2)
     #expect(rendererTwo.count == 2)
+}
+
+@Test
+func mathPreparationCacheNamespacesSeparatePolicyAndRendererFields() throws {
+    let block = try firstBlock("$$\nx^2\n$$")
+    let cache = MarkdownRenderPreparationCache()
+    let recorder = MarkdownDiagnosticsRecorder()
+    let firstRenderer = IdentityMathRenderer(identity: "m", prefix: "one")
+    let secondRenderer = IdentityMathRenderer(identity: "r:renderer=m", prefix: "two")
+
+    let firstConfiguration = MarkdownRendererConfiguration(
+        mathPolicy: IdentityMathPolicy(identity: "p:renderer=r", decision: .allow),
+        mathRenderer: firstRenderer,
+        preparationCache: cache,
+        diagnosticsRecorder: recorder
+    )
+    let first = firstConfiguration.prepare(block: block)
+    let afterFirst = recorder.snapshot()
+
+    let secondConfiguration = MarkdownRendererConfiguration(
+        mathPolicy: IdentityMathPolicy(identity: "p", decision: .allow),
+        mathRenderer: secondRenderer,
+        preparationCache: cache,
+        diagnosticsRecorder: recorder
+    )
+    let second = secondConfiguration.prepare(block: block)
+    let afterSecond = recorder.snapshot()
+
+    #expect(plainString(first.math).contains("one:x^2"))
+    #expect(plainString(second.math).contains("two:x^2"))
+    #expect(afterSecond.mathRenderCount == afterFirst.mathRenderCount + 1)
+    #expect(secondRenderer.count == 1)
 }
 
 @Test
@@ -3441,15 +4038,7 @@ func preparedNativeResizeRenderKeepsPaintInsideNarrowedColumn() throws {
 
     let hostingView = NSHostingView(rootView: root)
     hostingView.frame = NSRect(origin: .zero, size: NSSize(width: 360, height: 420))
-    let window = NSWindow(
-        contentRect: hostingView.frame,
-        styleMask: [.borderless],
-        backing: .buffered,
-        defer: false
-    )
-    window.animationBehavior = .none
-    window.contentView = hostingView
-    window.orderFrontRegardless()
+    let window = offscreenTestWindow(hostingView)
     defer { tearDownWindow(window) }
     pumpLayout(hostingView)
 
@@ -4062,6 +4651,38 @@ private func plainString(_ attributed: AttributedString?) -> String {
     return String(attributed.characters)
 }
 
+private struct SemanticWidthMeasurer: InlineMeasuring {
+    var measurementCacheKey: String {
+        "semantic-width-measurer"
+    }
+
+    func width(of text: String, fontSize _: Double) -> Double {
+        Double(text.utf8.count)
+    }
+
+    func width(of segment: PreparedInlineSegment, fontSize _: Double) -> Double {
+        let scale = segment.kind == .code || segment.presentation.contains(.code) ? 2.0 : 1.0
+        return Double(segment.text.utf8.count) * scale
+    }
+}
+
+private func preparedInlineIdentityFixture(
+    runs: [MarkdownInlineRun],
+    sourceRange: MarkdownSourceRange
+) -> MarkdownPreparedInlineContent {
+    let prepared = PreparedInlineContent(runs: runs, sourceRange: sourceRange)
+    let measured = VariableWidthLineWalker(measurer: SemanticWidthMeasurer())
+        .prepare(prepared, fontSize: 12)
+    return MarkdownPreparedInlineContent(
+        attributed: InlineRunsView.attributedString(for: runs),
+        prepared: prepared,
+        measured: measured,
+        fontSize: 12,
+        lineHeight: 16,
+        fontProfiles: .paragraphDefault
+    )
+}
+
 private func screenshotCommandMarkdown() -> String {
     """
     - Command used:
@@ -4220,6 +4841,20 @@ private func hostedNativeLineWidth(_ line: AttributedString, baseFont: Font) -> 
     hostingView.frame = NSRect(origin: .zero, size: NSSize(width: 1_000, height: 80))
     hostingView.layoutSubtreeIfNeeded()
     return hostingView.fittingSize.width
+}
+
+@MainActor
+private func offscreenTestWindow<V: View>(_ hostingView: NSHostingView<V>) -> NSWindow {
+    let window = NSWindow(
+        contentRect: hostingView.frame,
+        styleMask: [.borderless],
+        backing: .buffered,
+        defer: false
+    )
+    window.animationBehavior = .none
+    window.isReleasedWhenClosed = false
+    window.contentView = hostingView
+    return window
 }
 
 @MainActor
@@ -5085,6 +5720,36 @@ private final class IdentityMermaidRenderer: MarkdownMermaidRenderer, MarkdownMe
             source: source,
             sourceRange: sourceRange,
             ascii: ascii
+        )
+    }
+
+    var count: Int {
+        lock.withLock {
+            callCount
+        }
+    }
+}
+
+private final class ThemeEchoMermaidRenderer: MarkdownMermaidRenderer, MarkdownMermaidRendererCacheIdentifying, @unchecked Sendable {
+    private let lock = NSLock()
+    private var callCount = 0
+
+    var mermaidRendererCacheIdentity: String {
+        "theme-echo"
+    }
+
+    func renderedMermaid(
+        _ source: String,
+        sourceRange: MarkdownSourceRange?,
+        theme: MarkdownTheme
+    ) -> MarkdownPreparedMermaidDiagram? {
+        lock.withLock {
+            callCount += 1
+        }
+        return MarkdownPreparedMermaidDiagram(
+            source: source,
+            sourceRange: sourceRange,
+            ascii: theme.renderCacheIdentity
         )
     }
 
