@@ -6,6 +6,7 @@ import SwiftUI
 public final class MarkdownRenderSession: ObservableObject {
     @Published public private(set) var preparedSnapshot: MarkdownPreparedSnapshot
     @Published public private(set) var snapshot: MarkdownSnapshot
+    @Published public private(set) var snapshotDiff: MarkdownPreparedSnapshotDiff
 
     public private(set) var configuration: MarkdownRendererConfiguration
     public let streamDiagnosticsRecorder: MarkdownDiagnosticsRecorder
@@ -52,7 +53,9 @@ public final class MarkdownRenderSession: ObservableObject {
         )
         let snapshot = stream.snapshot()
         self.snapshot = snapshot
-        self.preparedSnapshot = sessionConfiguration.prepare(snapshot: snapshot)
+        let preparedSnapshot = sessionConfiguration.prepare(snapshot: snapshot)
+        self.preparedSnapshot = preparedSnapshot
+        self.snapshotDiff = preparedSnapshot.diff
     }
 
     public var streamCounters: MarkdownDiagnosticsCounters {
@@ -141,6 +144,7 @@ public final class MarkdownRenderSession: ObservableObject {
                     }
                     self.snapshot = state.snapshot
                     self.preparedSnapshot = state.preparedSnapshot
+                    self.snapshotDiff = state.preparedSnapshot.diff
                 }
             }
         }

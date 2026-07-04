@@ -12,6 +12,7 @@ struct CoreTextPaintedInlineLineView: View {
     var theme: MarkdownTheme
     var containerWidth: CGFloat
     var linkAction: MarkdownLinkAction?
+    var dragSelectionHandler: ((CGPoint, CGPoint) -> Void)?
 
     static var isSupported: Bool {
         #if canImport(CoreText) && (os(macOS) || (canImport(UIKit) && !os(watchOS)))
@@ -29,7 +30,8 @@ struct CoreTextPaintedInlineLineView: View {
             fallbackAttributed: fallbackAttributed,
             textColor: theme.textColor,
             containerWidth: containerWidth,
-            linkAction: linkAction
+            linkAction: linkAction,
+            dragSelectionHandler: dragSelectionHandler
         )
         #elseif canImport(UIKit) && canImport(CoreText) && !os(watchOS)
         CoreTextPaintedInlineLineSurface(
@@ -38,7 +40,8 @@ struct CoreTextPaintedInlineLineView: View {
             fallbackAttributed: fallbackAttributed,
             textColor: theme.textColor,
             containerWidth: containerWidth,
-            linkAction: linkAction
+            linkAction: linkAction,
+            dragSelectionHandler: dragSelectionHandler
         )
         #else
         EmptyView()
@@ -47,11 +50,18 @@ struct CoreTextPaintedInlineLineView: View {
 }
 
 #if canImport(CoreText)
-struct MarkdownCoreTextPaintedLinePlan {
+struct MarkdownCoreTextPaintedLinePlan: @unchecked Sendable {
     var lines: [MarkdownCoreTextPaintedLine]
     var accessibilityLabel: String
     var lineHeight: CGFloat
     var lineSpacing: CGFloat
+
+    static let empty = MarkdownCoreTextPaintedLinePlan(
+        lines: [],
+        accessibilityLabel: "",
+        lineHeight: 0,
+        lineSpacing: 0
+    )
 
     var linkFragments: [MarkdownCoreTextPaintedLinkFragment] {
         lines.flatMap(\.linkFragments)
@@ -263,7 +273,7 @@ struct MarkdownCoreTextPaintedLinePlan {
     }
 }
 
-struct MarkdownCoreTextPaintedLine {
+struct MarkdownCoreTextPaintedLine: @unchecked Sendable {
     var index: Int
     var text: String
     var byteRange: Range<Int>
@@ -498,6 +508,7 @@ private struct CoreTextPaintedInlineLineSurface: NSViewRepresentable {
     var textColor: Color
     var containerWidth: CGFloat
     var linkAction: MarkdownLinkAction?
+    var dragSelectionHandler: ((CGPoint, CGPoint) -> Void)?
 
     func makeNSView(context _: Context) -> MarkdownCoreTextPaintedNSView {
         let view = MarkdownCoreTextPaintedNSView(frame: .zero)
@@ -506,12 +517,20 @@ private struct CoreTextPaintedInlineLineSurface: NSViewRepresentable {
     }
 
     func updateNSView(_ view: MarkdownCoreTextPaintedNSView, context _: Context) {
-        view.plan = MarkdownCoreTextPaintedLinePlan.make(
-            prepared: prepared,
-            layout: layoutResult
-        )
+        if let prebuilt = prepared.coreTextLinePlan,
+           let initialLayout = prepared.initialLayoutResult,
+           initialLayout == layoutResult
+        {
+            view.plan = prebuilt
+        } else {
+            view.plan = MarkdownCoreTextPaintedLinePlan.make(
+                prepared: prepared,
+                layout: layoutResult
+            )
+        }
         view.textColor = resolvedCGColor(textColor)
         view.linkAction = linkAction
+        view.dragSelectionHandler = dragSelectionHandler
         view.frame.size.width = containerWidth
         view.needsDisplay = true
         view.resetCursorRects()
@@ -525,15 +544,12 @@ private struct CoreTextPaintedInlineLineSurface: NSViewRepresentable {
 }
 
 private final class MarkdownCoreTextPaintedNSView: NSView {
-    var plan = MarkdownCoreTextPaintedLinePlan(
-        lines: [],
-        accessibilityLabel: "",
-        lineHeight: 0,
-        lineSpacing: 0
-    )
+    var plan = MarkdownCoreTextPaintedLinePlan.empty
     var textColor: CGColor = NSColor.labelColor.cgColor
     var linkAction: MarkdownLinkAction?
+    var dragSelectionHandler: ((CGPoint, CGPoint) -> Void)?
     private var linkClickTracker = MarkdownCoreTextPaintedLinkClickTracker()
+    private var dragStartPoint: CGPoint?
 
     override var isFlipped: Bool {
         true
@@ -564,23 +580,22 @@ private final class MarkdownCoreTextPaintedNSView: NSView {
 
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
-        if linkClickTracker.begin(at: point, fragments: plan.linkFragments, hitSlop: 2) {
-            return
-        }
+        linkClickTracker.begin(at: point, fragments: plan.linkFragments, hitSlop: 2)
+        dragStartPoint = point
         super.mouseDown(with: event)
     }
 
     override func mouseDragged(with event: NSEvent) {
-        guard linkClickTracker.hasPendingClick else {
-            super.mouseDragged(with: event)
-            return
-        }
-
         let point = convert(event.locationInWindow, from: nil)
         linkClickTracker.updateDrag(to: point)
-        if !linkClickTracker.hasPendingClick {
-            super.mouseDragged(with: event)
+        if let dragStartPoint,
+           !linkClickTracker.hasPendingClick,
+           let dragSelectionHandler
+        {
+            dragSelectionHandler(dragStartPoint, point)
+            self.dragStartPoint = nil
         }
+        super.mouseDragged(with: event)
     }
 
     override func mouseUp(with event: NSEvent) {
@@ -642,10 +657,17 @@ private struct CoreTextPaintedInlineLineSurface: UIViewRepresentable {
     }
 
     func updateUIView(_ view: MarkdownCoreTextPaintedUIView, context _: Context) {
-        view.plan = MarkdownCoreTextPaintedLinePlan.make(
-            prepared: prepared,
-            layout: layoutResult
-        )
+        if let prebuilt = prepared.coreTextLinePlan,
+           let initialLayout = prepared.initialLayoutResult,
+           initialLayout == layoutResult
+        {
+            view.plan = prebuilt
+        } else {
+            view.plan = MarkdownCoreTextPaintedLinePlan.make(
+                prepared: prepared,
+                layout: layoutResult
+            )
+        }
         view.textColor = resolvedCGColor(textColor)
         view.linkAction = linkAction
         view.frame.size.width = containerWidth

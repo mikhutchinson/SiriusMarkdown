@@ -71,6 +71,14 @@ Keeping the configuration alive lets the render-preparation cache reuse inline, 
 - **`generation`** — bumps on append, seal steps, host boundaries, and finish (useful for view identity).
 - **`isFinished`** — whether **`finish()`** was called.
 
+**`MarkdownPreparedSnapshot`** includes:
+
+- **`items`** — prepared block content and host boundaries.
+- **`renderItems`** — stable render item identifiers for `ForEach`.
+- **`diff`** — **`MarkdownPreparedSnapshotDiff`** identifying changed, new, and removed item IDs since the last published snapshot. The diff is computed during `prepare(snapshot:reusing:)` as a byproduct of the existing reuse detection — reused items are unchanged, freshly prepared items are changed or new.
+
+**`MarkdownRenderSession`** publishes both the full `MarkdownPreparedSnapshot` and the `MarkdownPreparedSnapshotDiff` via `@Published`. Views can consume the diff to minimize `ForEach` churn; unchanged sealed blocks do not trigger view re-evaluation during streaming appends.
+
 Semantics always come from **`swift-markdown`** on each parsed slice; the scanner only chooses slice boundaries. The scanner's reference-label tracking is a sealing guard, not a Markdown parser.
 
 ## Related docs

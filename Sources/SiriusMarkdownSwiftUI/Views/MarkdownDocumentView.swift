@@ -340,6 +340,7 @@ private struct MarkdownDocumentSelectionLayer<Content: View>: View {
 
     var body: some View {
         content()
+            .environment(\.markdownSelectionController, selectionController)
             .coordinateSpace(name: markdownDocumentSelectionCoordinateSpaceName)
             .overlay(alignment: .topLeading) {
                 selectionHighlights
@@ -354,8 +355,10 @@ private struct MarkdownDocumentSelectionLayer<Content: View>: View {
             .contentShape(Rectangle())
             .simultaneousGesture(selectionGesture)
             .onPreferenceChange(MarkdownDocumentSelectionFragmentsKey.self) { value in
+                let sorted = value.sortedForSelection()
+                guard sorted != fragments else { return }
                 configuration.diagnosticsRecorder.recordSelectionPreferenceChange()
-                fragments = value.sortedForSelection()
+                fragments = sorted
             }
             .contextMenu {
                 Button("Select All") {

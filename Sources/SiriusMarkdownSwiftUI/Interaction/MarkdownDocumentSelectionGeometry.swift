@@ -21,6 +21,15 @@ extension EnvironmentValues {
         get { self[MarkdownDocumentSelectionContextKey.self] }
         set { self[MarkdownDocumentSelectionContextKey.self] = newValue }
     }
+
+    var markdownSelectionController: MarkdownSelectionController? {
+        get { self[MarkdownSelectionControllerKey.self] }
+        set { self[MarkdownSelectionControllerKey.self] = newValue }
+    }
+}
+
+private struct MarkdownSelectionControllerKey: EnvironmentKey {
+    static let defaultValue: MarkdownSelectionController? = nil
 }
 
 struct MarkdownDocumentSelectionEndpoint: Equatable {

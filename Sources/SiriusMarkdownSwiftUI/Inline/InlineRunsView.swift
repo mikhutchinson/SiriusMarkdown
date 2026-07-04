@@ -20,6 +20,8 @@ extension MarkdownInlineRenderingMode {
 }
 
 public struct InlineRunsView: View {
+    public nonisolated static let defaultLayoutWidth: Double = 680
+
     private var attributed: AttributedString
     private var prepared: MarkdownPreparedInlineContent?
     private var theme: MarkdownTheme
@@ -586,11 +588,35 @@ private struct PreparedInlineTextView: View {
     var nativeTextSelection: MarkdownNativeTextSelection
 
     @Environment(\.markdownDocumentSelectionContext) private var documentSelectionContext
+    @Environment(\.markdownSelectionController) private var selectionController
 
     @State private var containerWidth: CGFloat = 0
-    @State private var layoutResult = InlineLayoutResult(lines: [], naturalWidth: 0, height: 0)
+    @State private var layoutResult: InlineLayoutResult
     @State private var recordedNonFiniteFallback = false
     @State private var recordedClipping = false
+
+    init(
+        prepared: MarkdownPreparedInlineContent,
+        fallbackAttributed: AttributedString,
+        theme: MarkdownTheme,
+        baseFont: Font,
+        linkAction: MarkdownLinkAction?,
+        inlineRenderingMode: MarkdownInlineRenderingMode,
+        nativeTextSelection: MarkdownNativeTextSelection
+    ) {
+        self.prepared = prepared
+        self.fallbackAttributed = fallbackAttributed
+        self.theme = theme
+        self.baseFont = baseFont
+        self.linkAction = linkAction
+        self.inlineRenderingMode = inlineRenderingMode
+        self.nativeTextSelection = nativeTextSelection
+        let initial = prepared.initialLayoutResult ?? InlineLayoutResult(lines: [], naturalWidth: 0, height: 0)
+        _layoutResult = State(initialValue: initial)
+        if let initial = prepared.initialLayoutResult, !initial.lines.isEmpty {
+            _containerWidth = State(initialValue: CGFloat(prepared.defaultLayoutWidth))
+        }
+    }
 
     private var layoutIdentity: PreparedInlineLayoutIdentity {
         PreparedInlineLayoutIdentity(
@@ -623,7 +649,10 @@ private struct PreparedInlineTextView: View {
                 }
             }
             .onChange(of: layoutIdentity) { _ in
-                layoutResult = InlineLayoutResult(lines: [], naturalWidth: 0, height: 0)
+                layoutResult = prepared.initialLayoutResult ?? InlineLayoutResult(lines: [], naturalWidth: 0, height: 0)
+                if let initial = prepared.initialLayoutResult, !initial.lines.isEmpty {
+                    containerWidth = CGFloat(prepared.defaultLayoutWidth)
+                }
                 refreshLayoutIfPossible()
             }
     }
@@ -645,7 +674,8 @@ private struct PreparedInlineTextView: View {
                         containerWidth: containerWidth,
                         linkAction: linkAction,
                         inlineRenderingMode: inlineRenderingMode,
-                        nativeTextSelection: nativeTextSelection
+                        nativeTextSelection: nativeTextSelection,
+                        dragSelectionHandler: makeDragSelectionHandler()
                     )
                 }
                 .background(nativeLineSelectionFragmentsPreference)
@@ -669,7 +699,6 @@ private struct PreparedInlineTextView: View {
 
     private var canRenderNativeLines: Bool {
         inlineRenderingMode.usesPreparedLineSurface &&
-            containerWidth > 0 &&
             !layoutResult.lines.isEmpty
     }
 
@@ -697,11 +726,10 @@ private struct PreparedInlineTextView: View {
     private var nativeLineSelectionFragmentsPreference: some View {
         GeometryReader { proxy in
             let rect = selectionPreferenceRect(from: proxy)
+            let fragments = nativeLineSelectionFragments(rect: rect)
             Color.clear.preference(
                 key: MarkdownDocumentSelectionFragmentsKey.self,
-                value: nativeLineSelectionFragments(
-                    rect: rect
-                )
+                value: fragments
             )
         }
         .allowsHitTesting(false)
@@ -778,6 +806,42 @@ private struct PreparedInlineTextView: View {
            refreshedLayout.lines.contains(where: { $0.width > layoutWidth + 0.5 }) {
             recordedClipping = true
             prepared.layoutCache.recordNativeLineClipping()
+        }
+    }
+
+    @MainActor
+    private func makeDragSelectionHandler() -> ((CGPoint, CGPoint) -> Void)? {
+        guard let selectionController, let documentSelectionContext else {
+            return nil
+        }
+        let blockID = documentSelectionContext.blockID
+        let prepared = prepared
+        let layoutResult = layoutResult
+        return { startPoint, endPoint in
+            let lineHeight = CGFloat(prepared.lineHeight)
+            let spacing = InlineRunsView.nativeLineSpacing(for: prepared)
+            let fragments = MarkdownDocumentSelectionFragment.inlineLineFragments(
+                blockID: blockID,
+                prepared: prepared,
+                layout: layoutResult,
+                rect: CGRect(x: 0, y: 0, width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude),
+                idPrefix: "text-leaf"
+            )
+            guard !fragments.isEmpty else { return }
+            let startFragment = MarkdownDocumentSelectionFragment.hitFragment(
+                at: startPoint, in: fragments, hitSlop: 4
+            )
+            let endFragment = MarkdownDocumentSelectionFragment.hitFragment(
+                at: endPoint, in: fragments, hitSlop: 4
+            )
+            guard let startFragment, let endFragment else { return }
+            let selection = MarkdownDocumentSelectionFragment.selection(
+                from: startFragment, to: endFragment, in: fragments
+            )
+            selectionController.selectSourceRanges(
+                selection.ranges,
+                selectedBlockIDs: selection.blockIDs
+            )
         }
     }
 

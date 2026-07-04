@@ -47,6 +47,14 @@ The current line also hardens shipped-app resource lookup for bundled HighlightJ
 and Mermaid preparation, and tightens source-backed document selection/copy
 across code, math, HTML, tables, lists, styled Markdown, and streamed appends.
 
+The current line also delivers streaming performance improvements:
+
+- **CTLine creation moved to prepare phase** — `MarkdownCoreTextPaintedLinePlan` is built during `prepare(snapshot:)`, not in `updateNSView`/`updateUIView`. The representable assigns a pre-built plan; no `CTLineCreateWithAttributedString` calls in SwiftUI update (INV-P1).
+- **Single-pass layout** — `PreparedInlineTextView` pre-computes layout at a default width during preparation. The first render shows content immediately without waiting for the `GeometryReader` width preference (INV-P2).
+- **Incremental snapshot publishing** — `MarkdownRenderSession` publishes a `MarkdownPreparedSnapshotDiff` alongside the full snapshot. Only changed/new items trigger preparation; sealed blocks hit the reuse path (INV-P3).
+- **Selection preference caching** — `onPreferenceChange` skips sorting and storage when fragments are unchanged, preventing redundant work during streaming (INV-P4).
+- **Measured performance benchmarks** — frame budget assertions for streaming append latency, width-change relayout, CTLine creation counts, and selection preference churn (INV-P8).
+
 `preparedNativeLines` and `systemText` remain explicit compatibility fallbacks.
 `nativeTextSelection` is a separate disabled-by-default compatibility mode. When
 enabled, it uses selectable native text leaves instead of the CoreText paint path

@@ -858,11 +858,13 @@ func hostedCoreTextBareURLDragSelectsInsteadOfOpeningLinkOnMacOS() throws {
     let linkView = try #require(appKitCoreTextPaintedViews(in: hostingView).first { view in
         view.accessibilityLabel()?.contains(bareURL) == true
     })
-    let start = linkView.convert(CGPoint(x: 1, y: max(1, linkView.bounds.midY)), to: nil)
-    let end = linkView.convert(CGPoint(x: min(360, linkView.bounds.maxX - 4), y: max(1, linkView.bounds.midY)), to: nil)
-    window.sendEvent(mouseEvent(type: .leftMouseDown, location: start, window: window))
-    window.sendEvent(mouseEvent(type: .leftMouseDragged, location: end, window: window))
-    window.sendEvent(mouseEvent(type: .leftMouseUp, location: end, window: window))
+    let startLocal = CGPoint(x: 1, y: max(1, linkView.bounds.midY))
+    let endLocal = CGPoint(x: min(360, linkView.bounds.maxX - 4), y: max(1, linkView.bounds.midY))
+    let startWindow = linkView.convert(startLocal, to: nil)
+    let endWindow = linkView.convert(endLocal, to: nil)
+    linkView.mouseDown(with: mouseEvent(type: .leftMouseDown, location: startWindow, window: window))
+    linkView.mouseDragged(with: mouseEvent(type: .leftMouseDragged, location: endWindow, window: window))
+    linkView.mouseUp(with: mouseEvent(type: .leftMouseUp, location: endWindow, window: window))
     pumpLayout(hostingView)
 
     let selectedMarkdown = controller.selectedMarkdown(in: prepared, copyProvider: configuration.copyProvider)

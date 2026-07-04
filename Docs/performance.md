@@ -23,6 +23,33 @@ SwiftUI block views consume **prepared inline content** created by **`MarkdownRe
 
 Prepared inline layout is the cacheable measurement, resize, diagnostics, and metadata layer. The packaged chat and document presets **`MarkdownRendererConfiguration.compactChat`** and **`.document`**, plus direct custom configuration, use **`MarkdownInlineRenderingMode.coreTextPaintedLines`** by default. That mode consumes **`InlineLayoutResult`** ranges, resolves CT fonts from **`MarkdownInlineFontProfiles`**, builds link hit regions only from prepared attributed link attributes that survived policy filtering, and paints each whole line through CoreText **`CTLineDraw`** in narrow AppKit/UIKit platform bridges. **`MarkdownInlineRenderingMode.preparedNativeLines`** and **`.systemText`** remain explicit compatibility fallbacks. All inline rendering modes keep parsing, policy preparation, code/math rendering, and inline measurement out of SwiftUI **`body`**.
 
+### CTLine plan preparation (INV-P1)
+
+**`MarkdownCoreTextPaintedLinePlan`** is created during **`prepare(snapshot:)`**, not in `updateNSView`/`updateUIView`. The representable assigns a pre-built plan. CTLine creation, font attribute application, and typographic measurement run in the prepare phase, cached by content identity. When the actual container width differs from the default width used during preparation, the representable rebuilds the plan from the refined layout result — but this only happens on width change, not on every SwiftUI update.
+
+### Single-pass layout (INV-P2)
+
+**`PreparedInlineTextView`** pre-computes layout at a default width (**680pt** standard chat column) during preparation. The first render shows content immediately; `canRenderNativeLines` is true on first appearance without waiting for the width preference. Width refinement adjusts line breaks in a single pass via the cheap `layout()` path. This eliminates the two-pass latency where new blocks rendered empty until the `GeometryReader` width preference arrived.
+
+### Incremental snapshot publishing (INV-P3)
+
+**`MarkdownRenderSession`** publishes a **`MarkdownPreparedSnapshotDiff`** alongside the full `MarkdownPreparedSnapshot`. The diff identifies changed, new, and removed item IDs since the last published snapshot. The existing `reusedPreparedItem` logic already identifies unchanged items — the diff is a byproduct of the existing reuse detection. Only changed/new items trigger preparation; sealed blocks hit the reuse path.
+
+### Selection preference caching (INV-P4)
+
+**`MarkdownDocumentSelectionLayer.onPreferenceChange`** skips sorting and storage when fragments are unchanged. `MarkdownDocumentSelectionFragment` conforms to `Equatable`, so the comparison is exact. This prevents redundant `sortedForSelection()` calls and `recordSelectionPreferenceChange()` increments during streaming when no blocks change position.
+
+### Benchmark results
+
+Performance benchmarks live in `Tests/SiriusMarkdownSwiftUITests/MarkdownPerformanceBenchmarkTests.swift`. Run with `swift test -c release --filter MarkdownPerformanceBenchmark` for accurate timing.
+
+| Operation | Budget | Rationale |
+|-----------|--------|-----------|
+| Append to 100-block transcript | <16ms | 60fps frame budget |
+| Width change on single block | <4ms | Quarter frame budget (layout only, no parsing) |
+| CTLine creation in SwiftUI body | 0 after preparation | All CTLine work in prepare phase |
+| Selection preference publication | 0 new builds after warmup | No work when nothing changed |
+
 ## Rendering path
 
 - **`MarkdownDocumentView`** / **`StreamingMarkdownView`** should receive **`MarkdownPreparedSnapshot`** values prepared outside SwiftUI body evaluation. Deprecated direct `snapshot:` initializers are kept only for small compatibility cases; they enforce cheap block policies but intentionally skip full highlighting, math rendering, and inline layout preparation.

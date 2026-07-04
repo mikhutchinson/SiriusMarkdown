@@ -11,6 +11,7 @@ struct NativeInlineLineTextView: View {
     var linkAction: MarkdownLinkAction?
     var inlineRenderingMode: MarkdownInlineRenderingMode
     var nativeTextSelection: MarkdownNativeTextSelection
+    var dragSelectionHandler: ((CGPoint, CGPoint) -> Void)?
 
     static var isSupported: Bool { true }
 
@@ -25,7 +26,8 @@ struct NativeInlineLineTextView: View {
                 fallbackAttributed: fallbackAttributed,
                 theme: theme,
                 containerWidth: width,
-                linkAction: linkAction
+                linkAction: linkAction,
+                dragSelectionHandler: dragSelectionHandler
             )
             .frame(width: width, height: height, alignment: .topLeading)
             .clipped()

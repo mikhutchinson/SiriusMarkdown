@@ -428,6 +428,8 @@ public struct MarkdownRendererConfiguration: Sendable {
 
         let previousItems = previousSnapshot?.items ?? []
         var fallbackReuse: MarkdownPreparedSnapshotReuse?
+        var changedItemIDs: Set<String> = []
+        var newItemIDs: Set<String> = []
 
         for (index, item) in snapshot.items.enumerated() {
             if index < previousItems.count,
@@ -452,15 +454,46 @@ public struct MarkdownRendererConfiguration: Sendable {
                 let prepared = fallbackReuse?.content(for: block) ?? prepare(block: block)
                 preparedContentByBlockID[block.id] = prepared
                 preparedItems.append(.block(block, prepared))
+                let itemID = "block:\(block.id.rawValue)"
+                if index < previousItems.count {
+                    changedItemIDs.insert(itemID)
+                } else {
+                    newItemIDs.insert(itemID)
+                }
             case let .hostBoundary(boundary):
                 preparedItems.append(.hostBoundary(boundary))
+                let itemID = "host:\(boundary.id.rawValue)"
+                if index < previousItems.count {
+                    changedItemIDs.insert(itemID)
+                } else {
+                    newItemIDs.insert(itemID)
+                }
             }
         }
+
+        var removedItemIDs: Set<String> = []
+        if previousItems.count > preparedItems.count {
+            let newItemIDSet = Set(preparedItems.map(\.id))
+            for previousItem in previousItems {
+                if !newItemIDSet.contains(previousItem.id) {
+                    removedItemIDs.insert(previousItem.id)
+                }
+            }
+        }
+
+        let generation = snapshot.generation
+        let diff = MarkdownPreparedSnapshotDiff(
+            changedItemIDs: changedItemIDs,
+            newItemIDs: newItemIDs,
+            removedItemIDs: removedItemIDs,
+            generation: generation
+        )
 
         return MarkdownPreparedSnapshot(
             snapshot: snapshot,
             items: preparedItems,
-            preparedContentByBlockID: preparedContentByBlockID
+            preparedContentByBlockID: preparedContentByBlockID,
+            diff: diff
         )
     }
 
@@ -983,7 +1016,8 @@ public struct MarkdownRendererConfiguration: Sendable {
             measurer: measurer,
             diagnosticsRecorder: diagnosticsRecorder
         )
-        let inline = MarkdownPreparedInlineContent(
+        let defaultLayoutWidth = InlineRunsView.defaultLayoutWidth
+        var inline = MarkdownPreparedInlineContent(
             attributed: inlinePayload.attributed,
             prepared: prepared,
             measured: measured,
@@ -994,6 +1028,35 @@ public struct MarkdownRendererConfiguration: Sendable {
             layoutCache: layoutCache,
             mathTextPieces: inlinePayload.mathPieces
         )
+        let initialLayoutWidth = InlineRunsView.nativeLineLayoutWidth(
+            for: inline,
+            containerWidth: defaultLayoutWidth
+        )
+        var initialLayoutEngine = InlineLayoutEngine(
+            measurer: measurer,
+            cacheCapacity: 0,
+            diagnosticsRecorder: MarkdownDiagnosticsRecorder()
+        )
+        inline.initialLayoutResult = initialLayoutEngine.layout(
+            measured,
+            options: InlineLayoutOptions(
+                containerWidth: initialLayoutWidth,
+                fontSize: metrics.fontSize,
+                lineHeight: metrics.lineHeight
+            ),
+            allowsOverwideFallback: true
+        )
+        inline.defaultLayoutWidth = defaultLayoutWidth
+        #if canImport(CoreText)
+        if let initialLayout = inline.initialLayoutResult,
+           !initialLayout.lines.isEmpty
+        {
+            inline.coreTextLinePlan = MarkdownCoreTextPaintedLinePlan.make(
+                prepared: inline,
+                layout: initialLayout
+            )
+        }
+        #endif
         if let cacheKey {
             preparationCache.insertInline(inline, forKey: cacheKey)
         }
@@ -1505,6 +1568,16 @@ public struct MarkdownPreparedInlineContent: Sendable {
     /// When non-nil, this inline content contains typeset math and should be
     /// rendered with native `Text` composition instead of prepared CoreText lines.
     public var mathTextPieces: [MarkdownInlineMathPiece]?
+    /// Pre-computed layout at `defaultLayoutWidth` so the first render shows
+    /// content immediately without waiting for the width preference (INV-P2).
+    public var initialLayoutResult: InlineLayoutResult?
+    /// The container width used to compute `initialLayoutResult`.
+    public var defaultLayoutWidth: Double
+    /// Pre-built CTLine plan from `initialLayoutResult` so the representable
+    /// assigns without creating CTLine objects in SwiftUI update (INV-P1).
+    #if canImport(CoreText)
+    var coreTextLinePlan: MarkdownCoreTextPaintedLinePlan?
+    #endif
 
     public init(
         attributed: AttributedString,
@@ -1515,7 +1588,9 @@ public struct MarkdownPreparedInlineContent: Sendable {
         lineHeight: Double,
         fontProfiles: MarkdownInlineFontProfiles = .paragraphDefault,
         layoutCache: MarkdownInlineLayoutCache = MarkdownInlineLayoutCache(),
-        mathTextPieces: [MarkdownInlineMathPiece]? = nil
+        mathTextPieces: [MarkdownInlineMathPiece]? = nil,
+        initialLayoutResult: InlineLayoutResult? = nil,
+        defaultLayoutWidth: Double = InlineRunsView.defaultLayoutWidth
     ) {
         let safeFontSize = Self.sanitizedPositive(fontSize, fallback: 14)
         let safeLineHeight = Self.sanitizedPositive(lineHeight, fallback: safeFontSize)
@@ -1528,6 +1603,8 @@ public struct MarkdownPreparedInlineContent: Sendable {
         self.fontProfiles = fontProfiles
         self.layoutCache = layoutCache
         self.mathTextPieces = mathTextPieces
+        self.initialLayoutResult = initialLayoutResult
+        self.defaultLayoutWidth = defaultLayoutWidth
     }
 
     private static func sanitizedPositive(_ value: Double, fallback: Double) -> Double {
@@ -1812,12 +1889,14 @@ public struct MarkdownPreparedSnapshot: Sendable {
     public var renderItems: [MarkdownPreparedSnapshotRenderItem]
     public var itemIDs: [String]
     public var preparedContentByBlockID: [MarkdownBlockID: MarkdownPreparedBlockContent]
+    public var diff: MarkdownPreparedSnapshotDiff
 
     public init(
         snapshot: MarkdownSnapshot,
         items: [MarkdownPreparedSnapshotItem],
         renderItems: [MarkdownPreparedSnapshotRenderItem]? = nil,
-        preparedContentByBlockID: [MarkdownBlockID: MarkdownPreparedBlockContent]
+        preparedContentByBlockID: [MarkdownBlockID: MarkdownPreparedBlockContent],
+        diff: MarkdownPreparedSnapshotDiff = MarkdownPreparedSnapshotDiff()
     ) {
         self.snapshot = snapshot
         self.items = items
@@ -1825,6 +1904,7 @@ public struct MarkdownPreparedSnapshot: Sendable {
         self.renderItems = resolvedRenderItems
         self.itemIDs = resolvedRenderItems.map(\.id)
         self.preparedContentByBlockID = preparedContentByBlockID
+        self.diff = diff
     }
 
     public subscript(blockID: MarkdownBlockID) -> MarkdownPreparedBlockContent? {
@@ -1881,6 +1961,33 @@ public struct MarkdownPreparedSnapshotRenderItem: Identifiable, Sendable, Hashab
     public init(id: String, itemIndex: Int) {
         self.id = id
         self.itemIndex = itemIndex
+    }
+}
+
+public struct MarkdownPreparedSnapshotDiff: Sendable, Hashable {
+    public var changedItemIDs: Set<String>
+    public var newItemIDs: Set<String>
+    public var removedItemIDs: Set<String>
+    public var generation: Int
+
+    public init(
+        changedItemIDs: Set<String> = [],
+        newItemIDs: Set<String> = [],
+        removedItemIDs: Set<String> = [],
+        generation: Int = 0
+    ) {
+        self.changedItemIDs = changedItemIDs
+        self.newItemIDs = newItemIDs
+        self.removedItemIDs = removedItemIDs
+        self.generation = generation
+    }
+
+    public var hasChanges: Bool {
+        !changedItemIDs.isEmpty || !newItemIDs.isEmpty || !removedItemIDs.isEmpty
+    }
+
+    public func contains(_ id: String) -> Bool {
+        changedItemIDs.contains(id) || newItemIDs.contains(id)
     }
 }
 

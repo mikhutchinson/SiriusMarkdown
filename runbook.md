@@ -17,7 +17,7 @@ swift test
 ```
 
 Current status: `swift test` must pass with strict Swift-vs-Pretext comparison enabled across the required product fixture groups. Missing groups, duplicate fixture names/groups, absent required layout metadata (`font`, `lineHeight`, `whiteSpace`, `wordBreak`), invalid/nonzero `letterSpacing`, or known-drift allowlists are release blockers.
-The release-gate discovery floor for this slice is `557` Swift tests.
+The release-gate discovery floor for this slice is `567` Swift tests.
 
 Count the Swift test functions reported by the runner and keep the release-gate discovery floor current:
 
@@ -101,6 +101,11 @@ Layout and renderer acceptance for the current slice:
 - Renderer tests must assert behavior through render plans, prepared snapshots, lightweight prepared render identities, source-backed selection copy contexts, inline payload helpers, diagnostics counters, and large-transcript prepared item identity. `Tools/RenderProbe` owns the opt-in `MarkdownDocumentView` AppKit pixel check so Swift Testing helper crashes do not excuse dropping document-render coverage.
 - The full Swift suite runs serially in `Tools/release-check.sh` because the renderer tests host real SwiftUI/AppKit views and text views. `Tools/RenderProbe` is opt-in through `SIRIUS_MARKDOWN_RUN_VISUAL_PROBES=1` for pixel-level offscreen AppKit coverage instead of forcing those artifact checks through every default release run.
 - Repeated preparation of the same snapshot should reuse inline/code/math caches and record cache hits without incrementing prepare, highlighting, or math-render counters.
+- CTLine creation must not run in `updateNSView`/`updateUIView`; it must run in `prepare(snapshot:)` (INV-P1). The representable assigns a pre-built `MarkdownCoreTextPaintedLinePlan` when the layout result matches the initial pre-computed layout.
+- `PreparedInlineTextView` must render content on first appearance without waiting for the width preference (INV-P2). The initial layout is pre-computed at a default width during preparation.
+- `MarkdownRenderSession` must publish a `MarkdownPreparedSnapshotDiff` alongside the full snapshot (INV-P3). Only changed/new items trigger preparation; sealed blocks hit the reuse path.
+- Selection fragment geometry must be cached; repeated same-rect resolution must record zero new builds after warmup (INV-P4). `onPreferenceChange` must skip sorting and storage when fragments are unchanged.
+- Performance benchmarks must pass in release mode with defined frame budgets (INV-P8). See `MarkdownPerformanceBenchmarkTests.swift`.
 
 ## Pretext Golden Tool
 
