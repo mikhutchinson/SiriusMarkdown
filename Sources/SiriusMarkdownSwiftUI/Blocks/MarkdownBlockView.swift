@@ -561,6 +561,15 @@ public struct MarkdownBlockView: View {
                     inlineRenderingMode: configuration.inlineRenderingMode,
                     nativeTextSelection: selectionModeInsideCompositeGrid
                 )
+            } else if let selectionInlineLayout = cell?.selectionInlineLayout {
+                InlineRunsView(
+                    prepared: selectionInlineLayout,
+                    theme: theme,
+                    baseFont: isHeader ? theme.paragraphFont.bold() : theme.paragraphFont,
+                    linkAction: configuration.linkAction,
+                    inlineRenderingMode: configuration.inlineRenderingMode,
+                    nativeTextSelection: selectionModeInsideCompositeGrid
+                )
             } else {
                 InlineRunsView(
                     attributed: cell?.inline ?? AttributedString(""),
@@ -961,6 +970,15 @@ private struct MarkdownListItemRow: View {
         if let inlineLayout = item.inlineLayout {
             InlineRunsView(
                 prepared: inlineLayout,
+                theme: theme,
+                baseFont: theme.paragraphFont,
+                linkAction: configuration.linkAction,
+                inlineRenderingMode: configuration.inlineRenderingMode,
+                nativeTextSelection: selectionModeInsideLeadingLayout
+            )
+        } else if let selectionInlineLayout = item.selectionInlineLayout {
+            InlineRunsView(
+                prepared: selectionInlineLayout,
                 theme: theme,
                 baseFont: theme.paragraphFont,
                 linkAction: configuration.linkAction,

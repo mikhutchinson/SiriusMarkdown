@@ -64,7 +64,11 @@ Layout and renderer acceptance for the current slice:
   not parent block/list/table rectangles. Prepared-line fragments should carry
   text-leaf coordinates, and first/last-line highlights must clip through
   CoreText-backed string offsets so gutters, table grids, and trailing blank row
-  width are not painted as selected text.
+  width are not painted as selected text. All block types with inline content
+  (paragraphs, headings, block quotes, list items, table cells, code blocks,
+  math blocks, HTML blocks) must publish text-geometry-aware selection
+  fragments from prepared inline layout, not rect-based fallbacks.
+  `MarkdownCrossBlockSelectionTests` must pass in the release gate.
 - Prepared-line selection fragments must map visible byte offsets back through
   source runs before forming source ranges. Styled inline Markdown such as
   emphasis, strong, links, images, and math may have visible text shorter than

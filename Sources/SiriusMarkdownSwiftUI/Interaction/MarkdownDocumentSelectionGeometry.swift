@@ -132,6 +132,24 @@ struct MarkdownDocumentSelectionFragment: Identifiable, Equatable {
             return [blockFragment(for: block, rect: rect)]
         }
 
+        if !preparedContent.listItems.isEmpty {
+            let itemFragments = listFragments(
+                block: block,
+                items: preparedContent.listItems,
+                rect: rect
+            )
+            if !itemFragments.isEmpty {
+                return itemFragments
+            }
+        }
+
+        if let table = preparedContent.table {
+            let cellFragments = tableCellFragments(block: block, table: table, rect: rect)
+            if !cellFragments.isEmpty {
+                return cellFragments
+            }
+        }
+
         if let inlineLayout = preparedContent.inlineLayout {
             let lines = inlineLineFragments(
                 blockID: block.id,
@@ -151,27 +169,22 @@ struct MarkdownDocumentSelectionFragment: Identifiable, Equatable {
             }
         }
 
-        if !preparedContent.listItems.isEmpty {
-            let itemFragments = preparedContent.listItems.flatMap {
-                listFragments(block: block, item: $0, rect: rect)
-            }
-            if !itemFragments.isEmpty {
-                return itemFragments
-            }
-        }
-
-        if let table = preparedContent.table {
-            let cells = table.header + table.rows.flatMap(\.cells)
-            let cellFragments = cells.enumerated().map { index, cell in
-                MarkdownDocumentSelectionFragment(
-                    id: "table-cell:\(block.id.rawValue):\(index):\(cell.sourceRange.byteRange.lowerBound)",
-                    blockID: block.id,
-                    sourceRange: cell.sourceRange,
-                    rect: rect
-                )
-            }
-            if !cellFragments.isEmpty {
-                return cellFragments
+        if let selectionInlineLayout = preparedContent.selectionInlineLayout {
+            let lines = inlineLineFragments(
+                blockID: block.id,
+                prepared: selectionInlineLayout,
+                layout: selectionInlineLayout.layout(
+                    containerWidth: InlineRunsView.nativeLineLayoutWidth(
+                        for: selectionInlineLayout,
+                        containerWidth: Double(rect.width)
+                    ),
+                    allowsOverwideFallback: true
+                ),
+                rect: rect,
+                idPrefix: "block-selection"
+            )
+            if !lines.isEmpty {
+                return lines
             }
         }
 
@@ -361,21 +374,166 @@ struct MarkdownDocumentSelectionFragment: Identifiable, Equatable {
         )
     }
 
+    private static let listItemIndentationPerLevel: CGFloat = 36
+
+    private static func flattenedListItemCount(_ items: [MarkdownPreparedListItem]) -> Int {
+        items.reduce(0) { count, item in
+            count + 1 + flattenedListItemCount(item.childItems)
+        }
+    }
+
     private static func listFragments(
         block: MarkdownBlock,
-        item: MarkdownPreparedListItem,
+        items: [MarkdownPreparedListItem],
         rect: CGRect
     ) -> [MarkdownDocumentSelectionFragment] {
-        var fragments = [
-            MarkdownDocumentSelectionFragment(
-                id: "\(item.id):\(item.sourceRange.byteRange.lowerBound)",
-                blockID: block.id,
-                sourceRange: item.sourceRange,
-                rect: rect
-            )
-        ]
-        fragments.append(contentsOf: item.childItems.flatMap { listFragments(block: block, item: $0, rect: rect) })
+        let totalCount = flattenedListItemCount(items)
+        guard totalCount > 0 else { return [] }
+        let itemHeight = rect.height / CGFloat(totalCount)
+        var yCursor = rect.minY
+        return listItemFragmentsInternal(
+            block: block,
+            items: items,
+            rect: rect,
+            yCursor: &yCursor,
+            itemHeight: itemHeight,
+            indentation: 0
+        )
+    }
+
+    private static func listItemFragmentsInternal(
+        block: MarkdownBlock,
+        items: [MarkdownPreparedListItem],
+        rect: CGRect,
+        yCursor: inout CGFloat,
+        itemHeight: CGFloat,
+        indentation: CGFloat
+    ) -> [MarkdownDocumentSelectionFragment] {
+        let itemRectX = rect.minX + indentation
+        let itemRectWidth = max(rect.width - indentation, 0)
+        var fragments: [MarkdownDocumentSelectionFragment] = []
+        for item in items {
+            let itemRect = CGRect(x: itemRectX, y: yCursor, width: itemRectWidth, height: itemHeight)
+            yCursor += itemHeight
+
+            if let layout = item.inlineLayout ?? item.selectionInlineLayout {
+                let lines = inlineLineFragments(
+                    blockID: block.id,
+                    prepared: layout,
+                    layout: layout.layout(
+                        containerWidth: InlineRunsView.nativeLineLayoutWidth(
+                            for: layout,
+                            containerWidth: Double(itemRect.width)
+                        ),
+                        allowsOverwideFallback: true
+                    ),
+                    rect: itemRect,
+                    idPrefix: "list:\(item.id)"
+                )
+                fragments.append(contentsOf: lines)
+            } else {
+                fragments.append(MarkdownDocumentSelectionFragment(
+                    id: "\(item.id):\(item.sourceRange.byteRange.lowerBound)",
+                    blockID: block.id,
+                    sourceRange: item.sourceRange,
+                    rect: itemRect
+                ))
+            }
+
+            fragments.append(contentsOf: listItemFragmentsInternal(
+                block: block,
+                items: item.childItems,
+                rect: rect,
+                yCursor: &yCursor,
+                itemHeight: itemHeight,
+                indentation: indentation + listItemIndentationPerLevel
+            ))
+        }
         return fragments
+    }
+
+    private static func tableCellFragments(
+        block: MarkdownBlock,
+        table: MarkdownPreparedTableBlock,
+        rect: CGRect
+    ) -> [MarkdownDocumentSelectionFragment] {
+        let columnCount = max(
+            table.columnAlignments.count,
+            table.header.count,
+            table.rows.map(\.cells.count).max() ?? 0
+        )
+        guard columnCount > 0 else { return [] }
+        let rowCount = 1 + table.rows.count
+        let cellWidth = rect.width / CGFloat(columnCount)
+        let cellHeight = rect.height / CGFloat(rowCount)
+
+        var fragments: [MarkdownDocumentSelectionFragment] = []
+
+        for (column, cell) in table.header.enumerated() {
+            let cellRect = CGRect(
+                x: rect.minX + CGFloat(column) * cellWidth,
+                y: rect.minY,
+                width: cellWidth,
+                height: cellHeight
+            )
+            fragments.append(contentsOf: tableCellFragment(
+                block: block,
+                cell: cell,
+                rect: cellRect,
+                index: column
+            ))
+        }
+
+        for (rowIndex, row) in table.rows.enumerated() {
+            for (column, cell) in row.cells.enumerated() {
+                let cellRect = CGRect(
+                    x: rect.minX + CGFloat(column) * cellWidth,
+                    y: rect.minY + CGFloat(rowIndex + 1) * cellHeight,
+                    width: cellWidth,
+                    height: cellHeight
+                )
+                fragments.append(contentsOf: tableCellFragment(
+                    block: block,
+                    cell: cell,
+                    rect: cellRect,
+                    index: table.header.count + rowIndex * columnCount + column
+                ))
+            }
+        }
+
+        return fragments
+    }
+
+    private static func tableCellFragment(
+        block: MarkdownBlock,
+        cell: MarkdownPreparedTableCell,
+        rect: CGRect,
+        index: Int
+    ) -> [MarkdownDocumentSelectionFragment] {
+        if let layout = cell.inlineLayout ?? cell.selectionInlineLayout {
+            let lines = inlineLineFragments(
+                blockID: block.id,
+                prepared: layout,
+                layout: layout.layout(
+                    containerWidth: InlineRunsView.nativeLineLayoutWidth(
+                        for: layout,
+                        containerWidth: Double(rect.width)
+                    ),
+                    allowsOverwideFallback: true
+                ),
+                rect: rect,
+                idPrefix: "table-cell:\(block.id.rawValue):\(index)"
+            )
+            if !lines.isEmpty {
+                return lines
+            }
+        }
+        return [MarkdownDocumentSelectionFragment(
+            id: "table-cell:\(block.id.rawValue):\(index):\(cell.sourceRange.byteRange.lowerBound)",
+            blockID: block.id,
+            sourceRange: cell.sourceRange,
+            rect: rect
+        )]
     }
 
     private static func sourceRange(
@@ -937,7 +1095,7 @@ extension MarkdownPreparedBlockContent {
         }
         if let table {
             let cells = table.header + table.rows.flatMap(\.cells)
-            if cells.contains(where: { $0.inlineLayout != nil }) {
+            if cells.contains(where: { $0.inlineLayout != nil || $0.selectionInlineLayout != nil }) {
                 return true
             }
         }
@@ -947,7 +1105,9 @@ extension MarkdownPreparedBlockContent {
 
 extension MarkdownPreparedListItem {
     var emitsTextLeafSelectionFragments: Bool {
-        inlineLayout != nil || childItems.contains(where: \.emitsTextLeafSelectionFragments)
+        inlineLayout != nil ||
+            selectionInlineLayout != nil ||
+            childItems.contains(where: \.emitsTextLeafSelectionFragments)
     }
 }
 

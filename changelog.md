@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.13 - 2026-07-04
+
+- Fixed cross-block selection consistency so all block types with inline content (paragraphs, headings, block quotes, list items, table cells, code blocks, math blocks, HTML blocks) publish text-geometry-aware selection fragments from prepared inline layout instead of rect-based fallbacks. Previously table cells and list items used rect-based fragments without `textGeometry`, code blocks with `selectionInlineLayout` were skipped by `fragments(for:preparedContent:rect:)`, and list/table blocks' block-level `inlineLayout` intercepted before per-item/per-cell fragment paths.
+- Added `selectionInlineLayout` to `MarkdownPreparedListItem` and `MarkdownPreparedTableCell` so items/cells without `inlineLayout` still get text-geometry-aware fragments. Updated `emitsTextLeafSelectionFragments` to check `selectionInlineLayout` for list items and table cells (INV-S3).
+- Reordered `fragments(for:preparedContent:rect:)` to check list items and table cells before block-level `inlineLayout`, preventing concatenated block-level inline content from intercepting per-item/per-cell fragment generation.
+- Added 27 cross-block selection tests covering table cells, list items (including nested and task lists), code blocks (including policy-denied), math blocks (including `\[...\]` and policy-denied), HTML blocks, and mixed-document fragment generation. The release gate now discovers `594` Swift tests.
+
 ## 0.5.12 - 2026-06-26
 
 - Fixed bug-sweep regressions for same-offset host-boundary ordering, host-heavy snapshot item assembly, duplicate host-boundary render IDs, EOF nearest source reveal, plain-text fallback copy for blocks without inline runs, empty source-buffer appends, prepared native-line semantic layout identity, overwide atomic inline presentation measurement, styled-link document-selection geometry, duplicate sourceless image display text, Mermaid theme cache identity, Mermaid custom-renderer geometry validation and toolbar visibility, Pretext fixture metadata validation, SwiftMath packaged-app resource lookup, macOS demo resource packaging, CoreText measurement hardening, image-backed display-math selection fragments, source-range-aware and field-bounded inline cache keys, field-bounded font/theme/render-preparation namespaces, seal-state-only prepared snapshot reuse, visual-probe release/docs gating, and public native-selection incident wording.

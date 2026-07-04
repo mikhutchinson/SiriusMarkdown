@@ -758,7 +758,7 @@ public struct MarkdownRendererConfiguration: Sendable {
     private func preparedVisibleTextSelectionInline(
         text: String,
         sourceRange: MarkdownSourceRange,
-        block: MarkdownBlock
+        block: MarkdownBlock? = nil
     ) -> MarkdownPreparedInlineContent? {
         guard !text.isEmpty else {
             return nil
@@ -1343,12 +1343,22 @@ public struct MarkdownRendererConfiguration: Sendable {
     private func preparedListItems(_ items: [MarkdownListItem]) -> [MarkdownPreparedListItem] {
         items.map { item in
             let inline = preparedInline(for: item.inlines, sourceRange: item.sourceRange)
+            let selectionInline: MarkdownPreparedInlineContent?
+            if inline != nil {
+                selectionInline = nil
+            } else {
+                selectionInline = preparedVisibleTextSelectionInline(
+                    text: item.text,
+                    sourceRange: item.sourceRange
+                )
+            }
             return MarkdownPreparedListItem(
                 id: "list-item:\(item.sourceRange.byteRange.lowerBound):\(item.sourceRange.byteRange.upperBound)",
                 sourceRange: item.sourceRange,
                 taskState: item.taskState,
                 inline: inline?.attributed,
                 inlineLayout: inline,
+                selectionInlineLayout: selectionInline,
                 childListKind: item.childListKind,
                 childOrderedListStart: item.childOrderedListStart,
                 childItems: preparedListItems(item.childItems)
@@ -1393,11 +1403,21 @@ public struct MarkdownRendererConfiguration: Sendable {
 
     private func preparedTableCell(_ cell: MarkdownTableCell) -> MarkdownPreparedTableCell {
         let inline = preparedInline(for: cell.inlines, sourceRange: cell.sourceRange)
+        let selectionInline: MarkdownPreparedInlineContent?
+        if inline != nil {
+            selectionInline = nil
+        } else {
+            selectionInline = preparedVisibleTextSelectionInline(
+                text: cell.text,
+                sourceRange: cell.sourceRange
+            )
+        }
         return MarkdownPreparedTableCell(
             id: "table-cell:\(cell.sourceRange.byteRange.lowerBound):\(cell.sourceRange.byteRange.upperBound)",
             sourceRange: cell.sourceRange,
             inline: inline?.attributed,
             inlineLayout: inline,
+            selectionInlineLayout: selectionInline,
             colspan: cell.colspan,
             rowspan: cell.rowspan
         )
@@ -2040,6 +2060,7 @@ public struct MarkdownPreparedListItem: Identifiable, Sendable {
     public var taskState: MarkdownTaskState?
     public var inline: AttributedString?
     public var inlineLayout: MarkdownPreparedInlineContent?
+    public var selectionInlineLayout: MarkdownPreparedInlineContent?
     public var childListKind: MarkdownBlockKind?
     public var childOrderedListStart: UInt?
     public var childItems: [MarkdownPreparedListItem]
@@ -2050,6 +2071,7 @@ public struct MarkdownPreparedListItem: Identifiable, Sendable {
         taskState: MarkdownTaskState? = nil,
         inline: AttributedString? = nil,
         inlineLayout: MarkdownPreparedInlineContent? = nil,
+        selectionInlineLayout: MarkdownPreparedInlineContent? = nil,
         childListKind: MarkdownBlockKind? = nil,
         childOrderedListStart: UInt? = nil,
         childItems: [MarkdownPreparedListItem] = []
@@ -2059,6 +2081,7 @@ public struct MarkdownPreparedListItem: Identifiable, Sendable {
         self.taskState = taskState
         self.inline = inline
         self.inlineLayout = inlineLayout
+        self.selectionInlineLayout = selectionInlineLayout
         self.childListKind = childListKind
         self.childOrderedListStart = childOrderedListStart
         self.childItems = childItems
@@ -2070,6 +2093,7 @@ public struct MarkdownPreparedTableCell: Identifiable, Sendable {
     public var sourceRange: MarkdownSourceRange
     public var inline: AttributedString?
     public var inlineLayout: MarkdownPreparedInlineContent?
+    public var selectionInlineLayout: MarkdownPreparedInlineContent?
     public var colspan: UInt
     public var rowspan: UInt
 
@@ -2078,6 +2102,7 @@ public struct MarkdownPreparedTableCell: Identifiable, Sendable {
         sourceRange: MarkdownSourceRange,
         inline: AttributedString? = nil,
         inlineLayout: MarkdownPreparedInlineContent? = nil,
+        selectionInlineLayout: MarkdownPreparedInlineContent? = nil,
         colspan: UInt = 1,
         rowspan: UInt = 1
     ) {
@@ -2085,6 +2110,7 @@ public struct MarkdownPreparedTableCell: Identifiable, Sendable {
         self.sourceRange = sourceRange
         self.inline = inline
         self.inlineLayout = inlineLayout
+        self.selectionInlineLayout = selectionInlineLayout
         self.colspan = colspan
         self.rowspan = rowspan
     }
