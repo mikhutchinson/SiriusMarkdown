@@ -66,16 +66,136 @@ final class SwiftMathTypesetter: @unchecked Sendable {
                 return nil
             }
 
+            let (ascent, descent) = Self.estimateAscentDescent(
+                latex: typesetLatex,
+                pointHeight: pointHeight,
+                fontSize: fontSize
+            )
+
             return MarkdownPreparedMathImage(
                 imageData: imageData,
                 scale: scale,
                 pointWidth: pointWidth,
                 pointHeight: pointHeight,
-                ascent: pointHeight,
-                descent: 0,
+                ascent: ascent,
+                descent: descent,
                 latex: latex
             )
         }
+    }
+
+    /// Estimates the typographic ascent and descent of a typeset equation by
+    /// inspecting the parsed `MTMathList` atom tree for below-baseline content.
+    ///
+    /// `MTMathImage` does not expose its internal `MTMathListDisplay` ascent/
+    /// descent publicly, so we parse the LaTeX with `MTMathListBuilder` and
+    /// recursively check for atoms that extend below the math baseline
+    /// (subscripts, fraction denominators, radical degrees, large-operator
+    /// limits). The estimate partitions `pointHeight` into `ascent + descent`
+    /// so the baseline offset can align the equation with surrounding text.
+    ///
+    /// - When no descenders are found, the descent is a small fraction of the
+    ///   font size (typical font descender).
+    /// - When descenders are present, the descent is a larger fraction of the
+    ///   total height, reflecting the below-baseline content.
+    private static func estimateAscentDescent(
+        latex: String,
+        pointHeight: Double,
+        fontSize: Double
+    ) -> (ascent: Double, descent: Double) {
+        var error: NSError?
+        guard let mathList = MTMathListBuilder.build(fromString: latex, error: &error),
+              error == nil
+        else {
+            let descent = max(0, fontSize * 0.2)
+            return (ascent: max(0, pointHeight - descent), descent: descent)
+        }
+
+        let hasDescenders = atomTreeHasDescenders(mathList)
+
+        let descent: Double
+        if hasDescenders {
+            descent = pointHeight * 0.38
+        } else {
+            descent = min(pointHeight * 0.25, fontSize * 0.22)
+        }
+
+        let clampedDescent = max(0, min(descent, pointHeight))
+        return (ascent: max(0, pointHeight - clampedDescent), descent: clampedDescent)
+    }
+
+    /// Recursively inspects a `MTMathList` atom tree for content that extends
+    /// below the math baseline.
+    private static func atomTreeHasDescenders(_ list: MTMathList) -> Bool {
+        for atom in list.atoms {
+            if atomHasDescenders(atom) {
+                return true
+            }
+        }
+        return false
+    }
+
+    /// Checks whether a single `MTMathAtom` (and its subtrees) has descenders.
+    private static func atomHasDescenders(_ atom: MTMathAtom) -> Bool {
+        if atom.subScript != nil {
+            return true
+        }
+
+        if let fraction = atom as? MTFraction, fraction.denominator != nil {
+            return true
+        }
+
+        if let radical = atom as? MTRadical, let radicand = radical.radicand {
+            if atomTreeHasDescenders(radicand) {
+                return true
+            }
+        }
+
+        if let largeOp = atom as? MTLargeOperator, largeOp.limits {
+            return true
+        }
+
+        if let inner = atom as? MTInner, let innerList = inner.innerList {
+            if atomTreeHasDescenders(innerList) {
+                return true
+            }
+        }
+
+        if let overline = atom as? MTOverLine, let innerList = overline.innerList {
+            if atomTreeHasDescenders(innerList) {
+                return true
+            }
+        }
+
+        if let underline = atom as? MTUnderLine, let innerList = underline.innerList {
+            if atomTreeHasDescenders(innerList) {
+                return true
+            }
+        }
+
+        if let accent = atom as? MTAccent, let innerList = accent.innerList {
+            if atomTreeHasDescenders(innerList) {
+                return true
+            }
+        }
+
+        if let color = atom as? MTMathColor, let innerList = color.innerList {
+            if atomTreeHasDescenders(innerList) {
+                return true
+            }
+        }
+
+        if let textColor = atom as? MTMathTextColor, let innerList = textColor.innerList {
+            if atomTreeHasDescenders(innerList) {
+                return true
+            }
+        }
+
+        if let superScript = atom.superScript, atomTreeHasDescenders(superScript) {
+            return true
+        }
+
+        return false
     }
 
     private static func swiftMathCompatibleLatex(_ latex: String) -> String {

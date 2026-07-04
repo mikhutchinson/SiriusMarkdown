@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.14 - 2026-07-04
+
+- Improved native LaTeX math rendering quality: `MarkdownPreparedMathImage` now carries real typographic ascent/descent estimated from the parsed `MTMathList` atom tree (detecting subscripts, fraction denominators, radical degrees, and large-operator limits) instead of the prior `ascent = pointHeight, descent = 0` placeholder. `InlineMathTextView.baselineOffset(for:)` uses `-descent` to align the equation's typographic baseline with the surrounding text baseline, replacing the `−overshoot × 0.32` heuristic.
+- Matched math rasterization scale to the screen's backing scale (min 2.0) instead of a fixed 3.0, ensuring sharp glyphs on both 2x Retina and 3x Pro displays. `MarkdownMathImageView` now uses `.interpolation(.medium)` for sharper glyph edges on template images.
+- Fixed streaming boundary scanner gap where `\begin{equation}...\end{equation}` and other `\begin{...}...\end{...}` LaTeX environments could seal early during streaming because the scanner did not track open environments. The scanner now keeps the region mutable until `\end{...}` arrives, matching the existing `$$` and `\[...\]` fence tracking behavior. Self-closing environments on a single line are handled correctly.
+- Added streaming math detection tests covering partial `$$`, partial `\[...\]`, partial `\begin{...}`, math inside block quotes and list items, math adjacent to code fences, multi-line equations, and boundary scanner direct tests for the new `\begin{...}` environment tracking.
+- Added math quality tests covering metric extraction (`ascent + descent == pointHeight`, `ascent < pointHeight` for descenders), baseline alignment, rendering sharpness, inline math flow, streaming fallback, and cache identity. The release gate now discovers `630` Swift tests.
+- Updated `Docs/performance.md` with a math rendering quality section documenting real typographic metrics, baseline alignment, screen-matched rasterization, interpolation, and streaming detection.
+
 ## 0.5.13 - 2026-07-04
 
 - Fixed cross-block selection consistency so all block types with inline content (paragraphs, headings, block quotes, list items, table cells, code blocks, math blocks, HTML blocks) publish text-geometry-aware selection fragments from prepared inline layout instead of rect-based fallbacks. Previously table cells and list items used rect-based fragments without `textGeometry`, code blocks with `selectionInlineLayout` were skipped by `fragments(for:preparedContent:rect:)`, and list/table blocks' block-level `inlineLayout` intercepted before per-item/per-cell fragment paths.

@@ -2,14 +2,44 @@ import Foundation
 import SiriusMarkdownSwiftUI
 import SwiftUI
 
+#if canImport(UIKit)
+import UIKit
+#elseif canImport(AppKit)
+import AppKit
+#endif
+
 public struct NativeMarkdownMathRenderer: MarkdownMathRenderer, MarkdownMathRendererCacheIdentifying {
     public init() {}
 
-    static let renderScale = 3.0
+    /// Rasterization scale matching the screen's backing scale (min 2.0 for
+    /// sharp glyphs on non-Retina displays). Resolved lazily on first access
+    /// since `UIScreen`/`NSScreen` queries must happen on the main thread.
+    static let renderScale: Double = NativeMarkdownMathRenderer.resolveBackingScale()
+
+    private static func resolveBackingScale() -> Double {
+        if Thread.isMainThread {
+            return resolveBackingScaleOnMain()
+        }
+        var scale: Double = 3.0
+        DispatchQueue.main.sync {
+            scale = resolveBackingScaleOnMain()
+        }
+        return scale
+    }
+
+    private static func resolveBackingScaleOnMain() -> Double {
+        #if canImport(UIKit)
+        return max(2.0, Double(UIScreen.main?.scale ?? 2.0))
+        #elseif canImport(AppKit)
+        return max(2.0, Double(NSScreen.main?.backingScaleFactor ?? 2.0))
+        #else
+        return 3.0
+        #endif
+    }
 
     public var mathRendererCacheIdentity: String {
         #if canImport(SwiftMath)
-        return "siriusmarkdown.native-math.swiftmath.1.7.3.scale3.compat3"
+        return "siriusmarkdown.native-math.swiftmath.1.7.3.scale\(Int(Self.renderScale)).compat3"
         #else
         return "siriusmarkdown.native-math.unicode-fallback.v1"
         #endif

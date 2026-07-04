@@ -46,6 +46,10 @@ public struct MarkdownBoundaryScanState: Sendable, Hashable {
     var openDisplayMathUsesReferenceProjection: Bool
     var openDisplayMathBlockQuoteProjectionDepth: Int
     var openDisplayMathOpensAfterListProjection: Bool
+    var openMathEnvironment: Bool
+    var openMathEnvironmentUsesReferenceProjection: Bool
+    var openMathEnvironmentBlockQuoteProjectionDepth: Int
+    var openMathEnvironmentOpensAfterListProjection: Bool
     var openHTMLBlock: MarkdownBoundaryHTMLBlock?
     var pendingReferenceLabels: Set<String>
     var definedReferenceLabels: Set<String>
@@ -77,6 +81,10 @@ public struct MarkdownBoundaryScanState: Sendable, Hashable {
         self.openDisplayMathUsesReferenceProjection = false
         self.openDisplayMathBlockQuoteProjectionDepth = 0
         self.openDisplayMathOpensAfterListProjection = false
+        self.openMathEnvironment = false
+        self.openMathEnvironmentUsesReferenceProjection = false
+        self.openMathEnvironmentBlockQuoteProjectionDepth = 0
+        self.openMathEnvironmentOpensAfterListProjection = false
         self.openHTMLBlock = nil
         self.pendingReferenceLabels = []
         self.definedReferenceLabels = []
@@ -221,6 +229,21 @@ public struct MarkdownBoundaryScanner: Sendable, Hashable {
                     state.openDisplayMathOpensAfterListProjection = false
                 }
                 state.consecutiveBlankLines = 0
+            } else if state.openMathEnvironment {
+                let environmentLineToCheck = state.openMathEnvironmentUsesReferenceProjection
+                    ? projectedBlockQuoteLine(
+                        normalized,
+                        depth: state.openMathEnvironmentBlockQuoteProjectionDepth
+                    ).trimmingCharacters(in: .whitespaces)
+                    : trimmed
+                if closesMathEnvironment(environmentLineToCheck) {
+                    state.openMathEnvironment = false
+                    state.openMathEnvironmentUsesReferenceProjection = false
+                    state.openMathEnvironmentBlockQuoteProjectionDepth = 0
+                    state.lastNonBlankWasListLike = state.openMathEnvironmentOpensAfterListProjection
+                    state.openMathEnvironmentOpensAfterListProjection = false
+                }
+                state.consecutiveBlankLines = 0
             } else if var fence = opensFence(normalized) {
                 fence.opensAfterListProjection = continuesListLikeLine
                 state.openFence = fence
@@ -279,6 +302,21 @@ public struct MarkdownBoundaryScanner: Sendable, Hashable {
                 state.openDisplayMathUsesReferenceProjection = true
                 state.openDisplayMathBlockQuoteProjectionDepth = leadingBlockQuoteProjectionDepth(in: normalized)
                 state.openDisplayMathOpensAfterListProjection =
+                    referenceProjection.strippedListItemMarker ||
+                    continuesListLikeLine
+                state.consecutiveBlankLines = 0
+                state.lastNonBlankWasListLike = false
+            } else if opensMathEnvironment(blockStartTrimmed) {
+                state.openMathEnvironment = true
+                state.openMathEnvironmentUsesReferenceProjection = false
+                state.openMathEnvironmentOpensAfterListProjection = continuesListLikeLine
+                state.consecutiveBlankLines = 0
+                state.lastNonBlankWasListLike = false
+            } else if opensMathEnvironment(referenceBlockStartTrimmed) {
+                state.openMathEnvironment = true
+                state.openMathEnvironmentUsesReferenceProjection = true
+                state.openMathEnvironmentBlockQuoteProjectionDepth = leadingBlockQuoteProjectionDepth(in: normalized)
+                state.openMathEnvironmentOpensAfterListProjection =
                     referenceProjection.strippedListItemMarker ||
                     continuesListLikeLine
                 state.consecutiveBlankLines = 0
@@ -342,6 +380,7 @@ public struct MarkdownBoundaryScanner: Sendable, Hashable {
             state.openMultilineReferenceLabel != nil ||
             state.openMathFence ||
             state.openDisplayMath ||
+            state.openMathEnvironment ||
             state.openHTMLBlock != nil ||
             !state.openReferenceDefinitionLabels.isEmpty ||
             state.unknownReferenceAmbiguity {
@@ -1889,6 +1928,15 @@ public struct MarkdownBoundaryScanner: Sendable, Hashable {
 
     private func closesDisplayMath(_ line: String) -> Bool {
         line == "\\]"
+    }
+
+    private func opensMathEnvironment(_ line: String?) -> Bool {
+        guard let line else { return false }
+        return line.contains("\\begin{") && !line.contains("\\end{")
+    }
+
+    private func closesMathEnvironment(_ line: String) -> Bool {
+        line.contains("\\end{")
     }
 
     private func isListLike(_ line: String) -> Bool {

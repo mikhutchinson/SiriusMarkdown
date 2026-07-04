@@ -13,18 +13,25 @@ import AppKit
 /// bitmap so the SwiftUI layer can draw them as a template image tinted by the
 /// active theme color. Storing a `Sendable` value keeps non-`Sendable` CoreText
 /// typesetting objects contained inside the renderer.
+///
+/// `ascent` and `descent` are estimated from the parsed `MTMathList` atom tree
+/// to reflect real typographic metrics: `ascent + descent == pointHeight`, and
+/// `ascent` is less than `pointHeight` when the equation contains descenders
+/// (subscripts, fraction denominators, radical degrees, large-operator limits).
 public struct MarkdownPreparedMathImage: Sendable, Hashable {
     /// PNG bitmap whose alpha channel encodes glyph coverage (color is ignored when tinted).
     public var imageData: Data
-    /// Pixel scale the bitmap was rasterized at (e.g. 3.0 for crisp Retina output).
+    /// Pixel scale the bitmap was rasterized at (matches the screen's backing scale, min 2.0).
     public var scale: Double
     /// Natural width of the equation in points.
     public var pointWidth: Double
     /// Natural height of the equation in points (`ascent + descent`).
     public var pointHeight: Double
-    /// Distance from the baseline to the top of the equation in points.
+    /// Distance from the baseline to the top of the equation in points,
+    /// estimated from the parsed atom tree's typographic structure.
     public var ascent: Double
-    /// Distance from the baseline to the bottom of the equation in points.
+    /// Distance from the baseline to the bottom of the equation in points,
+    /// estimated from the parsed atom tree's typographic structure.
     public var descent: Double
     /// Original LaTeX source, retained for copy-as-Markdown and accessibility.
     public var latex: String
@@ -196,14 +203,16 @@ struct InlineMathTextView: View {
         }
     }
 
-    /// Nudges the typeset glyphs so their optical center sits near the text's
-    /// math axis rather than resting on the baseline.
+    /// Aligns the equation's typographic baseline with the surrounding text
+    /// baseline using the prepared ascent/descent metrics.
+    ///
+    /// SwiftUI places an inline `Image` with its bottom edge at the text
+    /// baseline. The math baseline sits `descent` points above the image
+    /// bottom, so shifting the image down by `descent` aligns the two
+    /// baselines. This replaces the prior `−overshoot × 0.32` heuristic with
+    /// real typographic metrics extracted during preparation.
     private func baselineOffset(for image: MarkdownPreparedMathImage) -> CGFloat {
-        let overshoot = image.pointHeight - fontSize
-        guard overshoot > 0 else {
-            return 0
-        }
-        return -CGFloat(overshoot * 0.32)
+        -CGFloat(image.descent)
     }
 }
 
@@ -216,7 +225,7 @@ struct MarkdownMathImageView: View {
         if let templateImage = image.templateImage {
             templateImage
                 .resizable()
-                .interpolation(.high)
+                .interpolation(.medium)
                 .frame(width: CGFloat(image.pointWidth), height: CGFloat(image.pointHeight))
                 .foregroundStyle(color)
                 .accessibilityLabel(Text(image.latex))

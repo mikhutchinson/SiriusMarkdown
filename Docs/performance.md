@@ -70,6 +70,18 @@ Strict Pretext fixture drift is a release blocker. The Swift fixture comparison 
 
 **CoreText** owns glyph measurement for **`CoreTextInlineMeasurer`**. **Accelerate** / **vDSP** are reserved for proven layout math wins; **Metal** is not part of the current text layout path (future visualization or specialized canvases only).
 
+## Math rendering quality
+
+Native LaTeX math through `SiriusMarkdownMath`'s `NativeMarkdownMathRenderer` (backed by SwiftMath's CoreText typesetting) produces `MarkdownPreparedMathImage` values with real typographic metrics:
+
+- **Real ascent/descent**: `SwiftMathTypesetter` parses the LaTeX with `MTMathListBuilder` and inspects the `MTMathList` atom tree for below-baseline content (subscripts, fraction denominators, radical degrees, large-operator limits). The estimated `ascent + descent == pointHeight`, with `ascent < pointHeight` when descenders are present. This replaces the prior `ascent = pointHeight, descent = 0` placeholder.
+- **Baseline alignment**: `InlineMathTextView.baselineOffset(for:)` uses `-descent` to align the equation's typographic baseline with the surrounding text baseline, replacing the prior `−overshoot × 0.32` heuristic.
+- **Screen-matched rasterization**: `NativeMarkdownMathRenderer.renderScale` resolves to the screen's backing scale (min 2.0) instead of a fixed 3.0, ensuring sharp glyphs on both 2x Retina and 3x Pro displays.
+- **Interpolation**: `MarkdownMathImageView` uses `.interpolation(.medium)` for sharper glyph edges on template images at exact point size.
+- **Streaming detection**: The boundary scanner tracks open `$$` fences, `\[...\]` display math, and `\begin{...}...\end{...}` LaTeX environments, preventing early sealing during streaming. Partial LaTeX renders as text until sealed, then typesets correctly (INV-M5).
+
+All math preparation (typesetting, rasterization, metric extraction) runs in the prepare phase; SwiftUI only draws the prepared image (INV-M2).
+
 ## Diagnostics
 
 Use **`MarkdownStream.diagnosticsCounters`** and **`InlineLayoutEngine.diagnosticsCounters`** (after configuring a shared **`MarkdownDiagnosticsRecorder`** where applicable) to validate:

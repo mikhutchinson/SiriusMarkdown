@@ -155,7 +155,10 @@ small surfaces. Production paths should pass `MarkdownPreparedSnapshot`.
   ASCII plus light/dark SVG output. Mermaid remains prepared SVG/ASCII, not a
   WebKit surface and not a second Markdown semantic engine.
 - Optional native LaTeX math through `SiriusMarkdownMath`, backed by SwiftMath
-  and CoreText typesetting. The core renderer stays pluggable.
+  and CoreText typesetting. Inline math aligns to the text baseline using real
+  typographic metrics, block math rasterizes at the screen's backing scale for
+  sharp glyphs, and streaming math falls back to text until sealed. The core
+  renderer stays pluggable.
 
 ## CoreText Inline Rendering
 
