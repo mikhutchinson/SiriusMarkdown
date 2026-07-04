@@ -4,6 +4,19 @@
 
 - None currently tracked.
 
+## Resolved in 0.6.0
+
+- Streaming performance: CTLine creation moved to prepare phase; two-pass
+  layout latency eliminated; incremental snapshot publishing added; selection
+  preference churn cached. Measured benchmarks enforce <16ms per append for
+  100+ blocks.
+- Cross-block selection consistency: table cells, list items, code blocks, and
+  math blocks now publish text-geometry-aware selection fragments from
+  prepared inline layout, eliminating rect-based fallbacks.
+- Math quality: real typographic metrics (ascent/descent from parsed atom
+  tree) replace heuristics; rasterization matches screen backing scale (min
+  2.0); streaming detection hardened for `\begin{...}...\end{...}` environments.
+
 ## Fixed
 
 - Fixed native math being disabled in correctly packaged macOS apps that embed SwiftMath resources under `Contents/Resources`. The SwiftMath entry guard now accepts both the generated root lookup path and the normal app resource directory before falling back to text rendering when neither resource location exists.

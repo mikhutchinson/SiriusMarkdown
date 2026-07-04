@@ -18,48 +18,26 @@ The core contract is simple:
 
 ## Current Release
 
-`0.5.12` hardens the renderer pipeline after the bug sweep: cache and source
-buffer public inputs no longer trap on invalid capacities or byte ranges,
-public theme/table/font metrics are sanitized before SwiftUI rendering,
-selection limits clamp to a valid range, and opt-in RenderProbe artifacts render
-through an offscreen AppKit host while still being measured. `0.5.11` fixed
-generated-LaTeX recovery for chat and document math: score
-formulas, `\operatorname`, `\mathbb`, `\partial`, `\nabla`, `cases`,
-`align*`, `equation`, angle-bracket pairs, Greek/font-style commands, and common
-relation operators now stay together as one source-backed math run instead of
-splitting at each command. `SiriusMarkdownMath` also normalizes common generated
-SwiftMath-incompatible forms before typesetting while preserving the original
-LaTeX source for copy/selection. `0.5.10` fixed chat-style LaTeX recovery for
-single-line display math and common bare TeX commands while preserving code
-spans, paths, escaped Markdown, currency amounts, and adjacent prose. `0.5.9`
-fixed wide code-block containment in constrained chat/document columns. `0.5.8`
-fixed long-generation render-session slowdown by batching fast append bursts,
-skipping reset-superseded work before parsing or highlighting, and reusing
-exact-match prepared block content across append-only streaming snapshots.
-`0.5.7` hardened packaged-app native math fallback, and `0.5.5` shipped
-`MarkdownInlineRenderingMode.coreTextPaintedLines` as the default
-for `MarkdownRendererConfiguration()`, `.compactChat`, and `.document`.
-Prepared line ranges come from SiriusMarkdown's layout engine; AppKit/UIKit
-bridges paint each line through CoreText `CTLineDraw`; links use bounded hit
-regions derived from already policy-filtered prepared attributes.
+`0.6.0` delivers measured streaming performance, cross-block selection
+consistency, and native math rendering quality:
 
-The current line also hardens shipped-app resource lookup for bundled HighlightJS
-and Mermaid preparation, and tightens source-backed document selection/copy
-across code, math, HTML, tables, lists, styled Markdown, and streamed appends.
+- **Streaming performance:** CTLine creation runs in the prepare phase, not
+  the SwiftUI update path. New blocks render in a single pass without
+  width-preference latency. Incremental snapshot publishing ensures only
+  changed blocks trigger view updates. Measured benchmarks enforce <16ms per
+  append for 100+ blocks at 60fps.
+- **Selection consistency:** Source-backed document selection is consistent
+  across all block types — paragraphs, headings, block quotes, lists, task
+  lists, nested lists, code blocks, tables, math blocks, and HTML blocks.
+  Drag selection, highlight geometry, and copy produce correct results for
+  every block type.
+- **Math quality:** Native LaTeX math through `SiriusMarkdownMath` renders
+  with real typographic metrics (not heuristics), proper baseline alignment,
+  screen-matched rasterization sharpness, and reliable streaming detection.
 
-The current line also delivers streaming performance improvements:
-
-- **CTLine creation moved to prepare phase** — `MarkdownCoreTextPaintedLinePlan` is built during `prepare(snapshot:)`, not in `updateNSView`/`updateUIView`. The representable assigns a pre-built plan; no `CTLineCreateWithAttributedString` calls in SwiftUI update (INV-P1).
-- **Single-pass layout** — `PreparedInlineTextView` pre-computes layout at a default width during preparation. The first render shows content immediately without waiting for the `GeometryReader` width preference (INV-P2).
-- **Incremental snapshot publishing** — `MarkdownRenderSession` publishes a `MarkdownPreparedSnapshotDiff` alongside the full snapshot. Only changed/new items trigger preparation; sealed blocks hit the reuse path (INV-P3).
-- **Selection preference caching** — `onPreferenceChange` skips sorting and storage when fragments are unchanged, preventing redundant work during streaming (INV-P4).
-- **Measured performance benchmarks** — frame budget assertions for streaming append latency, width-change relayout, CTLine creation counts, and selection preference churn (INV-P8).
-
+The default inline renderer paints prepared line ranges with CoreText.
 `preparedNativeLines` and `systemText` remain explicit compatibility fallbacks.
-`nativeTextSelection` is a separate disabled-by-default compatibility mode. When
-enabled, it uses selectable native text leaves instead of the CoreText paint path
-so host apps can opt into platform text selection without making document
-selection depend on SwiftUI's private selection overlay.
+`nativeTextSelection` is a separate disabled-by-default compatibility mode.
 
 ## Requirements
 
@@ -70,7 +48,7 @@ selection depend on SwiftUI's private selection overlay.
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/mikhutchinson/SiriusMarkdown.git", from: "0.5.12")
+    .package(url: "https://github.com/mikhutchinson/SiriusMarkdown.git", from: "0.6.0")
 ],
 targets: [
     .target(
@@ -142,7 +120,9 @@ small surfaces. Production paths should pass `MarkdownPreparedSnapshot`.
 - Streaming append behavior that reparses only the mutable tail while sealed
   regions remain immutable and cacheable.
 - Source-backed document selection enabled by default, with exact Markdown copy
-  through `MarkdownSelectionController` and `MarkdownCopyProvider`.
+  through `MarkdownSelectionController` and `MarkdownCopyProvider`. Selection is
+  consistent across all block types — paragraphs, headings, block quotes, lists,
+  task lists, nested lists, code blocks, tables, math blocks, and HTML blocks.
 - Bounded parser, prepared-inline, measured-layout, highlighted-code, Mermaid,
   and math caches.
 - Safe default policies: links are scheme-gated, network images are not fetched
@@ -156,20 +136,26 @@ small surfaces. Production paths should pass `MarkdownPreparedSnapshot`.
   WebKit surface and not a second Markdown semantic engine.
 - Optional native LaTeX math through `SiriusMarkdownMath`, backed by SwiftMath
   and CoreText typesetting. Inline math aligns to the text baseline using real
-  typographic metrics, block math rasterizes at the screen's backing scale for
-  sharp glyphs, and streaming math falls back to text until sealed. The core
-  renderer stays pluggable.
+  typographic metrics extracted from the parsed atom tree, block math rasterizes
+  at the screen's backing scale for sharp glyphs, and streaming math falls back
+  to text until sealed. The core renderer stays pluggable.
 
 ## CoreText Inline Rendering
 
 Inline work follows the Pretext-style split:
 
 1. Prepare once: normalize inline runs, apply policies, build attributed payloads,
-   measure segments, compute natural width, and cache prepared content.
+   measure segments, compute natural width, build CTLine plans, and cache prepared
+   content.
 2. Layout cheaply: consume prepared measurements for a container width and
    produce line ranges without reparsing or remeasuring from raw Markdown.
 3. Paint: the default mode draws each prepared line with CoreText on supported
-   AppKit/UIKit platforms.
+   AppKit/UIKit platforms. CTLine creation runs in prepare, not in the SwiftUI
+   update path.
+
+New blocks render content on first appearance without waiting for a width
+preference pass. Width changes adjust line breaks through the cheap `layout()`
+path only.
 
 If a platform cannot host the CoreText paint bridge, the renderer falls back to
 prepared native text without changing parser, policy, or wrapping authority.
@@ -251,7 +237,7 @@ git diff --check
 
 ## Release
 
-`0.5.12` is ready only when the docs describe the current public package surface,
+`0.6.0` is ready only when the docs describe the current public package surface,
 `bash Tools/product-check.sh` passes from the repository root, `git diff --check`
 is clean, the public remote is correct, and the release commit is tagged and
-pushed as `0.5.12`.
+pushed as `0.6.0`.

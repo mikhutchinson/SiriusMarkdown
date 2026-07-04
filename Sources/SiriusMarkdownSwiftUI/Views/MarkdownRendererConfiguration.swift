@@ -124,12 +124,11 @@ public struct MarkdownRendererConfiguration: Sendable {
     public var inlineRenderingMode: MarkdownInlineRenderingMode
     /// Native text leaf selection policy.
     ///
-    /// Disabled by default while macOS host-update hangs remain traceable to
-    /// SwiftUI's private `SelectionOverlay.updateNSView` path under
-    /// `GraphHost.flushTransactions`. Copy affordances and
-    /// `MarkdownSelectionController` remain available without mounting that
-    /// overlay. Cross-block document selection is controlled separately by
-    /// `documentSelection`.
+    /// Disabled by default. The package's source-backed document selection
+    /// layer (`MarkdownSelectionController`) provides cross-block drag
+    /// selection, highlight overlays, and Cmd-C source copy without
+    /// requiring SwiftUI's native text-selection overlay. Cross-block
+    /// document selection is controlled separately by `documentSelection`.
     public var nativeTextSelection: MarkdownNativeTextSelection
     /// Source-backed cross-block selection owned by SiriusMarkdown.
     ///

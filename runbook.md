@@ -1,6 +1,6 @@
 # Runbook
 
-This runbook is the local release authority for `SiriusMarkdown`. For the current public package release, use `0.5.12` as the tag and do not publish unless every release blocker below is clear.
+This runbook is the local release authority for `SiriusMarkdown`. For the current public package release, use `0.6.0` as the tag and do not publish unless every release blocker below is clear.
 
 ## Build
 
@@ -17,7 +17,7 @@ swift test
 ```
 
 Current status: `swift test` must pass with strict Swift-vs-Pretext comparison enabled across the required product fixture groups. Missing groups, duplicate fixture names/groups, absent required layout metadata (`font`, `lineHeight`, `whiteSpace`, `wordBreak`), invalid/nonzero `letterSpacing`, or known-drift allowlists are release blockers.
-The release-gate discovery floor for this slice is `567` Swift tests.
+The release-gate discovery floor for this slice is `643` Swift tests.
 
 Count the Swift test functions reported by the runner and keep the release-gate discovery floor current:
 
@@ -97,10 +97,6 @@ Layout and renderer acceptance for the current slice:
   SwiftUI tests must prove list/quote/table leaves mount selectable
   `NSTextView`s and that a hosted list leaf can select and copy through the
   AppKit pasteboard path.
-  If a host-app-style hang returns, sample the process and check for
-  `GraphHost.flushTransactions` ->
-  `SelectionOverlay.updateNSView` -> AppKit `NSTextField setFont:` /
-  `_invalidateEffectiveFont` / `updateCell`.
 - Lists, task lists, tables, code blocks, math blocks, and HTML blocks must keep structured render paths. Do not collapse them back to `Text(block.text)` except as an explicit policy-denied or missing-structure fallback.
 - Renderer tests must assert behavior through render plans, prepared snapshots, lightweight prepared render identities, source-backed selection copy contexts, inline payload helpers, diagnostics counters, and large-transcript prepared item identity. `Tools/RenderProbe` owns the opt-in `MarkdownDocumentView` AppKit pixel check so Swift Testing helper crashes do not excuse dropping document-render coverage.
 - The full Swift suite runs serially in `Tools/release-check.sh` because the renderer tests host real SwiftUI/AppKit views and text views. `Tools/RenderProbe` is opt-in through `SIRIUS_MARKDOWN_RUN_VISUAL_PROBES=1` for pixel-level offscreen AppKit coverage instead of forcing those artifact checks through every default release run.
@@ -110,6 +106,9 @@ Layout and renderer acceptance for the current slice:
 - `MarkdownRenderSession` must publish a `MarkdownPreparedSnapshotDiff` alongside the full snapshot (INV-P3). Only changed/new items trigger preparation; sealed blocks hit the reuse path.
 - Selection fragment geometry must be cached; repeated same-rect resolution must record zero new builds after warmup (INV-P4). `onPreferenceChange` must skip sorting and storage when fragments are unchanged.
 - Performance benchmarks must pass in release mode with defined frame budgets (INV-P8). See `MarkdownPerformanceBenchmarkTests.swift`.
+- `MarkdownPreparedMathImage` must carry real ascent/descent estimated from the parsed atom tree, not `pointHeight`/`0` (INV-M2). Inline math baseline alignment uses `-descent`, not a heuristic.
+- Math rasterization scale must match the screen's backing scale (min 2.0), not a fixed 3.0. `MarkdownMathImageView` must use `.interpolation(.medium)`.
+- Streaming math detection must track open `$$`, `\[...\]`, and `\begin{...}...\end{...}` environments to prevent early sealing (INV-M5).
 
 ## Pretext Golden Tool
 
@@ -143,7 +142,7 @@ Run this before claiming native-renderer product quality. It wraps the release g
 
 ## Public Release Checklist
 
-Use this checklist for `0.5.12`.
+Use this checklist for `0.6.0`.
 
 1. Confirm public hygiene:
 
@@ -178,15 +177,15 @@ Use this checklist for `0.5.12`.
 
    ```sh
    git add README.md runbook.md NOTICE.md changelog.md bugfix.md Docs Sources Tests Examples Tools Package.swift Package.resolved
-   git commit -m "Prepare SiriusMarkdown 0.5.12 release"
+   git commit -m "Prepare SiriusMarkdown 0.6.0 release"
    ```
 
 6. Tag and push:
 
    ```sh
-   git tag -a 0.5.12 -m "SiriusMarkdown 0.5.12"
+   git tag -a 0.6.0 -m "SiriusMarkdown 0.6.0"
    git push origin HEAD
-   git push origin 0.5.12
+   git push origin 0.6.0
    ```
 
 7. After pushing, create the public release notes from `changelog.md`. The release notes must keep the claim precise: native SwiftUI block rendering, CoreText-painted prepared-line inline rendering, streaming snapshots, safe policies, language-aware default code highlighting, package-owned Mermaid pan/zoom over prepared SVG/ASCII, explicit accessibility labels for package-owned affordance controls, Pretext-backed layout gate, and demo/product probes. Do not claim a new Mermaid semantic engine or a WebKit renderer.

@@ -1210,7 +1210,7 @@ func defaultJavaScriptResourceLoadingUsesNonTrappingLookup() throws {
 @Test
 func releaseAndProductChecksKeepRenderProbeVisualsOptIn() throws {
     let root = packageRootURL()
-    let currentReleaseVersion = "0.5.12"
+    let currentReleaseVersion = "0.6.0"
     let releaseCheck = try String(
         contentsOf: root.appending(path: "Tools/release-check.sh"),
         encoding: .utf8

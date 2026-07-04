@@ -1,5 +1,50 @@
 # Changelog
 
+## 0.6.0 - 2026-07-04
+
+- Consolidated streaming performance, cross-block selection consistency, and
+  native math rendering quality into a measured release. The improvements below
+  were delivered across `0.5.13`–`0.5.14` and are now the documented product
+  state for `0.6.0`.
+- Moved CTLine creation from the SwiftUI update path into the prepare phase,
+  eliminating expensive CoreText work in `updateNSView`/`updateUIView`.
+  Prepared line plans (`MarkdownCoreTextPaintedLinePlan`) are cached by content
+  identity and width bucket (INV-P1).
+- Eliminated two-pass layout latency in `PreparedInlineTextView`. New and changed
+  blocks render content on first appearance without waiting for a width
+  preference pass (INV-P2).
+- Added incremental snapshot publishing. `MarkdownRenderSession` publishes a
+  `MarkdownPreparedSnapshotDiff` alongside the full snapshot so only
+  changed/new/removed items trigger SwiftUI view updates (INV-P3).
+- Cached selection fragment geometry by prepared content identity and rect
+  fingerprint. Repeated same-rect resolution records zero new builds after
+  warmup (INV-P4).
+- Unified cross-block selection consistency. Table cells, list items, code
+  blocks, and math blocks now publish text-geometry-aware selection fragments
+  from `inlineLayout` or `selectionInlineLayout`, eliminating rect-based
+  fallbacks (INV-S1).
+- Improved inline math baseline alignment by extracting real ascent/descent
+  from the parsed `MTMathList` atom tree, replacing the `0.32` heuristic
+  (INV-M2).
+- Matched math rasterization scale to screen backing scale (min 2.0) and
+  switched to `.interpolation(.medium)` for sharper glyph edges.
+- Hardened streaming math detection for `\begin{...}...\end{...}` LaTeX
+  environments so they do not seal early during streaming.
+- Added measured performance benchmarks with defined frame budgets: <16ms per
+  append for 100+ blocks, <4ms per width-change relayout, zero CTLine creation
+  in SwiftUI body after preparation (INV-P8).
+- Added streaming math detection tests for partial delimiters, multi-line
+  equations, math inside containers, and `\begin{...}` environment tracking.
+- Added cross-block selection tests covering table cells, list items (including
+  nested and task lists), code blocks, math blocks, HTML blocks, and
+  mixed-document fragment generation.
+- Added math quality tests covering metric extraction, baseline alignment,
+  rendering sharpness, inline math flow, streaming fallback, and cache identity.
+- Updated documentation to reflect the current product state, removing stale
+  workaround language and hang-history references. Added documentation
+  consistency tests covering version alignment, stale-reference scanning, and
+  historical preservation. The release gate now discovers `643` Swift tests.
+
 ## 0.5.14 - 2026-07-04
 
 - Improved native LaTeX math rendering quality: `MarkdownPreparedMathImage` now carries real typographic ascent/descent estimated from the parsed `MTMathList` atom tree (detecting subscripts, fraction denominators, radical degrees, and large-operator limits) instead of the prior `ascent = pointHeight, descent = 0` placeholder. `InlineMathTextView.baselineOffset(for:)` uses `-descent` to align the equation's typographic baseline with the surrounding text baseline, replacing the `−overshoot × 0.32` heuristic.

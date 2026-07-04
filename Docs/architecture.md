@@ -18,13 +18,29 @@ Sources/SiriusMarkdownCore/
 
 Sources/SiriusMarkdownSwiftUI/
   Views/MarkdownDocumentView.swift       — MarkdownDocumentView, StreamingMarkdownView
-  Views/MarkdownRendererConfiguration.swift — theme, policies, highlighter/math hooks
-  Views/MarkdownCodeHighlighting.swift — language normalization, default Highlight.js backend
-  Blocks/MarkdownBlockView.swift
-  Inline/InlineRunsView.swift, InlineRunView.swift
-  Theme/MarkdownTheme.swift
-  Interaction/MarkdownInteraction.swift
-  Platform/MarkdownPlatformHooks.swift
+  Views/MarkdownRendererConfiguration.swift — theme, policies, highlighter/math hooks, prepared snapshot diff
+  Views/MarkdownRenderSession.swift      — streaming render session, coalescing, incremental diff publishing
+  Views/MarkdownCodeHighlighting.swift   — language normalization, default Highlight.js backend
+  Views/MarkdownMathRendering.swift      — prepared math image, inline math pieces, baseline alignment
+  Views/MarkdownMermaidRendering.swift    — Mermaid renderer, prepared SVG/ASCII
+  Views/MarkdownDocumentSurface.swift     — document surface with affordances
+  Views/MarkdownSourceLookup.swift       — source line/range lookup
+  Views/MarkdownJavaScriptResourceLookup.swift — bundled JS resource resolution
+  Blocks/MarkdownBlockView.swift         — structured block renderers
+  Inline/InlineRunsView.swift            — prepared inline consumption, single-pass layout
+  Inline/InlineRunView.swift             — single inline run view
+  Inline/CoreTextPaintedInlineLineView.swift — CoreText CTLine paint bridge, pre-built line plans
+  Inline/NativeInlineLineTextView.swift  — native text fallback for inline lines
+  Theme/MarkdownTheme.swift              — typography, spacing, color tokens
+  Interaction/MarkdownInteraction.swift  — selection controller, copy provider
+  Interaction/MarkdownDocumentSelectionGeometry.swift — cross-block selection fragments
+  Interaction/MarkdownNativeTextSelection.swift — native text selection compatibility knob
+  Interaction/MarkdownAffordanceSymbols.swift — decorative SF Symbol helpers
+  Platform/MarkdownPlatformHooks.swift   — AppKit/UIKit/CoreText bridges
+
+Sources/SiriusMarkdownMath/
+  NativeMarkdownMathRenderer.swift       — SwiftMath-backed math renderer
+  SwiftMathTypesetter.swift              — locked singleton, MTMathImage bridge, metric extraction
 
 Sources/SiriusMarkdownPretextSupport/
   Golden/PretextFixture.swift             — fixture schema + golden comparator (Swift side)
@@ -32,7 +48,7 @@ Sources/SiriusMarkdownPretextSupport/
 Tools/pretext-golden/                     — Node/Bun oracle (`@chenglou/pretext`), see runbook
 ```
 
-Products (see `Package.swift`): **`SiriusMarkdown`** (app-facing umbrella module that re-exports Core + SwiftUI), **`SiriusMarkdownCore`**, **`SiriusMarkdownSwiftUI`**, **`SiriusMarkdownPretextSupport`**.
+Products (see `Package.swift`): **`SiriusMarkdown`** (app-facing umbrella module that re-exports Core + SwiftUI), **`SiriusMarkdownCore`**, **`SiriusMarkdownSwiftUI`**, **`SiriusMarkdownMath`** (optional native math), **`SiriusMarkdownPretextSupport`**.
 
 ## Responsibilities
 

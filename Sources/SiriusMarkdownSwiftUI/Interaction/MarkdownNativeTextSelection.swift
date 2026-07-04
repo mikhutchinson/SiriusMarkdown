@@ -8,29 +8,20 @@ import SwiftUI
 /// `MarkdownRendererConfiguration.documentSelection` and do not require this
 /// setting to be enabled.
 ///
-/// Regression history: some macOS host updates can peg the main thread when
-/// SwiftUI's private `SelectionOverlay.updateNSView` path repeatedly
-/// invalidates AppKit `NSTextField` font/layout state while `GraphHost`
-/// flushes transactions. The default stays `.disabled` as a conservative
-/// public-package default. When enabled on macOS, SiriusMarkdown uses
-/// package-owned AppKit selectable text leaves so SwiftUI's private
-/// SelectionOverlay is not mounted during host view transitions. On other
-/// Apple platforms, the helper can still use SwiftUI's native selection
-/// modifier on stable bounded text leaves instead of document, scroll, stack,
-/// custom leading-layout, table-grid, toolbar, Mermaid-control, or host
-/// containers.
+/// The default is `.disabled`: the package's source-backed document selection
+/// layer (`MarkdownSelectionController`) provides cross-block drag selection,
+/// highlight overlays, and Cmd-C source copy without requiring SwiftUI's
+/// native text-selection overlay. When enabled, native platform text selection
+/// is installed on stable bounded text leaves for hosts that prefer platform
+/// selection behavior.
 public enum MarkdownNativeTextSelection: Sendable, Hashable {
     /// Render Markdown text without SwiftUI's native text-selection
-    /// overlay. This remains the conservative leaf-selection default.
-    /// Document selection and `MarkdownSelectionController` remain available
-    /// through the separate document-selection layer.
+    /// overlay. This is the leaf-selection default. Document selection
+    /// and `MarkdownSelectionController` remain available through the
+    /// separate document-selection layer.
     case disabled
     /// Render Markdown text with native selection enabled on stable bounded
     /// text leaves.
-    ///
-    /// If a selection regression returns, sample the process and look for
-    /// `GraphHost.flushTransactions` -> `SelectionOverlay.updateNSView` ->
-    /// `NSTextField setFont:` / `_invalidateEffectiveFont`.
     case enabled
 }
 
