@@ -304,17 +304,23 @@ final class SwiftMathTypesetter: @unchecked Sendable {
         mainBundleURL: URL = Bundle.main.bundleURL,
         fileExists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }
     ) -> Bool {
-        // The vendored SwiftMath fork's `MTFont.fontBundle` searches
+        // The vendored SwiftMath target's `MTFont.fontBundle` searches
         // `Bundle.main.url(forResource:)` and `Bundle(for:).url(forResource:)`
-        // before falling back to `Bundle.module`, so it loads
-        // `SwiftMath_SwiftMath.bundle` from either the signed-macOS-`.app`
-        // resource directory (`Contents/Resources`) or the `.app` root. Accept
-        // both layouts here, then fall back to text rendering when neither
-        // loadable location exists. `MTFont.fontBundle` also requires the inner
-        // `mathFonts.bundle`, so verify it is present at the same location.
+        // before falling back to `Bundle.module`, so it loads the resource
+        // bundle from either the signed-macOS-`.app` resource directory
+        // (`Contents/Resources`) or the `.app` root. Accept both layouts here,
+        // then fall back to text rendering when neither loadable location
+        // exists. `MTFont.fontBundle` also requires the inner `mathFonts.bundle`,
+        // so verify it is present at the same location.
+        //
+        // The resource bundle is named `SiriusMarkdown_SwiftMath.bundle`
+        // (SwiftPM's `<PackageName>_<TargetName>` convention) because SwiftMath
+        // is vendored as an inline target of the SiriusMarkdown package, not a
+        // separate package. Host build scripts must copy
+        // `SiriusMarkdown_SwiftMath.bundle` into `Contents/Resources`.
         for resourceDirectory in swiftMathResourceDirectories(mainBundleURL: mainBundleURL) {
             let mathFontsBundle = resourceDirectory
-                .appendingPathComponent("SwiftMath_SwiftMath.bundle", isDirectory: true)
+                .appendingPathComponent("SiriusMarkdown_SwiftMath.bundle", isDirectory: true)
                 .appendingPathComponent("mathFonts.bundle", isDirectory: true)
             if fileExists(mathFontsBundle.path) {
                 return true

@@ -35,8 +35,7 @@ let package = Package(
         )
     ],
     dependencies: [
-        .package(url: "https://github.com/swiftlang/swift-markdown.git", from: "0.7.3"),
-        .package(path: "Vendor/SwiftMath")
+        .package(url: "https://github.com/swiftlang/swift-markdown.git", from: "0.7.3")
     ],
     targets: [
         .target(
@@ -66,13 +65,30 @@ let package = Package(
                 .process("Fixtures")
             ]
         ),
+        // Vendored SwiftMath (MIT; see `Sources/SwiftMath/LICENSE` and
+        // `NOTICE.md`). Inlined as a target rather than a `.package(path:)`
+        // sub-package so a stable-version requirement on SiriusMarkdown does
+        // not transitively depend on an unversioned (unstable) package, which
+        // SwiftPM's resolver rejects. Compiled under Swift 5 language mode
+        // because upstream SwiftMath is not Swift 6 strict-concurrency clean
+        // (non-Sendable mutable globals). Linked only into SiriusMarkdownMath
+        // on iOS/macOS/visionOS via the conditional dependency below.
+        .target(
+            name: "SwiftMath",
+            dependencies: [],
+            resources: [
+                .copy("mathFonts.bundle")
+            ],
+            swiftSettings: [
+                .swiftLanguageMode(.v5)
+            ]
+        ),
         .target(
             name: "SiriusMarkdownMath",
             dependencies: [
                 "SiriusMarkdownSwiftUI",
-                .product(
+                .target(
                     name: "SwiftMath",
-                    package: "SwiftMath",
                     condition: .when(platforms: [.iOS, .macOS, .visionOS])
                 )
             ]

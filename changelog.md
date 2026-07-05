@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.6.3 - 2026-07-05
+
+- Fixed a SwiftPM resolver blocker that made `0.6.2` unusable from any
+  stable-version requirement (`from:` or `exact:`). `0.6.2` vendored SwiftMath
+  via `.package(path: "Vendor/SwiftMath")`; path packages carry no version, so
+  SwiftPM assigned it `0.0.0` (unstable), tripping the
+  "stable-version requirement cannot depend on an unstable-version package"
+  rule for every consumer. SwiftMath is now vendored as an inline **target** in
+  the SiriusMarkdown manifest (`Sources/SwiftMath`), eliminating the package
+  dependency edge entirely. The package is still clean-checkout safe with no
+  external SwiftMath fetch; the only remaining package dependency is
+  `swift-markdown`.
+- Resource-bundle rename: because SwiftMath is now a target of the
+  SiriusMarkdown package, SwiftPM names its resource bundle
+  `SiriusMarkdown_SwiftMath.bundle` (the `<Package>_<Target>` convention)
+  instead of `0.6.2`'s `SwiftMath_SwiftMath.bundle`. `MTFont.fontBundle` and
+  `canEnterSwiftMath` look for the new name, and the
+  `swiftMathTypesetterRejectsPackagedAppOnlyWhenResourcePathsAreMissing`
+  regression asserts the new layout. Host build scripts that copy the bundle
+  into `Contents/Resources` must copy `SiriusMarkdown_SwiftMath.bundle`.
+- Compiled the vendored SwiftMath target under Swift 5 language mode
+  (`swiftSettings: [.swiftLanguageMode(.v5)]`) because upstream SwiftMath is
+  not Swift 6 strict-concurrency clean (non-Sendable mutable globals). The rest
+  of the package remains Swift 6.
+- Native LaTeX math glyphs still render in signed packaged macOS apps via the
+  patched `MTFont.fontBundle` that searches `Bundle.main.url(forResource:)` and
+  `Bundle(for:).url(forResource:)` before the `.app` root and the SwiftPM
+  build-time fallback, so the signed-`.app` `Contents/Resources` layout loads
+  without breaking `codesign`.
+
 ## 0.6.2 - 2026-07-05
 
 - Restored native LaTeX math glyphs in signed packaged macOS apps. `0.6.0`

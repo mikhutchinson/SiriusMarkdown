@@ -55,7 +55,7 @@ public class MTFont {
         // macOS), so try them first, then the `.app` root, and only fall back
         // to `Bundle.module` for SwiftPM test/command-line contexts where the
         // build-time candidate is valid.
-        let outerName = "SwiftMath_SwiftMath"
+        let outerName = "SiriusMarkdown_SwiftMath"
         let outerCandidates: [URL?] = [
             Bundle.main.url(forResource: outerName, withExtension: "bundle"),
             Bundle(for: MTFont.self).url(forResource: outerName, withExtension: "bundle"),

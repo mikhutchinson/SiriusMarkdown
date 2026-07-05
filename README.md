@@ -18,13 +18,14 @@ The core contract is simple:
 
 ## Current Release
 
-`0.6.2` restores native LaTeX math glyphs in signed packaged macOS apps.
-`0.6.0` trapped and `0.6.1` fell back to text because SwiftMath's generated
-`Bundle.module` accessor never searched `Contents/Resources`; `0.6.2` vendors
-SwiftMath as a local in-tree package with a patched `MTFont.fontBundle` that
-loads fonts from the signed-app resource directory. It sits on top of the
-`0.6.0` work, which delivered measured streaming performance, cross-block
-selection consistency, and native math rendering quality:
+`0.6.3` fixes a SwiftPM resolver blocker from `0.6.2` (a `.package(path:)`
+vendored SwiftMath had no version, so any `from:`/`exact:` requirement on
+SiriusMarkdown was rejected). SwiftMath is now an inline target. Native LaTeX
+math glyphs render in signed packaged macOS apps via a patched
+`MTFont.fontBundle` that searches `Contents/Resources`. The resource bundle is
+named `SiriusMarkdown_SwiftMath.bundle`. It sits on top of the `0.6.0` work,
+which delivered measured streaming performance, cross-block selection
+consistency, and native math rendering quality:
 
 - **Streaming performance:** CTLine creation runs in the prepare phase, not
   the SwiftUI update path. New blocks render in a single pass without
@@ -53,7 +54,7 @@ The default inline renderer paints prepared line ranges with CoreText.
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/mikhutchinson/SiriusMarkdown.git", from: "0.6.2")
+    .package(url: "https://github.com/mikhutchinson/SiriusMarkdown.git", from: "0.6.3")
 ],
 targets: [
     .target(
@@ -242,7 +243,7 @@ git diff --check
 
 ## Release
 
-`0.6.2` is ready only when the docs describe the current public package surface,
+`0.6.3` is ready only when the docs describe the current public package surface,
 `bash Tools/product-check.sh` passes from the repository root, `git diff --check`
 is clean, the public remote is correct, and the release commit is tagged and
-pushed as `0.6.2`.
+pushed as `0.6.3`.
