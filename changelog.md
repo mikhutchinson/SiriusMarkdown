@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.6.1 - 2026-07-05
+
+- Fixed a packaged-macOS-app crash introduced in `0.5.12` and shipped in
+  `0.6.0`, where `SiriusMarkdownMath`'s SwiftMath entry guard accepted
+  `Contents/Resources/SwiftMath_SwiftMath.bundle` as a valid resource path but
+  SwiftMath's generated `Bundle.module` accessor (built from a
+  `swift-tools-version: 5.7` package) only checks `Bundle.main.bundleURL`'s
+  root and a build-time path. In a standard signed `.app` the bundle lives
+  under `Contents/Resources`, so the guard passed, `MTFont.fontBundle` entered
+  SwiftMath, and `Bundle.module` trapped with `EXC_BREAKPOINT` inside
+  `MarkdownRendererConfiguration.prepare(block:)`. The guard now mirrors
+  `Bundle.module`'s actual candidates and falls back to text rendering when the
+  loadable path is absent, restoring the safe `0.5.7` behavior. A regression
+  test guards that a `Contents/Resources`-only layout does not enter SwiftMath.
+- Updated the SwiftMath entry-guard regression to reject the
+  `Contents/Resources`-only path that previously crashed packaged apps and to
+  accept the `.app` root path that `Bundle.module` actually loads.
+
 ## 0.6.0 - 2026-07-04
 
 - Consolidated streaming performance, cross-block selection consistency, and

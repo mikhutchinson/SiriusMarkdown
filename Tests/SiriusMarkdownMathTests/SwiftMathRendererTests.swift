@@ -26,12 +26,23 @@ func swiftMathTypesetterRejectsPackagedAppOnlyWhenResourcePathsAreMissing() {
     #if canImport(SwiftMath)
     let appURL = URL(fileURLWithPath: "/tmp/Sirius.app", isDirectory: true)
 
+    // No bundle present in a packaged .app -> text fallback, never enter SwiftMath.
     #expect(!SwiftMathTypesetter.canEnterSwiftMath(mainBundleURL: appURL) { _ in false })
-    #expect(SwiftMathTypesetter.canEnterSwiftMath(mainBundleURL: appURL) { path in
-        path.hasSuffix("SwiftMath_SwiftMath.bundle/mathFonts.bundle")
-    })
-    #expect(SwiftMathTypesetter.canEnterSwiftMath(mainBundleURL: appURL) { path in
+
+    // SwiftMath's generated Bundle.module accessor only checks
+    // `Bundle.main.bundleURL/SwiftMath_SwiftMath.bundle` (the .app root) and a
+    // build-time path baked in at SwiftMath compilation. It never searches
+    // `Contents/Resources`, so a bundle placed at the standard macOS resource
+    // location must NOT enter SwiftMath or MTFont.fontBundle -> Bundle.module
+    // fatals at runtime (the 0.6.0 regression).
+    #expect(!SwiftMathTypesetter.canEnterSwiftMath(mainBundleURL: appURL) { path in
         path.hasSuffix("Contents/Resources/SwiftMath_SwiftMath.bundle/mathFonts.bundle")
+    })
+
+    // A bundle at the .app root matches Bundle.module's first candidate, so
+    // entering SwiftMath is safe.
+    #expect(SwiftMathTypesetter.canEnterSwiftMath(mainBundleURL: appURL) { path in
+        path.hasSuffix("Sirius.app/SwiftMath_SwiftMath.bundle/mathFonts.bundle")
     })
 
     let testHostURL = URL(fileURLWithPath: "/tmp/SiriusMarkdownPackageTests.xctest", isDirectory: true)

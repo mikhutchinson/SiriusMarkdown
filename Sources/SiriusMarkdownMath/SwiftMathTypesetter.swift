@@ -304,39 +304,32 @@ final class SwiftMathTypesetter: @unchecked Sendable {
         mainBundleURL: URL = Bundle.main.bundleURL,
         fileExists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }
     ) -> Bool {
-        for resourceDirectory in swiftMathResourceDirectories(mainBundleURL: mainBundleURL) {
-            let mathFontsBundle = resourceDirectory
-                .appendingPathComponent("SwiftMath_SwiftMath.bundle", isDirectory: true)
-                .appendingPathComponent("mathFonts.bundle", isDirectory: true)
-            if fileExists(mathFontsBundle.path) {
-                return true
-            }
+        // SwiftMath ships an old `swift-tools-version: 5.7` package whose
+        // generated `Bundle.module` accessor only checks two candidates:
+        //
+        //   1. `Bundle.main.bundleURL/SwiftMath_SwiftMath.bundle`
+        //   2. A build-time path baked in when SwiftMath was compiled
+        //      (absent on end-user machines).
+        //
+        // It does NOT search `Contents/Resources`, so a resource bundle placed
+        // at the standard macOS `.app` location
+        // (`Contents/Resources/SwiftMath_SwiftMath.bundle`) makes a guard that
+        // accepts that path pass, while `MTFont.fontBundle` -> `Bundle.module`
+        // still fatals. Only accept the candidate `Bundle.module` actually
+        // loads, so packaged apps fall back to text rendering instead of
+        // crashing. `MTFont.fontBundle` also force-unwraps
+        // `Bundle.module.url(forResource: "mathFonts", withExtension: "bundle")`,
+        // so the inner font bundle must be present too.
+        let mathFontsBundle = mainBundleURL
+            .appendingPathComponent("SwiftMath_SwiftMath.bundle", isDirectory: true)
+            .appendingPathComponent("mathFonts.bundle", isDirectory: true)
+        if fileExists(mathFontsBundle.path) {
+            return true
         }
 
-        // SwiftMath's generated Bundle.module accessor fatals when a packaged
-        // app lacks SwiftMath_SwiftMath.bundle. SwiftPM test and command-line
-        // contexts can still rely on the accessor's build path.
+        // SwiftPM test and command-line contexts resolve the build-time
+        // candidate instead, which `Bundle.module` can still load.
         return mainBundleURL.pathExtension.lowercased() != "app"
-    }
-
-    private static func swiftMathResourceDirectories(mainBundleURL: URL) -> [URL] {
-        var directories: [URL] = []
-        var seen = Set<URL>()
-
-        func append(_ url: URL) {
-            let standardized = url.standardizedFileURL
-            guard seen.insert(standardized).inserted else {
-                return
-            }
-            directories.append(standardized)
-        }
-
-        append(mainBundleURL)
-        if mainBundleURL.pathExtension.lowercased() == "app" {
-            append(mainBundleURL.appendingPathComponent("Contents/Resources", isDirectory: true))
-        }
-
-        return directories
     }
 
     /// Re-rasterizes the typeset equation at the requested pixel scale so the
