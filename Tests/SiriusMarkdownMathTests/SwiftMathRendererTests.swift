@@ -29,18 +29,18 @@ func swiftMathTypesetterRejectsPackagedAppOnlyWhenResourcePathsAreMissing() {
     // No bundle present in a packaged .app -> text fallback, never enter SwiftMath.
     #expect(!SwiftMathTypesetter.canEnterSwiftMath(mainBundleURL: appURL) { _ in false })
 
-    // SwiftMath's generated Bundle.module accessor only checks
-    // `Bundle.main.bundleURL/SwiftMath_SwiftMath.bundle` (the .app root) and a
-    // build-time path baked in at SwiftMath compilation. It never searches
-    // `Contents/Resources`, so a bundle placed at the standard macOS resource
-    // location must NOT enter SwiftMath or MTFont.fontBundle -> Bundle.module
-    // fatals at runtime (the 0.6.0 regression).
-    #expect(!SwiftMathTypesetter.canEnterSwiftMath(mainBundleURL: appURL) { path in
+    // The vendored SwiftMath fork's MTFont.fontBundle searches
+    // `Bundle.main.url(forResource:)` and `Bundle(for:).url(forResource:)`,
+    // which find `SwiftMath_SwiftMath.bundle` under `Contents/Resources` in a
+    // signed macOS .app. The guard therefore accepts the standard packaged-app
+    // resource layout (the 0.6.0/0.6.1 regression was that the *upstream*
+    // `Bundle.module` never searched there and trapped; the vendored fork
+    // fixes that at the fontBundle call site).
+    #expect(SwiftMathTypesetter.canEnterSwiftMath(mainBundleURL: appURL) { path in
         path.hasSuffix("Contents/Resources/SwiftMath_SwiftMath.bundle/mathFonts.bundle")
     })
 
-    // A bundle at the .app root matches Bundle.module's first candidate, so
-    // entering SwiftMath is safe.
+    // A bundle at the .app root is also accepted.
     #expect(SwiftMathTypesetter.canEnterSwiftMath(mainBundleURL: appURL) { path in
         path.hasSuffix("Sirius.app/SwiftMath_SwiftMath.bundle/mathFonts.bundle")
     })

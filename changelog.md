@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.6.2 - 2026-07-05
+
+- Restored native LaTeX math glyphs in signed packaged macOS apps. `0.6.0`
+  trapped and `0.6.1` fell back to text because SwiftMath's generated
+  `Bundle.module` accessor (built from a `swift-tools-version: 5.7` manifest,
+  and still emitted by current toolchains for 6.0 manifests) only checks
+  `Bundle.main.bundleURL`'s root and a build-time path; it never searches
+  `Contents/Resources`, which is the only location a signed versioned `.app`
+  may keep resources. A host-side copy to the `.app` root was confirmed
+  unviable (`codesign` rejects unsealed bundle-root contents).
+- Vendored SwiftMath as a local in-tree package at `Vendor/SwiftMath` (MIT,
+  attribution in `NOTICE.md`) and dropped the external
+  `mgriebling/SwiftMath.git` dependency. The vendored fork patches
+  `MTFont.fontBundle` to search `Bundle.main.url(forResource:)` and
+  `Bundle(for:).url(forResource:)` (which find `SwiftMath_SwiftMath.bundle`
+  under `Contents/Resources`) before the `.app` root and the SwiftPM build-time
+  fallback. Native math now renders in packaged apps without breaking the
+  signed bundle layout, and the package is clean-checkout safe (no external
+  SwiftMath fetch).
+- Reverted the `0.6.1` `canEnterSwiftMath` restriction. The guard again accepts
+  the `Contents/Resources/SwiftMath_SwiftMath.bundle/mathFonts.bundle` layout
+  because the patched `MTFont.fontBundle` can now load it; the
+  `swiftMathTypesetterRejectsPackagedAppOnlyWhenResourcePathsAreMissing`
+  regression now asserts that layout enters SwiftMath.
+- The resource bundle name (`SwiftMath_SwiftMath.bundle`) is unchanged, so
+  host-app build scripts that copy the bundle into `Contents/Resources` keep
+  working.
+
 ## 0.6.1 - 2026-07-05
 
 - Fixed a packaged-macOS-app crash introduced in `0.5.12` and shipped in

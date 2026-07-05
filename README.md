@@ -18,10 +18,13 @@ The core contract is simple:
 
 ## Current Release
 
-`0.6.1` is a hotfix release that repairs a packaged-macOS-app crash shipped in
-`0.6.0` (see `changelog.md`). It sits on top of the `0.6.0` work, which
-delivered measured streaming performance, cross-block selection consistency,
-and native math rendering quality:
+`0.6.2` restores native LaTeX math glyphs in signed packaged macOS apps.
+`0.6.0` trapped and `0.6.1` fell back to text because SwiftMath's generated
+`Bundle.module` accessor never searched `Contents/Resources`; `0.6.2` vendors
+SwiftMath as a local in-tree package with a patched `MTFont.fontBundle` that
+loads fonts from the signed-app resource directory. It sits on top of the
+`0.6.0` work, which delivered measured streaming performance, cross-block
+selection consistency, and native math rendering quality:
 
 - **Streaming performance:** CTLine creation runs in the prepare phase, not
   the SwiftUI update path. New blocks render in a single pass without
@@ -50,7 +53,7 @@ The default inline renderer paints prepared line ranges with CoreText.
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/mikhutchinson/SiriusMarkdown.git", from: "0.6.1")
+    .package(url: "https://github.com/mikhutchinson/SiriusMarkdown.git", from: "0.6.2")
 ],
 targets: [
     .target(
@@ -239,7 +242,7 @@ git diff --check
 
 ## Release
 
-`0.6.1` is ready only when the docs describe the current public package surface,
+`0.6.2` is ready only when the docs describe the current public package surface,
 `bash Tools/product-check.sh` passes from the repository root, `git diff --check`
 is clean, the public remote is correct, and the release commit is tagged and
-pushed as `0.6.1`.
+pushed as `0.6.2`.

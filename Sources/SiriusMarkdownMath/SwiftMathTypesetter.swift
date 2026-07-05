@@ -304,32 +304,46 @@ final class SwiftMathTypesetter: @unchecked Sendable {
         mainBundleURL: URL = Bundle.main.bundleURL,
         fileExists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }
     ) -> Bool {
-        // SwiftMath ships an old `swift-tools-version: 5.7` package whose
-        // generated `Bundle.module` accessor only checks two candidates:
-        //
-        //   1. `Bundle.main.bundleURL/SwiftMath_SwiftMath.bundle`
-        //   2. A build-time path baked in when SwiftMath was compiled
-        //      (absent on end-user machines).
-        //
-        // It does NOT search `Contents/Resources`, so a resource bundle placed
-        // at the standard macOS `.app` location
-        // (`Contents/Resources/SwiftMath_SwiftMath.bundle`) makes a guard that
-        // accepts that path pass, while `MTFont.fontBundle` -> `Bundle.module`
-        // still fatals. Only accept the candidate `Bundle.module` actually
-        // loads, so packaged apps fall back to text rendering instead of
-        // crashing. `MTFont.fontBundle` also force-unwraps
-        // `Bundle.module.url(forResource: "mathFonts", withExtension: "bundle")`,
-        // so the inner font bundle must be present too.
-        let mathFontsBundle = mainBundleURL
-            .appendingPathComponent("SwiftMath_SwiftMath.bundle", isDirectory: true)
-            .appendingPathComponent("mathFonts.bundle", isDirectory: true)
-        if fileExists(mathFontsBundle.path) {
-            return true
+        // The vendored SwiftMath fork's `MTFont.fontBundle` searches
+        // `Bundle.main.url(forResource:)` and `Bundle(for:).url(forResource:)`
+        // before falling back to `Bundle.module`, so it loads
+        // `SwiftMath_SwiftMath.bundle` from either the signed-macOS-`.app`
+        // resource directory (`Contents/Resources`) or the `.app` root. Accept
+        // both layouts here, then fall back to text rendering when neither
+        // loadable location exists. `MTFont.fontBundle` also requires the inner
+        // `mathFonts.bundle`, so verify it is present at the same location.
+        for resourceDirectory in swiftMathResourceDirectories(mainBundleURL: mainBundleURL) {
+            let mathFontsBundle = resourceDirectory
+                .appendingPathComponent("SwiftMath_SwiftMath.bundle", isDirectory: true)
+                .appendingPathComponent("mathFonts.bundle", isDirectory: true)
+            if fileExists(mathFontsBundle.path) {
+                return true
+            }
         }
 
-        // SwiftPM test and command-line contexts resolve the build-time
-        // candidate instead, which `Bundle.module` can still load.
+        // SwiftPM test and command-line contexts resolve `Bundle.module`'s
+        // build-time candidate instead.
         return mainBundleURL.pathExtension.lowercased() != "app"
+    }
+
+    private static func swiftMathResourceDirectories(mainBundleURL: URL) -> [URL] {
+        var directories: [URL] = []
+        var seen = Set<URL>()
+
+        func append(_ url: URL) {
+            let standardized = url.standardizedFileURL
+            guard seen.insert(standardized).inserted else {
+                return
+            }
+            directories.append(standardized)
+        }
+
+        append(mainBundleURL)
+        if mainBundleURL.pathExtension.lowercased() == "app" {
+            append(mainBundleURL.appendingPathComponent("Contents/Resources", isDirectory: true))
+        }
+
+        return directories
     }
 
     /// Re-rasterizes the typeset equation at the requested pixel scale so the
