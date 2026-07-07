@@ -304,52 +304,30 @@ final class SwiftMathTypesetter: @unchecked Sendable {
         mainBundleURL: URL = Bundle.main.bundleURL,
         fileExists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }
     ) -> Bool {
-        // The vendored SwiftMath target's `MTFont.fontBundle` searches
-        // `Bundle.main.url(forResource:)` and `Bundle(for:).url(forResource:)`
-        // before falling back to `Bundle.module`, so it loads the resource
-        // bundle from either the signed-macOS-`.app` resource directory
-        // (`Contents/Resources`) or the `.app` root. Accept both layouts here,
-        // then fall back to text rendering when neither loadable location
-        // exists. `MTFont.fontBundle` also requires the inner `mathFonts.bundle`,
-        // so verify it is present at the same location.
+        // Mirror `MTFont.fontBundle`'s resolution exactly: enter SwiftMath only
+        // when the inner `mathFonts.bundle` is loadable from one of the
+        // filesystem-probed candidate roots. `MTFont.fontBundle` resolves the
+        // same URL via `MTFont.mathFontsBundleURL` and loads it as a `Bundle`,
+        // so the guard and the loader agree across signed-`.app`, `swift run`,
+        // demo-`.app`, and framework-consumer layouts. Neither path touches
+        // SwiftPM's generated `Bundle.module` accessor in a packaged `.app`,
+        // because that accessor only checks the `.app` root and a build-time
+        // path — never `Contents/Resources` — and would trap with
+        // `EXC_BREAKPOINT` in any signed `.app` that ships the bundle under
+        // `Contents/Resources`.
         //
         // The resource bundle is named `SiriusMarkdown_SwiftMath.bundle`
         // (SwiftPM's `<PackageName>_<TargetName>` convention) because SwiftMath
         // is vendored as an inline target of the SiriusMarkdown package, not a
         // separate package. Host build scripts must copy
         // `SiriusMarkdown_SwiftMath.bundle` into `Contents/Resources`.
-        for resourceDirectory in swiftMathResourceDirectories(mainBundleURL: mainBundleURL) {
-            let mathFontsBundle = resourceDirectory
-                .appendingPathComponent("SiriusMarkdown_SwiftMath.bundle", isDirectory: true)
-                .appendingPathComponent("mathFonts.bundle", isDirectory: true)
-            if fileExists(mathFontsBundle.path) {
-                return true
-            }
+        if MTFont.mathFontsBundleURL(mainBundleURL: mainBundleURL, fileExists: fileExists) != nil {
+            return true
         }
 
         // SwiftPM test and command-line contexts resolve `Bundle.module`'s
         // build-time candidate instead.
         return mainBundleURL.pathExtension.lowercased() != "app"
-    }
-
-    private static func swiftMathResourceDirectories(mainBundleURL: URL) -> [URL] {
-        var directories: [URL] = []
-        var seen = Set<URL>()
-
-        func append(_ url: URL) {
-            let standardized = url.standardizedFileURL
-            guard seen.insert(standardized).inserted else {
-                return
-            }
-            directories.append(standardized)
-        }
-
-        append(mainBundleURL)
-        if mainBundleURL.pathExtension.lowercased() == "app" {
-            append(mainBundleURL.appendingPathComponent("Contents/Resources", isDirectory: true))
-        }
-
-        return directories
     }
 
     /// Re-rasterizes the typeset equation at the requested pixel scale so the

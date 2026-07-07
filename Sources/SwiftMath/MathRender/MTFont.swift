@@ -39,37 +39,86 @@ public class MTFont {
         self.mathTable = MTFontMathTable(withFont:self, mathTable:rawMathTable!)
     }
     
-    static var fontBundle:Bundle {
-        // SwiftPM's generated `Bundle.module` accessor (built from a
-        // `swift-tools-version: 5.7`–6.0 manifest) only checks two candidates:
-        //
-        //   1. `Bundle.main.bundleURL/<bundle>.bundle` (the `.app` root)
-        //   2. A build-time path baked in when SwiftMath was compiled.
-        //
-        // It never searches `Contents/Resources`, so a signed macOS `.app` —
-        // which must keep resources under `Contents/Resources` or codesign
-        // rejects the bundle root as unsealed — would fatal at the
-        // force-unwrap below. `Bundle.main.url(forResource:withExtension:)`
-        // and `Bundle(for:).url(forResource:withExtension:)` DO search the
-        // platform resource locations (including `Contents/Resources` on
-        // macOS), so try them first, then the `.app` root, and only fall back
-        // to `Bundle.module` for SwiftPM test/command-line contexts where the
-        // build-time candidate is valid.
+    /// Resolves the on-disk URL of the inner `mathFonts.bundle` resource
+    /// directory across every context SwiftMath can be loaded in.
+    ///
+    /// This deliberately avoids SwiftPM's generated `Bundle.module` accessor and
+    /// `Bundle.url(forResource:withExtension:)`. `Bundle.module` (as emitted by
+    /// current Swift 5.9–6.x toolchains) only loads from
+    /// `Bundle.main.bundleURL/<name>.bundle` and a build-time path baked in at
+    /// compile time — neither of which is `Contents/Resources`, so it fatals
+    /// (`EXC_BREAKPOINT`) inside any signed macOS `.app` that ships the resource
+    /// bundle under `Contents/Resources`. `Bundle.url(forResource:withExtension:)`
+    /// is also not a reliable way to locate a nested `.bundle` directory: some
+    /// macOS releases stop returning wrapped-bundle directories from that API,
+    /// which is exactly the regression that re-triggered the `Bundle.module`
+    /// fatal in shipped apps. A direct filesystem probe is loadable in every
+    /// context (signed `.app`, `swift run`, demo `.app`, framework consumer)
+    /// without going through `Bundle.module`.
+    public static func mathFontsBundleURL(
+        mainBundleURL: URL = Bundle.main.bundleURL,
+        fileExists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }
+    ) -> URL? {
         let outerName = "SiriusMarkdown_SwiftMath"
-        let outerCandidates: [URL?] = [
-            Bundle.main.url(forResource: outerName, withExtension: "bundle"),
-            Bundle(for: MTFont.self).url(forResource: outerName, withExtension: "bundle"),
-            Bundle.main.bundleURL.appendingPathComponent("\(outerName).bundle", isDirectory: true)
-        ]
-        for case let outer? in outerCandidates {
-            let innerURL = outer.appendingPathComponent("mathFonts.bundle", isDirectory: true)
-            if let inner = Bundle(url: innerURL) {
-                return inner
+        let innerName = "mathFonts.bundle"
+        let isApp = mainBundleURL.pathExtension.lowercased() == "app"
+
+        var roots: [URL] = []
+        func appendRoot(_ url: URL) {
+            let standardized = url.standardizedFileURL
+            if !roots.contains(standardized) {
+                roots.append(standardized)
             }
         }
+        // Signed macOS `.app`: resources live under `Contents/Resources`.
+        if isApp {
+            appendRoot(mainBundleURL.appendingPathComponent("Contents/Resources", isDirectory: true))
+        }
+        // `swift run` / SPM bin path: the built resource bundle sits next to the
+        // host binary. Also covers an `.app` that keeps the bundle at its root.
+        appendRoot(mainBundleURL)
+        // Framework / dylib consumer: the bundle owning `MTFont` may differ from
+        // `Bundle.main` when SwiftMath is linked into a framework rather than an app.
+        if let ownerResources = Bundle(for: MTFont.self).resourceURL {
+            appendRoot(ownerResources)
+        }
 
-        // Test / command-line fallback: SwiftPM's build-time candidate.
-        return Bundle(url: Bundle.module.url(forResource: "mathFonts", withExtension: "bundle")!)!
+        for root in roots {
+            let candidate = root
+                .appendingPathComponent("\(outerName).bundle", isDirectory: true)
+                .appendingPathComponent(innerName, isDirectory: true)
+            if fileExists(candidate.path) {
+                return candidate
+            }
+        }
+        return nil
+    }
+
+    static var fontBundle:Bundle {
+        // Resolve the inner `mathFonts.bundle` by direct filesystem probe and
+        // load it as a `Bundle`. See `mathFontsBundleURL` for why this cannot
+        // use `Bundle.module` or `Bundle.url(forResource:withExtension:)`.
+        if let url = MTFont.mathFontsBundleURL(), let bundle = Bundle(url: url) {
+            return bundle
+        }
+
+        // SwiftPM test / command-line fallback: SwiftMath's generated
+        // `Bundle.module` accessor is only safe when `Bundle.main` is NOT a
+        // packaged `.app`. In a signed `.app` its two candidates (the `.app`
+        // root and a build-time path baked in at compile time) never include
+        // `Contents/Resources`, so it would fatal. The filesystem probe above
+        // is the only safe `.app` path; never reach `Bundle.module` there.
+        if Bundle.main.bundleURL.pathExtension.lowercased() != "app",
+           let buildURL = Bundle.module.url(forResource: "mathFonts", withExtension: "bundle"),
+           let bundle = Bundle(url: buildURL) {
+            return bundle
+        }
+
+        // Unreachable in a packaged `.app` when `canEnterSwiftMath` has gated
+        // entry (it uses the same resolver). Return `Bundle.main` instead of
+        // trapping so a missed guard degrades to a font-load nil rather than a
+        // process crash.
+        return Bundle.main
     }
     
     /** Returns a copy of this font but with a different size. */

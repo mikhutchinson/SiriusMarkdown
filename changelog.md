@@ -1,5 +1,42 @@
 # Changelog
 
+## 0.6.4 - 2026-07-07
+
+- Fixed a packaged-macOS-app crash that re-appeared under macOS 26.5.x where
+  inline LaTeX math rendering trapped with `EXC_BREAKPOINT` inside SwiftPM's
+  generated `Bundle.module` accessor (`fatalError("could not load resource
+  bundle: from ... or ...")`) during `MarkdownRendererConfiguration.prepare`.
+  `0.6.2`/`0.6.3` patched `MTFont.fontBundle` to locate
+  `SiriusMarkdown_SwiftMath.bundle` via
+  `Bundle.main.url(forResource:withExtension:)` and only fall back to
+  `Bundle.module` for SwiftPM test/command-line contexts. That relied on
+  `Bundle.url(forResource:withExtension:)` returning a nested `.bundle`
+  directory from a signed app's `Contents/Resources`. A macOS 26.5.x Foundation
+  change stopped returning wrapped-bundle directories from that API, so every
+  candidate missed, the `Bundle.module` fallback fired, and its accessor
+  fatals because it only checks `Bundle.main.bundleURL/<name>.bundle` (the
+  `.app` root) and a build-time path baked in at compile time — never
+  `Contents/Resources`. `MTFont.fontBundle` now resolves the inner
+  `mathFonts.bundle` by a direct **filesystem probe**
+  (`MTFont.mathFontsBundleURL(mainBundleURL:fileExists:)`) of
+  `Contents/Resources`, the `.app` root, and the owning bundle's resource URL,
+  and loads it with `Bundle(url:)`. The `Bundle.module` fallback is now
+  reached only when `Bundle.main` is not a packaged `.app` (SwiftPM
+  test/`swift run` contexts where the build-time candidate is valid), so the
+  fatal landmine can never fire in a signed `.app`. `canEnterSwiftMath` uses
+  the same resolver so the entry guard and the loader agree: a packaged app
+  enters SwiftMath only when the inner `mathFonts.bundle` is actually
+  loadable, and falls back to text otherwise.
+- Hardened the vendored `MathBundle` (`MathFont`/`BundleManager`) path against
+  the same `Bundle.module` fatal: `registerCGFont`/`registerMathTable` resolve
+  `mathFonts.bundle` via `MTFont.mathFontsBundleURL` instead of
+  `Bundle.module.url(forResource:withExtension:)`, so the alternative
+  `MTFontV2`/`MathFont` API no longer traps in a signed `.app`.
+- `MTFont.mathFontsBundleURL(_:)` is now `public` so host apps and the
+  `SiriusMarkdownMath` guard share one source of truth for the packaged-app
+  resource layout. Host build scripts that copy
+  `SiriusMarkdown_SwiftMath.bundle` into `Contents/Resources` are unchanged.
+
 ## 0.6.3 - 2026-07-05
 
 - Fixed a SwiftPM resolver blocker that made `0.6.2` unusable from any
