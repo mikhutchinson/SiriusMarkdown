@@ -18,7 +18,7 @@ The core contract is simple:
 
 ## Current Release
 
-`0.6.4` fixes a packaged-macOS-app crash that recurred under macOS 26.5.x:
+`0.6.5` ships native selection feel improvements, pasteboard API richness, and a SIGBUS fix for `MarkdownAffordanceActionHandler`:
 inline LaTeX math rendering trapped with `EXC_BREAKPOINT` inside SwiftPM's
 generated `Bundle.module` accessor. `0.6.2`/`0.6.3` located
 `SiriusMarkdown_SwiftMath.bundle` via `Bundle.url(forResource:withExtension:)`,
@@ -62,7 +62,7 @@ The default inline renderer paints prepared line ranges with CoreText.
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/mikhutchinson/SiriusMarkdown.git", from: "0.6.4")
+    .package(url: "https://github.com/mikhutchinson/SiriusMarkdown.git", from: "0.6.5")
 ],
 targets: [
     .target(
@@ -253,7 +253,7 @@ git diff --check
 
 ## Release
 
-`0.6.4` is ready only when the docs describe the current public package surface,
+`0.6.5` is ready only when the docs describe the current public package surface,
 `bash Tools/product-check.sh` passes from the repository root, `git diff --check`
 is clean, the public remote is correct, and the release commit is tagged and
-pushed as `0.6.4`.
+pushed as `0.6.5`.

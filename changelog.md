@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.6.5 - 2026-07-09
 
 ### Native Selection Feel (Parts 01–04)
 
@@ -26,9 +26,9 @@
   On macOS, one `NSPasteboardItem` carries `.string` = visible plain text,
   `net.siriusmarkdown.markdown` = exact Markdown source (INV-NS1), and optional `.rtf`
   / `.html` when present. On iOS/iPadOS, plain text and the custom Markdown type are
-  written. Document Cmd-C writes the multi-rep payload and also calls
-  `affordanceActionHandler.copyString(markdown)` for backward-compatible host
-  notification.
+  written. Document Cmd-C routes through `affordanceActionHandler.copyPayload` only;
+  the default `copyPayload` implementation calls `MarkdownPasteboard.copy(_ payload:)`.
+  Single-string affordance copy (code block copy, etc.) still uses `copyString`.
 
   **Breaking change for hosts reading the pasteboard:** `NSPasteboard.string(forType: .string)`
   now contains **plain text** (visible rendered text), not Markdown source. Hosts that
@@ -36,6 +36,10 @@
   `NSPasteboard.data(forType: NSPasteboardType("net.siriusmarkdown.markdown"))`.
   In-process `selectedMarkdown` and `MarkdownCopyProvider` APIs are unchanged.
   `MarkdownPasteboard.markdownPasteboardType` exposes the type constant.
+
+  **Breaking change for hosts overriding affordance handlers:** document selection
+  Cmd-C invokes `copyPayload`, not `copyString`. Hosts that hooked `copyString` for
+  document-copy toasts or side effects must move that logic to `copyPayload`.
 
   New types: `MarkdownPasteboardPayload`.
 
