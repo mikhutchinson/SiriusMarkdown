@@ -14,7 +14,11 @@ The goal is a native, streaming-first Markdown renderer for Apple applications: 
 - Single-pass layout: new blocks render content on first appearance without waiting for a width preference pass. `MarkdownRenderSession` publishes a `MarkdownPreparedSnapshotDiff` so only changed blocks trigger view updates.
 - Measured performance: benchmarks enforce <16ms per append for 100+ blocks, <4ms per width-change relayout, and zero CTLine creation in SwiftUI body after preparation.
 - Selection consistency: source-backed document selection is consistent across all block types — paragraphs, headings, block quotes, lists, task lists, nested lists, code blocks, tables, math blocks, and HTML blocks. Selection fragment geometry is cached; repeated same-rect resolution records zero new builds after warmup.
-- Math quality: native LaTeX math through `SiriusMarkdownMath` renders with real typographic metrics (not heuristics), proper baseline alignment using `-descent`, screen-matched rasterization scale, and reliable streaming detection for `$$`, `\[...\]`, and `\begin{...}...\end{...}` environments.
+- Math quality: native LaTeX math through `SiriusMarkdownMath` renders with
+  display-list typographic metrics from vendored SwiftMath
+  `MTMathImage.LayoutInfo` (not atom-tree heuristics), proper baseline alignment
+  using `-descent`, screen-matched rasterization scale, and reliable streaming
+  detection for `$$`, `\[...\]`, and `\begin{...}...\end{...}` environments.
 - Font measurement: production CoreText measurement defaults to system-profile fonts and includes font profiles in cache identity; Pretext fixtures pin explicit named fonts for oracle stability.
 - Safety: links, images, HTML, code, and math stay policy controlled, with no remote image fetch by default.
 - Interaction: selection and copy are bounded at block/range level and never create unbounded per-fragment overlays; package-owned document/code/Mermaid controls keep explicit accessibility labels on buttons and treat SF Symbol images as decorative.

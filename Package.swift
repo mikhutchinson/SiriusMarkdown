@@ -114,7 +114,11 @@ let package = Package(
             dependencies: [
                 "SiriusMarkdownMath",
                 "SiriusMarkdownSwiftUI",
-                "SiriusMarkdownCore"
+                "SiriusMarkdownCore",
+                .target(
+                    name: "SwiftMath",
+                    condition: .when(platforms: [.iOS, .macOS, .visionOS])
+                )
             ]
         )
     ]

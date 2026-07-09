@@ -50,6 +50,19 @@ struct CoreTextPaintedInlineLineView: View {
 }
 
 #if canImport(CoreText)
+/// Cache key for the last `MarkdownCoreTextPaintedLinePlan` built in the NSView/UIView update path.
+/// Guards INV-P1: if the prepared content's natural width and the current layout result are
+/// unchanged since the last explicit `make()`, the existing plan is reused without recreating CTLine
+/// objects in `updateNSView`/`updateUIView`.
+struct CTPlanCacheKey: Equatable {
+    var preparedNaturalWidth: Double
+    var layout: InlineLayoutResult
+
+    func matches(naturalWidth: Double, layout: InlineLayoutResult) -> Bool {
+        preparedNaturalWidth == naturalWidth && self.layout == layout
+    }
+}
+
 struct MarkdownCoreTextPaintedLinePlan: @unchecked Sendable {
     var lines: [MarkdownCoreTextPaintedLine]
     var accessibilityLabel: String
@@ -522,9 +535,19 @@ private struct CoreTextPaintedInlineLineSurface: NSViewRepresentable {
            initialLayout == layoutResult
         {
             view.plan = prebuilt
+            view.cachedLinePlanKey = nil
+        } else if view.cachedLinePlanKey?.matches(
+            naturalWidth: prepared.measured.naturalWidth,
+            layout: layoutResult
+        ) == true {
+            // Same content+layout since last explicit make() — reuse existing plan (INV-P1).
         } else {
             view.plan = MarkdownCoreTextPaintedLinePlan.make(
                 prepared: prepared,
+                layout: layoutResult
+            )
+            view.cachedLinePlanKey = CTPlanCacheKey(
+                preparedNaturalWidth: prepared.measured.naturalWidth,
                 layout: layoutResult
             )
         }
@@ -548,6 +571,9 @@ private final class MarkdownCoreTextPaintedNSView: NSView {
     var textColor: CGColor = NSColor.labelColor.cgColor
     var linkAction: MarkdownLinkAction?
     var dragSelectionHandler: ((CGPoint, CGPoint) -> Void)?
+    /// Cached key from the last explicit `MarkdownCoreTextPaintedLinePlan.make()` call so
+    /// repeated `updateNSView` calls with identical content+layout skip `make()` (INV-P1).
+    var cachedLinePlanKey: CTPlanCacheKey?
     private var linkClickTracker = MarkdownCoreTextPaintedLinkClickTracker()
     private var dragStartPoint: CGPoint?
 
@@ -662,9 +688,19 @@ private struct CoreTextPaintedInlineLineSurface: UIViewRepresentable {
            initialLayout == layoutResult
         {
             view.plan = prebuilt
+            view.cachedLinePlanKey = nil
+        } else if view.cachedLinePlanKey?.matches(
+            naturalWidth: prepared.measured.naturalWidth,
+            layout: layoutResult
+        ) == true {
+            // Same content+layout since last explicit make() — reuse existing plan (INV-P1).
         } else {
             view.plan = MarkdownCoreTextPaintedLinePlan.make(
                 prepared: prepared,
+                layout: layoutResult
+            )
+            view.cachedLinePlanKey = CTPlanCacheKey(
+                preparedNaturalWidth: prepared.measured.naturalWidth,
                 layout: layoutResult
             )
         }
@@ -689,6 +725,9 @@ private final class MarkdownCoreTextPaintedUIView: UIView {
     )
     var textColor: CGColor = UIColor.label.cgColor
     var linkAction: MarkdownLinkAction?
+    /// Cached key from the last explicit `MarkdownCoreTextPaintedLinePlan.make()` call so
+    /// repeated `updateUIView` calls with identical content+layout skip `make()` (INV-P1).
+    var cachedLinePlanKey: CTPlanCacheKey?
     private var linkClickTracker = MarkdownCoreTextPaintedLinkClickTracker()
 
     override func draw(_ rect: CGRect) {

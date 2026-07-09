@@ -87,6 +87,7 @@ public struct MarkdownDocumentView: View {
         let content = LazyVStack(alignment: .leading, spacing: theme.renderBlockSpacing) {
             ForEach(preparedSnapshot.renderItems) { item in
                 preparedRenderItemView(item, selectionController: selectionController)
+                    .id(itemViewID(for: item, in: preparedSnapshot))
             }
         }
         .padding()
@@ -141,6 +142,20 @@ public struct MarkdownDocumentView: View {
         case let .hostBoundary(boundary):
             hostBoundaryView(boundary)
         }
+    }
+
+    /// Returns a stable view identity for `item` that only changes when the diff marks the
+    /// item as changed or new (INV-P3).  Unchanged sealed items receive the ":0" suffix so
+    /// SwiftUI recognises them across snapshot publishes and skips expensive re-evaluation.
+    private func itemViewID(
+        for item: MarkdownPreparedSnapshotRenderItem,
+        in snapshot: MarkdownPreparedSnapshot
+    ) -> String {
+        let baseID = snapshot.item(at: item.itemIndex)?.id ?? item.id
+        if snapshot.diff.contains(baseID) {
+            return item.id + ":\(snapshot.diff.generation)"
+        }
+        return item.id + ":0"
     }
 }
 
@@ -225,6 +240,7 @@ public struct StreamingMarkdownView: View {
         let content = LazyVStack(alignment: .leading, spacing: theme.renderBlockSpacing) {
             ForEach(preparedSnapshot.renderItems) { item in
                 preparedRenderItemView(item, selectionController: selectionController)
+                    .id(itemViewID(for: item, in: preparedSnapshot))
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -278,6 +294,17 @@ public struct StreamingMarkdownView: View {
         case let .hostBoundary(boundary):
             hostBoundaryView(boundary)
         }
+    }
+
+    private func itemViewID(
+        for item: MarkdownPreparedSnapshotRenderItem,
+        in snapshot: MarkdownPreparedSnapshot
+    ) -> String {
+        let baseID = snapshot.item(at: item.itemIndex)?.id ?? item.id
+        if snapshot.diff.contains(baseID) {
+            return item.id + ":\(snapshot.diff.generation)"
+        }
+        return item.id + ":0"
     }
 }
 

@@ -39,7 +39,7 @@ public struct NativeMarkdownMathRenderer: MarkdownMathRenderer, MarkdownMathRend
 
     public var mathRendererCacheIdentity: String {
         #if canImport(SwiftMath)
-        return "siriusmarkdown.native-math.swiftmath.1.7.3.scale\(Int(Self.renderScale)).compat3"
+        return "siriusmarkdown.native-math.swiftmath.1.7.3.scale\(Int(Self.renderScale)).compat5-layoutinfo"
         #else
         return "siriusmarkdown.native-math.unicode-fallback.v1"
         #endif

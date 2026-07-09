@@ -13,9 +13,10 @@
 - Cross-block selection consistency: table cells, list items, code blocks, and
   math blocks now publish text-geometry-aware selection fragments from
   prepared inline layout, eliminating rect-based fallbacks.
-- Math quality: real typographic metrics (ascent/descent from parsed atom
-  tree) replace heuristics; rasterization matches screen backing scale (min
-  2.0); streaming detection hardened for `\begin{...}...\end{...}` environments.
+- Math quality: display-list typographic metrics (ascent/descent from vendored
+  SwiftMath `MTMathImage.LayoutInfo` / `MTMathListDisplay`) replace atom-tree
+  fraction estimates; rasterization matches screen backing scale (min 2.0);
+  streaming detection hardened for `\begin{...}...\end{...}` environments.
 
 ## Fixed
 

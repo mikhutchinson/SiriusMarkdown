@@ -72,15 +72,36 @@ Strict Pretext fixture drift is a release blocker. The Swift fixture comparison 
 
 ## Math rendering quality
 
-Native LaTeX math through `SiriusMarkdownMath`'s `NativeMarkdownMathRenderer` (backed by SwiftMath's CoreText typesetting) produces `MarkdownPreparedMathImage` values with real typographic metrics:
+Native LaTeX math through `SiriusMarkdownMath`'s `NativeMarkdownMathRenderer`
+(backed by the vendored SwiftMath target under `Sources/SwiftMath`) produces
+`MarkdownPreparedMathImage` values with display-list typographic metrics:
 
-- **Real ascent/descent**: `SwiftMathTypesetter` parses the LaTeX with `MTMathListBuilder` and inspects the `MTMathList` atom tree for below-baseline content (subscripts, fraction denominators, radical degrees, large-operator limits). The estimated `ascent + descent == pointHeight`, with `ascent < pointHeight` when descenders are present. This replaces the prior `ascent = pointHeight, descent = 0` placeholder.
-- **Baseline alignment**: `InlineMathTextView.baselineOffset(for:)` uses `-descent` to align the equation's typographic baseline with the surrounding text baseline, replacing the prior `−overshoot × 0.32` heuristic.
-- **Screen-matched rasterization**: `NativeMarkdownMathRenderer.renderScale` resolves to the screen's backing scale (min 2.0) instead of a fixed 3.0, ensuring sharp glyphs on both 2x Retina and 3x Pro displays.
-- **Interpolation**: `MarkdownMathImageView` uses `.interpolation(.medium)` for sharper glyph edges on template images at exact point size.
-- **Streaming detection**: The boundary scanner tracks open `$$` fences, `\[...\]` display math, and `\begin{...}...\end{...}` LaTeX environments, preventing early sealing during streaming. Partial LaTeX renders as text until sealed, then typesets correctly (INV-M5).
+- **Display-list ascent/descent**: `SwiftMathTypesetter` uses vendored
+  `MTMathImage.asImage()` → `LayoutInfo` from `MTMathListDisplay`, then maps
+  those metrics onto the rasterized image height so
+  `ascent + descent == pointHeight`. This replaces both the old
+  `ascent = pointHeight, descent = 0` placeholder and the interim atom-tree
+  fraction estimator.
+- **Baseline alignment**: `InlineMathTextView.baselineOffset(for:)` uses
+  `-descent` to align the equation's typographic baseline with the surrounding
+  text baseline, replacing the prior `−overshoot × 0.32` heuristic.
+- **Screen-matched rasterization**: `NativeMarkdownMathRenderer.renderScale`
+  resolves to the screen's backing scale (min 2.0) instead of a fixed 3.0,
+  ensuring sharp glyphs on both 2x Retina and 3x Pro displays.
+- **Interpolation**: `MarkdownMathImageView` uses `.interpolation(.medium)` for
+  sharper glyph edges on template images at exact point size.
+- **Streaming detection**: The boundary scanner tracks open `$$` fences,
+  `\[...\]` display math, and `\begin{...}...\end{...}` LaTeX environments,
+  preventing early sealing during streaming. Inline `\(...\)` is not a block
+  fence. Partial display LaTeX renders as text until sealed, then typesets
+  correctly (INV-M5).
+- **Packaged apps**: Host `.app` bundles must ship
+  `SiriusMarkdown_SwiftMath.bundle` under `Contents/Resources`. Font loading
+  uses `MTFont.mathFontsBundleURL` and never relies on SwiftPM's generated
+  `Bundle.module` accessor inside a signed `.app`.
 
-All math preparation (typesetting, rasterization, metric extraction) runs in the prepare phase; SwiftUI only draws the prepared image (INV-M2).
+All math preparation (typesetting, rasterization, metric extraction) runs in
+the prepare phase; SwiftUI only draws the prepared image (INV-M2).
 
 ## Diagnostics
 

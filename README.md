@@ -45,8 +45,9 @@ consistency, and native math rendering quality:
   Drag selection, highlight geometry, and copy produce correct results for
   every block type.
 - **Math quality:** Native LaTeX math through `SiriusMarkdownMath` renders
-  with real typographic metrics (not heuristics), proper baseline alignment,
-  screen-matched rasterization sharpness, and reliable streaming detection.
+  with display-list typographic metrics from vendored SwiftMath
+  (`MTMathImage.LayoutInfo`), proper baseline alignment, screen-matched
+  rasterization sharpness, and reliable streaming detection.
 
 The default inline renderer paints prepared line ranges with CoreText.
 `preparedNativeLines` and `systemText` remain explicit compatibility fallbacks.
@@ -147,11 +148,13 @@ small surfaces. Production paths should pass `MarkdownPreparedSnapshot`.
 - Package-owned Mermaid preparation through JavaScriptCore with deterministic
   ASCII plus light/dark SVG output. Mermaid remains prepared SVG/ASCII, not a
   WebKit surface and not a second Markdown semantic engine.
-- Optional native LaTeX math through `SiriusMarkdownMath`, backed by SwiftMath
-  and CoreText typesetting. Inline math aligns to the text baseline using real
-  typographic metrics extracted from the parsed atom tree, block math rasterizes
-  at the screen's backing scale for sharp glyphs, and streaming math falls back
-  to text until sealed. The core renderer stays pluggable.
+- Optional native LaTeX math through `SiriusMarkdownMath`, backed by the
+  vendored SwiftMath target and CoreText typesetting. Inline math aligns to the
+  text baseline using display-list ascent/descent from
+  `MTMathImage.LayoutInfo`, block math rasterizes at the screen's backing scale
+  for sharp glyphs, and streaming math falls back to text until sealed. Host
+  apps must ship `SiriusMarkdown_SwiftMath.bundle` under `Contents/Resources`.
+  The core renderer stays pluggable.
 
 ## CoreText Inline Rendering
 

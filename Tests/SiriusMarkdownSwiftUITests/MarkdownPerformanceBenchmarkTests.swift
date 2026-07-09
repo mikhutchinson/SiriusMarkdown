@@ -188,12 +188,26 @@ struct MarkdownPerformanceBenchmarkTests {
             parserCacheCapacity: 128
         )
 
+        let clock = ContinuousClock()
+        let start = clock.now
         for i in 0..<100 {
             session.append("Paragraph block number \(i) with some text content.\n\n")
         }
         await session.waitUntilIdle()
+        let elapsed = clock.now - start
 
         #expect(session.preparedSnapshot.items.count >= 100)
+
+        // <16ms per append at 60fps — enforced in release mode where optimisations are active.
+        #if !DEBUG
+        let totalMs = Double(elapsed.components.seconds) * 1000.0
+            + Double(elapsed.components.attoseconds) / 1e15
+        let msPerAppend = totalMs / 100.0
+        #expect(
+            msPerAppend < 16.0,
+            "Per-append cost exceeds 16ms budget: \(String(format: "%.2f", msPerAppend))ms (INV-P8)"
+        )
+        #endif
     }
 
     @Test
@@ -213,11 +227,24 @@ struct MarkdownPerformanceBenchmarkTests {
             for: inlineLayout,
             containerWidth: 400
         )
+        let clock = ContinuousClock()
+        let start = clock.now
         let result1 = InlineRunsView.lineLayout(
             for: inlineLayout,
             containerWidth: layoutWidth1
         )
+        let elapsed1 = clock.now - start
         #expect(!result1.lines.isEmpty)
+
+        // <4ms for a single width-change relayout (quarter frame budget, layout-only path) — INV-P8.
+        #if !DEBUG
+        let ms1 = Double(elapsed1.components.seconds) * 1000.0
+            + Double(elapsed1.components.attoseconds) / 1e15
+        #expect(
+            ms1 < 4.0,
+            "Width-change relayout exceeds 4ms budget: \(String(format: "%.2f", ms1))ms (INV-P8)"
+        )
+        #endif
 
         let layoutWidth2 = InlineRunsView.nativeLineLayoutWidth(
             for: inlineLayout,

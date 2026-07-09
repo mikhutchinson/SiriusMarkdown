@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased
+
+- Completed math-quality metrics: `SwiftMathTypesetter` now consumes vendored
+  SwiftMath `MTMathImage.LayoutInfo` (`MTMathListDisplay` ascent/descent)
+  instead of the interim atom-tree fraction estimator, keeping `-descent`
+  baseline alignment and `ascent + descent == pointHeight` after mapping
+  through SwiftMath's `fontSize/2` vertical-layout formula. Compact glyphs
+  grow the image to at least `fontSize/2` so the baseline stays inside the
+  bitmap. Cache identity bumps to `compat5-layoutinfo`.
+- Added LayoutInfo parity, baseline, tall-equation line-height, compact-glyph,
+  and `.interpolation(.medium)` source-guard tests, plus streaming coverage
+  that open inline `\(...\)` does not invent math blocks or block fences.
+- Updated `Docs/performance.md`, the native-renderer scorecard, and bugfix
+  math-quality wording to describe display-list metrics and packaged-app
+  `SiriusMarkdown_SwiftMath.bundle` requirements.
+
 ## 0.6.4 - 2026-07-07
 
 - Fixed a packaged-macOS-app crash that re-appeared under macOS 26.5.x where

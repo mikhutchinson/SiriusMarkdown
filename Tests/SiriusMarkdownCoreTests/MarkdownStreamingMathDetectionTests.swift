@@ -243,3 +243,40 @@ func scannerSealsClosedBeginCasesEnvironment() {
     let scanner = MarkdownBoundaryScanner()
     #expect(scanner.safeSealUpperBound(in: buffer, after: 0) == buffer.byteCount)
 }
+
+// MARK: - Partial \(...\) inline math (INV-M5)
+
+@Test
+func streamingPartialInlineParenMathDoesNotInventMathBlock() {
+    // Inline `\(...\)` is not a block fence. An open `\(` in the mutable tail
+    // must not produce a math *block*; the scanner must not invent display-math
+    // seal behavior for inline delimiters (INV-M3 / INV-M5).
+    var stream = MarkdownStream()
+    stream.append("Prose with \\(x^2 + y^2\n")
+
+    let snapshot = stream.snapshot()
+    #expect(snapshot.blocks.allSatisfy { $0.kind != .mathBlock })
+}
+
+@Test
+func streamingClosedInlineParenMathParsesAsInlineNotBlock() throws {
+    var stream = MarkdownStream()
+    stream.append("Prose with \\(x^2 + y^2\\) continues.\n\n")
+    stream.finish()
+
+    let snapshot = stream.snapshot()
+    #expect(snapshot.blocks.allSatisfy { $0.kind != .mathBlock })
+    let block = try #require(snapshot.blocks.first)
+    #expect(block.inlines.contains { $0.kind == .math })
+}
+
+@Test
+func scannerDoesNotTreatOpenInlineParenAsMathFence() {
+    var buffer = MarkdownSourceBuffer()
+    buffer.append("Hello \\(x\n\n")
+
+    let scanner = MarkdownBoundaryScanner()
+    // A blank line after open inline `\(` is still a normal paragraph seal
+    // opportunity — unlike open `$$` / `\[` / `\begin{...}` fences.
+    #expect(scanner.safeSealUpperBound(in: buffer, after: 0) == buffer.byteCount)
+}
