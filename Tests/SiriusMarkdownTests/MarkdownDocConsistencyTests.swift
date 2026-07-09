@@ -63,7 +63,7 @@ func readmeInstallVersionMatchesChangelogLatest() throws {
 
     let changelogFirstVersion = changelog
         .components(separatedBy: .newlines)
-        .first { $0.hasPrefix("## ") }
+        .first { $0.hasPrefix("## ") && !$0.hasPrefix("## Unreleased") }
         ?? ""
     let version = changelogFirstVersion
         .replacingOccurrences(of: "## ", with: "")
@@ -84,7 +84,7 @@ func runbookReleaseTagMatchesChangelogLatest() throws {
 
     let changelogFirstVersion = changelog
         .components(separatedBy: .newlines)
-        .first { $0.hasPrefix("## ") }
+        .first { $0.hasPrefix("## ") && !$0.hasPrefix("## Unreleased") }
         ?? ""
     let version = changelogFirstVersion
         .replacingOccurrences(of: "## ", with: "")
@@ -229,7 +229,7 @@ func releaseCheckBundleVersionMatchesChangelogLatest() throws {
 
     let changelogFirstVersion = changelog
         .components(separatedBy: .newlines)
-        .first { $0.hasPrefix("## ") }
+        .first { $0.hasPrefix("## ") && !$0.hasPrefix("## Unreleased") }
         ?? ""
     let version = changelogFirstVersion
         .replacingOccurrences(of: "## ", with: "")

@@ -339,5 +339,5 @@ xcrun docc convert Docs/SiriusMarkdown.docc \
   --additional-symbol-graph-dir "$SYMBOL_GRAPH_DIR" \
   --fallback-display-name SiriusMarkdown \
   --fallback-bundle-identifier com.sirius.markdown \
-  --fallback-bundle-version 0.6.3 \
+  --fallback-bundle-version 0.6.4 \
   --output-path /tmp/SiriusMarkdown.doccarchive
