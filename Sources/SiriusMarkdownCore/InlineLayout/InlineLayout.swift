@@ -25,6 +25,10 @@ public struct PreparedInlineSegment: Sendable, Hashable {
     public var byteRange: Range<Int>
     public var isHardBreak: Bool
     public var isBreakOpportunity: Bool
+    /// Reserved box metrics for an allowed attachment segment (Inline
+    /// Attachments Part 01). When non-nil, measurement must use
+    /// `attachmentMetrics.pointWidth` instead of measuring `text`.
+    public var attachmentMetrics: MarkdownInlineAttachmentMetrics?
 
     public init(
         kind: MarkdownInlineKind,
@@ -32,7 +36,8 @@ public struct PreparedInlineSegment: Sendable, Hashable {
         text: String,
         byteRange: Range<Int>,
         isHardBreak: Bool = false,
-        isBreakOpportunity: Bool = false
+        isBreakOpportunity: Bool = false,
+        attachmentMetrics: MarkdownInlineAttachmentMetrics? = nil
     ) {
         self.kind = kind
         self.presentation = presentation ?? MarkdownInlinePresentation.defaultPresentation(for: kind)
@@ -40,6 +45,7 @@ public struct PreparedInlineSegment: Sendable, Hashable {
         self.byteRange = byteRange
         self.isHardBreak = isHardBreak
         self.isBreakOpportunity = isBreakOpportunity
+        self.attachmentMetrics = attachmentMetrics
     }
 
     static func prepare(from runs: [MarkdownInlineRun]) -> [PreparedInlineSegment] {
@@ -72,7 +78,8 @@ public struct PreparedInlineSegment: Sendable, Hashable {
                         text: run.text,
                         byteRange: cursor..<upper,
                         isHardBreak: false,
-                        isBreakOpportunity: false
+                        isBreakOpportunity: false,
+                        attachmentMetrics: run.attachmentMetrics
                     )
                 )
                 cursor = upper
@@ -290,7 +297,11 @@ public struct CoreTextInlineMeasurer: InlineMeasuring {
     }
 
     public func width(of segment: PreparedInlineSegment, fontSize: Double) -> Double {
-        width(
+        if let attachmentMetrics = segment.attachmentMetrics {
+            return attachmentMetrics.pointWidth
+        }
+
+        return width(
             of: segment.text,
             fontSize: fontSize,
             profile: profiles.profile(for: segment.presentation, kind: segment.kind)
@@ -554,6 +565,7 @@ public struct VariableWidthLineWalker<Measurer: InlineMeasuring>: Sendable {
 
             if measuredSegment.width > containerWidth,
                !segment.isBreakOpportunity,
+               segment.attachmentMetrics == nil,
                (allowsOverwideFallback || !measuredSegment.units.isEmpty) {
                 let split = splitOverwideSegment(
                     measuredSegment,
@@ -943,6 +955,7 @@ public struct InlineLayoutEngine<Measurer: InlineMeasuring>: Sendable {
             let measuredSegment = updated.segments[index]
             guard measuredSegment.units.isEmpty,
                   !measuredSegment.segment.isBreakOpportunity,
+                  measuredSegment.segment.attachmentMetrics == nil,
                   measuredSegment.width > containerWidth
             else {
                 continue

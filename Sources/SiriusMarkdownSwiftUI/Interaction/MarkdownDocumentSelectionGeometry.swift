@@ -765,7 +765,8 @@ struct MarkdownDocumentSelectionTextGeometry: Equatable, Sendable {
                     MarkdownDocumentSelectionFontRun(
                         visibleByteRange: overlapLower..<overlapUpper,
                         kind: run.kind,
-                        presentation: run.presentation
+                        presentation: run.presentation,
+                        attachmentMetrics: run.attachmentMetrics
                     )
                 )
             }
@@ -959,6 +960,20 @@ struct MarkdownDocumentSelectionTextGeometry: Equatable, Sendable {
                 ) else {
                     continue
                 }
+
+                if let attachmentMetrics = run.attachmentMetrics,
+                   let delegate = MarkdownAttachmentRunDelegate.make(attachmentMetrics) {
+                    // Box-precise x-mapping (INV-IA5): override this run's
+                    // advance with the same metrics the paint path uses
+                    // instead of measuring the placeholder character.
+                    attributed.addAttribute(
+                        NSAttributedString.Key(kCTRunDelegateAttributeName as String),
+                        value: delegate,
+                        range: range
+                    )
+                    continue
+                }
+
                 attributed.addAttribute(
                     NSAttributedString.Key(kCTFontAttributeName as String),
                     value: MarkdownDocumentSelectionCTFont.font(
@@ -1139,6 +1154,13 @@ struct MarkdownDocumentSelectionFontRun: Equatable, Sendable {
     var visibleByteRange: Range<Int>
     var kind: MarkdownInlineKind
     var presentation: MarkdownInlinePresentation
+    /// Reserved box metrics for an allowed attachment run (Inline
+    /// Attachments Part 02 §2.2.5). When non-nil, the local selection
+    /// `CTLine` must override this range's advance with the same
+    /// `CTRunDelegate` shape the paint path uses, so x-mapping is
+    /// box-precise instead of proportional-to-placeholder-glyph-width
+    /// (INV-IA5).
+    var attachmentMetrics: MarkdownInlineAttachmentMetrics?
 }
 
 #if canImport(CoreText)

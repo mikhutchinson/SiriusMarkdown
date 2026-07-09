@@ -142,6 +142,16 @@ small surfaces. Production paths should pass `MarkdownPreparedSnapshot`.
 - Safe default policies: links are scheme-gated, network images are not fetched
   by default, raw HTML is inert unless a host opts in, and math/code renderers
   are pluggable.
+- Allowed images flow as atomic inline attachments — reserved box metrics
+  (theme default or a cheap header probe of already-available bytes) on the
+  CoreText line plan, with one SwiftUI/AppKit/UIKit host per attachment
+  drawing the reserved box or resolved pixels. Denied images (the default)
+  keep today's alt/`[image: reason]` text. Hosts can supply bytes
+  synchronously through `MarkdownImageResolver`; SiriusMarkdown performs no
+  network fetch, ImageIO probe beyond a cheap header read, or decode inside
+  SwiftUI `body`. Remote fetch and multi-frame animation are separate,
+  independently opt-in capabilities layered on top of these attachment
+  slots — this package alone does not claim either.
 - Language-aware default code highlighting where the backend is available, with
   plain rendering for plaintext, nohighlight, unlabeled, unsupported, or failed
   fences.

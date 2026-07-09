@@ -249,6 +249,43 @@ public struct MarkdownMermaidDiagramAffordances: Sendable, Hashable {
     )
 }
 
+/// Default reserved box size/chrome for an allowed inline attachment whose
+/// pixel dimensions are not yet known (no resolver bytes, remote source
+/// awaiting Async Image Loading, or a probe failure). Inline Attachments
+/// Part 01 §1.2.2 requires a theme-owned default so layout never thrashes
+/// while bytes are pending (Async INV-AL6 / Part 04).
+public struct MarkdownAttachmentPlaceholderStyle: Sendable, Hashable {
+    public var pointWidth: Double
+    public var pointHeight: Double
+    public var cornerRadius: CGFloat
+    public var backgroundColor: Color
+    public var borderColor: Color
+
+    public init(
+        pointWidth: Double = 220,
+        pointHeight: Double = 140,
+        cornerRadius: CGFloat = 8,
+        backgroundColor: Color = Color.gray.opacity(0.12),
+        borderColor: Color = Color.gray.opacity(0.25)
+    ) {
+        self.pointWidth = pointWidth
+        self.pointHeight = pointHeight
+        self.cornerRadius = cornerRadius
+        self.backgroundColor = backgroundColor
+        self.borderColor = borderColor
+    }
+
+    public static let `default` = MarkdownAttachmentPlaceholderStyle()
+
+    var renderCacheIdentity: String {
+        markdownThemeCacheKey([
+            ("width", String(pointWidth)),
+            ("height", String(pointHeight)),
+            ("corner", String(Double(cornerRadius)))
+        ])
+    }
+}
+
 public struct MarkdownTheme: Sendable, Hashable {
     public var paragraphFont: Font
     public var codeFont: Font
@@ -275,6 +312,9 @@ public struct MarkdownTheme: Sendable, Hashable {
     public var syntaxHighlightingPalette: MarkdownSyntaxHighlightingPalette
     public var codeBlockAffordances: MarkdownCodeBlockAffordances
     public var mermaidAffordances: MarkdownMermaidDiagramAffordances
+    /// Default reserved box for allowed inline attachments with unknown
+    /// pixel dimensions (Inline Attachments Part 01/04).
+    public var attachmentPlaceholder: MarkdownAttachmentPlaceholderStyle
 
     @available(*, deprecated, message: "Use headings.h3.font or MarkdownTheme.headings for per-level heading typography.")
     public var headingFont: Font {
@@ -420,6 +460,7 @@ public struct MarkdownTheme: Sendable, Hashable {
         self.syntaxHighlightingPalette = syntaxHighlightingPalette
         self.codeBlockAffordances = .default
         self.mermaidAffordances = .default
+        self.attachmentPlaceholder = .default
     }
 
     public static var compactChat: MarkdownTheme {
@@ -453,7 +494,8 @@ public struct MarkdownTheme: Sendable, Hashable {
             ("headings", headings.renderCacheIdentity),
             ("syntax", syntaxHighlightingPalette.cacheIdentity),
             ("codeAffordances", codeBlockAffordances.renderCacheIdentity),
-            ("mermaidAffordances", mermaidAffordances.renderCacheIdentity)
+            ("mermaidAffordances", mermaidAffordances.renderCacheIdentity),
+            ("attachmentPlaceholder", attachmentPlaceholder.renderCacheIdentity)
         ])
     }
 }

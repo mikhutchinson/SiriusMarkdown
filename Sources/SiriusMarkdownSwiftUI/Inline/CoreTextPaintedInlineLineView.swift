@@ -68,16 +68,29 @@ struct MarkdownCoreTextPaintedLinePlan: @unchecked Sendable {
     var accessibilityLabel: String
     var lineHeight: CGFloat
     var lineSpacing: CGFloat
+    /// Attachment records keyed by ID, carried alongside the plan so the
+    /// host-reconciling view (Part 03) can look up display state for each
+    /// gap without threading the full `MarkdownPreparedInlineContent`
+    /// through every draw call.
+    var attachments: [MarkdownAttachmentID: MarkdownPreparedAttachment]
 
     static let empty = MarkdownCoreTextPaintedLinePlan(
         lines: [],
         accessibilityLabel: "",
         lineHeight: 0,
-        lineSpacing: 0
+        lineSpacing: 0,
+        attachments: [:]
     )
 
     var linkFragments: [MarkdownCoreTextPaintedLinkFragment] {
         lines.flatMap(\.linkFragments)
+    }
+
+    /// Reserved attachment box gaps across all lines (Inline Attachments
+    /// Part 02 §2.2.1). Host count must equal `attachmentGaps.count`
+    /// (INV-IA6) — one host per gap, not per glyph/frame.
+    var attachmentGaps: [MarkdownCoreTextPaintedAttachmentGap] {
+        lines.flatMap(\.attachmentGaps)
     }
 
     static func make(
@@ -105,7 +118,8 @@ struct MarkdownCoreTextPaintedLinePlan: @unchecked Sendable {
             lines: lines,
             accessibilityLabel: String(prepared.attributed.characters),
             lineHeight: lineHeight,
-            lineSpacing: lineSpacing
+            lineSpacing: lineSpacing,
+            attachments: prepared.attachments
         )
     }
 
@@ -137,6 +151,7 @@ struct MarkdownCoreTextPaintedLinePlan: @unchecked Sendable {
         }
 
         var linkCandidates: [MarkdownCoreTextPaintedLinkCandidate] = []
+        var attachmentCandidates: [MarkdownCoreTextPaintedAttachmentCandidate] = []
 
         for runRange in runRanges {
             guard let intersection = intersect(runRange.byteRange, line.byteRange),
@@ -146,6 +161,50 @@ struct MarkdownCoreTextPaintedLinePlan: @unchecked Sendable {
                     lineText: drawableText
                   )
             else {
+                continue
+            }
+
+            if let attachmentMetrics = runRange.run.attachmentMetrics {
+                // Reserved box (Inline Attachments Part 02 §2.2.2, Strategy
+                // A): a `CTRunDelegate` overrides this run's advance/ascent
+                // /descent so wrap and gap extraction use `pointWidth`, not
+                // the placeholder character's own (irrelevant) metrics.
+                // No alt glyph is drawn here — the placeholder character is
+                // an invisible space, and the host (Part 03) paints pixels
+                // in the resulting gap rect (§2.2.3).
+                if let delegate = MarkdownAttachmentRunDelegate.make(attachmentMetrics) {
+                    attributed.addAttribute(
+                        NSAttributedString.Key(kCTRunDelegateAttributeName as String),
+                        value: delegate,
+                        range: nsRange
+                    )
+                }
+                attachmentCandidates.append(
+                    MarkdownCoreTextPaintedAttachmentCandidate(
+                        metrics: attachmentMetrics,
+                        nsRange: nsRange,
+                        byteRange: intersection
+                    )
+                )
+                // A link-wrapped allowed image (`[![alt](img)](url)`) must
+                // stay clickable exactly like a linked denied/text image —
+                // selection + link fragments take precedence over the
+                // attachment's own hit area in v1 (§3.2.7). No underline
+                // decoration here: it would apply to an invisible
+                // placeholder space and paint nothing useful.
+                if let destination = allowedLinkDestination(
+                    for: runRange.byteRange,
+                    in: prepared,
+                    naturalText: naturalText
+                ) {
+                    linkCandidates.append(
+                        MarkdownCoreTextPaintedLinkCandidate(
+                            destination: destination,
+                            nsRange: nsRange,
+                            byteRange: intersection
+                        )
+                    )
+                }
                 continue
             }
 
@@ -211,6 +270,29 @@ struct MarkdownCoreTextPaintedLinePlan: @unchecked Sendable {
                 )
             )
         }
+        let attachmentGaps = attachmentCandidates.compactMap { candidate -> MarkdownCoreTextPaintedAttachmentGap? in
+            let start = CGFloat(CTLineGetOffsetForStringIndex(ctLine, candidate.nsRange.location, nil))
+            let endIndex = candidate.nsRange.location + candidate.nsRange.length
+            let end = CGFloat(CTLineGetOffsetForStringIndex(ctLine, endIndex, nil))
+            let width = end - start
+            guard start.isFinite, width.isFinite else {
+                return nil
+            }
+            let boxWidth = max(width, CGFloat(candidate.metrics.pointWidth))
+            let boxHeight = CGFloat(candidate.metrics.ascent + candidate.metrics.descent)
+            let verticalInset = max(0, (lineHeight - boxHeight) / 2)
+            return MarkdownCoreTextPaintedAttachmentGap(
+                attachmentID: candidate.metrics.id,
+                lineIndex: index,
+                sourceByteRange: candidate.byteRange,
+                rect: CGRect(
+                    x: start,
+                    y: top + verticalInset,
+                    width: max(1, boxWidth),
+                    height: max(1, boxHeight)
+                )
+            )
+        }
 
         return MarkdownCoreTextPaintedLine(
             index: index,
@@ -222,7 +304,8 @@ struct MarkdownCoreTextPaintedLinePlan: @unchecked Sendable {
             ascent: ascent,
             descent: descent,
             leading: leading,
-            linkFragments: linkFragments
+            linkFragments: linkFragments,
+            attachmentGaps: attachmentGaps
         )
     }
 
@@ -297,6 +380,7 @@ struct MarkdownCoreTextPaintedLine: @unchecked Sendable {
     var descent: CGFloat
     var leading: CGFloat
     var linkFragments: [MarkdownCoreTextPaintedLinkFragment]
+    var attachmentGaps: [MarkdownCoreTextPaintedAttachmentGap] = []
 }
 
 struct MarkdownCoreTextPaintedLinkFragment: Identifiable, Hashable {
@@ -310,8 +394,28 @@ struct MarkdownCoreTextPaintedLinkFragment: Identifiable, Hashable {
     }
 }
 
+/// One reserved attachment box within a painted line, in the text view's
+/// local coordinate space (Inline Attachments Part 02 §2.2.1). Host count
+/// must equal the number of gaps in the whole plan (INV-IA6).
+struct MarkdownCoreTextPaintedAttachmentGap: Identifiable, Hashable {
+    var attachmentID: MarkdownAttachmentID
+    var lineIndex: Int
+    var sourceByteRange: Range<Int>
+    var rect: CGRect
+
+    var id: String {
+        attachmentID.rawValue
+    }
+}
+
 private struct MarkdownCoreTextPaintedLinkCandidate {
     var destination: String
+    var nsRange: NSRange
+    var byteRange: Range<Int>
+}
+
+private struct MarkdownCoreTextPaintedAttachmentCandidate {
+    var metrics: MarkdownInlineAttachmentMetrics
     var nsRange: NSRange
     var byteRange: Range<Int>
 }
@@ -566,6 +670,7 @@ private struct CoreTextPaintedInlineLineSurface: NSViewRepresentable {
         view.needsDisplay = true
         view.resetCursorRects()
         view.setAccessibilityLabel(String(fallbackAttributed.characters))
+        view.reconcileAttachmentHosts()
     }
 
     private func resolvedCGColor(_ color: Color) -> CGColor {
@@ -574,7 +679,7 @@ private struct CoreTextPaintedInlineLineSurface: NSViewRepresentable {
     }
 }
 
-private final class MarkdownCoreTextPaintedNSView: NSView {
+final class MarkdownCoreTextPaintedNSView: NSView {
     var plan = MarkdownCoreTextPaintedLinePlan.empty
     var textColor: CGColor = NSColor.labelColor.cgColor
     var linkAction: MarkdownLinkAction?
@@ -582,6 +687,9 @@ private final class MarkdownCoreTextPaintedNSView: NSView {
     /// Cached key from the last explicit `MarkdownCoreTextPaintedLinePlan.make()` call so
     /// repeated `updateNSView` calls with identical content+layout skip `make()` (INV-P1).
     var cachedLinePlanKey: CTPlanCacheKey?
+    /// One host per attachment ID (INV-IA6), reconciled in
+    /// `reconcileAttachmentHosts()` (Inline Attachments Part 03).
+    var attachmentHostsByID: [MarkdownAttachmentID: MarkdownAttachmentHostNSView] = [:]
     private var linkClickTracker = MarkdownCoreTextPaintedLinkClickTracker()
     private var dragStartPoint: CGPoint?
 
@@ -720,6 +828,7 @@ private struct CoreTextPaintedInlineLineSurface: UIViewRepresentable {
         view.frame.size.width = containerWidth
         view.accessibilityLabel = String(fallbackAttributed.characters)
         view.setNeedsDisplay()
+        view.reconcileAttachmentHosts()
     }
 
     private func resolvedCGColor(_ color: Color) -> CGColor {
@@ -727,18 +836,16 @@ private struct CoreTextPaintedInlineLineSurface: UIViewRepresentable {
     }
 }
 
-private final class MarkdownCoreTextPaintedUIView: UIView {
-    var plan = MarkdownCoreTextPaintedLinePlan(
-        lines: [],
-        accessibilityLabel: "",
-        lineHeight: 0,
-        lineSpacing: 0
-    )
+final class MarkdownCoreTextPaintedUIView: UIView {
+    var plan = MarkdownCoreTextPaintedLinePlan.empty
     var textColor: CGColor = UIColor.label.cgColor
     var linkAction: MarkdownLinkAction?
     /// Cached key from the last explicit `MarkdownCoreTextPaintedLinePlan.make()` call so
     /// repeated `updateUIView` calls with identical content+layout skip `make()` (INV-P1).
     var cachedLinePlanKey: CTPlanCacheKey?
+    /// One host per attachment ID (INV-IA6), reconciled in
+    /// `reconcileAttachmentHosts()` (Inline Attachments Part 03).
+    var attachmentHostsByID: [MarkdownAttachmentID: MarkdownAttachmentHostUIView] = [:]
     private var linkClickTracker = MarkdownCoreTextPaintedLinkClickTracker()
 
     override func draw(_ rect: CGRect) {

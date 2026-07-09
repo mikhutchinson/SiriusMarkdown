@@ -1,5 +1,57 @@
 # Changelog
 
+## Unreleased
+
+### Inline Attachments (Parts 01–04)
+
+- **Model + prepare (Part 01):** Allowed images (`MarkdownImagePolicy` `.allow`)
+  now flow as prepared `MarkdownPreparedAttachment` records with reserved
+  `pointWidth`/`pointHeight`/`ascent`/`descent` box metrics instead of
+  alt-text-measured display runs. `MarkdownInlineRun`/`PreparedInlineSegment`
+  carry an optional `attachmentMetrics` field; `CoreTextInlineMeasurer` uses
+  `pointWidth` for atomic image segments instead of measuring text.
+  `MarkdownTheme.attachmentPlaceholder` is the new default reserved-box size
+  token. A cheap ImageIO header probe of resolver-supplied `.data`/`.localFile`
+  bytes yields `.intrinsicHint` sizing (clamped to the theme's max width,
+  preserving aspect ratio); otherwise sizing falls back to
+  `.themeDefault`. Denied images are unaffected — they keep today's
+  alt/`[image: reason]` text-atomic path (INV-IA1, INV-IA4).
+- **CoreText atomic placement (Part 02):** `MarkdownCoreTextPaintedLinePlan`
+  attaches a `CTRunDelegate` to each attachment's placeholder-character
+  range so line wrap and painted advance use box metrics, and records a
+  `MarkdownCoreTextPaintedAttachmentGap` per attachment. Wide attachments in
+  narrow containers wrap as a whole atomic box, never split into
+  per-character sub-lines. A link-wrapped allowed image
+  (`[![alt](img)](url)`) still produces a clickable `MarkdownCoreTextPaintedLinkFragment`
+  over the attachment's own box — becoming an attachment does not drop the
+  outer link's hit region (§3.2.7). `MarkdownDocumentSelectionGeometry`
+  applies the same `CTRunDelegate` shape to its local selection `CTLine`, so
+  drag/hit-test x-mapping is box-precise instead of proportional to the
+  placeholder glyph's own advance (INV-IA5), while atomic snapping still
+  resolves any partial hit to the whole image source range.
+- **SwiftUI/AppKit/UIKit hosts (Part 03):** One `MarkdownAttachmentHostNSView`/
+  `UIView` exists per attachment ID, reconciled by identity from the
+  CoreText line plan's gaps (INV-IA6); removing an attachment tears its host
+  down (detaches from the view hierarchy), it does not just drop out of the
+  count. Hosts draw already-resolved `Data` through `NSImageView`/
+  `UIImageView` or quiet reserved-box chrome for pending/placeholder
+  attachments, with an alt-text-first, generic-fallback accessibility label
+  (§3.2.6); no `URLSession` call or body-time `CGImageSourceCreate*` decode
+  exists in a host's `body`/`updateNSView`/`updateUIView` (INV-IA3). Hosts do
+  not intercept drag-selection or link hit-testing — decorative image
+  content passes hit-testing through to the CoreText surface underneath.
+- **Policy + cache (Part 04):** Default `evaluateImage` stays deny
+  (INV-IA1); the resolver is only ever consulted on `.allow`. Prepared
+  inline cache identity now includes an `attachmentMetricsVersion` token and
+  the theme's `attachmentPlaceholder` fingerprint whenever allowed
+  attachments exist, so changing the default box size invalidates stale
+  cached box metrics.
+- This is the placement layer only — no network fetch, no multi-frame
+  decode/animation. [Async Image Loading](.plan/SiriusMarkdown%20Async%20Image%20Loading%20Plan/README.md)
+  and [Animated Media](.plan/SiriusMarkdown%20Animated%20Media%20Plan/README.md)
+  plug bytes/frames into these same attachment slots as independent,
+  separately opt-in plans.
+
 ## 0.6.5 - 2026-07-09
 
 ### Native Selection Feel (Parts 01–04)

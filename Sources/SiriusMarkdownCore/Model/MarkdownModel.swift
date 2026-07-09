@@ -125,6 +125,13 @@ public struct MarkdownInlineRun: Sendable, Hashable {
     public var destination: String?
     public var imageSource: String?
     public var presentation: MarkdownInlinePresentation
+    /// Reserved box metrics for an allowed image/attachment run (Inline
+    /// Attachments Part 01). When non-nil, prepare has already replaced
+    /// `text` with a single atomic placeholder character and layout must
+    /// use `pointWidth`/`pointHeight`/`ascent`/`descent` instead of
+    /// measuring `text`. Denied images never set this field — they keep
+    /// today's alt/`[image: reason]` text-atomic path.
+    public var attachmentMetrics: MarkdownInlineAttachmentMetrics?
 
     public init(
         kind: MarkdownInlineKind,
@@ -132,7 +139,8 @@ public struct MarkdownInlineRun: Sendable, Hashable {
         sourceRange: MarkdownSourceRange? = nil,
         destination: String? = nil,
         imageSource: String? = nil,
-        presentation: MarkdownInlinePresentation? = nil
+        presentation: MarkdownInlinePresentation? = nil,
+        attachmentMetrics: MarkdownInlineAttachmentMetrics? = nil
     ) {
         self.kind = kind
         self.text = text
@@ -140,6 +148,7 @@ public struct MarkdownInlineRun: Sendable, Hashable {
         self.destination = destination
         self.imageSource = imageSource
         self.presentation = presentation ?? MarkdownInlinePresentation.defaultPresentation(for: kind)
+        self.attachmentMetrics = attachmentMetrics
     }
 }
 

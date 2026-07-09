@@ -79,6 +79,43 @@ Products (see `Package.swift`): **`SiriusMarkdown`** (app-facing umbrella module
   - *Pasteboard richness:* `MarkdownPasteboardPayload` carries `plainText`, `markdown` (exact source), and optional `rtf`/`html`. `MarkdownPasteboard.copy(MarkdownPasteboardPayload)` writes a multi-representation `NSPasteboardItem` on macOS (`.string` = plain text, `net.siriusmarkdown.markdown` = Markdown source) and a multi-type item on iOS. The `MarkdownPasteboard.markdownPasteboardType` constant (`"net.siriusmarkdown.markdown"`) identifies the Markdown UTI. Document Cmd-C routes through `affordanceActionHandler.copyPayload` only; single-string affordance copy still uses `copyString`. RTF/HTML must not involve network fetches or WebKit.
   - *Text.Layout bridge (Part 04):* Evaluated 2026-07-09. Not adopted. `nativeTextSelection` stays opt-in; `coreTextPaintedLines` remains the default-path selection authority.
 
+### Inline Attachments (allowed images as reserved-box atomics)
+
+- **The stack**: `MarkdownImagePolicy` decision → `MarkdownImageResolver`
+  (`.data` / `.localFile` / `.remote` / `.placeholder`) → prepare builds a
+  `MarkdownPreparedAttachment` (`MarkdownRendererConfiguration.swift`) with
+  reserved `pointWidth`/`pointHeight`/`ascent`/`descent` → a `CoreTextInlineMeasurer`
+  short-circuit makes the atomic image segment's measured width equal
+  `pointWidth` instead of measuring alt text → `MarkdownCoreTextPaintedLinePlan`
+  attaches a `CTRunDelegate` to the placeholder character's range so the
+  painted `CTLine`'s advance/ascent/descent match the box, and records a
+  `MarkdownCoreTextPaintedAttachmentGap` per attachment
+  (`CoreTextPaintedInlineLineView.swift`) → the AppKit/UIKit surface
+  reconciles one `MarkdownAttachmentHostNSView`/`UIView` per attachment ID
+  (`MarkdownAttachmentHostView.swift`), positioned at the gap rect, drawing
+  either an `NSImageView`/`UIImageView` from already-resolved `Data` or quiet
+  reserved-box chrome. Host count always equals gap count; resolving bytes
+  later swaps content inside the same host instance instead of remounting.
+- **Denied stays text**: the default-deny path is untouched — denied images
+  still render alt/`[image: reason]` text measured as an atomic text
+  segment, exactly as before this stack existed. Only an explicit `.allow`
+  policy decision creates a `MarkdownPreparedAttachment`.
+- **No fetch/decode in `body`**: reserved metrics come from the theme's
+  `attachmentPlaceholder` default box, or from a cheap ImageIO header-only
+  probe (pixel dimensions, not full decode) of resolver-supplied `Data`/
+  local-file bytes performed during `prepare(block:)` — never inside
+  `updateNSView`/`updateUIView`/host `body`. Width-only relayout reuses the
+  same prepared metrics and never re-invokes the resolver.
+- **Selection stays box-precise**: `MarkdownDocumentSelectionGeometry`'s
+  local selection `CTLine` attaches the same `CTRunDelegate` shape to an
+  attachment's font run, so drag/hit-test x-mapping reflects `pointWidth`
+  instead of the placeholder character's own glyph advance, while atomic
+  snapping still resolves any partial hit to the whole image source range.
+- **Downstream, not upstream**: Async Image Loading (network fetch/session
+  patching) and Animated Media (decode/playback) plug bytes and frames into
+  these same attachment slots; neither plan invents a parallel placement
+  model, and this package alone does not claim remote fetch or animation.
+
 ### Math (`SiriusMarkdownMath`, optional)
 
 - **`MarkdownMathRenderer`** is the pluggable seam. `preparedMath(_:isBlock:fontSize:)` returns `MarkdownPreparedMath` (`.text` or a typeset `.image`); the default implementation wraps the legacy `renderedMath(_:isBlock:)` so the core path stays text-only and dependency-free.

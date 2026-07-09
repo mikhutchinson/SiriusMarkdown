@@ -2,6 +2,13 @@ import SiriusMarkdownCore
 import Foundation
 import SwiftUI
 
+#if canImport(ImageIO)
+import ImageIO
+#endif
+#if canImport(CoreGraphics)
+import CoreGraphics
+#endif
+
 public protocol MarkdownCodeHighlighter: Sendable {
     func highlightedCode(_ code: String, infoString: String?) -> AttributedString
 }
@@ -38,6 +45,52 @@ public struct MarkdownPreparedImage: Sendable, Hashable {
         self.altText = altText
         self.sourceRange = sourceRange
         self.preparedSource = preparedSource
+    }
+}
+
+/// A prepared, allowed inline attachment with reserved box metrics (Inline
+/// Attachments Part 01). Only created for `.allow` image policy decisions —
+/// denied images stay on the alt/`[image: reason]` text-atomic path
+/// (INV-IA1, INV-IA4) and never produce a `MarkdownPreparedAttachment`.
+public struct MarkdownPreparedAttachment: Sendable, Hashable {
+    public var id: MarkdownAttachmentID
+    public var image: MarkdownPreparedImage
+    public var pointWidth: Double
+    public var pointHeight: Double
+    public var ascent: Double
+    public var descent: Double
+    public var sizingSource: MarkdownAttachmentSizingSource
+    public var policyDecision: MarkdownPolicyDecision
+
+    public init(
+        id: MarkdownAttachmentID,
+        image: MarkdownPreparedImage,
+        pointWidth: Double,
+        pointHeight: Double,
+        ascent: Double,
+        descent: Double,
+        sizingSource: MarkdownAttachmentSizingSource,
+        policyDecision: MarkdownPolicyDecision
+    ) {
+        self.id = id
+        self.image = image
+        self.pointWidth = pointWidth
+        self.pointHeight = pointHeight
+        self.ascent = ascent
+        self.descent = descent
+        self.sizingSource = sizingSource
+        self.policyDecision = policyDecision
+    }
+
+    var metrics: MarkdownInlineAttachmentMetrics {
+        MarkdownInlineAttachmentMetrics(
+            id: id,
+            pointWidth: pointWidth,
+            pointHeight: pointHeight,
+            ascent: ascent,
+            descent: descent,
+            sizingSource: sizingSource
+        )
     }
 }
 
@@ -718,6 +771,31 @@ public struct MarkdownRendererConfiguration: Sendable {
         )
     }
 
+    private func inlineMathCacheKey(for run: MarkdownInlineRun, fontSize: Double) -> MarkdownCacheKey? {
+        guard let mathPolicyIdentity,
+              let mathRendererIdentity
+        else {
+            return nil
+        }
+
+        return MarkdownCacheKey(
+            sourceRange: Self.sharedRenderedMathCacheRange,
+            contentHash: Self.stableHash(run.text),
+            namespace: Self.cacheNamespace([
+                ("cache", "rendered-math:inline"),
+                ("version", "1"),
+                ("policy", mathPolicyIdentity),
+                ("renderer", mathRendererIdentity),
+                ("fontSize", String(fontSize))
+            ])
+        )
+    }
+
+    private nonisolated static let sharedRenderedMathCacheRange = MarkdownSourceRange(
+        byteRange: 0..<0,
+        lineRange: 0..<0
+    )
+
     var mathBlockFontSize: Double {
         (Self.sanitizedPositive(theme.paragraphFontSize, fallback: 16) * 1.3).rounded()
     }
@@ -998,9 +1076,11 @@ public struct MarkdownRendererConfiguration: Sendable {
             diagnosticsRecorder.recordCacheMiss()
         }
         let images = preparedImages(from: imageDecisions)
+        let attachments = preparedAttachments(from: imageDecisions, images: images)
         let inlinePayload = preparedInlinePayload(
             for: runs,
             images: images,
+            attachments: attachments,
             mathDecisions: mathDecisions,
             fontSize: metrics.fontSize
         )
@@ -1015,6 +1095,18 @@ public struct MarkdownRendererConfiguration: Sendable {
             measurer: measurer,
             diagnosticsRecorder: diagnosticsRecorder
         )
+        // Reserved attachment boxes can be taller than the surrounding
+        // text; bump the uniform per-content line height so CoreText line
+        // gaps/hosts have room without a re-layout thrash later (Inline
+        // Attachments Part 02 §2.2.4). This package still lays out with a
+        // single line height per prepared content (no per-line variable
+        // height), so a tall attachment among plain-text lines evenly
+        // taxes every line in that block — an honest v1 trade-off, not a
+        // hidden bug.
+        let effectiveLineHeight = max(
+            metrics.lineHeight,
+            inlinePayload.attachments.values.map(\.pointHeight).max() ?? 0
+        )
         // Seed initial layout with the last real container width observed in
         // this session (if any) instead of a fixed constant, so the
         // pre-built initial layout / CTLine plan actually matches the width
@@ -1027,8 +1119,9 @@ public struct MarkdownRendererConfiguration: Sendable {
             prepared: prepared,
             measured: measured,
             images: images,
+            attachments: inlinePayload.attachments,
             fontSize: metrics.fontSize,
-            lineHeight: metrics.lineHeight,
+            lineHeight: effectiveLineHeight,
             fontProfiles: metrics.fontProfiles,
             layoutCache: layoutCache,
             mathTextPieces: inlinePayload.mathPieces
@@ -1047,7 +1140,7 @@ public struct MarkdownRendererConfiguration: Sendable {
             options: InlineLayoutOptions(
                 containerWidth: initialLayoutWidth,
                 fontSize: metrics.fontSize,
-                lineHeight: metrics.lineHeight
+                lineHeight: effectiveLineHeight
             ),
             allowsOverwideFallback: true
         )
@@ -1125,6 +1218,13 @@ public struct MarkdownRendererConfiguration: Sendable {
                     return nil
                 }
                 components.append(("imageResolver", imageResolverIdentity))
+                // Allowed images may become reserved-box attachments
+                // (Inline Attachments Part 01/04 §4.4): fold in the
+                // metrics schema version and the theme's default
+                // placeholder box so changing either invalidates prepared
+                // inline content that embedded stale box metrics.
+                components.append(("attachmentMetricsVersion", "1"))
+                components.append(("themeAttachmentPlaceholder", theme.attachmentPlaceholder.renderCacheIdentity))
             }
         }
 
@@ -1181,9 +1281,15 @@ public struct MarkdownRendererConfiguration: Sendable {
     private func preparedInlinePayload(
         for runs: [MarkdownInlineRun],
         images: [MarkdownPreparedImage],
+        attachments: [MarkdownPreparedAttachment?],
         mathDecisions: [MarkdownPreparedMathDecision],
         fontSize: Double
-    ) -> (runs: [MarkdownInlineRun], attributed: AttributedString, mathPieces: [MarkdownInlineMathPiece]?) {
+    ) -> (
+        runs: [MarkdownInlineRun],
+        attributed: AttributedString,
+        mathPieces: [MarkdownInlineMathPiece]?,
+        attachments: [MarkdownAttachmentID: MarkdownPreparedAttachment]
+    ) {
         var displayRuns: [MarkdownInlineRun] = []
         var attributed = AttributedString()
         var pieces: [MarkdownInlineMathPiece] = []
@@ -1191,6 +1297,7 @@ public struct MarkdownRendererConfiguration: Sendable {
         var producedMathImage = false
         var imageIndex = 0
         var mathDecisionIndex = 0
+        var attachmentsByID: [MarkdownAttachmentID: MarkdownPreparedAttachment] = [:]
 
         func flushPendingText() {
             guard !pendingText.characters.isEmpty else {
@@ -1203,13 +1310,19 @@ public struct MarkdownRendererConfiguration: Sendable {
         for run in runs {
             if run.isImagePresentation {
                 let image: MarkdownPreparedImage?
+                let attachment: MarkdownPreparedAttachment?
                 if run.resolvedImageSource != nil, imageIndex < images.count {
                     image = images[imageIndex]
+                    attachment = imageIndex < attachments.count ? attachments[imageIndex] : nil
                     imageIndex += 1
                 } else {
                     image = nil
+                    attachment = nil
                 }
-                let displayRun = preparedImageDisplayRun(for: run, image: image)
+                if let attachment {
+                    attachmentsByID[attachment.id] = attachment
+                }
+                let displayRun = preparedImageDisplayRun(for: run, image: image, attachment: attachment)
                 displayRuns.append(displayRun)
                 let piece = InlineRunsView.attributedString(
                     for: [displayRun],
@@ -1238,10 +1351,7 @@ public struct MarkdownRendererConfiguration: Sendable {
 
             switch mathDecision.policyDecision {
             case .allow:
-                diagnosticsRecorder.recordMathRender()
-                let preparedMath = MarkdownDiagnostics().signpost("MathRender", category: "RenderPreparation") {
-                    mathRenderer.preparedMath(run.text, isBlock: false, fontSize: fontSize)
-                }
+                let preparedMath = preparedInlineMath(for: run, fontSize: fontSize)
 
                 switch preparedMath {
                 case let .image(image):
@@ -1293,7 +1403,29 @@ public struct MarkdownRendererConfiguration: Sendable {
         }
 
         flushPendingText()
-        return (displayRuns, attributed, producedMathImage ? pieces : nil)
+        return (displayRuns, attributed, producedMathImage ? pieces : nil, attachmentsByID)
+    }
+
+    private func preparedInlineMath(for run: MarkdownInlineRun, fontSize: Double) -> MarkdownPreparedMath {
+        if let key = inlineMathCacheKey(for: run, fontSize: fontSize) {
+            if let cached = preparationCache.math(forKey: key) {
+                diagnosticsRecorder.recordCacheHit()
+                return cached
+            }
+
+            diagnosticsRecorder.recordCacheMiss()
+            diagnosticsRecorder.recordMathRender()
+            let rendered = MarkdownDiagnostics().signpost("MathRender", category: "RenderPreparation") {
+                mathRenderer.preparedMath(run.text, isBlock: false, fontSize: fontSize)
+            }
+            preparationCache.insertMath(rendered, forKey: key)
+            return rendered
+        }
+
+        diagnosticsRecorder.recordMathRender()
+        return MarkdownDiagnostics().signpost("MathRender", category: "RenderPreparation") {
+            mathRenderer.preparedMath(run.text, isBlock: false, fontSize: fontSize)
+        }
     }
 
     private func mathAttributedString(
@@ -1314,14 +1446,25 @@ public struct MarkdownRendererConfiguration: Sendable {
 
     private func preparedImageDisplayRun(
         for run: MarkdownInlineRun,
-        image: MarkdownPreparedImage?
+        image: MarkdownPreparedImage?,
+        attachment: MarkdownPreparedAttachment?
     ) -> MarkdownInlineRun {
         guard let image else {
             return run
         }
 
         var copy = run
-        copy.text = imageDisplayText(for: image)
+        if let attachment {
+            // Allowed path (INV-IA2): reserve a box instead of measuring
+            // alt text. The placeholder character paints invisibly if a
+            // `CTRunDelegate` cannot be attached for some reason; the host
+            // (Inline Attachments Part 03) draws the real pixels/chrome.
+            copy.text = markdownAttachmentPlaceholderCharacter
+            copy.attachmentMetrics = attachment.metrics
+        } else {
+            // Denied path (INV-IA1/IA4): unchanged alt/`[image: reason]` text.
+            copy.text = imageDisplayText(for: image)
+        }
         copy.imageSource = nil
         if copy.kind == .image {
             copy.destination = nil
@@ -1391,6 +1534,137 @@ public struct MarkdownRendererConfiguration: Sendable {
                 )
             }
         }
+    }
+
+    /// Builds reserved-box attachment records for allowed images (Inline
+    /// Attachments Part 01 §1.2.2). Denied images (any policy `.deny`) stay
+    /// on the text-atomic path and get `nil` here regardless of what the
+    /// resolver would have returned, preserving INV-IA1/IA4 — the resolver
+    /// is consulted for `.allow` only, never for `.deny` (see
+    /// `preparedImages`).
+    private func preparedAttachments(
+        from decisions: [MarkdownPreparedImageDecision],
+        images: [MarkdownPreparedImage]
+    ) -> [MarkdownPreparedAttachment?] {
+        zip(decisions, images).enumerated().map { ordinal, pair in
+            let (decision, image) = pair
+            guard case .allow = decision.policyDecision else {
+                return nil
+            }
+
+            let id = Self.attachmentID(for: decision.run, ordinal: ordinal)
+            let metrics = attachmentBoxMetrics(for: image.preparedSource)
+            return MarkdownPreparedAttachment(
+                id: id,
+                image: image,
+                pointWidth: metrics.pointWidth,
+                pointHeight: metrics.pointHeight,
+                ascent: metrics.ascent,
+                descent: metrics.descent,
+                sizingSource: metrics.sizingSource,
+                policyDecision: decision.policyDecision
+            )
+        }
+    }
+
+    private nonisolated static func attachmentID(for run: MarkdownInlineRun, ordinal: Int) -> MarkdownAttachmentID {
+        guard let sourceRange = run.sourceRange else {
+            return MarkdownAttachmentID(rawValue: "attachment:ordinal:\(ordinal)")
+        }
+        return MarkdownAttachmentID(
+            rawValue: "attachment:\(sourceRange.byteRange.lowerBound)-\(sourceRange.byteRange.upperBound)"
+        )
+    }
+
+    /// Reserved box metrics for one attachment. Prefers a cheap intrinsic
+    /// header probe over already-available bytes (no network, no full
+    /// pixel decode — INV-IA1/IA3) and falls back to the theme default box
+    /// so layout never has to wait on Async/Media before reserving space
+    /// (Async INV-AL6 / Part 04 §4.4). Ascent/descent follow the math
+    /// image precedent: the box sits entirely above the baseline
+    /// (`ascent == pointHeight`, `descent == 0`), matching default inline
+    /// image baseline behavior.
+    private func attachmentBoxMetrics(
+        for source: MarkdownPreparedImageSource
+    ) -> (pointWidth: Double, pointHeight: Double, ascent: Double, descent: Double, sizingSource: MarkdownAttachmentSizingSource) {
+        let placeholder = theme.attachmentPlaceholder
+        if let probed = Self.probedIntrinsicPointSize(for: source, maxWidth: placeholder.pointWidth) {
+            return (probed.width, probed.height, probed.height, 0, .intrinsicHint)
+        }
+
+        return (placeholder.pointWidth, placeholder.pointHeight, placeholder.pointHeight, 0, .themeDefault)
+    }
+
+    /// Cheap header-only probe (no full pixel decode) of an attachment's
+    /// natural pixel size, clamped to `maxWidth` preserving aspect ratio.
+    /// Treats probed pixel dimensions as points (no device-scale hint is
+    /// available in v1) — an intentional, documented simplification, not a
+    /// silent inaccuracy: `sizingSource` is `.intrinsicHint`, not
+    /// `.decoded`, precisely because this is an approximation.
+    private nonisolated static func probedIntrinsicPointSize(
+        for source: MarkdownPreparedImageSource,
+        maxWidth: Double
+    ) -> (width: Double, height: Double)? {
+        #if canImport(ImageIO)
+        let natural: (width: Double, height: Double)?
+        switch source {
+        case let .data(data, _):
+            natural = probedImageIOPixelSize(data: data)
+        case let .localFile(path):
+            natural = probedImageIOPixelSize(fileAtPath: path)
+        case .remote, .placeholder:
+            natural = nil
+        }
+        guard let natural, natural.width > 0, natural.height > 0 else {
+            return nil
+        }
+        return clampedAttachmentSize(naturalWidth: natural.width, naturalHeight: natural.height, maxWidth: maxWidth)
+        #else
+        return nil
+        #endif
+    }
+
+    #if canImport(ImageIO)
+    private nonisolated static func probedImageIOPixelSize(data: Data) -> (width: Double, height: Double)? {
+        guard let cgSource = CGImageSourceCreateWithData(data as CFData, nil) else {
+            return nil
+        }
+        return probedImageIOPixelSize(from: cgSource)
+    }
+
+    private nonisolated static func probedImageIOPixelSize(fileAtPath path: String) -> (width: Double, height: Double)? {
+        guard let cgSource = CGImageSourceCreateWithURL(URL(fileURLWithPath: path) as CFURL, nil) else {
+            return nil
+        }
+        return probedImageIOPixelSize(from: cgSource)
+    }
+
+    private nonisolated static func probedImageIOPixelSize(from cgSource: CGImageSource) -> (width: Double, height: Double)? {
+        guard let properties = CGImageSourceCopyPropertiesAtIndex(cgSource, 0, nil) as? [CFString: Any],
+              let width = properties[kCGImagePropertyPixelWidth] as? NSNumber,
+              let height = properties[kCGImagePropertyPixelHeight] as? NSNumber
+        else {
+            return nil
+        }
+        let widthValue = width.doubleValue
+        let heightValue = height.doubleValue
+        guard widthValue.isFinite, heightValue.isFinite, widthValue > 0, heightValue > 0 else {
+            return nil
+        }
+        return (widthValue, heightValue)
+    }
+    #endif
+
+    private nonisolated static func clampedAttachmentSize(
+        naturalWidth: Double,
+        naturalHeight: Double,
+        maxWidth: Double
+    ) -> (width: Double, height: Double) {
+        guard maxWidth.isFinite, maxWidth > 0, naturalWidth > maxWidth else {
+            return (naturalWidth, naturalHeight)
+        }
+        let scale = maxWidth / naturalWidth
+        return (maxWidth, naturalHeight * scale)
     }
 
     private func preparedTable(_ table: MarkdownTableBlock) -> MarkdownPreparedTableBlock {
@@ -1587,6 +1861,10 @@ public struct MarkdownPreparedInlineContent: Sendable {
     public var prepared: PreparedInlineContent
     public var measured: MeasuredInlineContent
     public var images: [MarkdownPreparedImage]
+    /// Reserved-box attachment records for allowed images, keyed by the
+    /// stable `MarkdownAttachmentID` prepare assigned to their display run
+    /// (Inline Attachments Part 01). Empty on the denied text-atomic path.
+    public var attachments: [MarkdownAttachmentID: MarkdownPreparedAttachment]
     public var fontSize: Double
     public var lineHeight: Double
     public var fontProfiles: MarkdownInlineFontProfiles
@@ -1616,6 +1894,7 @@ public struct MarkdownPreparedInlineContent: Sendable {
         prepared: PreparedInlineContent,
         measured: MeasuredInlineContent,
         images: [MarkdownPreparedImage] = [],
+        attachments: [MarkdownAttachmentID: MarkdownPreparedAttachment] = [:],
         fontSize: Double,
         lineHeight: Double,
         fontProfiles: MarkdownInlineFontProfiles = .paragraphDefault,
@@ -1630,6 +1909,7 @@ public struct MarkdownPreparedInlineContent: Sendable {
         self.prepared = prepared
         self.measured = Self.sanitizedMeasured(measured, fontSize: safeFontSize)
         self.images = images
+        self.attachments = attachments
         self.fontSize = safeFontSize
         self.lineHeight = safeLineHeight
         self.fontProfiles = fontProfiles

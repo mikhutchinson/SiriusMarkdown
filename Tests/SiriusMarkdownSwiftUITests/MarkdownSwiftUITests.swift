@@ -2602,6 +2602,435 @@ func sourcelessImageInlineCacheDoesNotRequireImagePolicyIdentity() throws {
     #expect(afterSecond.cacheHitCount == afterFirst.cacheHitCount + 1)
 }
 
+// MARK: - Inline Attachments (Part 01: model + prepare)
+
+@Test
+func deniedImageRemainsTextAtomicUnderAttachmentsPlan() throws {
+    let block = try firstBlock("Remote ![](https://example.com/diagram.png)")
+    let configuration = MarkdownRendererConfiguration(
+        imagePolicy: IdentityImagePolicy(identity: "deny", decision: .deny(reason: "blocked"))
+    )
+
+    let prepared = configuration.prepare(block: block)
+    let inlineLayout = try #require(prepared.inlineLayout)
+
+    #expect(inlineLayout.attachments.isEmpty)
+    #expect(inlineLayout.prepared.naturalText.contains("[image: blocked]"))
+    #expect(inlineLayout.prepared.runs.allSatisfy { $0.attachmentMetrics == nil })
+}
+
+@Test
+func allowedAttachmentEmitsThemeDefaultReservedMetricsWhenNoPixelDataAvailable() throws {
+    let block = try firstBlock("Remote ![a very long alternative text description](https://example.com/diagram.png)")
+    var theme = MarkdownTheme.compactChat
+    theme.attachmentPlaceholder = MarkdownAttachmentPlaceholderStyle(pointWidth: 180, pointHeight: 90)
+    let configuration = MarkdownRendererConfiguration(
+        theme: theme,
+        imagePolicy: IdentityImagePolicy(identity: "allow", decision: .allow),
+        imageResolver: RecordingImageResolver()
+    )
+
+    let prepared = configuration.prepare(block: block)
+    let inlineLayout = try #require(prepared.inlineLayout)
+    let attachment = try #require(inlineLayout.attachments.values.first)
+
+    #expect(attachment.sizingSource == .themeDefault)
+    #expect(attachment.pointWidth == 180)
+    #expect(attachment.pointHeight == 90)
+    #expect(attachment.policyDecision == .allow)
+}
+
+@Test
+func allowedAttachmentSegmentWidthEqualsPointWidthNotAltTextWidth() throws {
+    let block = try firstBlock("Remote ![a very long alternative text description that would measure very wide](https://example.com/diagram.png)")
+    let configuration = MarkdownRendererConfiguration(
+        imagePolicy: IdentityImagePolicy(identity: "allow", decision: .allow),
+        imageResolver: RecordingImageResolver()
+    )
+
+    let prepared = configuration.prepare(block: block)
+    let inlineLayout = try #require(prepared.inlineLayout)
+    let attachment = try #require(inlineLayout.attachments.values.first)
+    let imageSegment = try #require(inlineLayout.measured.segments.first { $0.segment.kind == .image })
+
+    #expect(imageSegment.segment.text == markdownAttachmentPlaceholderCharacter)
+    #expect(imageSegment.width == attachment.pointWidth)
+
+    // A text-measured alt string this long would be many times wider than
+    // the theme's default reserved box — proving width truly comes from
+    // box metrics, not from measuring the (much longer) alt text.
+    let altTextWidth = CoreTextInlineMeasurer().width(of: "a very long alternative text description that would measure very wide", fontSize: 16)
+    #expect(imageSegment.width < altTextWidth / 2)
+}
+
+@Test
+func widthChangeDoesNotReinvokeResolverForAttachments() throws {
+    let block = try firstBlock("Remote ![diagram](https://example.com/diagram.png)")
+    let resolver = RecordingImageResolver()
+    let configuration = MarkdownRendererConfiguration(
+        imagePolicy: IdentityImagePolicy(identity: "allow", decision: .allow),
+        imageResolver: resolver
+    )
+
+    let prepared = configuration.prepare(block: block)
+    let inlineLayout = try #require(prepared.inlineLayout)
+    #expect(resolver.count == 1)
+
+    _ = inlineLayout.layout(containerWidth: 100)
+    _ = inlineLayout.layout(containerWidth: 400)
+    _ = inlineLayout.layout(containerWidth: 40)
+
+    #expect(resolver.count == 1, "width-only relayout must not re-resolve the image (INV-IA2)")
+}
+
+@Test
+func attachmentIDIsStableAcrossRepeatedPrepareOfIdenticalSource() throws {
+    let block = try firstBlock("Remote ![diagram](https://example.com/diagram.png)")
+    let configuration = MarkdownRendererConfiguration(
+        imagePolicy: IdentityImagePolicy(identity: "allow", decision: .allow),
+        imageResolver: RecordingImageResolver()
+    )
+
+    let first = try #require(configuration.prepare(block: block).inlineLayout)
+    let second = try #require(configuration.prepare(block: block).inlineLayout)
+
+    let firstID = try #require(first.attachments.keys.first)
+    let secondID = try #require(second.attachments.keys.first)
+    #expect(firstID == secondID)
+}
+
+@Test
+func attachmentDataSourceProbesIntrinsicPixelSizeWithoutClamping() throws {
+    let block = try firstBlock("![pixel](local.png)")
+    let pixel = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=")!
+    let configuration = MarkdownRendererConfiguration(
+        imagePolicy: IdentityImagePolicy(identity: "allow", decision: .allow),
+        imageResolver: DataImageResolver(data: pixel, mimeType: "image/png")
+    )
+
+    let prepared = configuration.prepare(block: block)
+    let inlineLayout = try #require(prepared.inlineLayout)
+    let attachment = try #require(inlineLayout.attachments.values.first)
+
+    #expect(attachment.sizingSource == .intrinsicHint)
+    #expect(attachment.pointWidth == 1)
+    #expect(attachment.pointHeight == 1)
+}
+
+#if canImport(AppKit)
+@Test
+@MainActor
+func attachmentDataSourceClampsOversizedIntrinsicWidthPreservingAspect() throws {
+    let block = try firstBlock("![wide](local.png)")
+    let wideImage = try #require(makeTestPNGData(pixelWidth: 4400, pixelHeight: 2200))
+    var theme = MarkdownTheme.compactChat
+    theme.attachmentPlaceholder = MarkdownAttachmentPlaceholderStyle(pointWidth: 220, pointHeight: 140)
+    let configuration = MarkdownRendererConfiguration(
+        theme: theme,
+        imagePolicy: IdentityImagePolicy(identity: "allow", decision: .allow),
+        imageResolver: DataImageResolver(data: wideImage, mimeType: "image/png")
+    )
+
+    let prepared = configuration.prepare(block: block)
+    let inlineLayout = try #require(prepared.inlineLayout)
+    let attachment = try #require(inlineLayout.attachments.values.first)
+
+    #expect(attachment.sizingSource == .intrinsicHint)
+    #expect(attachment.pointWidth == 220)
+    #expect(abs(attachment.pointHeight - 110) < 0.5, "2:1 aspect ratio clamped to width 220 should yield height 110")
+}
+#endif
+
+@Test
+func attachmentCacheInvalidatesOnThemePlaceholderChange() throws {
+    let block = try firstBlock("Remote ![diagram](https://example.com/diagram.png)")
+    let cache = MarkdownRenderPreparationCache()
+    var smallTheme = MarkdownTheme.compactChat
+    smallTheme.attachmentPlaceholder = MarkdownAttachmentPlaceholderStyle(pointWidth: 100, pointHeight: 60)
+    let smallConfiguration = MarkdownRendererConfiguration(
+        theme: smallTheme,
+        imagePolicy: IdentityImagePolicy(identity: "allow", decision: .allow),
+        imageResolver: RecordingImageResolver(),
+        preparationCache: cache
+    )
+    let first = try #require(smallConfiguration.prepare(block: block).inlineLayout)
+    #expect(first.attachments.values.first?.pointWidth == 100)
+
+    var largeTheme = MarkdownTheme.compactChat
+    largeTheme.attachmentPlaceholder = MarkdownAttachmentPlaceholderStyle(pointWidth: 300, pointHeight: 180)
+    let largeConfiguration = MarkdownRendererConfiguration(
+        theme: largeTheme,
+        imagePolicy: IdentityImagePolicy(identity: "allow", decision: .allow),
+        imageResolver: RecordingImageResolver(),
+        preparationCache: cache
+    )
+    let second = try #require(largeConfiguration.prepare(block: block).inlineLayout)
+    #expect(second.attachments.values.first?.pointWidth == 300)
+}
+
+@Test
+func wideAttachmentInNarrowContainerWrapsAsAtomicBoxWithoutSplitting() throws {
+    let block = try firstBlock("Wide image: ![diagram](https://example.com/diagram.png) after")
+    var theme = MarkdownTheme.compactChat
+    theme.attachmentPlaceholder = MarkdownAttachmentPlaceholderStyle(pointWidth: 300, pointHeight: 150)
+    let configuration = MarkdownRendererConfiguration(
+        theme: theme,
+        imagePolicy: IdentityImagePolicy(identity: "allow", decision: .allow),
+        imageResolver: RecordingImageResolver()
+    )
+
+    let prepared = configuration.prepare(block: block)
+    let inlineLayout = try #require(prepared.inlineLayout)
+    let layout = inlineLayout.layout(containerWidth: 80)
+    let imageRun = try #require(inlineLayout.prepared.runs.first { $0.attachmentMetrics != nil })
+
+    var cursor = 0
+    var imageByteRange: Range<Int>?
+    for run in inlineLayout.prepared.runs {
+        let upper = cursor + run.text.utf8.count
+        if run.attachmentMetrics != nil {
+            imageByteRange = cursor..<upper
+            break
+        }
+        cursor = upper
+    }
+    let byteRange = try #require(imageByteRange)
+
+    // The attachment must land entirely within one line's consumed range
+    // — never split across two lines' worth of per-grapheme sub-units
+    // (INV-IA2/IA4) — and that line's width must be at least the full
+    // reserved box width, not a fraction of it.
+    let owningLine = try #require(layout.lines.first { $0.byteRange.contains(byteRange.lowerBound) })
+    #expect(owningLine.byteRange.upperBound >= byteRange.upperBound)
+    #expect(owningLine.width >= imageRun.attachmentMetrics?.pointWidth ?? 0)
+}
+
+// MARK: - Inline Attachments (Part 02: CoreText gaps)
+
+@Test
+func linePlanContainsAttachmentGapWithBoxWidth() throws {
+    let block = try firstBlock("Before ![diagram](https://example.com/diagram.png) after")
+    var theme = MarkdownTheme.compactChat
+    theme.attachmentPlaceholder = MarkdownAttachmentPlaceholderStyle(pointWidth: 160, pointHeight: 90)
+    let configuration = MarkdownRendererConfiguration(
+        theme: theme,
+        imagePolicy: IdentityImagePolicy(identity: "allow", decision: .allow),
+        imageResolver: RecordingImageResolver()
+    )
+
+    let prepared = configuration.prepare(block: block)
+    let inlineLayout = try #require(prepared.inlineLayout)
+    let layout = inlineLayout.layout(containerWidth: 2000)
+
+    #if canImport(CoreText)
+    let plan = MarkdownCoreTextPaintedLinePlan.make(prepared: inlineLayout, layout: layout)
+    let gap = try #require(plan.attachmentGaps.first)
+
+    #expect(abs(gap.rect.width - 160) < 1)
+    #expect(plan.attachments[gap.attachmentID]?.pointWidth == 160)
+    // The placeholder character paints as an invisible space — the drawn
+    // line text must not contain the (much longer) alt text (§2.2.3).
+    #expect(!plan.lines[gap.lineIndex].text.contains("diagram"))
+    #else
+    #expect(CoreTextPaintedInlineLineView.isSupported == false)
+    #endif
+}
+
+@Test
+func atomicAttachmentSelectionStillCoversFullImageSourceRange() throws {
+    let block = try firstBlock("Before ![diagram](https://example.com/diagram.png) after")
+    let configuration = MarkdownRendererConfiguration(
+        imagePolicy: IdentityImagePolicy(identity: "allow", decision: .allow),
+        imageResolver: RecordingImageResolver()
+    )
+    let prepared = configuration.prepare(block: block)
+    let inlineLayout = try #require(prepared.inlineLayout)
+    let imageRun = try #require(inlineLayout.prepared.runs.first { $0.attachmentMetrics != nil })
+    let imageSourceRange = try #require(imageRun.sourceRange)
+
+    let geometry = try #require(
+        MarkdownDocumentSelectionTextGeometry(
+            prepared: inlineLayout,
+            line: InlineLineRange(byteRange: 0..<inlineLayout.prepared.naturalText.utf8.count, width: 400)
+        )
+    )
+
+    // Any hit inside the atomic attachment's visible byte range must snap
+    // to one of the whole image source range's boundaries, never a
+    // partial byte offset inside it (INV-IA5).
+    let startX = geometry.xOffset(forSourceByteOffset: imageSourceRange.byteRange.lowerBound)
+    let endX = geometry.xOffset(forSourceByteOffset: imageSourceRange.byteRange.upperBound)
+    let midX = (startX + endX) / 2
+    let hitSourceOffset = geometry.sourceByteOffset(atX: midX)
+    #expect(hitSourceOffset == imageSourceRange.byteRange.lowerBound || hitSourceOffset == imageSourceRange.byteRange.upperBound)
+}
+
+#if canImport(CoreText)
+@Test
+func selectionXMapUsesBoxWidthNotPlaceholderGlyphWidth() throws {
+    let block = try firstBlock("![diagram](https://example.com/diagram.png)")
+    var theme = MarkdownTheme.compactChat
+    theme.attachmentPlaceholder = MarkdownAttachmentPlaceholderStyle(pointWidth: 240, pointHeight: 120)
+    let configuration = MarkdownRendererConfiguration(
+        theme: theme,
+        imagePolicy: IdentityImagePolicy(identity: "allow", decision: .allow),
+        imageResolver: RecordingImageResolver()
+    )
+    let prepared = configuration.prepare(block: block)
+    let inlineLayout = try #require(prepared.inlineLayout)
+    let layout = inlineLayout.layout(containerWidth: 2000)
+    let line = try #require(layout.lines.first)
+
+    let geometry = try #require(MarkdownDocumentSelectionTextGeometry(prepared: inlineLayout, line: line))
+    let endOffset = geometry.xOffset(forSourceByteOffset: Int.max)
+
+    #expect(abs(endOffset - 240) < 2, "selection x-mapping must reflect the reserved box width, not a 1-character glyph advance")
+}
+
+@Test
+func linkWrappedAllowedAttachmentStillProducesClickableLinkFragment() throws {
+    // `[![alt](img)](url)`: the parser keeps the outer link destination on
+    // the same run that carries image presentation (kind == .link,
+    // presentation.contains(.image)). An allowed attachment must not lose
+    // that link's CoreText hit region (§3.2.7) — v1 selection/link
+    // fragments still take precedence over the attachment's own hit area.
+    let block = try firstBlock("[![diagram](https://example.com/diagram.png)](https://example.com/target)")
+    let configuration = MarkdownRendererConfiguration(
+        imagePolicy: IdentityImagePolicy(identity: "allow", decision: .allow),
+        imageResolver: RecordingImageResolver()
+    )
+    let prepared = configuration.prepare(block: block)
+    let inlineLayout = try #require(prepared.inlineLayout)
+    let imageRun = try #require(inlineLayout.prepared.runs.first { $0.attachmentMetrics != nil })
+    #expect(imageRun.destination == "https://example.com/target", "the outer link destination must survive becoming an attachment")
+
+    let layout = inlineLayout.layout(containerWidth: 2000)
+    let plan = MarkdownCoreTextPaintedLinePlan.make(prepared: inlineLayout, layout: layout)
+
+    #expect(!plan.attachmentGaps.isEmpty)
+    #expect(
+        plan.linkFragments.contains { $0.destination == "https://example.com/target" },
+        "a link-wrapped attachment must still produce a clickable link fragment"
+    )
+}
+#endif
+
+// MARK: - Inline Attachments (Part 03: hosts)
+
+#if canImport(AppKit) && canImport(CoreText)
+@Test
+@MainActor
+func hostCountEqualsAttachmentCountAndUpdatesInPlace() throws {
+    var stream = MarkdownStream()
+    stream.append("One ![a](https://example.com/a.png) two ![b](https://example.com/b.png)")
+    stream.finish()
+
+    let resolver = RecordingImageResolver()
+    var configuration = MarkdownRendererConfiguration.compactChat
+    configuration.imagePolicy = IdentityImagePolicy(identity: "allow", decision: .allow)
+    configuration.imageResolver = resolver
+    let prepared = configuration.prepare(snapshot: stream.snapshot())
+
+    let view = StreamingMarkdownView(preparedSnapshot: prepared, configuration: configuration)
+        .frame(width: 720, height: 220, alignment: .topLeading)
+    let hostingView = NSHostingView(rootView: view)
+    hostingView.frame = NSRect(origin: .zero, size: NSSize(width: 720, height: 220))
+    let window = offscreenTestWindow(hostingView)
+    defer { tearDownWindow(window) }
+    pumpLayout(hostingView)
+
+    let hosts = appKitAttachmentHostViews(in: hostingView)
+    #expect(hosts.count == 2, "host count must equal attachment count (INV-IA6)")
+
+    // Re-pumping layout without changing content must not remount hosts —
+    // same identity, not a fresh subview per pass.
+    let firstIdentities = ObjectIdentifier.set(of: hosts)
+    pumpLayout(hostingView)
+    let secondHosts = appKitAttachmentHostViews(in: hostingView)
+    let secondIdentities = ObjectIdentifier.set(of: secondHosts)
+    #expect(firstIdentities == secondIdentities)
+}
+
+@Test
+@MainActor
+func hostDisplaysDataImageFromPreparedStateWithoutLoaderCalls() throws {
+    let pixel = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=")!
+    var stream = MarkdownStream()
+    stream.append("![pixel](local.png)")
+    stream.finish()
+
+    var configuration = MarkdownRendererConfiguration.compactChat
+    configuration.imagePolicy = IdentityImagePolicy(identity: "allow", decision: .allow)
+    configuration.imageResolver = DataImageResolver(data: pixel, mimeType: "image/png")
+    let prepared = configuration.prepare(snapshot: stream.snapshot())
+
+    let view = StreamingMarkdownView(preparedSnapshot: prepared, configuration: configuration)
+        .frame(width: 400, height: 220, alignment: .topLeading)
+    let hostingView = NSHostingView(rootView: view)
+    hostingView.frame = NSRect(origin: .zero, size: NSSize(width: 400, height: 220))
+    let window = offscreenTestWindow(hostingView)
+    defer { tearDownWindow(window) }
+    pumpLayout(hostingView)
+
+    let hosts = appKitAttachmentHostViews(in: hostingView)
+    #expect(hosts.count == 1)
+    #expect(hosts.first?.subviews.contains { $0 is NSImageView } == true)
+}
+
+@Test
+@MainActor
+func removingAnAttachmentRemovesItsHostFromTheViewHierarchy() throws {
+    var stream = MarkdownStream()
+    stream.append("One ![a](https://example.com/a.png) two ![b](https://example.com/b.png)")
+    stream.finish()
+
+    let resolver = RecordingImageResolver()
+    var configuration = MarkdownRendererConfiguration.compactChat
+    configuration.imagePolicy = IdentityImagePolicy(identity: "allow", decision: .allow)
+    configuration.imageResolver = resolver
+
+    func render(_ markdown: String) -> MarkdownPreparedSnapshot {
+        var localStream = MarkdownStream()
+        localStream.append(markdown)
+        localStream.finish()
+        return configuration.prepare(snapshot: localStream.snapshot())
+    }
+
+    let hostingView = NSHostingView(
+        rootView: StreamingMarkdownView(
+            preparedSnapshot: configuration.prepare(snapshot: stream.snapshot()),
+            configuration: configuration
+        )
+        .frame(width: 720, height: 220, alignment: .topLeading)
+    )
+    hostingView.frame = NSRect(origin: .zero, size: NSSize(width: 720, height: 220))
+    let window = offscreenTestWindow(hostingView)
+    defer { tearDownWindow(window) }
+    pumpLayout(hostingView)
+
+    let originalHosts = appKitAttachmentHostViews(in: hostingView)
+    #expect(originalHosts.count == 2)
+
+    // Re-render with only one image: the second attachment's host must be
+    // torn down, not merely uncounted (INV-IA6) — dictionary bookkeeping
+    // and the live AppKit subview tree must agree.
+    hostingView.rootView = StreamingMarkdownView(
+        preparedSnapshot: render("Just one ![a](https://example.com/a.png) now"),
+        configuration: configuration
+    )
+    .frame(width: 720, height: 220, alignment: .topLeading)
+    pumpLayout(hostingView)
+
+    let remainingHosts = appKitAttachmentHostViews(in: hostingView)
+    #expect(remainingHosts.count == 1)
+    #expect(remainingHosts.allSatisfy { $0.superview != nil }, "surviving hosts must still be mounted")
+
+    let removedHosts = originalHosts.filter { original in !remainingHosts.contains { $0 === original } }
+    #expect(!removedHosts.isEmpty, "at least one original host must have been torn down")
+    #expect(removedHosts.allSatisfy { $0.superview == nil }, "removed attachment hosts must be detached from the view hierarchy, not just uncounted")
+}
+#endif
+
 @Test
 func preparedNativeLinesPreserveHardBreakLineSlices() throws {
     var stream = MarkdownStream()
@@ -3534,6 +3963,64 @@ func bareTexInlineMathPreparationUsesConfiguredImageRenderer() throws {
     #expect(mathImageCount == 2)
     #expect(renderer.preparedCount == 2)
     #expect(renderer.renderedCount == 0)
+}
+
+@Test
+func repeatedInlineMathAcrossBlocksReusesRenderedMathCache() throws {
+    var stream = MarkdownStream()
+    stream.append("""
+    First $x^2$.
+
+    Second $x^2$.
+
+    Third $y^2$.
+    """)
+    stream.finish()
+
+    let renderer = CountingImageMathRenderer()
+    let recorder = MarkdownDiagnosticsRecorder()
+    let configuration = MarkdownRendererConfiguration(
+        mathRenderer: renderer,
+        diagnosticsRecorder: recorder
+    )
+
+    _ = configuration.prepare(snapshot: stream.snapshot())
+    let counters = recorder.snapshot()
+
+    #expect(renderer.preparedCount == 2)
+    #expect(counters.mathRenderCount == 2)
+    #expect(counters.cacheHitCount >= 1)
+}
+
+@Test
+func inlineMathRenderedCacheSeparatesFontSize() throws {
+    let block = try firstBlock("Before $x^2$ after.")
+    let cache = MarkdownRenderPreparationCache()
+    let renderer = CountingImageMathRenderer()
+
+    var smallTheme = MarkdownTheme()
+    smallTheme.paragraphFontSize = 12
+    smallTheme.paragraphLineHeight = 16
+
+    var largeTheme = MarkdownTheme()
+    largeTheme.paragraphFontSize = 24
+    largeTheme.paragraphLineHeight = 30
+
+    let smallConfiguration = MarkdownRendererConfiguration(
+        theme: smallTheme,
+        mathRenderer: renderer,
+        preparationCache: cache
+    )
+    let largeConfiguration = MarkdownRendererConfiguration(
+        theme: largeTheme,
+        mathRenderer: renderer,
+        preparationCache: cache
+    )
+
+    _ = smallConfiguration.prepare(block: block)
+    _ = largeConfiguration.prepare(block: block)
+
+    #expect(renderer.preparedCount == 2)
 }
 
 @Test
@@ -4988,6 +5475,53 @@ private func appKitCoreTextPaintedViews(in view: NSView) -> [NSView] {
     return matches
 }
 
+#if canImport(AppKit)
+@MainActor
+private func appKitAttachmentHostViews(in view: NSView) -> [MarkdownAttachmentHostNSView] {
+    var matches: [MarkdownAttachmentHostNSView] = []
+    if let host = view as? MarkdownAttachmentHostNSView {
+        matches.append(host)
+    }
+    for subview in view.subviews {
+        matches.append(contentsOf: appKitAttachmentHostViews(in: subview))
+    }
+    return matches
+}
+
+private extension ObjectIdentifier {
+    static func set(of hosts: [MarkdownAttachmentHostNSView]) -> Set<ObjectIdentifier> {
+        Set(hosts.map(ObjectIdentifier.init))
+    }
+}
+
+/// Builds a tiny in-memory PNG at an exact pixel size for header-probe
+/// tests (Inline Attachments Part 01 §1.2.5) without any network or bundled
+/// fixture asset.
+@MainActor
+private func makeTestPNGData(pixelWidth: Int, pixelHeight: Int) -> Data? {
+    guard let bitmap = NSBitmapImageRep(
+        bitmapDataPlanes: nil,
+        pixelsWide: pixelWidth,
+        pixelsHigh: pixelHeight,
+        bitsPerSample: 8,
+        samplesPerPixel: 4,
+        hasAlpha: true,
+        isPlanar: false,
+        colorSpaceName: .deviceRGB,
+        bytesPerRow: 0,
+        bitsPerPixel: 0
+    ) else {
+        return nil
+    }
+    NSGraphicsContext.saveGraphicsState()
+    NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: bitmap)
+    NSColor.red.setFill()
+    NSRect(x: 0, y: 0, width: pixelWidth, height: pixelHeight).fill()
+    NSGraphicsContext.restoreGraphicsState()
+    return bitmap.representation(using: .png, properties: [:])
+}
+#endif
+
 @MainActor
 private func mouseEvent(type: NSEvent.EventType, location: CGPoint, window: NSWindow) -> NSEvent {
     guard let event = NSEvent.mouseEvent(
@@ -5300,6 +5834,31 @@ private struct IdentityImagePolicy: MarkdownImagePolicy, MarkdownImagePolicyCach
         _ = source
         _ = altText
         return decision
+    }
+}
+
+/// Host-provider seam without Async (Inline Attachments Part 04 §4.3): maps
+/// every allowed image source to already-available `Data` bytes.
+private struct DataImageResolver: MarkdownImageResolver, MarkdownImageResolverCacheIdentifying {
+    var data: Data
+    var mimeType: String
+
+    var imageResolverCacheIdentity: String {
+        "test.data-image-resolver"
+    }
+
+    func preparedImage(
+        source: String,
+        altText: String?,
+        sourceRange: MarkdownSourceRange?,
+        policyDecision: MarkdownPolicyDecision
+    ) -> MarkdownPreparedImage {
+        MarkdownPreparedImage(
+            source: source,
+            altText: altText,
+            sourceRange: sourceRange,
+            preparedSource: .data(data, mimeType: mimeType)
+        )
     }
 }
 
