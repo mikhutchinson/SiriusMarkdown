@@ -100,19 +100,48 @@ public struct MarkdownExportPayload: Sendable, Hashable {
     }
 }
 
-public struct MarkdownAffordanceActionHandler: Sendable {
-    public var copyString: @MainActor @Sendable (String) -> Void
-    public var exportMarkdown: @MainActor @Sendable (MarkdownExportPayload) -> Void
+/// Intercepts affordance copy/export actions from the document and block layers.
+///
+/// `MarkdownAffordanceActionHandler` is a reference type so that:
+/// - The three `@MainActor @Sendable` closure fields do not trigger Swift runtime
+///   memmove failures when evaluated as default arguments in struct initialisers.
+/// - Hosts can share a single configured handler across multiple views without
+///   copy overhead, while still replacing a configuration's handler via reassignment.
+///
+/// All stored closures are constants (set at initialisation time). To change
+/// behaviour, create and assign a new handler instance.
+public final class MarkdownAffordanceActionHandler: @unchecked Sendable {
+    /// Called for single-string copy actions: code block affordance copy, Markdown
+    /// source copy from affordances, and other sites that have one string with no
+    /// plain/Markdown distinction. The default implementation calls
+    /// `MarkdownPasteboard.copy(_ string:)`, which writes a payload whose
+    /// `plainText` and `markdown` fields are equal.
+    public let copyString: @MainActor @Sendable (String) -> Void
+
+    /// Called for document selection Cmd-C and programmatic
+    /// `copySelectedMarkdown`. The payload carries separate `plainText` and
+    /// `markdown` fields so the host can decide what to surface (e.g. show the
+    /// Markdown in a toast while the system pasteboard receives plain text).
+    /// The default implementation calls `MarkdownPasteboard.copy(_ payload:)`.
+    public let copyPayload: @MainActor @Sendable (MarkdownPasteboardPayload) -> Void
+
+    /// Called when the user exports Markdown to a file. The default opens a
+    /// save panel on macOS and falls back to `MarkdownPasteboard.copy` elsewhere.
+    public let exportMarkdown: @MainActor @Sendable (MarkdownExportPayload) -> Void
 
     public init(
         copyString: @escaping @MainActor @Sendable (String) -> Void = { string in
             MarkdownPasteboard.copy(string)
+        },
+        copyPayload: @escaping @MainActor @Sendable (MarkdownPasteboardPayload) -> Void = { payload in
+            MarkdownPasteboard.copy(payload)
         },
         exportMarkdown: @escaping @MainActor @Sendable (MarkdownExportPayload) -> Void = { payload in
             MarkdownDocumentExporter.export(payload)
         }
     ) {
         self.copyString = copyString
+        self.copyPayload = copyPayload
         self.exportMarkdown = exportMarkdown
     }
 

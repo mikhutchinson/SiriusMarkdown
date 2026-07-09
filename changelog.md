@@ -39,6 +39,16 @@
 
   New types: `MarkdownPasteboardPayload`.
 
+- **`MarkdownAffordanceActionHandler` promoted to `final class`:** Previously a struct
+  with two `@MainActor @Sendable` closure fields; the struct was extended to three
+  fields during pasteboard richness work, triggering a SIGBUS in the Swift runtime's
+  memmove path during default-argument evaluation. The type is now a
+  `public final class @unchecked Sendable`, which eliminates the memmove and restores
+  `copyPayload` as a first-class stored closure. `copySelection` now routes through
+  `copyPayload` only; the temporary `copyString` call after the pasteboard write is
+  removed, closing the semantic mismatch where the handler saw Markdown but `.string`
+  had plain text.
+
 - **Text.Layout bridge (Part 04, evaluated and rejected):** Parts 01–03 close the
   feel gap on the default `coreTextPaintedLines` path. A `Text.Layout` bridge for
   cross-view Markdown selection is not warranted on the CoreText default path and

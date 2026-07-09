@@ -542,10 +542,7 @@ struct MarkdownDocumentSelectionCopyContext {
             plainText: plainText.isEmpty ? markdown : plainText,
             markdown: markdown
         )
-        // Write multi-representation payload (plain + Markdown UTI + optional RTF/HTML).
-        MarkdownPasteboard.copy(payload)
-        // Also notify host via copyString for any in-process interception (e.g. custom toast UI).
-        affordanceActionHandler.copyString(markdown)
+        affordanceActionHandler.copyPayload(payload)
     }
 
     @MainActor
