@@ -33,7 +33,7 @@ Sources/SiriusMarkdownSwiftUI/
   Inline/NativeInlineLineTextView.swift  — native text fallback for inline lines
   Theme/MarkdownTheme.swift              — typography, spacing, color tokens
   Interaction/MarkdownInteraction.swift  — selection controller, copy provider
-  Interaction/MarkdownDocumentSelectionGeometry.swift — cross-block selection fragments
+  Interaction/MarkdownDocumentSelectionGeometry.swift — cross-block selection fragments, text-geometry-aware fragment generation for all block types
   Interaction/MarkdownNativeTextSelection.swift — native text selection compatibility knob
   Interaction/MarkdownAffordanceSymbols.swift — decorative SF Symbol helpers
   Platform/MarkdownPlatformHooks.swift   — AppKit/UIKit/CoreText bridges
@@ -71,6 +71,7 @@ Products (see `Package.swift`): **`SiriusMarkdown`** (app-facing umbrella module
 - **`MarkdownTheme`** owns `MarkdownSyntaxHighlightingPalette`, so default token colors are theme-owned and included in highlighted-code cache identity instead of being hidden inside SwiftUI body work.
 - **`MarkdownBlockView`** branches on `MarkdownBlockKind` for structured blocks and consumes `MarkdownPreparedBlockContent` for inline text, lists, nested lists, tables, code, math, and HTML. List and table rendering uses prepared source-range IDs rather than array offsets. Tables use prepared cell inline layouts and measured natural widths to choose bounded adaptive columns in SwiftUI; the view layer does not reparse table Markdown or measure raw source.
 - **`MarkdownTheme`** owns renderer-level table presentation tokens (`tableBackground`, header/alternate-row backgrounds, border/accent colors, corner radius, and cell padding). This keeps table styling part of the public renderer surface instead of a demo-only skin.
+- **Cross-block selection** (`MarkdownDocumentSelectionGeometry.swift`) uses a unified two-path strategy for all block types: blocks with `inlineLayout` (paragraphs, headings, block quotes) produce per-line `inlineLineFragments` from `inlineLayout`; blocks with only `selectionInlineLayout` (code blocks, math blocks) produce per-line fragments from `selectionInlineLayout`; table cells and list items use `inlineLineFragments` per cell/item when `inlineLayout ?? selectionInlineLayout` is available, falling back to a source-backed rect fragment when neither is present. `fragments(for:preparedContent:rect:)` checks `selectionInlineLayout` after `inlineLayout` so code and math blocks produce text-geometry-aware fragments without `inlineLayout` being set. `emitsTextLeafSelectionFragments` inspects table cells and list items recursively so the document-level selection layer can skip the fallback container fragment when any descendant has prepared inline content. Policy-denied blocks produce a source-backed rect fragment covering the block's source range so selection and copy remain correct even when rendering is suppressed.
 
 ### Math (`SiriusMarkdownMath`, optional)
 

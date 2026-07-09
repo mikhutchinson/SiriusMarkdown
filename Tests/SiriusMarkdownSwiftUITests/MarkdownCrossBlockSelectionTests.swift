@@ -654,6 +654,214 @@ struct MarkdownCrossBlockSelectionTests {
     }
 }
 
+// MARK: - Part 01 (continued): Table cell drag/copy tests
+
+extension MarkdownTableCellSelectionTests {
+    @Test
+    @MainActor
+    func dragSelectionAcrossTableCellsProducesContiguousRange() throws {
+        let source = """
+        | Alpha | Beta |
+        |-------|------|
+        | A1    | B1   |
+        """
+        let (_, prepared, _) = prepareSnapshot(source)
+        let tableBlock = try #require(prepared.snapshot.blocks.first(where: { $0.kind == .table }))
+        let tableContent = try #require(prepared.preparedContentByBlockID[tableBlock.id])
+
+        let fragments = MarkdownDocumentSelectionFragment.fragments(
+            for: tableBlock,
+            preparedContent: tableContent,
+            rect: testRect
+        ).sortedForSelection()
+
+        #expect(fragments.count >= 2)
+        guard let first = fragments.first, let last = fragments.last, first.id != last.id else { return }
+
+        let (ranges, blockIDs) = MarkdownDocumentSelectionFragment.selection(
+            from: first,
+            to: last,
+            in: fragments
+        )
+
+        #expect(!ranges.isEmpty)
+        #expect(blockIDs.contains(tableBlock.id))
+        #expect(ranges.first?.byteRange.lowerBound == first.sourceRange.byteRange.lowerBound)
+        #expect(ranges.first?.byteRange.upperBound == last.sourceRange.byteRange.upperBound)
+    }
+
+    @Test
+    @MainActor
+    func copyFirstTableCellProducesCorrectMarkdownSource() throws {
+        let source = """
+        | Alpha | Beta |
+        |-------|------|
+        | A1    | B1   |
+        """
+        let (_, prepared, config) = prepareSnapshot(source)
+        let tableBlock = try #require(prepared.snapshot.blocks.first(where: { $0.kind == .table }))
+        let tableContent = try #require(prepared.preparedContentByBlockID[tableBlock.id])
+        let table = try #require(tableContent.table)
+
+        let firstHeaderCell = try #require(table.header.first)
+        let copied = config.copyProvider?.markdown(firstHeaderCell.sourceRange)
+        #expect(copied != nil)
+        #expect(copied?.contains("Alpha") == true)
+    }
+}
+
+// MARK: - Part 02 (continued): List item drag/copy tests
+
+extension MarkdownListItemSelectionTests {
+    @Test
+    @MainActor
+    func dragSelectionAcrossListItemsProducesContiguousRange() throws {
+        let source = """
+        - First item
+        - Second item
+        - Third item
+        """
+        let (_, prepared, _) = prepareSnapshot(source)
+        let listBlock = try #require(prepared.snapshot.blocks.first(where: { $0.kind == .unorderedList }))
+        let listContent = try #require(prepared.preparedContentByBlockID[listBlock.id])
+
+        let fragments = MarkdownDocumentSelectionFragment.fragments(
+            for: listBlock,
+            preparedContent: listContent,
+            rect: testRect
+        ).sortedForSelection()
+
+        #expect(fragments.count >= 2)
+        guard let first = fragments.first, let last = fragments.last, first.id != last.id else { return }
+
+        let (ranges, blockIDs) = MarkdownDocumentSelectionFragment.selection(
+            from: first,
+            to: last,
+            in: fragments
+        )
+
+        #expect(!ranges.isEmpty)
+        #expect(blockIDs.contains(listBlock.id))
+        #expect(ranges.first?.byteRange.lowerBound == first.sourceRange.byteRange.lowerBound)
+        #expect(ranges.first?.byteRange.upperBound == last.sourceRange.byteRange.upperBound)
+    }
+
+    @Test
+    @MainActor
+    func copyFirstListItemProducesCorrectMarkdownSource() throws {
+        let source = """
+        - Alpha item
+        - Beta item
+        """
+        let (_, prepared, config) = prepareSnapshot(source)
+        let listBlock = try #require(prepared.snapshot.blocks.first(where: { $0.kind == .unorderedList }))
+        let listContent = try #require(prepared.preparedContentByBlockID[listBlock.id])
+
+        let firstItem = try #require(listContent.listItems.first)
+        let copied = config.copyProvider?.markdown(firstItem.sourceRange)
+        #expect(copied != nil)
+        #expect(copied?.contains("Alpha") == true)
+    }
+}
+
+// MARK: - Part 05 (continued): Cross-block drag/highlight/copy tests
+
+extension MarkdownCrossBlockSelectionTests {
+    @Test
+    @MainActor
+    func dragSelectionAcrossParagraphAndCodeBlockProducesContiguousRange() throws {
+        let source = """
+        First paragraph.
+
+        ```
+        code line
+        ```
+
+        Second paragraph.
+        """
+        let (_, prepared, _) = prepareSnapshot(source)
+
+        var allFragments: [MarkdownDocumentSelectionFragment] = []
+        var yOffset: CGFloat = 0
+        for block in prepared.snapshot.blocks {
+            guard let content = prepared.preparedContentByBlockID[block.id] else { continue }
+            let blockRect = CGRect(x: 0, y: yOffset, width: 400, height: 50)
+            allFragments.append(contentsOf: MarkdownDocumentSelectionFragment.fragments(
+                for: block,
+                preparedContent: content,
+                rect: blockRect
+            ))
+            yOffset += 60
+        }
+        allFragments = allFragments.sortedForSelection()
+
+        #expect(allFragments.count >= 3)
+        guard let first = allFragments.first, let last = allFragments.last, first.id != last.id else { return }
+
+        let (ranges, blockIDs) = MarkdownDocumentSelectionFragment.selection(
+            from: first,
+            to: last,
+            in: allFragments
+        )
+
+        #expect(!ranges.isEmpty)
+        #expect(blockIDs.count == prepared.snapshot.blocks.count)
+        #expect(ranges.first?.byteRange.lowerBound == first.sourceRange.byteRange.lowerBound)
+        #expect(ranges.first?.byteRange.upperBound == last.sourceRange.byteRange.upperBound)
+    }
+
+    @Test
+    @MainActor
+    func textGeometryFragmentHighlightIsNarrowerThanBlockRect() throws {
+        let source = "Hi.\n"
+        let (_, prepared, _) = prepareSnapshot(source)
+        let block = try #require(prepared.snapshot.blocks.first)
+        let content = try #require(prepared.preparedContentByBlockID[block.id])
+
+        let fragments = MarkdownDocumentSelectionFragment.fragments(
+            for: block,
+            preparedContent: content,
+            rect: testRect
+        )
+        let fragment = try #require(fragments.first)
+        #expect(fragment.textGeometry != nil, "Short-text fragment must carry text geometry for highlight clipping (INV-S4)")
+
+        let highlights = fragment.highlightRects(for: [fragment.sourceRange])
+        let highlight = try #require(highlights.first)
+        #expect(highlight.rect.width < testRect.width, "Highlight for short text must be narrower than block rect (INV-S4)")
+    }
+
+    @Test
+    @MainActor
+    func copyAcrossParagraphAndCodeBlockProducesCorrectMarkdown() throws {
+        let source = """
+        Intro paragraph.
+
+        ```
+        code here
+        ```
+
+        Closing paragraph.
+        """
+        let (_, prepared, config) = prepareSnapshot(source)
+
+        let blocks = prepared.snapshot.blocks
+        #expect(blocks.count >= 3)
+        guard blocks.count >= 3 else { return }
+
+        let fullRange = MarkdownSourceRange(
+            byteRange: blocks[0].sourceRange.byteRange.lowerBound..<blocks[blocks.count - 1].sourceRange.byteRange.upperBound,
+            lineRange: blocks[0].sourceRange.lineRange.lowerBound..<blocks[blocks.count - 1].sourceRange.lineRange.upperBound
+        )
+
+        let copied = config.copyProvider?.markdown(fullRange)
+        #expect(copied != nil)
+        #expect(copied?.contains("Intro paragraph") == true)
+        #expect(copied?.contains("code here") == true)
+        #expect(copied?.contains("Closing paragraph") == true)
+    }
+}
+
 // MARK: - Test policies
 
 private struct DenyAllCodePolicy: MarkdownCodePolicy, MarkdownCodePolicyCacheIdentifying {

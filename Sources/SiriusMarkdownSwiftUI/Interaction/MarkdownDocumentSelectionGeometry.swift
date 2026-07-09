@@ -376,27 +376,18 @@ struct MarkdownDocumentSelectionFragment: Identifiable, Equatable {
 
     private static let listItemIndentationPerLevel: CGFloat = 36
 
-    private static func flattenedListItemCount(_ items: [MarkdownPreparedListItem]) -> Int {
-        items.reduce(0) { count, item in
-            count + 1 + flattenedListItemCount(item.childItems)
-        }
-    }
-
     private static func listFragments(
         block: MarkdownBlock,
         items: [MarkdownPreparedListItem],
         rect: CGRect
     ) -> [MarkdownDocumentSelectionFragment] {
-        let totalCount = flattenedListItemCount(items)
-        guard totalCount > 0 else { return [] }
-        let itemHeight = rect.height / CGFloat(totalCount)
+        guard !items.isEmpty else { return [] }
         var yCursor = rect.minY
         return listItemFragmentsInternal(
             block: block,
             items: items,
             rect: rect,
             yCursor: &yCursor,
-            itemHeight: itemHeight,
             indentation: 0
         )
     }
@@ -406,32 +397,36 @@ struct MarkdownDocumentSelectionFragment: Identifiable, Equatable {
         items: [MarkdownPreparedListItem],
         rect: CGRect,
         yCursor: inout CGFloat,
-        itemHeight: CGFloat,
         indentation: CGFloat
     ) -> [MarkdownDocumentSelectionFragment] {
         let itemRectX = rect.minX + indentation
         let itemRectWidth = max(rect.width - indentation, 0)
         var fragments: [MarkdownDocumentSelectionFragment] = []
         for item in items {
-            let itemRect = CGRect(x: itemRectX, y: yCursor, width: itemRectWidth, height: itemHeight)
-            yCursor += itemHeight
-
-            if let layout = item.inlineLayout ?? item.selectionInlineLayout {
-                let lines = inlineLineFragments(
+            if let prepared = item.inlineLayout ?? item.selectionInlineLayout {
+                let lineHeight = CGFloat(prepared.lineHeight)
+                let spacing = InlineRunsView.nativeLineSpacing(for: prepared)
+                let containerWidth = InlineRunsView.nativeLineLayoutWidth(
+                    for: prepared,
+                    containerWidth: Double(itemRectWidth)
+                )
+                let layoutResult = prepared.layout(
+                    containerWidth: containerWidth,
+                    allowsOverwideFallback: true
+                )
+                let itemHeight = CGFloat(max(1, layoutResult.lines.count)) * (lineHeight + spacing)
+                let itemRect = CGRect(x: itemRectX, y: yCursor, width: itemRectWidth, height: itemHeight)
+                yCursor += itemHeight
+                fragments.append(contentsOf: inlineLineFragments(
                     blockID: block.id,
-                    prepared: layout,
-                    layout: layout.layout(
-                        containerWidth: InlineRunsView.nativeLineLayoutWidth(
-                            for: layout,
-                            containerWidth: Double(itemRect.width)
-                        ),
-                        allowsOverwideFallback: true
-                    ),
+                    prepared: prepared,
+                    layout: layoutResult,
                     rect: itemRect,
                     idPrefix: "list:\(item.id)"
-                )
-                fragments.append(contentsOf: lines)
+                ))
             } else {
+                let itemRect = CGRect(x: itemRectX, y: yCursor, width: itemRectWidth, height: rect.height)
+                yCursor += rect.height
                 fragments.append(MarkdownDocumentSelectionFragment(
                     id: "\(item.id):\(item.sourceRange.byteRange.lowerBound)",
                     blockID: block.id,
@@ -445,7 +440,6 @@ struct MarkdownDocumentSelectionFragment: Identifiable, Equatable {
                 items: item.childItems,
                 rect: rect,
                 yCursor: &yCursor,
-                itemHeight: itemHeight,
                 indentation: indentation + listItemIndentationPerLevel
             ))
         }
@@ -641,7 +635,6 @@ struct MarkdownDocumentSelectionTextGeometry: Equatable, Sendable {
     var fontSize: Double
     var lineWidth: CGFloat
     private var equalityFingerprint: Int
-    private var diagnosticsRecorder: MarkdownDiagnosticsRecorder?
     #if canImport(CoreText)
     private var coreTextMetrics: MarkdownDocumentSelectionCoreTextMetrics?
     #endif
@@ -665,7 +658,6 @@ struct MarkdownDocumentSelectionTextGeometry: Equatable, Sendable {
         self.fontProfiles = prepared.fontProfiles
         self.fontSize = prepared.fontSize
         self.lineWidth = CGFloat(max(line.width, 1))
-        self.diagnosticsRecorder = diagnosticsRecorder
         diagnosticsRecorder?.recordSelectionTextGeometryInitialization()
 
         var sourceRuns: [MarkdownDocumentSelectionSourceRun] = []
@@ -1183,6 +1175,9 @@ private enum MarkdownDocumentSelectionCTFont {
         to font: CTFont,
         size: CGFloat
     ) -> CTFont {
+        guard weight != .regular || !symbolicTraits.isEmpty else {
+            return font
+        }
         var traits: [CFString: Any] = [:]
         if let weightValue = fontWeightValue(for: weight) {
             traits[kCTFontWeightTrait] = weightValue

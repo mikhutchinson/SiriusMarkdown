@@ -69,6 +69,20 @@ Layout and renderer acceptance for the current slice:
   math blocks, HTML blocks) must publish text-geometry-aware selection
   fragments from prepared inline layout, not rect-based fallbacks.
   `MarkdownCrossBlockSelectionTests` must pass in the release gate.
+- `MarkdownDocumentSelectionFragment.fragments(for:preparedContent:rect:)` must
+  check `selectionInlineLayout` after `inlineLayout`. Code blocks, math blocks,
+  and any block that prepares only `selectionInlineLayout` (not `inlineLayout`)
+  must produce text-geometry-aware fragments via the `selectionInlineLayout`
+  path. Do not fall through to the rect-based block fragment when
+  `selectionInlineLayout` is available (INV-S3).
+- `MarkdownPreparedBlockContent.emitsTextLeafSelectionFragments` must return
+  true for every block type that will produce text-leaf fragments via
+  `fragments(for:preparedContent:rect:)`. For tables, this check must inspect
+  whether any cell has `inlineLayout` or `selectionInlineLayout`, not just the
+  block-level `inlineLayout`. For list items, this check must inspect each
+  item's `inlineLayout` or `selectionInlineLayout` recursively including nested
+  items. Do not allow `emitsTextLeafSelectionFragments` to return false for any
+  block that will in practice emit text-leaf fragments (INV-S3).
 - Prepared-line selection fragments must map visible byte offsets back through
   source runs before forming source ranges. Styled inline Markdown such as
   emphasis, strong, links, images, and math may have visible text shorter than
