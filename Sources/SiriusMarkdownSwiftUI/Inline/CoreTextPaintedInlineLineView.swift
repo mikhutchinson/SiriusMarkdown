@@ -542,6 +542,14 @@ private struct CoreTextPaintedInlineLineSurface: NSViewRepresentable {
         ) == true {
             // Same content+layout since last explicit make() — reuse existing plan (INV-P1).
         } else {
+            // The prebuilt plan from `prepare(snapshot:)` was built at a
+            // width that doesn't match this view's real layout — this is
+            // the residual INV-P1 gap: CTLine creation runs here, in the
+            // SwiftUI update path, instead of during prepare. Recorded so
+            // it's measured, not assumed away (INV-P8); should trend to
+            // zero for blocks prepared after the real width is known
+            // (Streaming Performance Part 01/02 gap fix).
+            prepared.layoutCache.recordCoreTextLinePlanRebuiltInBody()
             view.plan = MarkdownCoreTextPaintedLinePlan.make(
                 prepared: prepared,
                 layout: layoutResult
@@ -695,6 +703,9 @@ private struct CoreTextPaintedInlineLineSurface: UIViewRepresentable {
         ) == true {
             // Same content+layout since last explicit make() — reuse existing plan (INV-P1).
         } else {
+            // See the matching NSViewRepresentable branch above: residual
+            // INV-P1 gap, recorded so it's measured, not assumed away.
+            prepared.layoutCache.recordCoreTextLinePlanRebuiltInBody()
             view.plan = MarkdownCoreTextPaintedLinePlan.make(
                 prepared: prepared,
                 layout: layoutResult

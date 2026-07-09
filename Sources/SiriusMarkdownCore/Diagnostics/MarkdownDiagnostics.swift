@@ -19,6 +19,13 @@ public struct MarkdownDiagnosticsCounters: Sendable, Hashable {
     public var nonFiniteInlineProposalFallbackCount: Int
     public var overwideUnitFallbackCount: Int
     public var nativeLineClippingCount: Int
+    /// Count of `MarkdownCoreTextPaintedLinePlan.make()` calls that ran
+    /// inside `updateNSView`/`updateUIView` because the actual container
+    /// width differed from the width used to pre-build the plan during
+    /// `prepare(snapshot:)` (INV-P1). Should trend toward zero after the
+    /// first block in a session, once `defaultLayoutWidth` tracks the real
+    /// rendering width (Streaming Performance Part 01/02).
+    public var coreTextLinePlanRebuiltInBodyCount: Int
     public var selectionPreferenceBodyEvaluationCount: Int
     public var selectionFrameQueryCount: Int
     public var inlineLineFragmentBuildCount: Int
@@ -26,9 +33,26 @@ public struct MarkdownDiagnosticsCounters: Sendable, Hashable {
     public var selectionFingerprintBuildCount: Int
     public var selectionSourceRunMappingCount: Int
     public var selectionPreferenceChangeCount: Int
+    /// Count of times the `onPreferenceChange(MarkdownDocumentSelectionFragmentsKey.self)`
+    /// closure body ran (i.e. `sortedForSelection()` was called), regardless
+    /// of whether the sorted result actually differed from the previously
+    /// stored fragments. Compared against `selectionPreferenceChangeCount`
+    /// (which only increments when the result differs) to measure whether
+    /// SwiftUI's own preference-equality gate already suppresses no-op
+    /// re-sorts, or whether the sort genuinely runs on every layout pass
+    /// regardless of content change (Streaming Performance Part 04, INV-P8).
+    public var selectionPreferenceEvaluationCount: Int
     public var selectionCoreTextLineBuildCount: Int
     public var selectionLineFragmentCacheHitCount: Int
     public var selectionLineFragmentCacheMissCount: Int
+    /// Cache hit/miss counts for the final, rect-mapped selection fragment
+    /// array (as opposed to `selectionLineFragmentCache*`, which caches the
+    /// rect-independent templates). Distinct from the template cache because
+    /// a cache hit here skips the templates' `.map` into absolute rects too,
+    /// which repeats identically across multiple layout-settle passes for
+    /// the same (content, layout, rect) — Streaming Performance Part 04.
+    public var selectionFragmentArrayCacheHitCount: Int
+    public var selectionFragmentArrayCacheMissCount: Int
     public var cacheHitCount: Int
     public var cacheMissCount: Int
     public var sealedRegionCacheHitCount: Int
@@ -52,6 +76,7 @@ public struct MarkdownDiagnosticsCounters: Sendable, Hashable {
         nonFiniteInlineProposalFallbackCount: Int = 0,
         overwideUnitFallbackCount: Int = 0,
         nativeLineClippingCount: Int = 0,
+        coreTextLinePlanRebuiltInBodyCount: Int = 0,
         selectionPreferenceBodyEvaluationCount: Int = 0,
         selectionFrameQueryCount: Int = 0,
         inlineLineFragmentBuildCount: Int = 0,
@@ -59,9 +84,12 @@ public struct MarkdownDiagnosticsCounters: Sendable, Hashable {
         selectionFingerprintBuildCount: Int = 0,
         selectionSourceRunMappingCount: Int = 0,
         selectionPreferenceChangeCount: Int = 0,
+        selectionPreferenceEvaluationCount: Int = 0,
         selectionCoreTextLineBuildCount: Int = 0,
         selectionLineFragmentCacheHitCount: Int = 0,
         selectionLineFragmentCacheMissCount: Int = 0,
+        selectionFragmentArrayCacheHitCount: Int = 0,
+        selectionFragmentArrayCacheMissCount: Int = 0,
         cacheHitCount: Int = 0,
         cacheMissCount: Int = 0,
         sealedRegionCacheHitCount: Int = 0,
@@ -84,6 +112,7 @@ public struct MarkdownDiagnosticsCounters: Sendable, Hashable {
         self.nonFiniteInlineProposalFallbackCount = nonFiniteInlineProposalFallbackCount
         self.overwideUnitFallbackCount = overwideUnitFallbackCount
         self.nativeLineClippingCount = nativeLineClippingCount
+        self.coreTextLinePlanRebuiltInBodyCount = coreTextLinePlanRebuiltInBodyCount
         self.selectionPreferenceBodyEvaluationCount = selectionPreferenceBodyEvaluationCount
         self.selectionFrameQueryCount = selectionFrameQueryCount
         self.inlineLineFragmentBuildCount = inlineLineFragmentBuildCount
@@ -91,9 +120,12 @@ public struct MarkdownDiagnosticsCounters: Sendable, Hashable {
         self.selectionFingerprintBuildCount = selectionFingerprintBuildCount
         self.selectionSourceRunMappingCount = selectionSourceRunMappingCount
         self.selectionPreferenceChangeCount = selectionPreferenceChangeCount
+        self.selectionPreferenceEvaluationCount = selectionPreferenceEvaluationCount
         self.selectionCoreTextLineBuildCount = selectionCoreTextLineBuildCount
         self.selectionLineFragmentCacheHitCount = selectionLineFragmentCacheHitCount
         self.selectionLineFragmentCacheMissCount = selectionLineFragmentCacheMissCount
+        self.selectionFragmentArrayCacheHitCount = selectionFragmentArrayCacheHitCount
+        self.selectionFragmentArrayCacheMissCount = selectionFragmentArrayCacheMissCount
         self.cacheHitCount = cacheHitCount
         self.cacheMissCount = cacheMissCount
         self.sealedRegionCacheHitCount = sealedRegionCacheHitCount
@@ -204,6 +236,12 @@ public final class MarkdownDiagnosticsRecorder: @unchecked Sendable {
         }
     }
 
+    public func recordCoreTextLinePlanRebuiltInBody() {
+        withLock {
+            counters.coreTextLinePlanRebuiltInBodyCount += 1
+        }
+    }
+
     public func recordSelectionPreferenceBodyEvaluation() {
         withLock {
             counters.selectionPreferenceBodyEvaluationCount += 1
@@ -246,6 +284,12 @@ public final class MarkdownDiagnosticsRecorder: @unchecked Sendable {
         }
     }
 
+    public func recordSelectionPreferenceEvaluation() {
+        withLock {
+            counters.selectionPreferenceEvaluationCount += 1
+        }
+    }
+
     public func recordSelectionCoreTextLineBuild() {
         withLock {
             counters.selectionCoreTextLineBuildCount += 1
@@ -261,6 +305,18 @@ public final class MarkdownDiagnosticsRecorder: @unchecked Sendable {
     public func recordSelectionLineFragmentCacheMiss() {
         withLock {
             counters.selectionLineFragmentCacheMissCount += 1
+        }
+    }
+
+    public func recordSelectionFragmentArrayCacheHit() {
+        withLock {
+            counters.selectionFragmentArrayCacheHitCount += 1
+        }
+    }
+
+    public func recordSelectionFragmentArrayCacheMiss() {
+        withLock {
+            counters.selectionFragmentArrayCacheMissCount += 1
         }
     }
 

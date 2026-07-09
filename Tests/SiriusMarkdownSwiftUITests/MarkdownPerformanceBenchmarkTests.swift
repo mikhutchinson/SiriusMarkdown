@@ -74,6 +74,114 @@ struct MarkdownPerformanceBenchmarkTests {
         #expect(inlineLayout.defaultLayoutWidth > 0)
     }
 
+    // MARK: - Part 01/02 gap fix: default layout width tracks real container width
+
+    @Test
+    @MainActor
+    func preparationCacheDefaultLayoutWidthFallsBackBeforeAnyRealWidthKnown() {
+        let cache = MarkdownRenderPreparationCache()
+        #expect(cache.currentDefaultLayoutWidth == InlineRunsView.defaultLayoutWidth)
+    }
+
+    @Test
+    @MainActor
+    func preparationCacheDefaultLayoutWidthTracksLastRecordedRealWidth() {
+        let cache = MarkdownRenderPreparationCache()
+        cache.recordActualContainerWidth(350)
+        #expect(cache.currentDefaultLayoutWidth == 350)
+
+        cache.recordActualContainerWidth(420)
+        #expect(cache.currentDefaultLayoutWidth == 420)
+    }
+
+    @Test
+    @MainActor
+    func preparationCacheDefaultLayoutWidthIgnoresInvalidRecordedWidths() {
+        let cache = MarkdownRenderPreparationCache()
+        cache.recordActualContainerWidth(350)
+        cache.recordActualContainerWidth(-10)
+        cache.recordActualContainerWidth(.nan)
+        cache.recordActualContainerWidth(0)
+        #expect(cache.currentDefaultLayoutWidth == 350)
+    }
+
+    @Test
+    @MainActor
+    func newlyPreparedBlockUsesRecordedRealWidthNotHardcodedDefault() throws {
+        // Guards the fix for the real, still-live gap behind INV-P1/INV-P2:
+        // `InlineRunsView.defaultLayoutWidth` (680) is disconnected from real
+        // rendering widths (e.g. a 350pt-wide phone/chat column), so the
+        // pre-built initial layout / CTLine plan almost never matched the
+        // actual container width and CTLine creation fell back to running
+        // inside `updateNSView`/`updateUIView`. A block prepared after a
+        // real width is known must be pre-computed at that real width.
+        let configuration = MarkdownRendererConfiguration.compactChat
+        configuration.preparationCache.recordActualContainerWidth(350)
+
+        let stream = makeStream("This paragraph is prepared after a real 350pt width was recorded.")
+        let prepared = configuration.prepare(snapshot: stream.snapshot())
+
+        guard case let .block(_, content) = prepared.items.first else {
+            Issue.record("Expected at least one block")
+            return
+        }
+        let inlineLayout = try #require(content.inlineLayout)
+        #expect(inlineLayout.defaultLayoutWidth == 350)
+        #expect(inlineLayout.defaultLayoutWidth != InlineRunsView.defaultLayoutWidth)
+    }
+
+    @Test
+    @MainActor
+    func coreTextLinePlanRebuiltInBodyIsRecordedAndObservable() {
+        // Makes the residual INV-P1 gap (prebuilt plan doesn't match real
+        // width) measurable rather than assumed away (INV-P8): the counter
+        // must exist, default to zero, and increment when recorded.
+        let recorder = MarkdownDiagnosticsRecorder()
+        #expect(recorder.snapshot().coreTextLinePlanRebuiltInBodyCount == 0)
+
+        let layoutCache = MarkdownInlineLayoutCache(diagnosticsRecorder: recorder)
+        layoutCache.recordCoreTextLinePlanRebuiltInBody()
+        layoutCache.recordCoreTextLinePlanRebuiltInBody()
+
+        #expect(recorder.snapshot().coreTextLinePlanRebuiltInBodyCount == 2)
+    }
+
+    @Test
+    @MainActor
+    func laterStreamedBlockPicksUpWidthReportedByEarlierBlock() async throws {
+        // End-to-end: the FIRST block in a session has no recorded width and
+        // falls back to the hardcoded default (unavoidable — nothing has
+        // measured a real width yet). Once that block's real width is
+        // reported back to the shared preparation cache (simulating what
+        // `PreparedInlineTextView`'s width-preference handler does), EVERY
+        // later block streamed into the same session must be pre-computed
+        // at the real width, not the hardcoded default (INV-P1, INV-P2).
+        let session = MarkdownRenderSession(configuration: .compactChat, parserCacheCapacity: 64)
+
+        session.append("First paragraph, prepared before any real width is known.\n\n")
+        await session.waitUntilIdle()
+
+        guard case let .block(_, firstContent) = session.preparedSnapshot.items.first else {
+            Issue.record("Expected at least one block")
+            return
+        }
+        let firstInline = try #require(firstContent.inlineLayout)
+        #expect(firstInline.defaultLayoutWidth == InlineRunsView.defaultLayoutWidth)
+
+        // Simulate the real width arriving from `PreparedInlineTextView`.
+        session.configuration.preparationCache.recordActualContainerWidth(360)
+
+        session.append("Second paragraph, streamed in after the real width is known.\n\n")
+        await session.waitUntilIdle()
+
+        guard case let .block(_, secondContent) = session.preparedSnapshot.items.last else {
+            Issue.record("Expected a second block")
+            return
+        }
+        let secondInline = try #require(secondContent.inlineLayout)
+        #expect(secondInline.defaultLayoutWidth == 360)
+    }
+
     // MARK: - Part 03: Incremental snapshot diff
 
     @Test

@@ -384,6 +384,10 @@ private struct MarkdownDocumentSelectionLayer<Content: View>: View {
             .contentShape(Rectangle())
             .simultaneousGesture(selectionGesture)
             .onPreferenceChange(MarkdownDocumentSelectionFragmentsKey.self) { value in
+                // Measures whether this closure runs (and thus sorts) on
+                // layout passes where nothing actually changed, separately
+                // from whether it ends up updating `fragments` (INV-P8).
+                configuration.diagnosticsRecorder.recordSelectionPreferenceEvaluation()
                 let sorted = value.sortedForSelection()
                 guard sorted != fragments else { return }
                 configuration.diagnosticsRecorder.recordSelectionPreferenceChange()

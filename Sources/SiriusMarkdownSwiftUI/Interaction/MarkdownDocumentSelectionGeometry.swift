@@ -213,16 +213,13 @@ struct MarkdownDocumentSelectionFragment: Identifiable, Equatable {
             return []
         }
 
-        let lineHeight = CGFloat(prepared.lineHeight)
-        let spacing = InlineRunsView.nativeLineSpacing(for: prepared)
-        return prepared.layoutCache.selectionLineFragmentTemplates(
+        return prepared.layoutCache.cachedInlineLineFragments(
             blockID: blockID,
             prepared: prepared,
             layout: layout,
+            rect: rect,
             idPrefix: idPrefix
-        ).map { template in
-            template.fragment(in: rect, lineHeight: lineHeight, spacing: spacing)
-        }
+        )
     }
 
     static func makeInlineLineFragmentTemplates(

@@ -643,6 +643,14 @@ private struct PreparedInlineTextView: View {
                     return
                 }
 
+                // Report the real on-screen width back to the session's
+                // shared preparation cache so later-prepared blocks (e.g.
+                // new blocks appearing during streaming) pre-compute their
+                // initial layout / CTLine plan at a width that actually
+                // matches the rendering context, instead of a fixed
+                // constant most layouts never hit (INV-P1, INV-P2).
+                prepared.preparationCache?.recordActualContainerWidth(Double(width))
+
                 if abs(width - containerWidth) > 0.5 {
                     containerWidth = width
                     refreshLayoutIfPossible()

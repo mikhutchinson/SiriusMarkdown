@@ -48,7 +48,14 @@ struct MarkdownSelectionPerformanceTests {
         #expect(delta.selectionFingerprintBuildCount == 0)
         #expect(delta.selectionSourceRunMappingCount == 0)
         #expect(delta.selectionCoreTextLineBuildCount == 0)
-        #expect(delta.selectionLineFragmentCacheHitCount > 0)
+        // The final fragment-array cache (Part 04) now absorbs most repeat
+        // queries directly, so it — not the rect-independent template cache
+        // — is the primary signal that repeated geometry resolution during
+        // an invalidation storm is cheap. The template cache may still see
+        // occasional hits for genuinely new rects reusing known layouts,
+        // but asserting `> 0` on it here would be fragile now that the
+        // array cache short-circuits most calls before reaching it.
+        #expect(delta.selectionFragmentArrayCacheHitCount > 0)
     }
 
     @Test
@@ -77,6 +84,110 @@ struct MarkdownSelectionPerformanceTests {
         #expect(longDelta.selectionFingerprintBuildCount == 0)
         #expect(shortDelta.selectionTextGeometryInitializationCount == 0)
         #expect(longDelta.selectionTextGeometryInitializationCount == 0)
+    }
+
+    @Test
+    @MainActor
+    func identicalRerenderDoesNotEvaluateSelectionPreferencesAtAll() throws {
+        // SwiftUI's own view-tree diffing already skips re-invoking
+        // GeometryReader content closures (and thus selection preference
+        // computation entirely) when successive `rootView` assignments
+        // produce a value-identical tree. This is the reason a genuinely
+        // unchanged re-render costs nothing today — there is no wasted
+        // per-block republish to fix for the *no-op* case. Part 04's real,
+        // fixable cost only shows up when content genuinely differs across
+        // several layout-settle passes for the *same* result (see
+        // `repeatedIdenticalRectDuringSettleBurstHitsFragmentArrayCacheNotJustTemplateCache`
+        // and the hosted append test below).
+        let fixture = selectionStormFixture(documentSelection: .enabled, blockCount: 32)
+        let width: CGFloat = 520
+        let height: CGFloat = 1_800
+
+        let makeRoot = {
+            AnyView(SelectionInvalidationHarness(
+                tick: 0,
+                width: width,
+                preparedSnapshot: fixture.prepared,
+                configuration: fixture.configuration
+            )
+            .frame(width: width, height: height, alignment: .topLeading))
+        }
+
+        let hostingView = NSHostingView(rootView: makeRoot())
+        hostingView.frame = NSRect(origin: .zero, size: NSSize(width: width, height: height))
+        let window = offscreenSelectionPerformanceWindow(hostingView)
+        defer { tearDownSelectionPerformanceWindow(window) }
+
+        pumpSelectionPerformanceLayout(hostingView, iterations: 10)
+        let before = fixture.recorder.snapshot()
+
+        for _ in 0..<40 {
+            hostingView.rootView = makeRoot()
+            pumpSelectionPerformanceLayout(hostingView, iterations: 4)
+        }
+
+        let delta = SelectionCounterDelta(before: before, after: fixture.recorder.snapshot())
+        #expect(delta.selectionPreferenceBodyEvaluationCount == 0)
+        #expect(delta.selectionPreferenceEvaluationCount == 0)
+        #expect(delta.selectionPreferenceChangeCount == 0)
+    }
+
+    @Test
+    @MainActor
+    func appendingOneBlockDuringStreamingEvaluatesOnPreferenceChangeExactlyOnce() async throws {
+        // Guards the real streaming scenario: appending ONE new block to a
+        // document with many already-rendered, sealed blocks above it must
+        // publish the selection-fragment preference change exactly once —
+        // not once per existing block, and not once per layout-settle pass.
+        // (Individual blocks' GeometryReaders may still re-evaluate a bounded
+        // number of times while AppKit settles layout — that per-block cost
+        // is what the fragment array cache above bounds — but the aggregated
+        // `onPreferenceChange` at the document level must not multiply that
+        // out across dozens of unrelated, unchanged sealed blocks.)
+        let recorder = MarkdownDiagnosticsRecorder()
+        var configuration = MarkdownRendererConfiguration.document
+        configuration.diagnosticsRecorder = recorder
+
+        let session = MarkdownRenderSession(
+            configuration: configuration,
+            parserCacheCapacity: 256,
+            renderDiagnosticsRecorder: recorder
+        )
+        for i in 0..<30 {
+            session.append("Paragraph \(i) with enough words to wrap across a couple of prepared native lines in the column.\n\n")
+        }
+        await session.waitUntilIdle()
+
+        let width: CGFloat = 520
+        let height: CGFloat = 3_600
+        let root = AnyView(
+            StreamingMarkdownView(preparedSnapshot: session.preparedSnapshot, configuration: session.configuration)
+                .frame(width: width, alignment: .topLeading)
+        )
+        let hostingView = NSHostingView(rootView: root)
+        hostingView.frame = NSRect(origin: .zero, size: NSSize(width: width, height: height))
+        let window = offscreenSelectionPerformanceWindow(hostingView)
+        defer { tearDownSelectionPerformanceWindow(window) }
+
+        pumpSelectionPerformanceLayout(hostingView, iterations: 10)
+        let before = recorder.snapshot()
+
+        session.append("One more paragraph appended after the initial 30 are already rendered and settled.\n\n")
+        await session.waitUntilIdle()
+        hostingView.rootView = AnyView(
+            StreamingMarkdownView(preparedSnapshot: session.preparedSnapshot, configuration: session.configuration)
+                .frame(width: width, alignment: .topLeading)
+        )
+        pumpSelectionPerformanceLayout(hostingView, iterations: 6)
+
+        let delta = SelectionCounterDelta(before: before, after: recorder.snapshot())
+        #expect(delta.selectionPreferenceEvaluationCount == 1)
+        #expect(delta.selectionPreferenceChangeCount == 1)
+        // Not asserting an exact bound on `selectionPreferenceBodyEvaluationCount`
+        // here (AppKit's own multi-pass settle behavior is not this
+        // package's contract to pin exactly) — the fragment array cache
+        // test above proves that repeated per-block re-evaluation within a
+        // settle burst is O(1) per repeat, not a full geometry rebuild.
     }
 
     @Test
@@ -200,7 +311,88 @@ struct MarkdownSelectionPerformanceTests {
         #expect(delta.selectionTextGeometryInitializationCount == 0)
         #expect(delta.selectionFingerprintBuildCount == 0)
         #expect(delta.selectionSourceRunMappingCount == 0)
-        #expect(delta.selectionLineFragmentCacheHitCount == 40)
+        // A same-(content, layout, rect) repeat now hits the final fragment
+        // array cache directly and never even consults the (rect-
+        // independent) template cache — stronger than the old behavior of
+        // hitting the template cache and still re-mapping to rects every
+        // time (Streaming Performance Part 04, INV-P4).
+        #expect(delta.selectionFragmentArrayCacheHitCount == 40)
+        #expect(delta.selectionLineFragmentCacheHitCount == 0)
+        #expect(delta.selectionLineFragmentCacheMissCount == 0)
+    }
+
+    @Test
+    @MainActor
+    func repeatedIdenticalRectDuringSettleBurstHitsFragmentArrayCacheNotJustTemplateCache() throws {
+        // Guards the actual Streaming Performance Part 04 gap that
+        // reproduced empirically: a single content change can trigger
+        // several layout-settle passes that re-query the SAME (content,
+        // layout, rect) before geometry stabilizes. Before this fix, every
+        // one of those repeats re-mapped templates to an absolute-rect
+        // array from scratch even though the result was byte-identical.
+        let fixture = try preparedInlineSelectionFixture()
+        let layout = InlineRunsView.lineLayout(for: fixture.inlineLayout, containerWidth: 180)
+        let rect = CGRect(x: 0, y: 120, width: 180, height: 400)
+        let before = fixture.recorder.snapshot()
+
+        var results: [[MarkdownDocumentSelectionFragment]] = []
+        for _ in 0..<6 {
+            results.append(
+                MarkdownDocumentSelectionFragment.inlineLineFragments(
+                    blockID: fixture.block.id,
+                    prepared: fixture.inlineLayout,
+                    layout: layout,
+                    rect: rect,
+                    idPrefix: "settle-burst"
+                )
+            )
+        }
+
+        let delta = SelectionCounterDelta(before: before, after: fixture.recorder.snapshot())
+
+        #expect(!results[0].isEmpty)
+        #expect(results.allSatisfy { $0 == results[0] })
+        // First call misses (nothing cached yet); the other 5 in the burst
+        // hit the array cache and skip the template map entirely.
+        #expect(delta.selectionFragmentArrayCacheMissCount == 1)
+        #expect(delta.selectionFragmentArrayCacheHitCount == 5)
+        #expect(delta.selectionLineFragmentCacheMissCount == 1)
+        #expect(delta.selectionLineFragmentCacheHitCount == 0)
+    }
+
+    @Test
+    @MainActor
+    func fragmentArrayCacheToleratesSubPixelRectNoiseWithinRoundingTolerance() throws {
+        // Layout-settle passes can report rects that differ by sub-point
+        // rounding noise (e.g. 120.0 vs 120.001) without any real geometry
+        // change. The array cache rounds to the nearest half-point so these
+        // still hit, matching the 0.5pt tolerance `sortedForSelection()`
+        // already uses elsewhere for fragment ordering.
+        let fixture = try preparedInlineSelectionFixture()
+        let layout = InlineRunsView.lineLayout(for: fixture.inlineLayout, containerWidth: 180)
+        let warmup = MarkdownDocumentSelectionFragment.inlineLineFragments(
+            blockID: fixture.block.id,
+            prepared: fixture.inlineLayout,
+            layout: layout,
+            rect: CGRect(x: 0, y: 120, width: 180, height: 400),
+            idPrefix: "sub-pixel-noise"
+        )
+        let before = fixture.recorder.snapshot()
+
+        let noisyFragments = MarkdownDocumentSelectionFragment.inlineLineFragments(
+            blockID: fixture.block.id,
+            prepared: fixture.inlineLayout,
+            layout: layout,
+            rect: CGRect(x: 0.001, y: 119.999, width: 180.0004, height: 400),
+            idPrefix: "sub-pixel-noise"
+        )
+
+        let delta = SelectionCounterDelta(before: before, after: fixture.recorder.snapshot())
+
+        #expect(!warmup.isEmpty)
+        #expect(noisyFragments == warmup)
+        #expect(delta.selectionFragmentArrayCacheHitCount == 1)
+        #expect(delta.selectionFragmentArrayCacheMissCount == 0)
     }
 
     @Test
@@ -405,9 +597,12 @@ private struct SelectionCounterDelta {
     var selectionFingerprintBuildCount: Int
     var selectionSourceRunMappingCount: Int
     var selectionPreferenceChangeCount: Int
+    var selectionPreferenceEvaluationCount: Int
     var selectionCoreTextLineBuildCount: Int
     var selectionLineFragmentCacheHitCount: Int
     var selectionLineFragmentCacheMissCount: Int
+    var selectionFragmentArrayCacheHitCount: Int
+    var selectionFragmentArrayCacheMissCount: Int
 
     init(before: MarkdownDiagnosticsCounters, after: MarkdownDiagnosticsCounters) {
         self.selectionPreferenceBodyEvaluationCount = after.selectionPreferenceBodyEvaluationCount - before.selectionPreferenceBodyEvaluationCount
@@ -417,9 +612,12 @@ private struct SelectionCounterDelta {
         self.selectionFingerprintBuildCount = after.selectionFingerprintBuildCount - before.selectionFingerprintBuildCount
         self.selectionSourceRunMappingCount = after.selectionSourceRunMappingCount - before.selectionSourceRunMappingCount
         self.selectionPreferenceChangeCount = after.selectionPreferenceChangeCount - before.selectionPreferenceChangeCount
+        self.selectionPreferenceEvaluationCount = after.selectionPreferenceEvaluationCount - before.selectionPreferenceEvaluationCount
         self.selectionCoreTextLineBuildCount = after.selectionCoreTextLineBuildCount - before.selectionCoreTextLineBuildCount
         self.selectionLineFragmentCacheHitCount = after.selectionLineFragmentCacheHitCount - before.selectionLineFragmentCacheHitCount
         self.selectionLineFragmentCacheMissCount = after.selectionLineFragmentCacheMissCount - before.selectionLineFragmentCacheMissCount
+        self.selectionFragmentArrayCacheHitCount = after.selectionFragmentArrayCacheHitCount - before.selectionFragmentArrayCacheHitCount
+        self.selectionFragmentArrayCacheMissCount = after.selectionFragmentArrayCacheMissCount - before.selectionFragmentArrayCacheMissCount
     }
 }
 

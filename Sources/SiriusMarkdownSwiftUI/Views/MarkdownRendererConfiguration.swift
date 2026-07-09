@@ -1015,7 +1015,13 @@ public struct MarkdownRendererConfiguration: Sendable {
             measurer: measurer,
             diagnosticsRecorder: diagnosticsRecorder
         )
-        let defaultLayoutWidth = InlineRunsView.defaultLayoutWidth
+        // Seed initial layout with the last real container width observed in
+        // this session (if any) instead of a fixed constant, so the
+        // pre-built initial layout / CTLine plan actually matches the width
+        // new blocks will render at during streaming (INV-P1, INV-P2). Falls
+        // back to `InlineRunsView.defaultLayoutWidth` before any real width
+        // is known (e.g. the very first block in a session).
+        let defaultLayoutWidth = preparationCache.currentDefaultLayoutWidth
         var inline = MarkdownPreparedInlineContent(
             attributed: inlinePayload.attributed,
             prepared: prepared,
@@ -1046,6 +1052,7 @@ public struct MarkdownRendererConfiguration: Sendable {
             allowsOverwideFallback: true
         )
         inline.defaultLayoutWidth = defaultLayoutWidth
+        inline.preparationCache = preparationCache
         #if canImport(CoreText)
         if let initialLayout = inline.initialLayoutResult,
            !initialLayout.lines.isEmpty
@@ -1597,6 +1604,12 @@ public struct MarkdownPreparedInlineContent: Sendable {
     #if canImport(CoreText)
     var coreTextLinePlan: MarkdownCoreTextPaintedLinePlan?
     #endif
+    /// The session's shared preparation cache, used to report the real
+    /// on-screen container width back so later-prepared blocks in the same
+    /// session pick up a `defaultLayoutWidth` that actually matches the
+    /// rendering context (INV-P1, INV-P2). Not part of value equality —
+    /// it is wiring, not content.
+    var preparationCache: MarkdownRenderPreparationCache? = nil
 
     public init(
         attributed: AttributedString,
@@ -1689,6 +1702,14 @@ public final class MarkdownInlineLayoutCache: @unchecked Sendable {
     private let lock = NSLock()
     private var engine: InlineLayoutEngine<CoreTextInlineMeasurer>
     private var selectionLineFragmentCache: BoundedMarkdownCache<[MarkdownDocumentSelectionLineFragmentTemplate]>
+    /// Caches the final, rect-mapped fragment array — as opposed to
+    /// `selectionLineFragmentCache`, which caches rect-independent templates.
+    /// A single content change during streaming can trigger several AppKit/
+    /// SwiftUI layout-settle passes that re-query the same (content, layout,
+    /// rect) repeatedly before geometry stabilizes; this cache turns those
+    /// repeats into an O(1) lookup instead of re-mapping every template to
+    /// an absolute rect on every pass (Streaming Performance Part 04).
+    private var fragmentArrayCache: BoundedMarkdownCache<[MarkdownDocumentSelectionFragment]>
 
     public init(
         measurer: CoreTextInlineMeasurer = CoreTextInlineMeasurer(),
@@ -1701,6 +1722,7 @@ public final class MarkdownInlineLayoutCache: @unchecked Sendable {
             diagnosticsRecorder: diagnosticsRecorder
         )
         self.selectionLineFragmentCache = BoundedMarkdownCache(capacity: cacheCapacity)
+        self.fragmentArrayCache = BoundedMarkdownCache(capacity: cacheCapacity)
     }
 
     public var diagnosticsCounters: MarkdownDiagnosticsCounters {
@@ -1732,6 +1754,12 @@ public final class MarkdownInlineLayoutCache: @unchecked Sendable {
     public func recordNativeLineClipping() {
         lock.withLock {
             engine.diagnosticsRecorder.recordNativeLineClipping()
+        }
+    }
+
+    func recordCoreTextLinePlanRebuiltInBody() {
+        lock.withLock {
+            engine.diagnosticsRecorder.recordCoreTextLinePlanRebuiltInBody()
         }
     }
 
@@ -1780,6 +1808,97 @@ public final class MarkdownInlineLayoutCache: @unchecked Sendable {
         }
     }
 
+    /// Returns the final, rect-mapped selection fragment array for
+    /// `(blockID, prepared, layout, rect, idPrefix)`, reusing a cached array
+    /// when an identical query was already resolved (INV-P4). Falls back to
+    /// the (already-cached) line fragment templates on a miss.
+    func cachedInlineLineFragments(
+        blockID: MarkdownBlockID,
+        prepared: MarkdownPreparedInlineContent,
+        layout: InlineLayoutResult,
+        rect: CGRect,
+        idPrefix: String
+    ) -> [MarkdownDocumentSelectionFragment] {
+        let key = fragmentArrayCacheKey(
+            blockID: blockID,
+            prepared: prepared,
+            layout: layout,
+            rect: rect,
+            idPrefix: idPrefix
+        )
+        if let cached = lock.withLock({ fragmentArrayCache.value(forKey: key) }) {
+            engine.diagnosticsRecorder.recordSelectionFragmentArrayCacheHit()
+            return cached
+        }
+        engine.diagnosticsRecorder.recordSelectionFragmentArrayCacheMiss()
+
+        let lineHeight = CGFloat(prepared.lineHeight)
+        let spacing = InlineRunsView.nativeLineSpacing(for: prepared)
+        let templates = selectionLineFragmentTemplates(
+            blockID: blockID,
+            prepared: prepared,
+            layout: layout,
+            idPrefix: idPrefix
+        )
+        let fragments = templates.map { template in
+            template.fragment(in: rect, lineHeight: lineHeight, spacing: spacing)
+        }
+
+        if !fragments.isEmpty {
+            lock.withLock {
+                fragmentArrayCache[key] = fragments
+            }
+        }
+        return fragments
+    }
+
+    private func fragmentArrayCacheKey(
+        blockID: MarkdownBlockID,
+        prepared: MarkdownPreparedInlineContent,
+        layout: InlineLayoutResult,
+        rect: CGRect,
+        idPrefix: String
+    ) -> MarkdownCacheKey {
+        var hasher = Hasher()
+        hasher.combine(blockID)
+        hasher.combine(idPrefix)
+        hasher.combine(prepared.prepared.sourceRange)
+        hasher.combine(prepared.prepared.naturalText)
+        hasher.combine(prepared.prepared.runs)
+        hasher.combine(prepared.fontSize)
+        hasher.combine(prepared.lineHeight)
+        hasher.combine(prepared.fontProfiles)
+        hasher.combine(layout.lines)
+        hasher.combine(layout.naturalWidth)
+        hasher.combine(layout.height)
+        // Round to the nearest half-point so repeated queries during a
+        // layout-settle burst (which can differ by sub-point rounding
+        // noise across passes) still hit the cache, matching the existing
+        // 0.5pt tolerance `sortedForSelection()` already uses for fragment
+        // ordering.
+        hasher.combine(Self.roundedForFingerprint(rect.origin.x))
+        hasher.combine(Self.roundedForFingerprint(rect.origin.y))
+        hasher.combine(Self.roundedForFingerprint(rect.width))
+        hasher.combine(Self.roundedForFingerprint(rect.height))
+        let fingerprint = UInt64(bitPattern: Int64(hasher.finalize()))
+        let sourceRange = prepared.prepared.sourceRange ?? MarkdownSourceRange(
+            byteRange: 0..<prepared.prepared.naturalText.utf8.count,
+            lineRange: 0..<0
+        )
+        return MarkdownCacheKey(
+            sourceRange: sourceRange,
+            contentHash: fingerprint,
+            namespace: "selection-fragment-array"
+        )
+    }
+
+    private static func roundedForFingerprint(_ value: CGFloat) -> Double {
+        guard value.isFinite else {
+            return 0
+        }
+        return (Double(value) * 2).rounded() / 2
+    }
+
     private func selectionLineFragmentCacheKey(
         blockID: MarkdownBlockID,
         prepared: MarkdownPreparedInlineContent,
@@ -1817,12 +1936,43 @@ public final class MarkdownRenderPreparationCache: @unchecked Sendable {
     private var codeCache: BoundedMarkdownCache<AttributedString>
     private var mermaidCache: BoundedMarkdownCache<MarkdownPreparedMermaidDiagram>
     private var mathCache: BoundedMarkdownCache<MarkdownPreparedMath>
+    /// The most recent real container width reported by any prepared inline
+    /// text view in this session, used to seed `defaultLayoutWidth` for
+    /// newly prepared blocks so their pre-built initial layout / `CTLine`
+    /// plan (INV-P1, INV-P2) actually matches the real rendering width
+    /// instead of a fixed constant most layouts never hit.
+    private var lastKnownContainerWidth: Double?
 
     public init(capacity: Int = 256) {
         self.inlineCache = BoundedMarkdownCache(capacity: capacity)
         self.codeCache = BoundedMarkdownCache(capacity: capacity)
         self.mermaidCache = BoundedMarkdownCache(capacity: capacity)
         self.mathCache = BoundedMarkdownCache(capacity: capacity)
+    }
+
+    /// Records a real, on-screen container width observed by a prepared
+    /// inline text view. Subsequent `prepare(block:)` calls in this session
+    /// use this as the width for pre-computing initial layout, so
+    /// newly-streamed blocks are prepared at the width they will actually
+    /// render at rather than a disconnected default (Streaming Performance
+    /// Part 01/02, INV-P1, INV-P2).
+    public func recordActualContainerWidth(_ width: Double) {
+        guard width.isFinite, width > 0 else {
+            return
+        }
+        lock.withLock {
+            lastKnownContainerWidth = width
+        }
+    }
+
+    /// The width to use when pre-computing initial layout for a newly
+    /// prepared block: the last real width observed in this session, or
+    /// `InlineRunsView.defaultLayoutWidth` before any real width is known
+    /// (e.g. the very first block in a session).
+    public var currentDefaultLayoutWidth: Double {
+        lock.withLock {
+            lastKnownContainerWidth ?? InlineRunsView.defaultLayoutWidth
+        }
     }
 
     public func inline(forKey key: MarkdownCacheKey) -> MarkdownPreparedInlineContent? {
