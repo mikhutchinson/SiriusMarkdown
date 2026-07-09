@@ -8,7 +8,7 @@ import UIKit
 import AppKit
 #endif
 
-public struct NativeMarkdownMathRenderer: MarkdownMathRenderer, MarkdownMathRendererCacheIdentifying {
+public struct NativeMarkdownMathRenderer: MarkdownMathRenderer, MarkdownMathRendererCacheIdentifying, MarkdownMathRendererFallbackDiagnosing {
     public init() {}
 
     /// Rasterization scale matching the screen's backing scale (min 2.0 for
@@ -39,10 +39,14 @@ public struct NativeMarkdownMathRenderer: MarkdownMathRenderer, MarkdownMathRend
 
     public var mathRendererCacheIdentity: String {
         #if canImport(SwiftMath)
-        return "siriusmarkdown.native-math.swiftmath.1.7.3.scale\(Int(Self.renderScale)).compat6-layoutinfo"
+        return "siriusmarkdown.native-math.swiftmath.1.7.3.scale\(Int(Self.renderScale)).compat7-diagnostics"
         #else
         return "siriusmarkdown.native-math.unicode-fallback.v1"
         #endif
+    }
+
+    public var recordsTextFallbackAsMathFallback: Bool {
+        true
     }
 
     public func preparedMath(_ source: String, isBlock: Bool, fontSize: Double) -> MarkdownPreparedMath {

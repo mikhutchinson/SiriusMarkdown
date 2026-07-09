@@ -1,0 +1,469 @@
+{
+  "schemaVersion": 1,
+  "description": "Shared math/LaTeX renderer corpus for SiriusMarkdown native SwiftMath rendering and web-renderer parity checks.",
+  "requiredGroups": [
+    "basic",
+    "fractions",
+    "operators",
+    "generated-ai",
+    "matrices",
+    "environments",
+    "relations",
+    "arrows",
+    "accents",
+    "typography",
+    "sirius-compatibility",
+    "diagnostics"
+  ],
+  "minimumNativeImageCases": 45,
+  "cases": [
+    {
+      "id": "basic-quadratic-inline",
+      "group": "basic",
+      "latex": "x^2 + y^2 = z^2",
+      "display": false,
+      "nativeExpected": "image",
+      "webExpected": "success",
+      "visual": { "minWidth": 24, "maxWidth": 180, "minHeight": 8, "maxHeight": 54, "maxDescent": 36 }
+    },
+    {
+      "id": "basic-subscripts-inline",
+      "group": "basic",
+      "latex": "a_1 + a_2 + \\cdots + a_n",
+      "display": false,
+      "nativeExpected": "image",
+      "webExpected": "success",
+      "visual": { "minWidth": 40, "maxWidth": 260, "minHeight": 8, "maxHeight": 60, "maxDescent": 40 }
+    },
+    {
+      "id": "greek-symbols-inline",
+      "group": "basic",
+      "latex": "\\alpha + \\beta + \\gamma + \\Delta",
+      "display": false,
+      "nativeExpected": "image",
+      "webExpected": "success",
+      "visual": { "minWidth": 32, "maxWidth": 260, "minHeight": 8, "maxHeight": 58, "maxDescent": 38 }
+    },
+    {
+      "id": "simple-fraction-inline",
+      "group": "fractions",
+      "latex": "\\frac{a}{b}",
+      "display": false,
+      "nativeExpected": "image",
+      "webExpected": "success",
+      "visual": { "minWidth": 5, "maxWidth": 90, "minHeight": 12, "maxHeight": 90, "maxDescent": 60 }
+    },
+    {
+      "id": "nested-fraction-display",
+      "group": "fractions",
+      "latex": "\\frac{1}{1 + \\frac{1}{n}}",
+      "display": true,
+      "nativeExpected": "image",
+      "webExpected": "success",
+      "visual": { "minWidth": 20, "maxWidth": 220, "minHeight": 24, "maxHeight": 160, "maxDescent": 100 }
+    },
+    {
+      "id": "sqrt-degree-display",
+      "group": "fractions",
+      "latex": "\\sqrt[3]{x^2 + y^2}",
+      "display": true,
+      "nativeExpected": "image",
+      "webExpected": "success",
+      "visual": { "minWidth": 32, "maxWidth": 260, "minHeight": 16, "maxHeight": 100, "maxDescent": 70 }
+    },
+    {
+      "id": "binomial-display",
+      "group": "fractions",
+      "latex": "\\binom{n}{k} p^k (1-p)^{n-k}",
+      "display": true,
+      "nativeExpected": "image",
+      "webExpected": "success",
+      "visual": { "minWidth": 54, "maxWidth": 440, "minHeight": 20, "maxHeight": 140, "maxDescent": 90 }
+    },
+    {
+      "id": "sum-product-display",
+      "group": "operators",
+      "latex": "\\sum_{i=1}^{n} i^2 = \\frac{n(n+1)(2n+1)}{6}",
+      "display": true,
+      "nativeExpected": "image",
+      "webExpected": "success",
+      "visual": { "minWidth": 80, "maxWidth": 620, "minHeight": 24, "maxHeight": 170, "maxDescent": 110 }
+    },
+    {
+      "id": "integral-display",
+      "group": "operators",
+      "latex": "\\int_{0}^{\\infty} e^{-x^2}\\,dx = \\frac{\\sqrt{\\pi}}{2}",
+      "display": true,
+      "nativeExpected": "image",
+      "webExpected": "success",
+      "visual": { "minWidth": 70, "maxWidth": 560, "minHeight": 24, "maxHeight": 170, "maxDescent": 110 }
+    },
+    {
+      "id": "limit-display",
+      "group": "operators",
+      "latex": "\\lim_{x \\to 0} \\frac{\\sin x}{x} = 1",
+      "display": true,
+      "nativeExpected": "image",
+      "webExpected": "success",
+      "visual": { "minWidth": 60, "maxWidth": 420, "minHeight": 22, "maxHeight": 150, "maxDescent": 100 }
+    },
+    {
+      "id": "trig-identity-inline",
+      "group": "operators",
+      "latex": "\\sin^2 x + \\cos^2 x = 1",
+      "display": false,
+      "nativeExpected": "image",
+      "webExpected": "success",
+      "visual": { "minWidth": 42, "maxWidth": 280, "minHeight": 8, "maxHeight": 58, "maxDescent": 38 }
+    },
+    {
+      "id": "softmax-generated-display",
+      "group": "generated-ai",
+      "latex": "p(y \\mid x) = \\operatorname{softmax}(Wx + b)_y",
+      "display": true,
+      "nativeExpected": "image",
+      "webExpected": "success",
+      "visual": { "minWidth": 90, "maxWidth": 620, "minHeight": 14, "maxHeight": 100, "maxDescent": 70 }
+    },
+    {
+      "id": "expectation-generated-display",
+      "group": "generated-ai",
+      "latex": "\\mathbb{E}[X] = \\sum_i p_i x_i",
+      "display": true,
+      "nativeExpected": "image",
+      "webExpected": "success",
+      "visual": { "minWidth": 52, "maxWidth": 360, "minHeight": 14, "maxHeight": 130, "maxDescent": 90 }
+    },
+    {
+      "id": "argmax-generated-display",
+      "group": "generated-ai",
+      "latex": "\\hat{\\theta} = \\arg\\max_\\theta \\log p(D \\mid \\theta)",
+      "display": true,
+      "nativeExpected": "image",
+      "webExpected": "success",
+      "visual": { "minWidth": 80, "maxWidth": 560, "minHeight": 16, "maxHeight": 140, "maxDescent": 90 }
+    },
+    {
+      "id": "gradient-generated-display",
+      "group": "generated-ai",
+      "latex": "\\nabla_\\theta J(\\theta) = \\mathbb{E}[r \\nabla_\\theta \\log \\pi_\\theta(a \\mid s)]",
+      "display": true,
+      "nativeExpected": "image",
+      "webExpected": "success",
+      "visual": { "minWidth": 120, "maxWidth": 760, "minHeight": 16, "maxHeight": 150, "maxDescent": 95 }
+    },
+    {
+      "id": "bayes-generated-display",
+      "group": "generated-ai",
+      "latex": "\\Pr(A \\mid B) = \\frac{\\Pr(B \\mid A)\\Pr(A)}{\\Pr(B)}",
+      "display": true,
+      "nativeExpected": "image",
+      "webExpected": "success",
+      "visual": { "minWidth": 84, "maxWidth": 620, "minHeight": 24, "maxHeight": 160, "maxDescent": 105 }
+    },
+    {
+      "id": "norm-generated-inline",
+      "group": "generated-ai",
+      "latex": "\\left\\|x\\right\\|_2 = \\sqrt{x^\\top x}",
+      "display": false,
+      "nativeExpected": "image",
+      "webExpected": "success",
+      "visual": { "minWidth": 54, "maxWidth": 380, "minHeight": 12, "maxHeight": 82, "maxDescent": 55 }
+    },
+    {
+      "id": "plain-matrix-display",
+      "group": "matrices",
+      "latex": "\\begin{matrix} a & b \\\\ c & d \\end{matrix}",
+      "display": true,
+      "nativeExpected": "image",
+      "webExpected": "success",
+      "visual": { "minWidth": 22, "maxWidth": 220, "minHeight": 24, "maxHeight": 160, "maxDescent": 100 }
+    },
+    {
+      "id": "pmatrix-display",
+      "group": "matrices",
+      "latex": "\\begin{pmatrix} 1 & 0 \\\\ 0 & 1 \\end{pmatrix}",
+      "display": true,
+      "nativeExpected": "image",
+      "webExpected": "success",
+      "visual": { "minWidth": 28, "maxWidth": 260, "minHeight": 28, "maxHeight": 170, "maxDescent": 110 }
+    },
+    {
+      "id": "bmatrix-display",
+      "group": "matrices",
+      "latex": "\\begin{bmatrix} x_1 \\\\ x_2 \\\\ x_3 \\end{bmatrix}",
+      "display": true,
+      "nativeExpected": "image",
+      "webExpected": "success",
+      "visual": { "minWidth": 18, "maxWidth": 220, "minHeight": 36, "maxHeight": 220, "maxDescent": 140 }
+    },
+    {
+      "id": "array-display",
+      "group": "matrices",
+      "latex": "\\begin{array}{cc} a & b \\\\ c & d \\end{array}",
+      "display": true,
+      "nativeExpected": "image",
+      "webExpected": "success",
+      "visual": { "minWidth": 22, "maxWidth": 220, "minHeight": 24, "maxHeight": 160, "maxDescent": 100 }
+    },
+    {
+      "id": "array-optional-position-display",
+      "group": "matrices",
+      "latex": "\\begin{array}[t]{cc} a & b \\\\ c & d \\end{array}",
+      "display": true,
+      "nativeExpected": "image",
+      "webExpected": "skip",
+      "visual": { "minWidth": 22, "maxWidth": 220, "minHeight": 24, "maxHeight": 160, "maxDescent": 100 }
+    },
+    {
+      "id": "smallmatrix-compat-display",
+      "group": "sirius-compatibility",
+      "latex": "\\begin{smallmatrix} 1 & 0 \\\\ 0 & 1 \\end{smallmatrix}",
+      "display": true,
+      "nativeExpected": "image",
+      "webExpected": "skip",
+      "visual": { "minWidth": 18, "maxWidth": 220, "minHeight": 20, "maxHeight": 150, "maxDescent": 95 }
+    },
+    {
+      "id": "cases-system-display",
+      "group": "environments",
+      "latex": "\\begin{cases} x + y = 5 \\\\ 2x - y = 1 \\end{cases}",
+      "display": true,
+      "nativeExpected": "image",
+      "webExpected": "success",
+      "visual": { "minWidth": 70, "maxWidth": 420, "minHeight": 28, "maxHeight": 180, "maxDescent": 115 }
+    },
+    {
+      "id": "piecewise-display",
+      "group": "environments",
+      "latex": "f(x) = \\begin{cases} x^2 & x \\ge 0 \\\\ -x & x < 0 \\end{cases}",
+      "display": true,
+      "nativeExpected": "image",
+      "webExpected": "success",
+      "visual": { "minWidth": 90, "maxWidth": 520, "minHeight": 28, "maxHeight": 185, "maxDescent": 120 }
+    },
+    {
+      "id": "aligned-display",
+      "group": "environments",
+      "latex": "\\begin{aligned} x &= y + 1 \\\\ y &= z - 1 \\end{aligned}",
+      "display": true,
+      "nativeExpected": "image",
+      "webExpected": "success",
+      "visual": { "minWidth": 55, "maxWidth": 360, "minHeight": 28, "maxHeight": 180, "maxDescent": 115 }
+    },
+    {
+      "id": "align-star-compat-display",
+      "group": "sirius-compatibility",
+      "latex": "\\begin{align*} x &= y + 1 \\\\ y &= z - 1 \\end{align*}",
+      "display": true,
+      "nativeExpected": "image",
+      "webExpected": "skip",
+      "visual": { "minWidth": 55, "maxWidth": 360, "minHeight": 28, "maxHeight": 180, "maxDescent": 115 }
+    },
+    {
+      "id": "equation-env-compat-display",
+      "group": "sirius-compatibility",
+      "latex": "\\begin{equation} x^2 + y^2 = z^2 \\end{equation}",
+      "display": true,
+      "nativeExpected": "image",
+      "webExpected": "skip",
+      "visual": { "minWidth": 28, "maxWidth": 220, "minHeight": 12, "maxHeight": 90, "maxDescent": 60 }
+    },
+    {
+      "id": "gather-display",
+      "group": "environments",
+      "latex": "\\begin{gather} a=b \\\\ c=d \\end{gather}",
+      "display": true,
+      "nativeExpected": "image",
+      "webExpected": "success",
+      "visual": { "minWidth": 25, "maxWidth": 260, "minHeight": 28, "maxHeight": 180, "maxDescent": 115 }
+    },
+    {
+      "id": "relations-subsets-display",
+      "group": "relations",
+      "latex": "A \\subseteq B \\Rightarrow A \\cap C \\subseteq B \\cap C",
+      "display": true,
+      "nativeExpected": "image",
+      "webExpected": "success",
+      "visual": { "minWidth": 90, "maxWidth": 620, "minHeight": 12, "maxHeight": 90, "maxDescent": 60 }
+    },
+    {
+      "id": "relations-determinant-display",
+      "group": "relations",
+      "latex": "\\det(A) \\neq 0 \\iff A^{-1}\\text{ exists}",
+      "display": true,
+      "nativeExpected": "image",
+      "webExpected": "success",
+      "visual": { "minWidth": 75, "maxWidth": 520, "minHeight": 12, "maxHeight": 95, "maxDescent": 65 }
+    },
+    {
+      "id": "relations-ordering-inline",
+      "group": "relations",
+      "latex": "x \\succ y \\perp z",
+      "display": false,
+      "nativeExpected": "image",
+      "webExpected": "success",
+      "visual": { "minWidth": 28, "maxWidth": 200, "minHeight": 8, "maxHeight": 58, "maxDescent": 38 }
+    },
+    {
+      "id": "relations-limsup-display",
+      "group": "relations",
+      "latex": "\\inf_n a_n \\le \\liminf_n a_n \\le \\limsup_n a_n \\le \\sup_n a_n",
+      "display": true,
+      "nativeExpected": "image",
+      "webExpected": "success",
+      "visual": { "minWidth": 120, "maxWidth": 760, "minHeight": 18, "maxHeight": 150, "maxDescent": 95 }
+    },
+    {
+      "id": "arrows-long-display",
+      "group": "arrows",
+      "latex": "A \\longrightarrow B \\Longleftrightarrow C \\longleftarrow D",
+      "display": true,
+      "nativeExpected": "image",
+      "webExpected": "success",
+      "visual": { "minWidth": 95, "maxWidth": 640, "minHeight": 12, "maxHeight": 90, "maxDescent": 60 }
+    },
+    {
+      "id": "arrows-vertical-inline",
+      "group": "arrows",
+      "latex": "u \\downarrow v \\iff v \\uparrow u",
+      "display": false,
+      "nativeExpected": "image",
+      "webExpected": "success",
+      "visual": { "minWidth": 45, "maxWidth": 320, "minHeight": 8, "maxHeight": 58, "maxDescent": 38 }
+    },
+    {
+      "id": "arrows-compat-implies-display",
+      "group": "sirius-compatibility",
+      "latex": "x \\ne y \\implies f(x) \\notin S",
+      "display": true,
+      "nativeExpected": "image",
+      "webExpected": "success",
+      "visual": { "minWidth": 60, "maxWidth": 430, "minHeight": 12, "maxHeight": 95, "maxDescent": 65 }
+    },
+    {
+      "id": "accents-inline",
+      "group": "accents",
+      "latex": "\\hat{\\theta} + \\bar{x} + \\vec{v}",
+      "display": false,
+      "nativeExpected": "image",
+      "webExpected": "success",
+      "visual": { "minWidth": 38, "maxWidth": 280, "minHeight": 10, "maxHeight": 75, "maxDescent": 45 }
+    },
+    {
+      "id": "overline-underline-display",
+      "group": "accents",
+      "latex": "\\overline{AB} + \\underline{CD}",
+      "display": true,
+      "nativeExpected": "image",
+      "webExpected": "success",
+      "visual": { "minWidth": 50, "maxWidth": 340, "minHeight": 16, "maxHeight": 105, "maxDescent": 75 }
+    },
+    {
+      "id": "typography-blackboard-display",
+      "group": "typography",
+      "latex": "x_i \\in \\mathbb{R}^d",
+      "display": true,
+      "nativeExpected": "image",
+      "webExpected": "success",
+      "visual": { "minWidth": 34, "maxWidth": 260, "minHeight": 12, "maxHeight": 95, "maxDescent": 65 }
+    },
+    {
+      "id": "typography-cal-frak-display",
+      "group": "typography",
+      "latex": "\\mathfrak{g} \\oplus \\mathcal{h}",
+      "display": true,
+      "nativeExpected": "image",
+      "webExpected": "success",
+      "visual": { "minWidth": 30, "maxWidth": 240, "minHeight": 12, "maxHeight": 90, "maxDescent": 60 }
+    },
+    {
+      "id": "typography-text-display",
+      "group": "typography",
+      "latex": "\\mathrm{score}(x) = \\log p(x)",
+      "display": true,
+      "nativeExpected": "image",
+      "webExpected": "success",
+      "visual": { "minWidth": 54, "maxWidth": 380, "minHeight": 12, "maxHeight": 95, "maxDescent": 65 }
+    },
+    {
+      "id": "dfrac-compat-display",
+      "group": "sirius-compatibility",
+      "latex": "\\dfrac{a+b}{c+d}",
+      "display": true,
+      "nativeExpected": "image",
+      "webExpected": "success",
+      "visual": { "minWidth": 20, "maxWidth": 170, "minHeight": 22, "maxHeight": 140, "maxDescent": 90 }
+    },
+    {
+      "id": "tfrac-compat-inline",
+      "group": "sirius-compatibility",
+      "latex": "\\tfrac{1}{2}mv^2",
+      "display": false,
+      "nativeExpected": "image",
+      "webExpected": "success",
+      "visual": { "minWidth": 24, "maxWidth": 220, "minHeight": 14, "maxHeight": 95, "maxDescent": 65 }
+    },
+    {
+      "id": "dbinom-compat-display",
+      "group": "sirius-compatibility",
+      "latex": "\\dbinom{n}{k}p^k(1-p)^{n-k}",
+      "display": true,
+      "nativeExpected": "image",
+      "webExpected": "success",
+      "visual": { "minWidth": 55, "maxWidth": 440, "minHeight": 20, "maxHeight": 145, "maxDescent": 95 }
+    },
+    {
+      "id": "dots-compat-display",
+      "group": "sirius-compatibility",
+      "latex": "a_1 + \\dots + a_n = \\sum_i a_i",
+      "display": true,
+      "nativeExpected": "image",
+      "webExpected": "success",
+      "visual": { "minWidth": 70, "maxWidth": 500, "minHeight": 16, "maxHeight": 130, "maxDescent": 85 }
+    },
+    {
+      "id": "re-im-compat-display",
+      "group": "sirius-compatibility",
+      "latex": "\\Re z \\ne 0 \\implies \\Im z = 0",
+      "display": true,
+      "nativeExpected": "image",
+      "webExpected": "success",
+      "visual": { "minWidth": 55, "maxWidth": 400, "minHeight": 12, "maxHeight": 95, "maxDescent": 65 }
+    },
+    {
+      "id": "lowercase-pr-extension-display",
+      "group": "sirius-compatibility",
+      "latex": "\\pr(A) = 1",
+      "display": true,
+      "nativeExpected": "image",
+      "webExpected": "skip",
+      "visual": { "minWidth": 24, "maxWidth": 220, "minHeight": 12, "maxHeight": 90, "maxDescent": 60 }
+    },
+    {
+      "id": "chat-score-unicode-display",
+      "group": "generated-ai",
+      "latex": "S_c = w₁ · \\text{Match}\\text{NPI} + w₂ · \\text{Match}\\text{Google} - \\text{Penalty}\\text{Conflicts}",
+      "display": true,
+      "nativeExpected": "image",
+      "webExpected": "skip",
+      "visual": { "minWidth": 180, "maxWidth": 1100, "minHeight": 14, "maxHeight": 115, "maxDescent": 80 }
+    },
+    {
+      "id": "unknown-command-diagnostic-inline",
+      "group": "diagnostics",
+      "latex": "\\unknowncommandxyz",
+      "display": false,
+      "nativeExpected": "text",
+      "webExpected": "skip"
+    },
+    {
+      "id": "unbalanced-fraction-diagnostic-display",
+      "group": "diagnostics",
+      "latex": "\\frac{a}{",
+      "display": true,
+      "nativeExpected": "text",
+      "webExpected": "skip"
+    }
+  ]
+}

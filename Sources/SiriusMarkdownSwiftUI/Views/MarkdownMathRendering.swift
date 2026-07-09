@@ -53,6 +53,10 @@ public struct MarkdownPreparedMathImage: Sendable, Hashable {
         self.descent = descent
         self.latex = latex
     }
+
+    public var accessibilityLabel: String {
+        latex
+    }
 }
 
 /// The prepared representation of a math run or block.
@@ -229,7 +233,7 @@ struct MarkdownMathImageView: View {
                 .interpolation(.medium)
                 .frame(width: CGFloat(image.pointWidth), height: CGFloat(image.pointHeight))
                 .foregroundStyle(color)
-                .accessibilityLabel(Text(image.latex))
+                .accessibilityLabel(Text(image.accessibilityLabel))
         } else {
             Text(image.latex)
                 .foregroundStyle(color)

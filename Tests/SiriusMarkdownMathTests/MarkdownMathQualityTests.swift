@@ -366,5 +366,5 @@ func mathRendererCacheIdentityReflectsScale() {
     let identity = renderer.mathRendererCacheIdentity
     #expect(identity.contains("scale"))
     #expect(identity.contains(String(Int(NativeMarkdownMathRenderer.renderScale))))
-    #expect(identity.contains("layoutinfo"))
+    #expect(identity.contains("diagnostics"))
 }

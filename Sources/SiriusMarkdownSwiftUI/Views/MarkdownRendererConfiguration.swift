@@ -22,6 +22,12 @@ public protocol MarkdownMathRendererCacheIdentifying: Sendable {
     var mathRendererCacheIdentity: String { get }
 }
 
+/// Opt-in marker for math renderers whose `.text` prepared output means an
+/// attempted native math render fell back to source text.
+public protocol MarkdownMathRendererFallbackDiagnosing: Sendable {
+    var recordsTextFallbackAsMathFallback: Bool { get }
+}
+
 public enum MarkdownPreparedImageSource: Sendable, Hashable {
     case placeholder(reason: String)
     case localFile(path: String)
@@ -401,18 +407,12 @@ public struct MarkdownRendererConfiguration: Sendable {
                     }
 
                     diagnosticsRecorder.recordCacheMiss()
-                    diagnosticsRecorder.recordMathRender()
-                    let rendered = MarkdownDiagnostics().signpost("MathRender", category: "RenderPreparation") {
-                        mathRenderer.preparedMath(math, isBlock: true, fontSize: fontSize)
-                    }
+                    let rendered = renderPreparedMath(math, isBlock: true, fontSize: fontSize)
                     preparationCache.insertMath(rendered, forKey: key)
                     return mathBlockContent(for: block, math: rendered)
                 }
 
-                diagnosticsRecorder.recordMathRender()
-                let rendered = MarkdownDiagnostics().signpost("MathRender", category: "RenderPreparation") {
-                    mathRenderer.preparedMath(math, isBlock: true, fontSize: fontSize)
-                }
+                let rendered = renderPreparedMath(math, isBlock: true, fontSize: fontSize)
                 return mathBlockContent(for: block, math: rendered)
             case let .deny(reason):
                 return MarkdownPreparedBlockContent(blockID: block.id, policyDenialReason: reason)
@@ -968,6 +968,10 @@ public struct MarkdownRendererConfiguration: Sendable {
         (mathRenderer as? any MarkdownMathRendererCacheIdentifying)?.mathRendererCacheIdentity
     }
 
+    private var recordsTextMathFallbacks: Bool {
+        (mathRenderer as? any MarkdownMathRendererFallbackDiagnosing)?.recordsTextFallbackAsMathFallback == true
+    }
+
     private func shouldRecordCodeHighlight(language: MarkdownCodeLanguage) -> Bool {
         if codeHighlighter is PlainMarkdownCodeHighlighter {
             return false
@@ -1414,18 +1418,24 @@ public struct MarkdownRendererConfiguration: Sendable {
             }
 
             diagnosticsRecorder.recordCacheMiss()
-            diagnosticsRecorder.recordMathRender()
-            let rendered = MarkdownDiagnostics().signpost("MathRender", category: "RenderPreparation") {
-                mathRenderer.preparedMath(run.text, isBlock: false, fontSize: fontSize)
-            }
+            let rendered = renderPreparedMath(run.text, isBlock: false, fontSize: fontSize)
             preparationCache.insertMath(rendered, forKey: key)
             return rendered
         }
 
+        return renderPreparedMath(run.text, isBlock: false, fontSize: fontSize)
+    }
+
+    private func renderPreparedMath(_ source: String, isBlock: Bool, fontSize: Double) -> MarkdownPreparedMath {
         diagnosticsRecorder.recordMathRender()
-        return MarkdownDiagnostics().signpost("MathRender", category: "RenderPreparation") {
-            mathRenderer.preparedMath(run.text, isBlock: false, fontSize: fontSize)
+        let rendered = MarkdownDiagnostics().signpost("MathRender", category: "RenderPreparation") {
+            mathRenderer.preparedMath(source, isBlock: isBlock, fontSize: fontSize)
         }
+        if recordsTextMathFallbacks, case .text = rendered {
+            diagnosticsRecorder.recordMathFallback()
+            MarkdownDiagnostics().signpostEvent("MathFallback", category: "RenderPreparation")
+        }
+        return rendered
     }
 
     private func mathAttributedString(

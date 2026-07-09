@@ -11,12 +11,26 @@ if [[ "${SIRIUS_MARKDOWN_RUN_VISUAL_PROBES:-0}" == "1" ]]; then
 else
   echo "Skipping RenderProbe visual checks. Set SIRIUS_MARKDOWN_RUN_VISUAL_PROBES=1 to run them."
 fi
+if ! command -v node >/dev/null; then
+  echo "error: release checks require Node.js for math-corpus and Pretext golden tests" >&2
+  exit 1
+fi
+NODE_VERSION="$(node --version)"
+NODE_MAJOR="$(node -p 'Number(process.versions.node.split(".")[0])')"
+if (( NODE_MAJOR < 20 || NODE_MAJOR == 21 )); then
+  echo "error: math-corpus checks require Node.js 20 or >=22; found $NODE_VERSION" >&2
+  exit 1
+fi
+if ! command -v npm >/dev/null; then
+  echo "error: release checks require npm for math-corpus and Pretext golden tests" >&2
+  exit 1
+fi
 swift test --no-parallel
 TEST_LIST_FILE="$(mktemp)"
 trap 'rm -f "$TEST_LIST_FILE"; rm -rf "${CONSUMER_DIR:-}"' EXIT
 swift test list > "$TEST_LIST_FILE"
 TEST_COUNT="$(grep -Ec '^[A-Za-z0-9_]+Tests\.' "$TEST_LIST_FILE")"
-MINIMUM_TEST_COUNT=760
+MINIMUM_TEST_COUNT=770
 if (( TEST_COUNT < MINIMUM_TEST_COUNT )); then
   echo "error: swift test list discovered $TEST_COUNT tests; expected at least $MINIMUM_TEST_COUNT" >&2
   exit 1
@@ -196,6 +210,13 @@ for required_test in \
   "SiriusMarkdownCoreTests.bareTexRecoveryKeepsGeneratedFormulaFamiliesTogether()" \
   "SiriusMarkdownMathTests.nativeMathRendererTypesetsChatScoreFormula()" \
   "SiriusMarkdownMathTests.nativeMathRendererTypesetsGeneratedFormulaFamilies()" \
+  "SiriusMarkdownMathTests.mathCorpusCoversRequiredBestInClassGroups()" \
+  "SiriusMarkdownMathTests.nativeMathRendererTypesetsSharedCorpus()" \
+  "SiriusMarkdownMathTests.sharedMathCorpusMatchesVisualMetricGoldens()" \
+  "SiriusMarkdownMathTests.nativeMathRendererFallsBackForOnlyDiagnosticCorpusCases()" \
+  "SiriusMarkdownMathTests.nativeMathFallbackDiagnosticsCountTextFallbacksOnlyOncePerCachedFormula()" \
+  "SiriusMarkdownMathTests.imageBackedInlineMathCorpusCopyUsesOriginalMarkdownSource()" \
+  "SiriusMarkdownMathTests.sharedMathCorpusRenderPreparationStaysWithinCacheBudget()" \
   "SiriusMarkdownMathTests.paragraphEmbeddedDisplayMathPreparesTypesetImage()" \
   "SiriusMarkdownMathTests.degradedBareDisplayBracketMathPreparesTypesetImage()" \
   "SiriusMarkdownSwiftUITests.documentSelectionDefaultsToEnabledWhileNativeSelectionStaysLeafCompatibilityKnob()" \
@@ -333,6 +354,8 @@ EOF
 swift package --package-path "$CONSUMER_DIR" resolve
 swift build --package-path "$CONSUMER_DIR"
 bash Examples/scripts/bundle-macos-demos.sh
+npm --prefix Tools/math-corpus ci
+npm --prefix Tools/math-corpus test
 npm --prefix Tools/pretext-golden ci
 npm --prefix Tools/pretext-golden test
 swift package dump-symbol-graph
