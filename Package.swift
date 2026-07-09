@@ -76,6 +76,7 @@ let package = Package(
         .target(
             name: "SwiftMath",
             dependencies: [],
+            exclude: ["LICENSE"],
             resources: [
                 .copy("mathFonts.bundle")
             ],

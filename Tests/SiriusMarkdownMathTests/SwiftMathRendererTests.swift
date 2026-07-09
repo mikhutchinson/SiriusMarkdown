@@ -118,7 +118,20 @@ func nativeMathRendererTypesetsGeneratedFormulaFamilies() throws {
         "\\Delta E \\approx \\hbar\\omega",
         "A \\subseteq B \\Rightarrow A \\cap C \\subseteq B \\cap C",
         "\\det(A) \\neq 0 \\iff A^{-1}\\text{ exists}",
-        "\\mu \\pm 1.96\\sigma"
+        "\\mu \\pm 1.96\\sigma",
+        "\\dfrac{a+b}{c+d}",
+        "\\tfrac{1}{2}mv^2",
+        "\\dbinom{n}{k}p^k(1-p)^{n-k}",
+        "x \\ne y \\implies f(x) \\notin S",
+        "a_1 + \\dots + a_n = \\sum_i a_i",
+        "\\Re z \\ne 0 \\implies \\Im z = 0",
+        "\\pr(A) = 1",
+        "\\inf_n a_n \\le \\liminf_n a_n \\le \\limsup_n a_n \\le \\sup_n a_n",
+        "u \\downarrow v \\iff v \\uparrow u",
+        "x \\succ y \\perp z",
+        "\\begin{array}{cc} a & b \\\\ c & d \\end{array}",
+        "\\begin{array}[t]{cc} a & b \\\\ c & d \\end{array}",
+        "\\begin{smallmatrix} 1 & 0 \\\\ 0 & 1 \\end{smallmatrix}"
     ]
 
     for formula in formulas {
@@ -127,6 +140,29 @@ func nativeMathRendererTypesetsGeneratedFormulaFamilies() throws {
             Issue.record("Expected a typeset image for generated formula: \(formula)")
             continue
         }
+    }
+}
+
+@Test
+func nativeMathRendererPreservesOriginalLatexAfterCompatibilityNormalization() throws {
+    let renderer = NativeMarkdownMathRenderer()
+    let formulas = [
+        "\\dfrac{a}{b}",
+        "\\tbinom{n}{k}",
+        "x \\ne y \\implies z",
+        "a_1 + \\dots + a_n",
+        "\\pr(A) = 1",
+        "\\begin{array}{cc} a & b \\\\ c & d \\end{array}",
+        "\\begin{array}[t]{cc} a & b \\\\ c & d \\end{array}"
+    ]
+
+    for formula in formulas {
+        let prepared = renderer.preparedMath(formula, isBlock: true, fontSize: 18)
+        guard case let .image(image) = prepared else {
+            Issue.record("Expected normalized formula to typeset: \(formula)")
+            continue
+        }
+        #expect(image.latex == formula)
     }
 }
 

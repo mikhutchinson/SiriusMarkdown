@@ -89,6 +89,23 @@ func streamingPartialBeginEnvironmentThenCloseSeals() {
 }
 
 @Test
+func streamingPartialArrayEnvironmentDoesNotSealEarly() {
+    var stream = MarkdownStream()
+    stream.append("\\begin{array}{cc}\na & b \\\\\nc & d\n")
+
+    #expect(stream.snapshot().blocks.allSatisfy { $0.kind != .mathBlock })
+}
+
+@Test
+func streamingClosedArrayEnvironmentSealsCorrectly() {
+    var stream = MarkdownStream()
+    stream.append("\\begin{array}{cc}\na & b \\\\\nc & d\n\\end{array}\n")
+    stream.finish()
+
+    #expect(stream.snapshot().blocks.contains { $0.kind == .mathBlock })
+}
+
+@Test
 func streamingSelfClosingBeginEnvironmentOnOneLineDoesNotBlockSealing() {
     var stream = MarkdownStream()
     stream.append("\\begin{equation} x = y \\end{equation}\n\n")

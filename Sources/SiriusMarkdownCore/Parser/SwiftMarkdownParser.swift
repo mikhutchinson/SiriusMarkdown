@@ -996,29 +996,39 @@ private struct InlineRunConverter {
 
     private static let currencyCodeSuffixes = Set(Locale.Currency.isoCurrencies.map(\.identifier))
     private static let bareTexCommands: Set<String> = [
-        "aleph", "alpha", "angle", "approx", "arg", "ast", "bar", "because", "begin", "beta",
-        "bf", "bm", "bot", "bullet", "cal", "cap", "cdot",
-        "cdotp", "cdots", "chi", "circ", "cong", "cos", "cup", "ddots", "delta", "det", "dim", "div",
-        "emptyset", "end", "epsilon", "equiv", "eta", "exists", "exp",
-        "forall", "frac", "frak", "gamma", "ge", "geq", "gt", "hat", "hbar", "iff", "imath", "in",
-        "infty", "int", "iota", "jmath", "kappa", "land",
-        "lambda", "langle", "lceil", "ldots", "le", "left", "leftarrow", "leftrightarrow", "leq", "lfloor", "lim", "ln",
-        "log", "lor", "lt", "lvert", "mapsto", "mathbb", "mathbf", "mathcal", "mathrm",
-        "mathbfit", "mathfrak", "mathit", "mathnormal", "mathsf", "mathtt", "max", "mid", "min", "mit", "mod", "mu", "nabla", "neq", "ni", "notin",
-        "nu", "neg", "omega", "oplus", "operatorname", "oslash", "otimes", "overline", "parallel", "partial", "phi", "pi", "pm",
-        "pr", "prod", "propto", "psi", "qquad", "quad", "rank", "rightarrow",
-        "rangle", "rceil", "rfloor", "rho", "right", "rvert", "setminus", "sigma", "sim",
-        "simeq", "sin", "sqrt", "star", "subset",
-        "subseteq", "sum", "supset", "supseteq", "tan", "tau", "text",
+        "aleph", "alpha", "amalg", "angle", "approx", "arccos", "arcsin", "arctan", "arg", "asymp", "ast", "bar",
+        "because", "begin", "beta", "bf", "bigcap", "bigcup", "bigodot", "bigoplus", "bigotimes", "bigsqcup",
+        "biguplus", "bigvee", "bigwedge", "binom", "bm", "bot", "bullet", "cal", "cap", "cdot",
+        "cdotp", "cdots", "chi", "circ", "cong", "coprod", "cos", "cosh", "cot", "coth", "csc", "cup",
+        "dagger", "dbinom", "ddagger", "ddots", "deg", "degree", "delta", "det", "dfrac", "dim", "displaystyle",
+        "div", "doteq", "dots", "downarrow",
+        "ell", "emptyset", "end", "epsilon", "equiv", "eta", "exists", "exp",
+        "forall", "frac", "frak", "gamma", "gcd", "ge", "geq", "gg", "gt", "hat", "hbar", "hom", "iff", "im", "imath",
+        "impliedby", "implies", "in", "inf",
+        "infty", "int", "iota", "jmath", "kappa", "ker", "land",
+        "lambda", "langle", "lceil", "ldots", "le", "left", "leftarrow", "leftrightarrow", "leq", "lfloor",
+        "lg", "lim", "liminf", "limsup", "ll", "ln", "log", "longleftarrow", "longleftrightarrow", "longrightarrow",
+        "lor", "lgroup", "lt", "lvert", "mapsto", "mathbb", "mathbf", "mathcal", "mathrm",
+        "mathbfit", "mathfrak", "mathit", "mathnormal", "mathsf", "mathtt", "max", "mho", "mid", "min", "mit", "mod", "models", "mp", "mu", "nabla",
+        "ne", "nearrow", "neq", "ni", "notin", "nu", "neg", "nwarrow", "odot", "oint", "omega", "ominus", "oplus",
+        "operatorname", "oslash", "otimes", "overline", "parallel", "partial", "perp", "phi", "pi", "pm",
+        "pr", "prec", "prime", "prod", "propto", "psi", "qquad", "quad", "rank", "re", "rightarrow",
+        "rangle", "rceil", "rfloor", "rgroup", "rho", "right", "rvert", "scriptscriptstyle", "scriptstyle", "searrow", "sec", "setminus", "sigma", "sim",
+        "simeq", "sin", "sinh", "sqcap", "sqcup", "sqrt", "sqsubset", "sqsubseteq", "sqsupset", "sqsupseteq", "star", "subset",
+        "subseteq", "succ", "sum", "sup", "supset", "supseteq", "swarrow", "tan", "tanh", "tau", "tbinom", "text", "textstyle", "tfrac",
         "textbf", "textit", "textrm", "textsf", "texttt", "therefore", "theta", "tilde", "times", "to", "top", "tr", "trace",
-        "triangle", "uparrow", "updownarrow", "upsilon", "varepsilon", "varphi", "varpi", "varrho",
-        "varsigma", "vartheta", "vdots", "vec", "vee", "vert", "wedge", "widehat", "widetilde", "wp", "xi", "zeta"
+        "triangle", "uparrow", "updownarrow", "uplus", "upsilon", "varepsilon", "varphi", "varpi", "varrho",
+        "varsigma", "vartheta", "vdots", "vec", "vee", "vert", "wedge", "widehat", "widetilde", "wp", "wr", "xi", "zeta"
     ]
     private static let bareTexInfixCommands: Set<String> = [
-        "approx", "ast", "cap", "cdot", "cdotp", "circ", "cong", "cup", "div", "equiv", "ge", "geq", "gt",
-        "iff", "in", "land", "le", "leftarrow", "leftrightarrow", "leq", "lor", "lt", "mapsto", "mid", "neq",
-        "ni", "notin", "oplus", "oslash", "otimes", "parallel", "pm", "propto", "rightarrow", "setminus", "sim", "simeq", "star", "subset",
-        "subseteq", "supset", "supseteq", "times", "to", "vee", "wedge"
+        "amalg", "approx", "asymp", "ast", "cap", "cdot", "cdotp", "circ", "cong", "cup", "dagger", "ddagger",
+        "div", "doteq", "downarrow", "equiv", "ge", "geq", "gg", "gt",
+        "iff", "in", "land", "le", "leftarrow", "leftrightarrow", "leq", "longleftarrow", "longleftrightarrow",
+        "longrightarrow", "lor", "lt", "mapsto", "mid", "models", "mp", "ne", "nearrow", "neq",
+        "ni", "notin", "nwarrow", "odot", "ominus", "oplus", "oslash", "otimes", "parallel", "perp", "pm", "prec",
+        "propto", "rightarrow", "searrow", "setminus", "sim", "simeq", "sqcap", "sqcup", "sqsubset", "sqsubseteq",
+        "sqsupset", "sqsupseteq", "star", "subset", "subseteq", "succ", "supset", "supseteq", "swarrow", "times",
+        "to", "uparrow", "updownarrow", "uplus", "vee", "wedge", "wr"
     ]
 
     private enum DisplayMathRunDelimiter {

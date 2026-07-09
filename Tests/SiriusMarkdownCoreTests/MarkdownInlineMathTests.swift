@@ -322,7 +322,22 @@ func bareTexRecoveryKeepsGeneratedFormulaFamiliesTogether() throws {
         "\\Delta E \\approx \\hbar\\omega",
         "A \\subseteq B \\Rightarrow A \\cap C \\subseteq B \\cap C",
         "\\det(A) \\neq 0 \\iff A^{-1}\\text{ exists}",
-        "\\mu \\pm 1.96\\sigma"
+        "\\mu \\pm 1.96\\sigma",
+        "\\dfrac{a+b}{c+d}",
+        "\\tfrac{1}{2}mv^2",
+        "\\dbinom{n}{k}p^k(1-p)^{n-k}",
+        "x \\ne y \\implies f(x) \\notin S",
+        "a_1 + \\dots + a_n = \\sum_i a_i",
+        "\\Re z \\ne 0 \\implies \\Im z = 0",
+        "\\pr(A) = 1",
+        "\\inf_n a_n \\le \\liminf_n a_n \\le \\limsup_n a_n \\le \\sup_n a_n",
+        "\\limsup_{n\\to\\infty} a_n \\le \\sup_n a_n",
+        "u \\downarrow v \\iff v \\uparrow u",
+        "x \\succ y \\perp z",
+        "A \\Longrightarrow B \\Longleftrightarrow C",
+        "\\bigcup_i A_i \\subseteq \\Omega",
+        "\\begin{array}{cc} a & b \\\\ c & d \\end{array}",
+        "\\begin{array}[t]{cc} a & b \\\\ c & d \\end{array}"
     ]
 
     for formula in cases {

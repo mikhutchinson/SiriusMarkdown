@@ -47,47 +47,68 @@ final class SwiftMathTypesetter: @unchecked Sendable {
         }
 
         return lock.withLock {
-            let typesetLatex = Self.swiftMathCompatibleLatex(latex)
-            let mathImage = MTMathImage(
-                latex: typesetLatex,
-                fontSize: CGFloat(fontSize),
-                textColor: MTColor.black,
-                labelMode: isBlock ? .display : .text,
-                textAlignment: .left
-            )
-
-            let (error, image, layout) = mathImage.asImage()
-            guard error == nil,
-                  let image,
-                  let layout,
-                  image.size.width > 0,
-                  image.size.height > 0
-            else {
-                return nil
+            for typesetLatex in Self.swiftMathLatexCandidates(for: latex) {
+                if let prepared = Self.makePreparedImage(
+                    typesetLatex: typesetLatex,
+                    originalLatex: latex,
+                    isBlock: isBlock,
+                    fontSize: fontSize,
+                    scale: scale
+                ) {
+                    return prepared
+                }
             }
 
-            let pointWidth = Double(image.size.width)
-            let pointHeight = Double(image.size.height)
-            guard let imageData = Self.pngData(from: image, scale: CGFloat(scale)) else {
-                return nil
-            }
-
-            let (ascent, descent) = Self.metricsMatchingImageHeight(
-                layout: layout,
-                pointHeight: pointHeight,
-                fontSize: fontSize
-            )
-
-            return MarkdownPreparedMathImage(
-                imageData: imageData,
-                scale: scale,
-                pointWidth: pointWidth,
-                pointHeight: pointHeight,
-                ascent: ascent,
-                descent: descent,
-                latex: latex
-            )
+            return nil
         }
+    }
+
+    private static func makePreparedImage(
+        typesetLatex: String,
+        originalLatex: String,
+        isBlock: Bool,
+        fontSize: Double,
+        scale: Double
+    ) -> MarkdownPreparedMathImage? {
+        let mathImage = MTMathImage(
+            latex: typesetLatex,
+            fontSize: CGFloat(fontSize),
+            textColor: MTColor.black,
+            labelMode: isBlock ? .display : .text,
+            textAlignment: .left
+        )
+
+        let (error, image, layout) = mathImage.asImage()
+        guard error == nil,
+              let image,
+              let layout,
+              image.size.width > 0,
+              image.size.height > 0
+        else {
+            return nil
+        }
+
+        let pointWidth = Double(image.size.width)
+        let pointHeight = Double(image.size.height)
+        guard let imageData = Self.pngData(from: image, scale: CGFloat(scale)) else {
+            return nil
+        }
+
+        let (ascent, descent) = Self.metricsMatchingImageHeight(
+            layout: layout,
+            pointHeight: pointHeight,
+            fontSize: fontSize
+        )
+
+        return MarkdownPreparedMathImage(
+            imageData: imageData,
+            scale: scale,
+            pointWidth: pointWidth,
+            pointHeight: pointHeight,
+            ascent: ascent,
+            descent: descent,
+            latex: originalLatex
+        )
     }
 
     /// Maps `MTMathImage.LayoutInfo` onto the rasterized image so
@@ -121,10 +142,19 @@ final class SwiftMathTypesetter: @unchecked Sendable {
         return (ascent: pointHeight - descent, descent: descent)
     }
 
+    private static func swiftMathLatexCandidates(for latex: String) -> [String] {
+        let compatible = swiftMathCompatibleLatex(latex)
+        return compatible == latex ? [latex] : [latex, compatible]
+    }
+
     private static func swiftMathCompatibleLatex(_ latex: String) -> String {
-        replacingCasesEnvironment(
-            in: replacingEnvironmentAliases(
-                in: replacingOperatorNameCommands(in: latex)
+        replacingUnsupportedShorthandCommands(
+            in: replacingCasesEnvironment(
+                in: replacingArrayEnvironments(
+                    in: replacingEnvironmentAliases(
+                        in: replacingOperatorNameCommands(in: latex)
+                    )
+                )
             )
         )
     }
@@ -151,10 +181,109 @@ final class SwiftMathTypesetter: @unchecked Sendable {
         return result
     }
 
+    private static func replacingArrayEnvironments(in latex: String) -> String {
+        var result = ""
+        var cursor = latex.startIndex
+        let token = "\\begin{array}"
+
+        while cursor < latex.endIndex {
+            guard latex[cursor...].hasPrefix(token),
+                  let afterToken = latex.index(cursor, offsetBy: token.count, limitedBy: latex.endIndex)
+            else {
+                result.append(latex[cursor])
+                cursor = latex.index(after: cursor)
+                continue
+            }
+
+            var specStart = afterToken
+            if specStart < latex.endIndex, latex[specStart] == "[" {
+                guard let optionalEnd = balancedGroupContentEnd(
+                    in: latex,
+                    contentStart: latex.index(after: specStart),
+                    open: "[",
+                    close: "]"
+                ) else {
+                    result.append(latex[cursor])
+                    cursor = latex.index(after: cursor)
+                    continue
+                }
+                specStart = latex.index(after: optionalEnd)
+            }
+
+            guard specStart < latex.endIndex,
+                  latex[specStart] == "{",
+                  let specEnd = balancedGroupContentEnd(
+                    in: latex,
+                    contentStart: latex.index(after: specStart)
+                  )
+            else {
+                result.append(latex[cursor])
+                cursor = latex.index(after: cursor)
+                continue
+            }
+
+            result.append("\\begin{matrix}")
+            cursor = latex.index(after: specEnd)
+        }
+
+        return result
+            .replacingOccurrences(of: "\\end{array}", with: "\\end{matrix}")
+            .replacingOccurrences(of: "\\begin{smallmatrix}", with: "\\begin{matrix}")
+            .replacingOccurrences(of: "\\end{smallmatrix}", with: "\\end{matrix}")
+    }
+
     private static func replacingCasesEnvironment(in latex: String) -> String {
         latex
             .replacingOccurrences(of: "\\begin{cases}", with: "\\left\\{\\begin{matrix}")
             .replacingOccurrences(of: "\\end{cases}", with: "\\end{matrix}\\right.")
+    }
+
+    private static func replacingUnsupportedShorthandCommands(in latex: String) -> String {
+        let aliases = [
+            "dfrac": "\\frac",
+            "tfrac": "\\frac",
+            "dbinom": "\\binom",
+            "tbinom": "\\binom",
+            "dots": "\\ldots",
+            "implies": "\\Rightarrow",
+            "impliedby": "\\Leftarrow",
+            "ne": "\\neq",
+            "re": "\\Re",
+            "im": "\\Im",
+            "pr": "\\Pr"
+        ]
+
+        var result = ""
+        var cursor = latex.startIndex
+        while cursor < latex.endIndex {
+            guard latex[cursor] == "\\" else {
+                result.append(latex[cursor])
+                cursor = latex.index(after: cursor)
+                continue
+            }
+
+            let nameStart = latex.index(after: cursor)
+            guard nameStart < latex.endIndex, latex[nameStart].isLetter else {
+                result.append(latex[cursor])
+                cursor = nameStart
+                continue
+            }
+
+            var nameEnd = nameStart
+            repeat {
+                nameEnd = latex.index(after: nameEnd)
+            } while nameEnd < latex.endIndex && latex[nameEnd].isLetter
+
+            let name = String(latex[nameStart..<nameEnd])
+            if let replacement = aliases[name] {
+                result.append(replacement)
+            } else {
+                result.append(contentsOf: latex[cursor..<nameEnd])
+            }
+            cursor = nameEnd
+        }
+
+        return result
     }
 
     private static func replacingOperatorNameCommands(in latex: String) -> String {
@@ -203,15 +332,17 @@ final class SwiftMathTypesetter: @unchecked Sendable {
 
     private static func balancedGroupContentEnd(
         in latex: String,
-        contentStart: String.Index
+        contentStart: String.Index,
+        open: Character = "{",
+        close: Character = "}"
     ) -> String.Index? {
         var depth = 1
         var cursor = contentStart
 
         while cursor < latex.endIndex {
-            if latex[cursor] == "{" {
+            if latex[cursor] == open {
                 depth += 1
-            } else if latex[cursor] == "}" {
+            } else if latex[cursor] == close {
                 depth -= 1
                 if depth == 0 {
                     return cursor
