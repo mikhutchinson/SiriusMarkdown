@@ -152,7 +152,9 @@ public struct MarkdownDocumentView: View {
         in snapshot: MarkdownPreparedSnapshot
     ) -> String {
         let baseID = snapshot.item(at: item.itemIndex)?.id ?? item.id
-        if snapshot.diff.contains(baseID) {
+        // Only items whose content actually changed need a new view identity. New items start at
+        // ":0" so when they seal on the next render they keep the same identity without a flip.
+        if snapshot.diff.changedItemIDs.contains(baseID) {
             return item.id + ":\(snapshot.diff.generation)"
         }
         return item.id + ":0"
@@ -301,7 +303,7 @@ public struct StreamingMarkdownView: View {
         in snapshot: MarkdownPreparedSnapshot
     ) -> String {
         let baseID = snapshot.item(at: item.itemIndex)?.id ?? item.id
-        if snapshot.diff.contains(baseID) {
+        if snapshot.diff.changedItemIDs.contains(baseID) {
             return item.id + ":\(snapshot.diff.generation)"
         }
         return item.id + ":0"

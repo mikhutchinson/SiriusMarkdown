@@ -102,6 +102,49 @@ struct MarkdownPerformanceBenchmarkTests {
 
     @Test
     @MainActor
+    func newItemsNotInChangedItemIDsSoViewIDIsStableAfterSealing() async throws {
+        // Guards the fix for INV-P3: a block that is NEW on render N must NOT appear in
+        // changedItemIDs on render N+1 when it is sealed and unchanged. If it did, the view
+        // suffix would flip from ":0" to ":\(generation)", causing unnecessary view recreation.
+        let session = MarkdownRenderSession(
+            configuration: .compactChat,
+            parserCacheCapacity: 64
+        )
+
+        session.append("Sealed paragraph one.\n\n")
+        await session.waitUntilIdle()
+
+        let firstSnapshot = session.preparedSnapshot
+        let firstRenderItems = firstSnapshot.renderItems
+
+        // On the first render the block is new. It must NOT be in changedItemIDs (only newItemIDs).
+        for item in firstRenderItems {
+            let baseID = firstSnapshot.item(at: item.itemIndex)?.id ?? item.id
+            #expect(
+                !firstSnapshot.diff.changedItemIDs.contains(baseID),
+                "First-render block '\(baseID)' should not be in changedItemIDs"
+            )
+        }
+
+        // Append a second paragraph. The first block is now sealed and reused.
+        session.append("Sealed paragraph two.\n\n")
+        await session.waitUntilIdle()
+
+        let secondSnapshot = session.preparedSnapshot
+
+        // The original block must NOT appear in changedItemIDs on the second render — it is
+        // unchanged. This ensures itemViewID returns ":0" both times → stable view identity.
+        for item in firstRenderItems {
+            let baseID = firstSnapshot.item(at: item.itemIndex)?.id ?? item.id
+            #expect(
+                !secondSnapshot.diff.changedItemIDs.contains(baseID),
+                "Sealed unchanged block '\(baseID)' appeared in changedItemIDs — view ID would flip"
+            )
+        }
+    }
+
+    @Test
+    @MainActor
     func diffIdentifiesChangedTailBlockOnAppend() async throws {
         let session = MarkdownRenderSession(
             configuration: .compactChat,
