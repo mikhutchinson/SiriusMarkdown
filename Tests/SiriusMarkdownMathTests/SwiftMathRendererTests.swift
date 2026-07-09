@@ -1,8 +1,12 @@
 import Foundation
+import CoreGraphics
 import Testing
 import SiriusMarkdownCore
 import SiriusMarkdownSwiftUI
 @testable import SiriusMarkdownMath
+#if canImport(SwiftMath)
+@testable import SwiftMath
+#endif
 
 @Test
 func nativeMathRendererProducesTypesetImageForValidLatex() throws {
@@ -22,12 +26,19 @@ func nativeMathRendererProducesTypesetImageForValidLatex() throws {
 }
 
 @Test
-func swiftMathTypesetterRejectsPackagedAppOnlyWhenResourcePathsAreMissing() {
+func swiftMathTypesetterRejectsWhenResourcePathsAreMissing() {
     #if canImport(SwiftMath)
     let appURL = URL(fileURLWithPath: "/tmp/Sirius.app", isDirectory: true)
 
     // No bundle present in a packaged .app -> text fallback, never enter SwiftMath.
     #expect(!SwiftMathTypesetter.canEnterSwiftMath(mainBundleURL: appURL) { _ in false })
+
+    // A packaged .app with only the bundle directory but missing the default
+    // font assets must not enter SwiftMath; `MTFont(fontWithName:)` force
+    // unwraps those assets.
+    #expect(!SwiftMathTypesetter.canEnterSwiftMath(mainBundleURL: appURL) { path in
+        path.hasSuffix("Contents/Resources/SiriusMarkdown_SwiftMath.bundle/mathFonts.bundle")
+    })
 
     // `MTFont.fontBundle` resolves `mathFonts.bundle` by direct filesystem
     // probe (via `MTFont.mathFontsBundleURL`) of `Contents/Resources` in a
@@ -41,15 +52,493 @@ func swiftMathTypesetterRejectsPackagedAppOnlyWhenResourcePathsAreMissing() {
     // `<Package>_<Target>` resource-bundle naming convention.
     #expect(SwiftMathTypesetter.canEnterSwiftMath(mainBundleURL: appURL) { path in
         path.hasSuffix("Contents/Resources/SiriusMarkdown_SwiftMath.bundle/mathFonts.bundle")
+            || path.hasSuffix("Contents/Resources/SiriusMarkdown_SwiftMath.bundle/mathFonts.bundle/latinmodern-math.otf")
+            || path.hasSuffix("Contents/Resources/SiriusMarkdown_SwiftMath.bundle/mathFonts.bundle/latinmodern-math.plist")
     })
 
     // A bundle at the .app root is also accepted (same filesystem probe).
     #expect(SwiftMathTypesetter.canEnterSwiftMath(mainBundleURL: appURL) { path in
         path.hasSuffix("Sirius.app/SiriusMarkdown_SwiftMath.bundle/mathFonts.bundle")
+            || path.hasSuffix("Sirius.app/SiriusMarkdown_SwiftMath.bundle/mathFonts.bundle/latinmodern-math.otf")
+            || path.hasSuffix("Sirius.app/SiriusMarkdown_SwiftMath.bundle/mathFonts.bundle/latinmodern-math.plist")
     })
 
+    // Non-app hosts are not special: if filesystem-probed resources are absent,
+    // do not enter SwiftMath and do not fall through to generated `Bundle.module`.
     let testHostURL = URL(fileURLWithPath: "/tmp/SiriusMarkdownPackageTests.xctest", isDirectory: true)
-    #expect(SwiftMathTypesetter.canEnterSwiftMath(mainBundleURL: testHostURL) { _ in false })
+    #expect(!SwiftMathTypesetter.canEnterSwiftMath(mainBundleURL: testHostURL) { _ in false })
+    #endif
+}
+
+@Test
+func swiftMathBundleURLFindsSwiftPMTestHostSiblingResources() {
+    #if canImport(SwiftMath)
+    let testHostURL = URL(fileURLWithPath: "/tmp/.build/debug/SiriusMarkdownPackageTests.xctest", isDirectory: true)
+    let expected = "/tmp/.build/debug/SiriusMarkdown_SwiftMath.bundle/mathFonts.bundle"
+
+    let resolved = MTFont.mathFontsBundleURL(mainBundleURL: testHostURL) { path in
+        path == expected
+    }
+
+    #expect(resolved?.path == expected)
+    #endif
+}
+
+@Test
+func swiftMathBundleURLFindsSwiftPMNestedXCTestRuntimeResources() {
+    #if canImport(SwiftMath)
+    let testHostURL = URL(
+        fileURLWithPath: "/tmp/.build/debug/SiriusMarkdownPackageTests.xctest/Contents/MacOS",
+        isDirectory: true
+    )
+    let expected = "/tmp/.build/debug/SiriusMarkdown_SwiftMath.bundle/mathFonts.bundle"
+
+    let resolved = MTFont.mathFontsBundleURL(mainBundleURL: testHostURL) { path in
+        path == expected
+    }
+
+    #expect(resolved?.path == expected)
+    #endif
+}
+
+@Test
+func swiftMathBundleURLFindsBundleContentsResources() {
+    #if canImport(SwiftMath)
+    let testHostURL = URL(fileURLWithPath: "/tmp/SiriusMarkdownPackageTests.xctest", isDirectory: true)
+    let expected = "/tmp/SiriusMarkdownPackageTests.xctest/Contents/Resources/SiriusMarkdown_SwiftMath.bundle/mathFonts.bundle"
+
+    let resolved = MTFont.mathFontsBundleURL(mainBundleURL: testHostURL) { path in
+        path == expected
+    }
+
+    #expect(resolved?.path == expected)
+    #expect(SwiftMathTypesetter.canEnterSwiftMath(mainBundleURL: testHostURL) { path in
+        path == expected
+            || path == "\(expected)/latinmodern-math.otf"
+            || path == "\(expected)/latinmodern-math.plist"
+    })
+    #endif
+}
+
+@Test
+func swiftMathBundleURLFindsAppExtensionContentsResources() {
+    #if canImport(SwiftMath)
+    let extensionURL = URL(fileURLWithPath: "/tmp/SiriusMarkdownExtension.appex", isDirectory: true)
+    let expected = "/tmp/SiriusMarkdownExtension.appex/Contents/Resources/SiriusMarkdown_SwiftMath.bundle/mathFonts.bundle"
+
+    let resolved = MTFont.mathFontsBundleURL(mainBundleURL: extensionURL) { path in
+        path == expected
+    }
+
+    #expect(resolved?.path == expected)
+    #expect(SwiftMathTypesetter.canEnterSwiftMath(mainBundleURL: extensionURL) { path in
+        path == expected
+            || path == "\(expected)/latinmodern-math.otf"
+            || path == "\(expected)/latinmodern-math.plist"
+    })
+    #endif
+}
+
+@Test
+func swiftMathFontManagerReturnsNilForMissingFontName() {
+    #if canImport(SwiftMath)
+    let manager = MTFontManager()
+    #expect(manager.font(withName: "__sirius_missing_math_font__", size: 20) == nil)
+    #endif
+}
+
+@Test
+func swiftMathImageReturnsNilWhenFontIsUnavailable() {
+    #if canImport(SwiftMath)
+    let image = MTMathImage(
+        latex: "x^2",
+        fontSize: 20,
+        textColor: MTColor.black,
+        labelMode: .display,
+        textAlignment: .left
+    )
+    image.font = nil
+
+    let (error, renderedImage, layout) = image.asImage()
+    #expect(error == nil)
+    #expect(renderedImage == nil)
+    #expect(layout == nil)
+    #endif
+}
+
+@Test
+func swiftMathStructImageUsesOptionalBundleFontBoundary() {
+    #if canImport(SwiftMath)
+    var image = MathImage(
+        latex: "x^2",
+        fontSize: 20,
+        textColor: MTColor.black,
+        labelMode: .display,
+        textAlignment: .left
+    )
+
+    let (error, renderedImage, layout) = image.asImage()
+    #expect(error == nil)
+    #expect(renderedImage != nil)
+    #expect(layout != nil)
+    #endif
+}
+
+@Test
+func swiftMathImagesRejectOversizedRasterBeforeImageCreation() {
+    #if canImport(SwiftMath)
+    let oversizedLatex = String(repeating: "x", count: 128)
+    let classImage = MTMathImage(
+        latex: oversizedLatex,
+        fontSize: 512,
+        textColor: MTColor.black,
+        labelMode: .display,
+        textAlignment: .left
+    )
+    let (classError, classRenderedImage, classLayout) = classImage.asImage()
+    #expect(classError == nil)
+    #expect(classRenderedImage == nil)
+    #expect(classLayout == nil)
+
+    var structImage = MathImage(
+        latex: oversizedLatex,
+        fontSize: 512,
+        textColor: MTColor.black,
+        labelMode: .display,
+        textAlignment: .left
+    )
+    let (structError, structRenderedImage, structLayout) = structImage.asImage()
+    #expect(structError == nil)
+    #expect(structRenderedImage == nil)
+    #expect(structLayout == nil)
+    #endif
+}
+
+@Test
+func swiftMathStructImageKeepsCompactGlyphBaselineInsideRaster() throws {
+    #if canImport(SwiftMath)
+    let fontSize: CGFloat = 32
+    let minimumRasterHeight = fontSize / 2
+    let classImage = MTMathImage(
+        latex: "x",
+        fontSize: fontSize,
+        textColor: MTColor.black,
+        labelMode: .display,
+        textAlignment: .left
+    )
+    let (classError, classRenderedImage, _) = classImage.asImage()
+    #expect(classError == nil)
+    #expect(try #require(classRenderedImage).size.height >= minimumRasterHeight)
+
+    var structImage = MathImage(
+        latex: "x",
+        fontSize: fontSize,
+        textColor: MTColor.black,
+        labelMode: .display,
+        textAlignment: .left
+    )
+    let (structError, structRenderedImage, _) = structImage.asImage()
+    #expect(structError == nil)
+    #expect(try #require(structRenderedImage).size.height >= minimumRasterHeight)
+    #endif
+}
+
+@Test
+func swiftMathDirectImagesRejectInvalidFontSizesBeforeFontCreation() {
+    #if canImport(SwiftMath)
+    let invalidFontSizes: [CGFloat] = [.nan, .infinity, -.infinity, 0, -12, 513]
+    let manager = MTFontManager.manager
+
+    for fontSize in invalidFontSizes {
+        #expect(manager.latinModernFont(withSize: fontSize) == nil)
+
+        let classImage = MTMathImage(
+            latex: "x^2",
+            fontSize: fontSize,
+            textColor: MTColor.black,
+            labelMode: .display,
+            textAlignment: .left
+        )
+        let (classError, classRenderedImage, classLayout) = classImage.asImage()
+        #expect(classError == nil)
+        #expect(classRenderedImage == nil)
+        #expect(classLayout == nil)
+
+        var structImage = MathImage(
+            latex: "x^2",
+            fontSize: fontSize,
+            textColor: MTColor.black,
+            labelMode: .display,
+            textAlignment: .left
+        )
+        let (structError, structRenderedImage, structLayout) = structImage.asImage()
+        #expect(structError == nil)
+        #expect(structRenderedImage == nil)
+        #expect(structLayout == nil)
+    }
+    #endif
+}
+
+@Test
+func swiftMathImageCanRecoverAfterInvalidFontSizeAssignment() {
+    #if canImport(SwiftMath)
+    let image = MTMathImage(
+        latex: "x^2",
+        fontSize: 20,
+        textColor: MTColor.black,
+        labelMode: .display,
+        textAlignment: .left
+    )
+
+    image.fontSize = .nan
+    let (_, invalidImage, invalidLayout) = image.asImage()
+    #expect(invalidImage == nil)
+    #expect(invalidLayout == nil)
+
+    image.fontSize = 20
+    let (error, recoveredImage, recoveredLayout) = image.asImage()
+    #expect(error == nil)
+    #expect(recoveredImage != nil)
+    #expect(recoveredLayout != nil)
+    #endif
+}
+
+@MainActor
+@Test
+func swiftMathLabelRejectsInvalidFontSizesWithoutPoisoningLayoutState() {
+    #if canImport(SwiftMath)
+    let label = MTMathUILabel(frame: .init(x: 0, y: 0, width: 240, height: 80))
+    label.latex = "x^2"
+    label.fontSize = 20
+
+    let invalidFontSizes: [CGFloat] = [.nan, .infinity, -.infinity, 0, -12, 513]
+    for fontSize in invalidFontSizes {
+        label.fontSize = fontSize
+        #expect(label.fontSize == 20)
+    }
+
+    label.fontSize = 24
+    #expect(label.fontSize == 24)
+    #endif
+}
+
+@Test
+func swiftMathTypesetterRejectsMalformedCompositeAtomsWithoutTrapping() throws {
+    #if canImport(SwiftMath)
+    let font = try #require(MTFontManager.manager.latinModernFont(withSize: 20))
+
+    let table = MTMathTable(environment: "array")
+    table.set(cell: MTMathList(atom: MTFraction()), forRow: 0, column: 0)
+
+    let malformedAtoms: [(String, MTMathAtom)] = [
+        ("fraction", MTFraction()),
+        ("radical", MTRadical()),
+        ("inner", MTInner()),
+        ("underline", MTUnderLine()),
+        ("overline", MTOverLine()),
+        ("accent", MTAccent(value: "\u{0302}")),
+        ("color", MTMathColor()),
+        ("textcolor", MTMathTextColor()),
+        ("colorbox", MTMathColorbox()),
+        ("table-cell", table)
+    ]
+
+    for (name, atom) in malformedAtoms {
+        let list = MTMathList(atom: atom)
+        let display = MTTypesetter.createLineForMathList(list, font: font, style: .display)
+        #expect(display == nil, "\(name) should fail closed.")
+    }
+    #endif
+}
+
+@Test
+func swiftMathTypesetterFallsBackWhenMathTableVariantListsAreEmpty() throws {
+    #if canImport(SwiftMath)
+    let font = try #require(MTFontManager.manager.latinModernFont(withSize: 20))
+    let rawMathTable = try #require(font.rawMathTable)
+    font.mathTable = EmptyVariantMathTable(withFont: font, mathTable: rawMathTable)
+
+    let image = MTMathImage(
+        latex: "\\sqrt{x} + \\hat{x}",
+        fontSize: 20,
+        textColor: MTColor.black,
+        labelMode: .display,
+        textAlignment: .left
+    )
+    image.font = font
+
+    let (error, renderedImage, layout) = image.asImage()
+    #expect(error == nil)
+    #expect(renderedImage != nil)
+    #expect(layout != nil)
+    #endif
+}
+
+@Test
+func swiftMathLegacyMathTableTreatsMissingOptionalTablesAsFallbacks() throws {
+    #if canImport(SwiftMath)
+    let font = try #require(MTFontManager.manager.latinModernFont(withSize: 20))
+    let rawMathTable = try #require(font.rawMathTable)
+    let incompleteMathTable = NSMutableDictionary(dictionary: rawMathTable)
+    for key in ["v_variants", "h_variants", "v_assembly", "italic", "accents"] {
+        incompleteMathTable.removeObject(forKey: key)
+    }
+    font.mathTable = MTFontMathTable(withFont: font, mathTable: incompleteMathTable)
+
+    let image = MTMathImage(
+        latex: "\\sum_{i=0}^{n} i + \\sqrt{x} + \\hat{x}",
+        fontSize: 20,
+        textColor: MTColor.black,
+        labelMode: .display,
+        textAlignment: .left
+    )
+    image.font = font
+
+    let (error, renderedImage, layout) = image.asImage()
+    #expect(error == nil)
+    #expect(renderedImage != nil)
+    #expect(layout != nil)
+    #endif
+}
+
+@Test
+func swiftMathBundleFontLoaderKeepsOptionalFallbackBoundary() throws {
+    #if canImport(SwiftMath)
+    let packageRoot = URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+    let mathFontSource = try String(
+        contentsOf: packageRoot.appendingPathComponent("Sources/SwiftMath/MathBundle/MathFont.swift"),
+        encoding: .utf8
+    )
+    let mtFontSource = try String(
+        contentsOf: packageRoot.appendingPathComponent("Sources/SwiftMath/MathBundle/MTFontV2.swift"),
+        encoding: .utf8
+    )
+    let mtFontLoaderSource = try String(
+        contentsOf: packageRoot.appendingPathComponent("Sources/SwiftMath/MathRender/MTFont.swift"),
+        encoding: .utf8
+    )
+
+    #expect(mathFontSource.contains("private func onDemandRegistration(mathFont: MathFont) -> Bool"))
+    #expect(mathFontSource.contains("MTFont.mathFontsResourceBundle()"))
+    #expect(mathFontSource.contains("clearCachedResources(for: mathFont)"))
+    #expect(mathFontSource.contains("if let cachedFont = threadSafeQueue.sync"))
+    #expect(!mathFontSource.contains("return ctFonts[fontSizePair]!"))
+    #expect(!mathFontSource.contains("fatalError(\"MTMathFonts:"))
+    #expect(!mtFontLoaderSource.contains("Bundle.module.url"))
+    #expect(mtFontSource.contains("public func mtfont(size: CGFloat) -> MTFontV2 {"))
+    #expect(mtFontSource.contains("internal func mtfontIfAvailable(size: CGFloat) -> MTFontV2?"))
+    #endif
+}
+
+#if canImport(SwiftMath)
+private final class EmptyVariantMathTable: MTFontMathTable {
+    override func getVerticalVariantsForGlyph(_ glyph: CGGlyph) -> [NSNumber?] {
+        []
+    }
+
+    override func getHorizontalVariantsForGlyph(_ glyph: CGGlyph) -> [NSNumber?] {
+        []
+    }
+}
+#endif
+
+@Test
+func swiftMathFontCacheSupportsConcurrentSizeLookups() {
+    #if canImport(SwiftMath)
+    let queue = DispatchQueue(label: "SiriusMarkdownTests.SwiftMathFontCache", attributes: .concurrent)
+    let group = DispatchGroup()
+    let failures = LockedFailureCounter()
+
+    for index in 0..<96 {
+        group.enter()
+        queue.async {
+            let size = CGFloat(12 + (index % 12))
+            let font = MathFont.latinModernFont.mtfont(size: size)
+            if abs(font.fontSize - size) > 0.001 {
+                failures.increment()
+            }
+            group.leave()
+        }
+    }
+
+    #expect(group.wait(timeout: .now() + 5) == .success)
+    #expect(failures.value == 0)
+    #endif
+}
+
+@Test
+func swiftMathFontCopiesPreserveRequestedSize() throws {
+    #if canImport(SwiftMath)
+    let bundleFont = try #require(MTFontManager.manager.latinModernFont(withSize: 13))
+    let copiedBundleFont = bundleFont.copy(withSize: 27)
+    #expect(abs(bundleFont.fontSize - 13) <= 0.001)
+    #expect(abs(copiedBundleFont.fontSize - 27) <= 0.001)
+
+    let mathFont = MathFont.latinModernFont.mtfont(size: 14)
+    let copiedMathFont = mathFont.copy(withSize: 28)
+    #expect(abs(mathFont.fontSize - 14) <= 0.001)
+    #expect(abs(copiedMathFont.fontSize - 28) <= 0.001)
+    #endif
+}
+
+@Test
+func swiftMathFontManagerSupportsConcurrentDefaultFontLookups() {
+    #if canImport(SwiftMath)
+    let queue = DispatchQueue(label: "SiriusMarkdownTests.SwiftMathFontManager", attributes: .concurrent)
+    let group = DispatchGroup()
+    let failures = LockedFailureCounter()
+
+    for index in 0..<96 {
+        group.enter()
+        queue.async {
+            let size = CGFloat(12 + (index % 12))
+            guard let font = MTFontManager.manager.latinModernFont(withSize: size),
+                  abs(font.fontSize - size) <= 0.001 else {
+                failures.increment()
+                group.leave()
+                return
+            }
+            group.leave()
+        }
+    }
+
+    #expect(group.wait(timeout: .now() + 5) == .success)
+    #expect(failures.value == 0)
+    #endif
+}
+
+@Test
+func swiftMathV2FontSupportsConcurrentMathTableUse() {
+    #if canImport(SwiftMath)
+    let sharedFont = SharedMTFontBox(MathFont.latinModernFont.mtfont(size: 20))
+    let queue = DispatchQueue(label: "SiriusMarkdownTests.SwiftMathV2MathTable", attributes: .concurrent)
+    let group = DispatchGroup()
+    let failures = LockedFailureCounter()
+
+    for index in 0..<96 {
+        group.enter()
+        queue.async {
+            let image = MTMathImage(
+                latex: "x_\(index % 9)^2 + \\frac{a}{b}",
+                fontSize: 20,
+                textColor: MTColor.black,
+                labelMode: .display,
+                textAlignment: .left
+            )
+            image.font = sharedFont.font
+            let (error, renderedImage, layout) = image.asImage()
+            if error != nil || renderedImage == nil || layout == nil {
+                failures.increment()
+            }
+            group.leave()
+        }
+    }
+
+    #expect(group.wait(timeout: .now() + 5) == .success)
+    #expect(failures.value == 0)
     #endif
 }
 
@@ -76,6 +565,59 @@ func nativeMathRendererFallsBackToTextForInvalidLatex() {
         Issue.record("Expected a plain-text fallback for invalid LaTeX, got \(prepared).")
         return
     }
+}
+
+@Test
+func nativeMathRendererTypesetsSupportedUnicodeMathShorthand() {
+    let renderer = NativeMarkdownMathRenderer()
+    let latex = "ψ(t) = w₁ · t²"
+    let prepared = renderer.preparedMath(latex, isBlock: false, fontSize: 16)
+
+    guard case let .image(image) = prepared else {
+        Issue.record("Expected supported Unicode shorthand to typeset, got \(prepared).")
+        return
+    }
+
+    #expect(image.latex == latex)
+}
+
+@Test
+func nativeMathRendererFallsBackToTextForUnsupportedUnicodeMathInput() {
+    let renderer = NativeMarkdownMathRenderer()
+    let unsupportedFormulas = ["score 😀", "score \\😀", "\\α"]
+
+    for formula in unsupportedFormulas {
+        let prepared = renderer.preparedMath(formula, isBlock: false, fontSize: 16)
+        guard case .text = prepared else {
+            Issue.record("Expected a plain-text fallback for unsupported Unicode math input, got \(prepared).")
+            continue
+        }
+    }
+}
+
+@Test
+func nativeMathRendererFallsBackToTextForInvalidFontSizes() {
+    let renderer = NativeMarkdownMathRenderer()
+    let invalidFontSizes: [Double] = [.nan, .infinity, -.infinity, 0, -12, 513]
+
+    for fontSize in invalidFontSizes {
+        let prepared = renderer.preparedMath("x^2", isBlock: false, fontSize: fontSize)
+        guard case .text = prepared else {
+            Issue.record("Expected a plain-text fallback for invalid font size \(fontSize), got \(prepared).")
+            continue
+        }
+    }
+}
+
+@Test
+func swiftMathTypesetterRejectsUnsafeRasterInputs() {
+    #if canImport(SwiftMath)
+    let typesetter = SwiftMathTypesetter.shared
+
+    #expect(typesetter.preparedImage(latex: "x^2", isBlock: false, fontSize: 513, scale: 2) == nil)
+    #expect(typesetter.preparedImage(latex: "x^2", isBlock: false, fontSize: 16, scale: .infinity) == nil)
+    #expect(typesetter.preparedImage(latex: "x^2", isBlock: false, fontSize: 16, scale: 9) == nil)
+    #endif
 }
 
 @Test
@@ -368,3 +910,30 @@ func degradedBareDisplayBracketMathPreparesTypesetImage() throws {
     }
     #expect(image.latex == "\\frac{f'(x)}{g'(x)}")
 }
+
+private final class LockedFailureCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+
+    func increment() {
+        lock.withLock {
+            count += 1
+        }
+    }
+
+    var value: Int {
+        lock.withLock {
+            count
+        }
+    }
+}
+
+#if canImport(SwiftMath)
+private final class SharedMTFontBox: @unchecked Sendable {
+    let font: MTFont
+
+    init(_ font: MTFont) {
+        self.font = font
+    }
+}
+#endif

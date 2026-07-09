@@ -6,6 +6,7 @@ import SiriusMarkdownSwiftUI
 
 #if canImport(SwiftMath)
 import SwiftMath
+import CoreText
 #endif
 
 #if canImport(AppKit)
@@ -216,6 +217,81 @@ func blockMathImageScaleIsNotFixedThree() throws {
 }
 
 @Test
+@MainActor
+func backingScaleResolutionDoesNotSynchronouslyHopToMainFromBackground() {
+    let completed = DispatchSemaphore(value: 0)
+    DispatchQueue.global(qos: .userInitiated).async {
+        _ = NativeMarkdownMathRenderer.resolveBackingScaleForTesting()
+        completed.signal()
+    }
+
+    Thread.sleep(forTimeInterval: 0.05)
+    #expect(completed.wait(timeout: DispatchTime.now() + 0.25) == .success)
+}
+
+@Test
+func swiftMathFontRegistrationUsesURLAPIsForVisionOSCompatibility() throws {
+    let sourceURL = URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+        .appendingPathComponent("Sources/SwiftMath/MathBundle/MathFont.swift")
+    let source = try String(contentsOf: sourceURL, encoding: .utf8)
+    #expect(source.contains("CTFontManagerRegisterFontsForURL"))
+    #expect(source.contains("CTFontManagerUnregisterFontsForURL"))
+    #expect(source.contains("CTFontManagerError.alreadyRegistered"))
+    #expect(!source.contains("CTFontManagerRegisterGraphicsFont"))
+    #expect(!source.contains("CTFontManagerUnregisterGraphicsFont"))
+}
+
+#if canImport(SwiftMath)
+@Test
+func preRegisteredSwiftMathFontDoesNotPreventNativeMathRendering() throws {
+    let packageRoot = URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+    let buildRoot = packageRoot.appendingPathComponent(".build", isDirectory: true)
+    let fileManager = FileManager.default
+    let enumerator = fileManager.enumerator(
+        at: buildRoot,
+        includingPropertiesForKeys: nil,
+        options: [.skipsHiddenFiles]
+    )
+    var fontURL: URL?
+    if let enumerator {
+        for case let candidate as URL in enumerator {
+            if candidate.lastPathComponent == "latinmodern-math.otf",
+               candidate.path.contains("SiriusMarkdown_SwiftMath.bundle/mathFonts.bundle") {
+                fontURL = candidate
+                break
+            }
+        }
+    }
+    let preRegisteredFontURL = try #require(fontURL)
+
+    var registrationError: Unmanaged<CFError>?
+    let registered = CTFontManagerRegisterFontsForURL(preRegisteredFontURL as CFURL, .process, &registrationError)
+    defer {
+        if registered {
+            var unregisterError: Unmanaged<CFError>?
+            CTFontManagerUnregisterFontsForURL(preRegisteredFontURL as CFURL, .process, &unregisterError)
+        }
+    }
+
+    if !registered, let error = registrationError?.takeRetainedValue() {
+        #expect(CFErrorGetCode(error) == CTFontManagerError.alreadyRegistered.rawValue)
+    }
+
+    let renderer = NativeMarkdownMathRenderer()
+    guard case .image = renderer.preparedMath("x^2", isBlock: true, fontSize: 20) else {
+        Issue.record("Expected pre-registered SwiftMath fonts to keep native math rendering available.")
+        return
+    }
+}
+#endif
+
+@Test
 func markdownMathImageViewDoesNotUseHighInterpolation() throws {
     let sourceURL = URL(fileURLWithPath: #filePath)
         .deletingLastPathComponent()
@@ -365,6 +441,36 @@ func mathRendererCacheIdentityReflectsScale() {
     let renderer = NativeMarkdownMathRenderer()
     let identity = renderer.mathRendererCacheIdentity
     #expect(identity.contains("scale"))
-    #expect(identity.contains(String(Int(NativeMarkdownMathRenderer.renderScale))))
+    if case let .image(image) = renderer.preparedMath("x^2", isBlock: true, fontSize: 20) {
+        #expect(identity.contains("scale\(image.scale)"))
+    }
     #expect(identity.contains("diagnostics"))
+}
+
+@Test
+func mathRendererCacheIdentityPreservesFractionalScale() {
+    let scale2 = NativeMarkdownMathRenderer(rasterizationScaleForTesting: 2.0)
+    let scale25 = NativeMarkdownMathRenderer(rasterizationScaleForTesting: 2.5)
+
+    #expect(scale2.mathRendererCacheIdentity.contains("scale2.0"))
+    #expect(scale25.mathRendererCacheIdentity.contains("scale2.5"))
+    #expect(scale2.mathRendererCacheIdentity != scale25.mathRendererCacheIdentity)
+}
+
+@Test
+@MainActor
+func mathRendererCacheIdentityMatchesBackgroundPreparedScale() async {
+    #if canImport(SwiftMath)
+    let renderer = NativeMarkdownMathRenderer()
+    let identity = renderer.mathRendererCacheIdentity
+    let prepared = await Task.detached {
+        renderer.preparedMath("x^2", isBlock: true, fontSize: 20)
+    }.value
+
+    guard case let .image(image) = prepared else {
+        Issue.record("Expected off-main math preparation to produce an image.")
+        return
+    }
+    #expect(identity.contains("scale\(image.scale)"))
+    #endif
 }

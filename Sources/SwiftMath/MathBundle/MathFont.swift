@@ -49,13 +49,31 @@ public enum MathFont: String, CaseIterable, Identifiable {
     var fontName: String { self.rawValue }
 	
     public func cgFont() -> CGFont {
-        BundleManager.manager.obtainCGFont(font: self)
+        guard let cgFont = BundleManager.manager.obtainCGFontIfAvailable(font: self) else {
+            fatalError("\(#function) unable to locate CGFont \(fontName)")
+        }
+        return cgFont
     }
     public func ctFont(withSize size: CGFloat) -> CTFont {
-        BundleManager.manager.obtainCTFont(font: self, withSize: size)
+        guard let ctFont = BundleManager.manager.obtainCTFontIfAvailable(font: self, withSize: size) else {
+            fatalError("\(#function) unable to locate CTFont \(fontName)")
+        }
+        return ctFont
     }
     internal func rawMathTable() -> NSDictionary {
-        BundleManager.manager.obtainRawMathTable(font: self)
+        guard let mathTable = BundleManager.manager.obtainRawMathTableIfAvailable(font: self) else {
+            fatalError("\(#function) unable to locate mathTable: \(rawValue).plist")
+        }
+        return mathTable
+    }
+    internal func cgFontIfAvailable() -> CGFont? {
+        BundleManager.manager.obtainCGFontIfAvailable(font: self)
+    }
+    internal func ctFontIfAvailable(withSize size: CGFloat) -> CTFont? {
+        BundleManager.manager.obtainCTFontIfAvailable(font: self, withSize: size)
+    }
+    internal func rawMathTableIfAvailable() -> NSDictionary? {
+        BundleManager.manager.obtainRawMathTableIfAvailable(font: self)
     }
     
     //Note: Below code are no longer supported, unable to tell if UIFont/NSFont is threadsafe, not used in SwiftMath.
@@ -86,21 +104,23 @@ private class BundleManager {
     private var cgFonts = [MathFont: CGFont]()
     private var ctFonts = [CTFontSizePair: CTFont]()
     private var rawMathTables = [MathFont: NSDictionary]()
+    private var registeredFontURLs = [MathFont: URL]()
 
     private let threadSafeQueue = DispatchQueue(label: "com.smartmath.mathfont.threadsafequeue",
                                                 qos: .userInitiated,
                                                 attributes: .concurrent)
 
     private func registerCGFont(mathFont: MathFont) throws {
-        // Resolve `mathFonts.bundle` by filesystem probe (see
-        // `MTFont.mathFontsBundleURL`) rather than `Bundle.module`, whose
-        // generated accessor fatals in a signed `.app` because it never searches
-        // `Contents/Resources`.
-        guard let frameworkBundleURL = MTFont.mathFontsBundleURL(),
-              let resourceBundleURL = Bundle(url: frameworkBundleURL)?.path(forResource: mathFont.rawValue, ofType: "otf") else {
+        // Resolve `mathFonts.bundle` through the shared optional loader. It
+        // filesystem-probes runtime locations and never calls generated
+        // `Bundle.module`, whose missing-resource path is a fatal error.
+        guard let resourceURL = MTFont.mathFontsResourceBundle()?.url(
+            forResource: mathFont.rawValue,
+            withExtension: "otf"
+        ) else {
             throw FontError.fontPathNotFound
         }
-        guard let fontData = NSData(contentsOfFile: resourceBundleURL), let dataProvider = CGDataProvider(data: fontData) else {
+        guard let fontData = NSData(contentsOf: resourceURL), let dataProvider = CGDataProvider(data: fontData) else {
             throw FontError.invalidFontFile
         }
         guard let defaultCGFont = CGFont(dataProvider) else {
@@ -113,18 +133,32 @@ private class BundleManager {
         /// In particular it does not have the math italic characters which breaks our variable rendering.
         /// So we first load a CGFont from the file and then convert it to a CTFont.
         var errorRef: Unmanaged<CFError>? = nil
-        guard CTFontManagerRegisterGraphicsFont(defaultCGFont, &errorRef) else {
+        let didRegister = CTFontManagerRegisterFontsForURL(resourceURL as CFURL, .process, &errorRef)
+        guard didRegister || Self.registrationAlreadyExists(errorRef) else {
             throw FontError.registerFailed
+        }
+        if didRegister {
+            registeredFontURLs[mathFont] = resourceURL
         }
         let postsript  = (defaultCGFont.postScriptName as? String) ?? ""
         let cgfontName = (defaultCGFont.fullName as? String) ?? ""
         let threadName = Thread.isMainThread ? "main" : "global"
         debugPrint("mathFonts bundle resource: \(mathFont.rawValue), font: \(cgfontName), ps: \(postsript) registered on \(threadName).")
     }
+
+    private static func registrationAlreadyExists(_ errorRef: Unmanaged<CFError>?) -> Bool {
+        guard let error = errorRef?.takeRetainedValue() else {
+            return false
+        }
+        return CFEqual(CFErrorGetDomain(error), kCTFontManagerErrorDomain)
+            && CFErrorGetCode(error) == CTFontManagerError.alreadyRegistered.rawValue
+    }
     
     private func registerMathTable(mathFont: MathFont) throws {
-        guard let frameworkBundleURL = MTFont.mathFontsBundleURL(),
-              let mathTablePlist = Bundle(url: frameworkBundleURL)?.url(forResource: mathFont.rawValue, withExtension:"plist") else {
+        guard let mathTablePlist = MTFont.mathFontsResourceBundle()?.url(
+            forResource: mathFont.rawValue,
+            withExtension: "plist"
+        ) else {
             throw FontError.fontPathNotFound
         }
         guard let rawMathTable = NSDictionary(contentsOf: mathTablePlist),
@@ -139,39 +173,55 @@ private class BundleManager {
         debugPrint("mathFonts bundle resource: \(mathFont.rawValue).plist registered on \(threadName).")
     }
     
-    private func onDemandRegistration(mathFont: MathFont) {
-        guard threadSafeQueue.sync(execute: { cgFonts[mathFont] }) == nil else { return }
+    private func onDemandRegistration(mathFont: MathFont) -> Bool {
+        let alreadyLoaded = threadSafeQueue.sync {
+            cgFonts[mathFont] != nil && rawMathTables[mathFont] != nil
+        }
+        guard !alreadyLoaded else { return true }
         // Note: resourceLoading is now serialized.
-        threadSafeQueue.sync(flags: .barrier, execute: { [weak self] in
-            if self?.cgFonts[mathFont] == nil {
+        return threadSafeQueue.sync(flags: .barrier, execute: { [weak self] in
+            guard let self else { return false }
+            if self.cgFonts[mathFont] == nil || self.rawMathTables[mathFont] == nil {
                 do {
                     try BundleManager.manager.registerCGFont(mathFont: mathFont)
                     try BundleManager.manager.registerMathTable(mathFont: mathFont)
-
+                    return true
                 } catch {
-                    fatalError("MTMathFonts:\(#function) ondemand loading failed, mathFont \(mathFont.rawValue), reason \(error)")
+                    BundleManager.manager.clearCachedResources(for: mathFont)
+                    return false
                 }
             }
+            return true
         })
     }
-    fileprivate func obtainCGFont(font: MathFont) -> CGFont {
-        onDemandRegistration(mathFont: font)
-        guard let cgFont = threadSafeQueue.sync(execute: { cgFonts[font] }) else {
-            fatalError("\(#function) unable to locate CGFont \(font.fontName)")
+    private func clearCachedResources(for mathFont: MathFont) {
+        cgFonts[mathFont] = nil
+        rawMathTables[mathFont] = nil
+        ctFonts = ctFonts.filter { $0.key.font != mathFont }
+        if let resourceURL = registeredFontURLs.removeValue(forKey: mathFont) {
+            var errorRef: Unmanaged<CFError>? = nil
+            CTFontManagerUnregisterFontsForURL(resourceURL as CFURL, .process, &errorRef)
         }
-        return cgFont
+    }
+    fileprivate func obtainCGFontIfAvailable(font: MathFont) -> CGFont? {
+        guard onDemandRegistration(mathFont: font) else { return nil }
+        return threadSafeQueue.sync(execute: { cgFonts[font] })
     }
     
-    fileprivate func obtainCTFont(font: MathFont, withSize size: CGFloat) -> CTFont {
-        onDemandRegistration(mathFont: font)
+    fileprivate func obtainCTFontIfAvailable(font: MathFont, withSize size: CGFloat) -> CTFont? {
+        guard MTFont.canRenderFontSize(size) else { return nil }
+        guard onDemandRegistration(mathFont: font) else { return nil }
         let fontSizePair = CTFontSizePair(font: font, size: size)
-        let ctFont = threadSafeQueue.sync(execute: { ctFonts[fontSizePair] })
-        guard ctFont == nil else { return ctFont! }
+        if let ctFont = threadSafeQueue.sync(execute: { ctFonts[fontSizePair] }) {
+            return ctFont
+        }
         guard let cgFont = threadSafeQueue.sync(execute: { cgFonts[font] }) else {
-            fatalError("\(#function) unable to locate CGFont \(font.fontName) to create CTFont")
+            return nil
         }
         //Note: ctfont creation and caching is now threadsafe.
-        guard threadSafeQueue.sync(execute: { ctFonts[fontSizePair] }) == nil else { return ctFonts[fontSizePair]! }
+        if let cachedFont = threadSafeQueue.sync(execute: { ctFonts[fontSizePair] }) {
+            return cachedFont
+        }
         return threadSafeQueue.sync(flags: .barrier, execute: {
             if let ctfont = ctFonts[fontSizePair] {
                 return ctfont
@@ -182,19 +232,17 @@ private class BundleManager {
             }
         })
     }
-    fileprivate func obtainRawMathTable(font: MathFont) -> NSDictionary {
-        onDemandRegistration(mathFont: font)
-        guard let mathTable = threadSafeQueue.sync(execute: { rawMathTables[font] } ) else {
-            fatalError("\(#function) unable to locate mathTable: \(font.rawValue).plist")
-        }
-        return mathTable
+    fileprivate func obtainRawMathTableIfAvailable(font: MathFont) -> NSDictionary? {
+        guard onDemandRegistration(mathFont: font) else { return nil }
+        return threadSafeQueue.sync(execute: { rawMathTables[font] } )
     }
     deinit {
         ctFonts.removeAll()
         var errorRef: Unmanaged<CFError>? = nil
-        cgFonts.values.forEach { cgFont in
-            CTFontManagerUnregisterGraphicsFont(cgFont, &errorRef)
+        registeredFontURLs.values.forEach { resourceURL in
+            CTFontManagerUnregisterFontsForURL(resourceURL as CFURL, .process, &errorRef)
         }
+        registeredFontURLs.removeAll()
         cgFonts.removeAll()
     }
     public enum FontError: Error {

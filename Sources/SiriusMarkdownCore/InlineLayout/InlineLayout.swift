@@ -257,14 +257,28 @@ public extension InlineMeasuring {
     }
 
     func width(of segment: PreparedInlineSegment, fontSize: Double) -> Double {
-        width(of: segment.text, fontSize: fontSize)
+        if let attachmentMetrics = segment.attachmentMetrics {
+            return attachmentMetrics.pointWidth
+        }
+
+        return width(of: segment.text, fontSize: fontSize)
     }
 }
 
 public typealias TextMeasurer = InlineMeasuring
 
+public enum MarkdownMissingGlyphMeasurement: String, Sendable, Hashable {
+    /// Shape with CoreText's real cascade list so preparation matches the
+    /// glyphs the native paint path will draw.
+    case nativeFallbackShaping
+    /// Use the selected base font's missing-glyph advance for unsupported
+    /// scalars, matching Pretext's canvas oracle fixtures.
+    case pretextBaseFontAdvances
+}
+
 public struct CoreTextInlineMeasurer: InlineMeasuring {
     public var profiles: MarkdownInlineFontProfiles
+    public var missingGlyphMeasurement: MarkdownMissingGlyphMeasurement
 
     public var fontName: String {
         get {
@@ -281,19 +295,28 @@ public struct CoreTextInlineMeasurer: InlineMeasuring {
     }
 
     public var measurementCacheKey: String {
-        "coretext:\(profiles.cacheKey)"
+        "coretext:\(profiles.cacheKey):missing:\(missingGlyphMeasurement.rawValue)"
     }
 
     public init() {
         self.profiles = MarkdownInlineFontProfiles()
+        self.missingGlyphMeasurement = .nativeFallbackShaping
     }
 
-    public init(fontName: String) {
+    public init(
+        fontName: String,
+        missingGlyphMeasurement: MarkdownMissingGlyphMeasurement = .nativeFallbackShaping
+    ) {
         self.profiles = MarkdownInlineFontProfiles(uniform: .named(fontName))
+        self.missingGlyphMeasurement = missingGlyphMeasurement
     }
 
-    public init(profiles: MarkdownInlineFontProfiles) {
+    public init(
+        profiles: MarkdownInlineFontProfiles,
+        missingGlyphMeasurement: MarkdownMissingGlyphMeasurement = .nativeFallbackShaping
+    ) {
         self.profiles = profiles
+        self.missingGlyphMeasurement = missingGlyphMeasurement
     }
 
     public func width(of segment: PreparedInlineSegment, fontSize: Double) -> Double {
@@ -304,60 +327,96 @@ public struct CoreTextInlineMeasurer: InlineMeasuring {
         return width(
             of: segment.text,
             fontSize: fontSize,
-            profile: profiles.profile(for: segment.presentation, kind: segment.kind)
+            profile: profiles.profile(for: segment.presentation, kind: segment.kind),
+            kind: segment.kind,
+            presentation: segment.presentation
         )
     }
 
     public func width(of text: String, fontSize: Double) -> Double {
-        width(of: text, fontSize: fontSize, profile: profiles.body)
+        width(
+            of: text,
+            fontSize: fontSize,
+            profile: profiles.body,
+            kind: .text,
+            presentation: []
+        )
     }
 
-    private func width(of text: String, fontSize: Double, profile: MarkdownFontProfile) -> Double {
+    private func width(
+        of text: String,
+        fontSize: Double,
+        profile: MarkdownFontProfile,
+        kind: MarkdownInlineKind,
+        presentation: MarkdownInlinePresentation
+    ) -> Double {
         guard !text.isEmpty else {
             return 0
         }
 
         #if canImport(CoreText)
-        let font = makeFont(profile: profile, fontSize: fontSize)
-        if selectedFontCoversEveryScalar(in: text, font: font) {
+        let font = makeFont(
+            profile: profile,
+            fontSize: fontSize,
+            kind: kind,
+            presentation: presentation
+        )
+        switch missingGlyphMeasurement {
+        case .nativeFallbackShaping:
             return shapedWidth(of: text, font: font)
+        case .pretextBaseFontAdvances:
+            if selectedFontCoversEveryScalar(in: text, font: font) {
+                return shapedWidth(of: text, font: font)
+            }
+            return baseFontAdvanceWidth(of: text, font: font)
         }
-
-        return baseFontAdvanceWidth(of: text, font: font)
         #else
         return Double(text.count) * fontSize * 0.5
         #endif
     }
 
     #if canImport(CoreText)
-    private func makeFont(profile: MarkdownFontProfile, fontSize: Double) -> CTFont {
+    private func makeFont(
+        profile: MarkdownFontProfile,
+        fontSize: Double,
+        kind: MarkdownInlineKind,
+        presentation: MarkdownInlinePresentation
+    ) -> CTFont {
+        let semanticTraits = semanticTraits(kind: kind, presentation: presentation)
         switch profile {
         case let .named(name, weight):
             let base = CTFontCreateWithName(name as CFString, fontSize, nil)
-            return apply(weight: weight, to: base, fontSize: fontSize)
+            return apply(
+                weight: weight,
+                symbolicTraits: semanticTraits,
+                to: base,
+                fontSize: fontSize
+            )
         case let .system(weight, design):
             let base = systemFont(design: design, fontSize: fontSize)
-            return apply(weight: weight, design: design, to: base, fontSize: fontSize)
+            return apply(
+                weight: weight,
+                symbolicTraits: fontSymbolicTraits(for: design).union(semanticTraits),
+                to: base,
+                fontSize: fontSize
+            )
         case let .monospacedSystem(weight):
             let base = systemFont(design: .default, fontSize: fontSize)
-            return apply(weight: weight, design: .monospaced, to: base, fontSize: fontSize)
+            return apply(
+                weight: weight,
+                symbolicTraits: CTFontSymbolicTraits.traitMonoSpace.union(semanticTraits),
+                to: base,
+                fontSize: fontSize
+            )
         }
     }
 
     private func apply(
         weight: MarkdownFontWeight,
-        design: MarkdownFontDesign = .default,
+        symbolicTraits: CTFontSymbolicTraits,
         to font: CTFont,
         fontSize: Double
     ) -> CTFont {
-        let symbolicTraits: CTFontSymbolicTraits
-        switch design {
-        case .default, .serif, .rounded:
-            symbolicTraits = []
-        case .monospaced:
-            symbolicTraits = .traitMonoSpace
-        }
-
         var traits: [CFString: Any] = [:]
         if let weightValue = fontWeightValue(for: weight) {
             traits[kCTFontWeightTrait] = weightValue
@@ -379,6 +438,30 @@ public struct CoreTextInlineMeasurer: InlineMeasuring {
             symbolicTraits,
             symbolicTraits
         ) ?? weighted
+    }
+
+    private func semanticTraits(
+        kind: MarkdownInlineKind,
+        presentation: MarkdownInlinePresentation
+    ) -> CTFontSymbolicTraits {
+        var traits: CTFontSymbolicTraits = []
+        if kind == .emphasis || presentation.contains(.emphasis) {
+            traits.insert(.traitItalic)
+        }
+        if kind == .code || kind == .math ||
+            presentation.contains(.code) || presentation.contains(.math) {
+            traits.insert(.traitMonoSpace)
+        }
+        return traits
+    }
+
+    private func fontSymbolicTraits(for design: MarkdownFontDesign) -> CTFontSymbolicTraits {
+        switch design {
+        case .monospaced:
+            return .traitMonoSpace
+        case .default, .serif, .rounded:
+            return []
+        }
     }
 
     private func systemFont(design: MarkdownFontDesign, fontSize: Double) -> CTFont {
@@ -429,7 +512,6 @@ public struct CoreTextInlineMeasurer: InlineMeasuring {
             guard !coveredRun.isEmpty else {
                 return
             }
-
             width += shapedWidth(of: coveredRun, font: font)
             coveredRun.removeAll(keepingCapacity: true)
         }
@@ -455,7 +537,6 @@ public struct CoreTextInlineMeasurer: InlineMeasuring {
         guard scalar.value <= UInt16.max else {
             return false
         }
-
         var character = UniChar(scalar.value)
         var glyph = CGGlyph()
         return CTFontGetGlyphsForCharacters(font, &character, &glyph, 1)
@@ -467,6 +548,7 @@ public struct CoreTextInlineMeasurer: InlineMeasuring {
         CTFontGetAdvancesForGlyphs(font, .horizontal, &glyph, &advance, 1)
         return advance.width
     }
+
     #endif
 }
 
@@ -840,8 +922,9 @@ public struct InlineLayoutEngine<Measurer: InlineMeasuring>: Sendable {
     ) -> MeasuredInlineContent {
         let key = measuredCacheKey(for: prepared, fontSize: fontSize)
 
-        if let cached = measuredCache.value(forKey: key) {
+        if var cached = measuredCache.value(forKey: key) {
             diagnosticsRecorder.recordCacheHit()
+            cached.prepared = prepared
             return cached
         }
 
@@ -1028,8 +1111,8 @@ public struct InlineLayoutEngine<Measurer: InlineMeasuring>: Sendable {
                 byteRange: 0..<measured.prepared.naturalText.utf8.count,
                 lineRange: 1..<2
             ),
-            contentHash: preparedContentHash(
-                measured.prepared,
+            contentHash: measuredContentHash(
+                measured,
                 salt: "font:\(options.fontSize)|line:\(options.lineHeight)|width:\(options.containerWidth)|overwide:\(allowsOverwideFallback)|measurer:\(walker.measurer.measurementCacheKey)"
             ),
             namespace: "inline-layout"
@@ -1063,6 +1146,7 @@ public struct InlineLayoutEngine<Measurer: InlineMeasuring>: Sendable {
             hash = appendField("text", value: run.text, to: hash)
             hash = appendOptionalField("destination", value: run.destination, to: hash)
             hash = appendOptionalField("imageSource", value: run.imageSource, to: hash)
+            hash = appendAttachmentMetrics(run.attachmentMetrics, to: hash)
             if let sourceRange = run.sourceRange {
                 hash = appendField("source.present", value: "1", to: hash)
                 hash = appendField("source.byte.lower", value: String(sourceRange.byteRange.lowerBound), to: hash)
@@ -1084,6 +1168,32 @@ public struct InlineLayoutEngine<Measurer: InlineMeasuring>: Sendable {
         return hash
     }
 
+    private func measuredContentHash(_ measured: MeasuredInlineContent, salt: String) -> UInt64 {
+        var hash = append(salt, to: 0xcbf29ce484222325)
+        hash = appendDoubleField("measured.naturalWidth", value: measured.naturalWidth, to: hash)
+        hash = appendDoubleField("measured.fontSize", value: measured.fontSize, to: hash)
+        hash = appendField("measured.segmentCount", value: String(measured.segments.count), to: hash)
+
+        for measuredSegment in measured.segments {
+            hash = preparedSegmentHash(measuredSegment.segment, initialHash: hash)
+            hash = appendDoubleField("measured.segment.width", value: measuredSegment.width, to: hash)
+            hash = appendField("measured.unitCount", value: String(measuredSegment.units.count), to: hash)
+
+            for unit in measuredSegment.units {
+                hash = appendField("measured.unit.byte.lower", value: String(unit.byteRange.lowerBound), to: hash)
+                hash = appendField("measured.unit.byte.upper", value: String(unit.byteRange.upperBound), to: hash)
+                hash = appendDoubleField("measured.unit.width", value: unit.width, to: hash)
+                hash = appendField(
+                    "measured.unit.preferredBreak",
+                    value: unit.startsPreferredBreakUnit ? "1" : "0",
+                    to: hash
+                )
+            }
+        }
+
+        return hash
+    }
+
     private func preparedSegmentHash(_ segment: PreparedInlineSegment, salt: String) -> UInt64 {
         preparedSegmentHash(segment, initialHash: append(salt, to: 0xcbf29ce484222325))
     }
@@ -1097,7 +1207,43 @@ public struct InlineLayoutEngine<Measurer: InlineMeasuring>: Sendable {
         hash = appendField("segment.byte.upper", value: String(segment.byteRange.upperBound), to: hash)
         hash = appendField("segment.breakKind", value: segment.isHardBreak ? "hard" : "soft", to: hash)
         hash = appendField("segment.breakOpportunity", value: segment.isBreakOpportunity ? "break" : "nobreak", to: hash)
+        hash = appendAttachmentMetrics(segment.attachmentMetrics, to: hash)
         return hash
+    }
+
+    private func appendAttachmentMetrics(
+        _ metrics: MarkdownInlineAttachmentMetrics?,
+        to initialHash: UInt64
+    ) -> UInt64 {
+        var hash = appendField("attachment.present", value: metrics == nil ? "0" : "1", to: initialHash)
+        guard let metrics else {
+            return hash
+        }
+
+        hash = appendField("attachment.id", value: metrics.id.rawValue, to: hash)
+        hash = appendDoubleField("attachment.pointWidth", value: metrics.pointWidth, to: hash)
+        hash = appendDoubleField("attachment.pointHeight", value: metrics.pointHeight, to: hash)
+        hash = appendDoubleField("attachment.ascent", value: metrics.ascent, to: hash)
+        hash = appendDoubleField("attachment.descent", value: metrics.descent, to: hash)
+        hash = appendField("attachment.sizingSource", value: attachmentSizingSourceKey(metrics.sizingSource), to: hash)
+        return hash
+    }
+
+    private func appendDoubleField(_ name: String, value: Double, to initialHash: UInt64) -> UInt64 {
+        appendField(name, value: String(value.bitPattern), to: initialHash)
+    }
+
+    private func attachmentSizingSourceKey(_ sizingSource: MarkdownAttachmentSizingSource) -> String {
+        switch sizingSource {
+        case .themeDefault:
+            return "themeDefault"
+        case .aspectPlaceholder:
+            return "aspectPlaceholder"
+        case .intrinsicHint:
+            return "intrinsicHint"
+        case .decoded:
+            return "decoded"
+        }
     }
 
     private func measuredUnits(

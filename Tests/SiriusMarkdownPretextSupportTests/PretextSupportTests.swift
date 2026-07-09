@@ -59,7 +59,12 @@ func bundledPretextFixturesCompareAgainstSwiftLayout() throws {
         }
 
         let font = fontProfile(for: fixture)
-        var engine = InlineLayoutEngine(measurer: CoreTextInlineMeasurer(fontName: font.name))
+        var engine = InlineLayoutEngine(
+            measurer: CoreTextInlineMeasurer(
+                fontName: font.name,
+                missingGlyphMeasurement: .pretextBaseFontAdvances
+            )
+        )
         let measured = engine.prepareMeasuredContent(prepared, fontSize: font.size)
         let result = engine.layout(
             measured,

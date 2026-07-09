@@ -20,6 +20,9 @@ public class MTMathImage {
     public var fontSize:CGFloat {
         set {
             _fontSize = newValue
+            guard MTFont.canRenderFontSize(newValue) else {
+                return
+            }
             let font = font?.copy(withSize: newValue)
             self.font = font  // also forces an update
         }
@@ -45,11 +48,15 @@ public class MTMathImage {
     }
 }
 extension MTMathImage {
+    private static let maximumAssumedRasterScale: CGFloat = 4
+    private static let maximumRasterPixelDimension: CGFloat = 16_384
+    private static let maximumRasterPixelCount: CGFloat = 16_777_216
+
     /// Display-list ascent/descent from the typeset `MTMathListDisplay`.
     ///
     /// Mirrors `MathImage.LayoutInfo` so callers that must use `MTMathImage`
-    /// (which loads fonts through `MTFont.fontBundle` / `Bundle.module` in
-    /// SwiftPM tests) can still obtain true typographic metrics without the
+    /// (which loads fonts through `MTFont.fontBundle`'s runtime filesystem
+    /// probe) can still obtain true typographic metrics without the
     /// atom-tree heuristic in `SiriusMarkdownMath`.
     public struct LayoutInfo {
         public var ascent: CGFloat = 0
@@ -80,8 +87,27 @@ extension MTMathImage {
         )
     }
 
+    private static func canRasterize(size: CGSize) -> Bool {
+        guard size.width.isFinite, size.height.isFinite, size.width > 0, size.height > 0 else {
+            return false
+        }
+        let pixelWidth = (size.width * maximumAssumedRasterScale).rounded(.up)
+        let pixelHeight = (size.height * maximumAssumedRasterScale).rounded(.up)
+        return pixelWidth.isFinite
+            && pixelHeight.isFinite
+            && pixelWidth > 0
+            && pixelHeight > 0
+            && pixelWidth <= maximumRasterPixelDimension
+            && pixelHeight <= maximumRasterPixelDimension
+            && pixelWidth * pixelHeight <= maximumRasterPixelCount
+    }
+
     /// Typesets and rasterizes the equation, returning display-list metrics.
     public func asImage() -> (NSError?, MTImage?, LayoutInfo?) {
+        guard MTFont.canRenderFontSize(fontSize) else {
+            return (nil, nil, nil)
+        }
+
         func layoutImage(size: CGSize, displayList: MTMathListDisplay) {
             var textX = CGFloat(0)
             switch self.textAlignment {
@@ -101,7 +127,8 @@ extension MTMathImage {
         }
 
         var error: NSError?
-        guard let mathList = MTMathListBuilder.build(fromString: latex, error: &error), error == nil,
+        guard let font,
+              let mathList = MTMathListBuilder.build(fromString: latex, error: &error), error == nil,
               let displayList = MTTypesetter.createLineForMathList(mathList, font: font, style: currentStyle) else {
             return (error, nil, nil)
         }
@@ -110,6 +137,9 @@ extension MTMathImage {
         displayList.textColor = textColor
         
         let size = intrinsicContentSize
+        guard Self.canRasterize(size: size) else {
+            return (nil, nil, nil)
+        }
         layoutImage(size: size, displayList: displayList)
         let layout = LayoutInfo(ascent: displayList.ascent, descent: displayList.descent)
         

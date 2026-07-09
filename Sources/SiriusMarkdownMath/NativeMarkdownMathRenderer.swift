@@ -9,26 +9,38 @@ import AppKit
 #endif
 
 public struct NativeMarkdownMathRenderer: MarkdownMathRenderer, MarkdownMathRendererCacheIdentifying, MarkdownMathRendererFallbackDiagnosing {
-    public init() {}
+    private static let maximumRenderableFontSize = 512.0
 
-    /// Rasterization scale matching the screen's backing scale (min 2.0 for
-    /// sharp glyphs on non-Retina displays). Resolved lazily on first access
-    /// since screen queries must happen on the main thread where platforms expose them.
-    static let renderScale: Double = NativeMarkdownMathRenderer.resolveBackingScale()
+    private let rasterizationScale: Double
+
+    public init() {
+        self.rasterizationScale = Self.resolveBackingScale()
+    }
+
+    init(rasterizationScaleForTesting rasterizationScale: Double) {
+        self.rasterizationScale = rasterizationScale
+    }
+
+    /// Rasterization scale for math images. Main-thread callers use the
+    /// screen's backing scale; background preparation uses a nonblocking
+    /// Retina fallback because callers may be running while the main actor is
+    /// synchronously waiting for prepared content.
+    static var renderScale: Double {
+        NativeMarkdownMathRenderer.resolveBackingScale()
+    }
+
+    static func resolveBackingScaleForTesting() -> Double {
+        resolveBackingScale()
+    }
 
     private static func resolveBackingScale() -> Double {
-        if Thread.isMainThread {
-            return MainActor.assumeIsolated {
-                resolveBackingScaleOnMain()
-            }
+        guard Thread.isMainThread else {
+            return 2.0
         }
-        var scale: Double = 3.0
-        DispatchQueue.main.sync {
-            scale = MainActor.assumeIsolated {
-                resolveBackingScaleOnMain()
-            }
+
+        return MainActor.assumeIsolated {
+            resolveBackingScaleOnMain()
         }
-        return scale
     }
 
     @MainActor
@@ -46,10 +58,14 @@ public struct NativeMarkdownMathRenderer: MarkdownMathRenderer, MarkdownMathRend
 
     public var mathRendererCacheIdentity: String {
         #if canImport(SwiftMath)
-        return "siriusmarkdown.native-math.swiftmath.1.7.3.scale\(Int(Self.renderScale)).compat7-diagnostics"
+        return "siriusmarkdown.native-math.swiftmath.1.7.3.scale\(Self.cacheIdentityScaleComponent(rasterizationScale)).compat7-diagnostics"
         #else
         return "siriusmarkdown.native-math.unicode-fallback.v1"
         #endif
+    }
+
+    private static func cacheIdentityScaleComponent(_ scale: Double) -> String {
+        scale.description
     }
 
     public var recordsTextFallbackAsMathFallback: Bool {
@@ -57,12 +73,16 @@ public struct NativeMarkdownMathRenderer: MarkdownMathRenderer, MarkdownMathRend
     }
 
     public func preparedMath(_ source: String, isBlock: Bool, fontSize: Double) -> MarkdownPreparedMath {
+        guard fontSize.isFinite, fontSize > 0, fontSize <= Self.maximumRenderableFontSize else {
+            return .text(renderedMath(source, isBlock: isBlock))
+        }
+
         #if canImport(SwiftMath)
         if let image = SwiftMathTypesetter.shared.preparedImage(
             latex: source,
             isBlock: isBlock,
             fontSize: fontSize,
-            scale: Self.renderScale
+            scale: rasterizationScale
         ) {
             return .image(image)
         }
@@ -78,34 +98,83 @@ public struct NativeMarkdownMathRenderer: MarkdownMathRenderer, MarkdownMathRend
     }
 
     public static func normalizedMath(_ source: String) -> String {
-        var result = source
-        for replacement in replacements {
-            result = result.replacingOccurrences(of: replacement.key, with: replacement.value)
-        }
-
+        var result = replaceKnownCommands(in: source)
         result = replaceSuperscriptDigits(in: result)
         result = replaceSubscriptDigits(in: result)
         return result
     }
 
-    private static let replacements: [(key: String, value: String)] = [
-        ("\\rightarrow", "→"),
-        ("\\leftarrow", "←"),
-        ("\\leq", "≤"),
-        ("\\geq", "≥"),
-        ("\\neq", "≠"),
-        ("\\times", "×"),
-        ("\\cdot", "·"),
-        ("\\alpha", "α"),
-        ("\\beta", "β"),
-        ("\\gamma", "γ"),
-        ("\\delta", "δ"),
-        ("\\lambda", "λ"),
-        ("\\pi", "π"),
-        ("\\theta", "θ"),
-        ("\\sum", "∑"),
-        ("\\int", "∫")
+    private static let commandReplacements: [String: Character] = [
+        "rightarrow": "→",
+        "leftarrow": "←",
+        "leq": "≤",
+        "geq": "≥",
+        "neq": "≠",
+        "times": "×",
+        "cdot": "·",
+        "alpha": "α",
+        "beta": "β",
+        "gamma": "γ",
+        "delta": "δ",
+        "lambda": "λ",
+        "pi": "π",
+        "theta": "θ",
+        "sum": "∑",
+        "int": "∫"
     ]
+
+    private static func replaceKnownCommands(in source: String) -> String {
+        var result = ""
+        var cursor = source.startIndex
+
+        while cursor < source.endIndex {
+            guard source[cursor] == "\\" else {
+                result.append(source[cursor])
+                cursor = source.index(after: cursor)
+                continue
+            }
+
+            let commandStart = source.index(after: cursor)
+            guard commandStart < source.endIndex else {
+                result.append("\\")
+                break
+            }
+            if source[commandStart] == "\\" {
+                result.append(contentsOf: source[cursor...commandStart])
+                cursor = source.index(after: commandStart)
+                continue
+            }
+
+            var commandEnd = commandStart
+            while commandEnd < source.endIndex, isASCIILetter(source[commandEnd]) {
+                commandEnd = source.index(after: commandEnd)
+            }
+            guard commandEnd > commandStart else {
+                result.append("\\")
+                cursor = commandStart
+                continue
+            }
+
+            let command = String(source[commandStart..<commandEnd])
+            if let replacement = commandReplacements[command] {
+                result.append(replacement)
+            } else {
+                result.append(contentsOf: source[cursor..<commandEnd])
+            }
+            cursor = commandEnd
+        }
+
+        return result
+    }
+
+    private static func isASCIILetter(_ character: Character) -> Bool {
+        guard character.unicodeScalars.count == 1,
+              let value = character.unicodeScalars.first?.value
+        else {
+            return false
+        }
+        return (65...90).contains(value) || (97...122).contains(value)
+    }
 
     private static func replaceSuperscriptDigits(in source: String) -> String {
         replaceScriptDigits(in: source, marker: "^", digits: superscriptDigits)
@@ -124,6 +193,16 @@ public struct NativeMarkdownMathRenderer: MarkdownMathRenderer, MarkdownMathRend
         var cursor = source.startIndex
 
         while cursor < source.endIndex {
+            if source[cursor] == "\\" {
+                result.append("\\")
+                cursor = source.index(after: cursor)
+                if cursor < source.endIndex {
+                    result.append(source[cursor])
+                    cursor = source.index(after: cursor)
+                }
+                continue
+            }
+
             guard source[cursor] == marker else {
                 result.append(source[cursor])
                 cursor = source.index(after: cursor)
@@ -138,25 +217,17 @@ public struct NativeMarkdownMathRenderer: MarkdownMathRenderer, MarkdownMathRend
             }
 
             if source[next] == "{" {
-                var valueCursor = source.index(after: next)
-                var replaced = ""
-                while valueCursor < source.endIndex, source[valueCursor] != "}" {
-                    if let replacement = digits[source[valueCursor]] {
-                        replaced.append(replacement)
+                if let group = bracedScriptGroup(in: source, openingBrace: next, digits: digits) {
+                    if let replacement = group.replacement {
+                        result.append(replacement)
                     } else {
-                        replaced.append(source[valueCursor])
+                        result.append(contentsOf: source[cursor..<group.upperBound])
                     }
-                    valueCursor = source.index(after: valueCursor)
+                    cursor = group.upperBound
+                } else {
+                    result.append(contentsOf: source[cursor...])
+                    cursor = source.endIndex
                 }
-
-                guard valueCursor < source.endIndex else {
-                    result.append(source[cursor])
-                    cursor = next
-                    continue
-                }
-
-                result.append(replaced)
-                cursor = source.index(after: valueCursor)
             } else if let replacement = digits[source[next]] {
                 result.append(replacement)
                 cursor = source.index(after: next)
@@ -167,6 +238,52 @@ public struct NativeMarkdownMathRenderer: MarkdownMathRenderer, MarkdownMathRend
         }
 
         return result
+    }
+
+    private static func bracedScriptGroup(
+        in source: String,
+        openingBrace: String.Index,
+        digits: [Character: Character]
+    ) -> (upperBound: String.Index, replacement: String?)? {
+        var cursor = source.index(after: openingBrace)
+        var depth = 1
+        var replacement = ""
+        var isDigitOnly = true
+
+        while cursor < source.endIndex {
+            let character = source[cursor]
+            if character == "\\" {
+                isDigitOnly = false
+                cursor = source.index(after: cursor)
+                if cursor < source.endIndex {
+                    cursor = source.index(after: cursor)
+                }
+                continue
+            }
+            if character == "{" {
+                depth += 1
+                isDigitOnly = false
+                cursor = source.index(after: cursor)
+                continue
+            }
+            if character == "}" {
+                depth -= 1
+                let upperBound = source.index(after: cursor)
+                if depth == 0 {
+                    return (upperBound, isDigitOnly && !replacement.isEmpty ? replacement : nil)
+                }
+                cursor = upperBound
+                continue
+            }
+            if depth == 1, let digit = digits[character] {
+                replacement.append(digit)
+            } else {
+                isDigitOnly = false
+            }
+            cursor = source.index(after: cursor)
+        }
+
+        return nil
     }
 
     private static let superscriptDigits: [Character: Character] = [

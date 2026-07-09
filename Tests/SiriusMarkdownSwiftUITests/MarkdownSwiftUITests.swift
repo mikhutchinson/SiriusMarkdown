@@ -233,6 +233,9 @@ func inlineTextMetricsClampInvalidPublicThemeAndFallbackValues() throws {
     theme.tableVerticalCellPadding = .nan
     theme.headings.h1.fontSize = .infinity
     theme.headings.h1.lineHeight = .nan
+    theme.attachmentPlaceholder.pointWidth = .nan
+    theme.attachmentPlaceholder.pointHeight = .infinity
+    theme.attachmentPlaceholder.cornerRadius = .nan
 
     let paragraph = try firstBlock("Paragraph text")
     let heading = try firstBlock("# Heading")
@@ -249,6 +252,21 @@ func inlineTextMetricsClampInvalidPublicThemeAndFallbackValues() throws {
     #expect(theme.renderTableCornerRadius == 8)
     #expect(theme.renderTableHorizontalCellPadding == 12)
     #expect(theme.renderTableVerticalCellPadding == 9)
+    #expect(theme.attachmentPlaceholder.renderPointWidth == 220)
+    #expect(theme.attachmentPlaceholder.renderPointHeight == 140)
+    #expect(theme.attachmentPlaceholder.renderCornerRadius == 8)
+
+    let image = try firstBlock("![diagram](https://example.com/diagram.png)")
+    let attachmentConfiguration = MarkdownRendererConfiguration(
+        theme: theme,
+        imagePolicy: IdentityImagePolicy(identity: "allow", decision: .allow),
+        imageResolver: RecordingImageResolver()
+    )
+    let attachmentInline = try #require(attachmentConfiguration.prepare(block: image).inlineLayout)
+    let attachment = try #require(attachmentInline.attachments.values.first)
+    #expect(attachment.pointWidth == 220)
+    #expect(attachment.pointHeight == 140)
+    #expect(attachmentInline.lineHeight == 140)
 
     let fallbackView = InlineRunsView(
         attributed: AttributedString("Fallback"),
@@ -303,6 +321,27 @@ func inlineTextMetricsClampInvalidPublicThemeAndFallbackValues() throws {
     #expect(direct.measured.naturalWidth == 0)
     #expect(direct.measured.segments.first?.width == 0)
     #expect(direct.measured.segments.first?.units.first?.width == 0)
+
+    var invalidMathImage = MarkdownPreparedMathImage(
+        imageData: Data(),
+        scale: .nan,
+        pointWidth: .infinity,
+        pointHeight: -.infinity,
+        ascent: .nan,
+        descent: .infinity,
+        latex: "x"
+    )
+    #expect(invalidMathImage.renderScale == 1)
+    #expect(invalidMathImage.renderPointWidth == 0)
+    #expect(invalidMathImage.renderPointHeight == 0)
+    #expect(invalidMathImage.renderDescent == 0)
+
+    invalidMathImage.pointWidth = 100_000
+    invalidMathImage.pointHeight = 20
+    invalidMathImage.descent = 40
+    #expect(invalidMathImage.renderPointWidth == 16_384)
+    #expect(invalidMathImage.renderPointHeight == 20)
+    #expect(invalidMathImage.renderDescent == 20)
 }
 
 @Test
@@ -2623,7 +2662,14 @@ func deniedImageRemainsTextAtomicUnderAttachmentsPlan() throws {
 func allowedAttachmentEmitsThemeDefaultReservedMetricsWhenNoPixelDataAvailable() throws {
     let block = try firstBlock("Remote ![a very long alternative text description](https://example.com/diagram.png)")
     var theme = MarkdownTheme.compactChat
-    theme.attachmentPlaceholder = MarkdownAttachmentPlaceholderStyle(pointWidth: 180, pointHeight: 90)
+    let placeholderStyle = MarkdownAttachmentPlaceholderStyle(
+        pointWidth: 180,
+        pointHeight: 90,
+        cornerRadius: 3,
+        backgroundColor: .red,
+        borderColor: .blue
+    )
+    theme.attachmentPlaceholder = placeholderStyle
     let configuration = MarkdownRendererConfiguration(
         theme: theme,
         imagePolicy: IdentityImagePolicy(identity: "allow", decision: .allow),
@@ -2638,6 +2684,7 @@ func allowedAttachmentEmitsThemeDefaultReservedMetricsWhenNoPixelDataAvailable()
     #expect(attachment.pointWidth == 180)
     #expect(attachment.pointHeight == 90)
     #expect(attachment.policyDecision == .allow)
+    #expect(attachment.placeholderStyle == placeholderStyle)
 }
 
 @Test
@@ -2769,6 +2816,46 @@ func attachmentCacheInvalidatesOnThemePlaceholderChange() throws {
 }
 
 @Test
+func attachmentCacheInvalidatesOnPlaceholderChromeChange() throws {
+    let block = try firstBlock("Remote ![diagram](https://example.com/diagram.png)")
+    let cache = MarkdownRenderPreparationCache()
+    var firstTheme = MarkdownTheme.compactChat
+    firstTheme.attachmentPlaceholder = MarkdownAttachmentPlaceholderStyle(
+        pointWidth: 220,
+        pointHeight: 140,
+        cornerRadius: 2,
+        backgroundColor: .red,
+        borderColor: .blue
+    )
+    let firstConfiguration = MarkdownRendererConfiguration(
+        theme: firstTheme,
+        imagePolicy: IdentityImagePolicy(identity: "allow", decision: .allow),
+        imageResolver: RecordingImageResolver(),
+        preparationCache: cache
+    )
+    let first = try #require(firstConfiguration.prepare(block: block).inlineLayout)
+
+    var secondTheme = MarkdownTheme.compactChat
+    secondTheme.attachmentPlaceholder = MarkdownAttachmentPlaceholderStyle(
+        pointWidth: 220,
+        pointHeight: 140,
+        cornerRadius: 6,
+        backgroundColor: .green,
+        borderColor: .orange
+    )
+    let secondConfiguration = MarkdownRendererConfiguration(
+        theme: secondTheme,
+        imagePolicy: IdentityImagePolicy(identity: "allow", decision: .allow),
+        imageResolver: RecordingImageResolver(),
+        preparationCache: cache
+    )
+    let second = try #require(secondConfiguration.prepare(block: block).inlineLayout)
+
+    #expect(first.attachments.values.first?.placeholderStyle == firstTheme.attachmentPlaceholder)
+    #expect(second.attachments.values.first?.placeholderStyle == secondTheme.attachmentPlaceholder)
+}
+
+@Test
 func wideAttachmentInNarrowContainerWrapsAsAtomicBoxWithoutSplitting() throws {
     let block = try firstBlock("Wide image: ![diagram](https://example.com/diagram.png) after")
     var theme = MarkdownTheme.compactChat
@@ -2867,6 +2954,85 @@ func atomicAttachmentSelectionStillCoversFullImageSourceRange() throws {
 
 #if canImport(CoreText)
 @Test
+func preparedMeasurementMatchesPaintedCoreTextFallbackGlyphWidth() throws {
+    let block = try firstBlock("🚀🚀春天")
+    let inline = try #require(
+        MarkdownRendererConfiguration.compactChat.prepare(block: block).inlineLayout
+    )
+    let layout = inline.layout(containerWidth: inline.measured.naturalWidth + 1)
+    let plan = MarkdownCoreTextPaintedLinePlan.make(prepared: inline, layout: layout)
+    let paintedLine = try #require(plan.lines.first)
+
+    #expect(layout.lines.count == 1)
+    #expect(abs(Double(paintedLine.typographicWidth) - inline.measured.naturalWidth) < 0.5)
+}
+
+@Test
+func preparedMeasurementMatchesPaintedCoreTextSemanticFontTraits() throws {
+    for markdown in ["*ffffffffffff*", "`WWWWWWWWWWWW`"] {
+        let block = try firstBlock(markdown)
+        let inline = try #require(
+            MarkdownRendererConfiguration.compactChat.prepare(block: block).inlineLayout
+        )
+        let layout = inline.layout(containerWidth: inline.measured.naturalWidth + 1)
+        let plan = MarkdownCoreTextPaintedLinePlan.make(prepared: inline, layout: layout)
+        let paintedLine = try #require(plan.lines.first)
+
+        #expect(layout.lines.count == 1)
+        #expect(abs(Double(paintedLine.typographicWidth) - inline.measured.naturalWidth) < 0.5)
+    }
+}
+
+@Test
+func selectionXMapMatchesPaintedNestedSemanticFontTraits() throws {
+    let block = try firstBlock("MMMMMMMM [*ffffffffffffffff*](https://example.com) tail")
+    var theme = MarkdownTheme.compactChat
+    var profiles = theme.paragraphFontProfiles
+    profiles.body = .named("Helvetica")
+    profiles.emphasis = .named("Times")
+    theme.paragraphFontProfiles = profiles
+
+    let inline = try #require(
+        MarkdownRendererConfiguration(theme: theme).prepare(block: block).inlineLayout
+    )
+    let targetRun = try #require(
+        inline.prepared.runs.first {
+            $0.kind != .emphasis && $0.presentation.contains(.emphasis)
+        }
+    )
+    let sourceRange = try #require(targetRun.sourceRange)
+
+    var visibleStart = 0
+    for run in inline.prepared.runs {
+        if run.kind == targetRun.kind,
+           run.presentation == targetRun.presentation,
+           run.sourceRange == targetRun.sourceRange {
+            break
+        }
+        visibleStart += run.text.utf8.count
+    }
+
+    let layout = inline.layout(containerWidth: 4_000)
+    let line = try #require(layout.lines.first)
+    let geometry = try #require(MarkdownDocumentSelectionTextGeometry(prepared: inline, line: line))
+    let plan = MarkdownCoreTextPaintedLinePlan.make(prepared: inline, layout: layout)
+    let paintedLine = try #require(plan.lines.first)
+    let utf8Index = inline.prepared.naturalText.utf8.index(
+        inline.prepared.naturalText.utf8.startIndex,
+        offsetBy: visibleStart
+    )
+    let stringIndex = try #require(String.Index(utf8Index, within: inline.prepared.naturalText))
+    let utf16Index = inline.prepared.naturalText.utf16.distance(
+        from: inline.prepared.naturalText.utf16.startIndex,
+        to: try #require(stringIndex.samePosition(in: inline.prepared.naturalText.utf16))
+    )
+    let paintedX = CGFloat(CTLineGetOffsetForStringIndex(paintedLine.ctLine, utf16Index, nil))
+    let selectionX = geometry.xOffset(forSourceByteOffset: sourceRange.byteRange.lowerBound)
+
+    #expect(abs(selectionX - paintedX) < 0.5)
+}
+
+@Test
 func selectionXMapUsesBoxWidthNotPlaceholderGlyphWidth() throws {
     let block = try firstBlock("![diagram](https://example.com/diagram.png)")
     var theme = MarkdownTheme.compactChat
@@ -2918,6 +3084,37 @@ func linkWrappedAllowedAttachmentStillProducesClickableLinkFragment() throws {
 // MARK: - Inline Attachments (Part 03: hosts)
 
 #if canImport(AppKit) && canImport(CoreText)
+@Test
+@MainActor
+func attachmentHostUsesPreparedPlaceholderChromeStyle() throws {
+    let block = try firstBlock("![diagram](https://example.com/diagram.png)")
+    var theme = MarkdownTheme.compactChat
+    theme.attachmentPlaceholder = MarkdownAttachmentPlaceholderStyle(
+        pointWidth: 160,
+        pointHeight: 90,
+        cornerRadius: 3,
+        backgroundColor: .red,
+        borderColor: .blue
+    )
+    let configuration = MarkdownRendererConfiguration(
+        theme: theme,
+        imagePolicy: IdentityImagePolicy(identity: "allow", decision: .allow),
+        imageResolver: RecordingImageResolver()
+    )
+    let inline = try #require(configuration.prepare(block: block).inlineLayout)
+    let attachment = try #require(inline.attachments.values.first)
+    let host = MarkdownAttachmentHostNSView(
+        frame: NSRect(x: 0, y: 0, width: attachment.pointWidth, height: attachment.pointHeight)
+    )
+
+    host.record = attachment
+
+    let chrome = try #require(
+        host.layer?.sublayers?.compactMap { $0 as? MarkdownAttachmentPlaceholderChromeLayer }.first
+    )
+    #expect(chrome.cornerRadius == 3)
+}
+
 @Test
 @MainActor
 func hostCountEqualsAttachmentCountAndUpdatesInPlace() throws {
@@ -3572,6 +3769,25 @@ func codeHighlightCacheKeysIncludeLanguagePaletteAndHighlighterIdentity() throws
 }
 
 @Test
+func codeHighlightCacheKeysIncludeTheCompleteInfoString() throws {
+    let fooBlock = try firstBlock("```swift foo\nlet x = 1\n```")
+    let barBlock = try firstBlock("```swift bar\nlet x = 1\n```")
+    let cache = MarkdownRenderPreparationCache()
+    let highlighter = InfoStringCodeHighlighter()
+    let configuration = MarkdownRendererConfiguration(
+        codeHighlighter: highlighter,
+        preparationCache: cache
+    )
+
+    let first = try #require(configuration.prepare(block: fooBlock).code)
+    let second = try #require(configuration.prepare(block: barBlock).code)
+
+    #expect(String(first.characters).hasPrefix("swift foo:"))
+    #expect(String(second.characters).hasPrefix("swift bar:"))
+    #expect(highlighter.count == 2)
+}
+
+@Test
 func mermaidPreparationCacheKeysIncludeRendererIdentityAndSupportOptOut() throws {
     let mermaidBlock = try firstBlock("```mermaid\ngraph LR\nA[Start] --> B[Done]\n```")
     let cache = MarkdownRenderPreparationCache()
@@ -3626,6 +3842,8 @@ func mermaidPreparationCacheKeysIncludeThemeIdentity() throws {
     let firstTheme = MarkdownTheme()
     var secondTheme = firstTheme
     secondTheme.syntaxHighlightingPalette.section = .red
+    var thirdTheme = firstTheme
+    thirdTheme.textColor = .red
 
     let firstConfiguration = MarkdownRendererConfiguration(
         theme: firstTheme,
@@ -3648,15 +3866,27 @@ func mermaidPreparationCacheKeysIncludeThemeIdentity() throws {
     let secondPrepared = secondConfiguration.prepare(block: mermaidBlock)
     let afterSecondTheme = recorder.snapshot()
 
+    let thirdConfiguration = MarkdownRendererConfiguration(
+        theme: thirdTheme,
+        mermaidRenderer: renderer,
+        preparationCache: cache,
+        diagnosticsRecorder: recorder
+    )
+    let thirdPrepared = thirdConfiguration.prepare(block: mermaidBlock)
+    let afterThirdTheme = recorder.snapshot()
+
     #expect(firstTheme.renderCacheIdentity != secondTheme.renderCacheIdentity)
+    #expect(firstTheme.renderCacheIdentity != thirdTheme.renderCacheIdentity)
     #expect(firstPrepared.mermaid?.ascii == firstTheme.renderCacheIdentity)
     #expect(cachedFirstPrepared.mermaid?.ascii == firstPrepared.mermaid?.ascii)
     #expect(secondPrepared.mermaid?.ascii == secondTheme.renderCacheIdentity)
+    #expect(thirdPrepared.mermaid?.ascii == thirdTheme.renderCacheIdentity)
     #expect(afterFirst.mermaidRenderCount == 1)
     #expect(afterCachedFirst.mermaidRenderCount == afterFirst.mermaidRenderCount)
     #expect(afterCachedFirst.cacheHitCount == afterFirst.cacheHitCount + 1)
     #expect(afterSecondTheme.mermaidRenderCount == afterCachedFirst.mermaidRenderCount + 1)
-    #expect(renderer.count == 2)
+    #expect(afterThirdTheme.mermaidRenderCount == afterSecondTheme.mermaidRenderCount + 1)
+    #expect(renderer.count == 3)
 }
 
 @Test
@@ -3790,6 +4020,55 @@ func inlinePreparationCacheKeysSeparateRunFieldBoundaries() throws {
 }
 
 @Test
+func inlinePreparationCacheKeysIncludeAttachmentMetrics() throws {
+    let cache = MarkdownRenderPreparationCache()
+    let recorder = MarkdownDiagnosticsRecorder()
+    let configuration = MarkdownRendererConfiguration(
+        preparationCache: cache,
+        diagnosticsRecorder: recorder
+    )
+    let blockRange = MarkdownSourceRange(byteRange: 0..<24, lineRange: 1..<2)
+    let runRange = MarkdownSourceRange(byteRange: 6..<18, lineRange: 1..<2)
+
+    func imageBlock(width: Double, height: Double) -> MarkdownBlock {
+        MarkdownBlock(
+            id: MarkdownBlockID("same-block"),
+            kind: .paragraph,
+            sourceRange: blockRange,
+            text: markdownAttachmentPlaceholderCharacter,
+            inlines: [
+                MarkdownInlineRun(
+                    kind: .image,
+                    text: markdownAttachmentPlaceholderCharacter,
+                    sourceRange: runRange,
+                    attachmentMetrics: MarkdownInlineAttachmentMetrics(
+                        id: MarkdownAttachmentID(rawValue: "attachment-1"),
+                        pointWidth: width,
+                        pointHeight: height,
+                        ascent: height,
+                        descent: 0,
+                        sizingSource: .intrinsicHint
+                    )
+                )
+            ],
+            contentHash: 1,
+            isSealed: true
+        )
+    }
+
+    let large = try #require(configuration.prepare(block: imageBlock(width: 240, height: 120)).inlineLayout)
+    let afterLarge = recorder.snapshot()
+    let compact = try #require(configuration.prepare(block: imageBlock(width: 64, height: 32)).inlineLayout)
+    let afterCompact = recorder.snapshot()
+
+    #expect(large.prepared.runs.first?.attachmentMetrics?.pointWidth == 240)
+    #expect(large.measured.segments.first?.width == 240)
+    #expect(compact.prepared.runs.first?.attachmentMetrics?.pointWidth == 64)
+    #expect(compact.measured.segments.first?.width == 64)
+    #expect(afterCompact.cacheMissCount == afterLarge.cacheMissCount + 1)
+}
+
+@Test
 func preparedSnapshotReuseIgnoresSealStateOnlyChanges() throws {
     var stream = MarkdownStream()
     stream.append("Streaming **text**")
@@ -3865,6 +4144,34 @@ func mathPreparationCacheKeysIncludeRendererIdentity() throws {
     #expect(afterTwo.mathRenderCount == afterOne.mathRenderCount + 2)
     #expect(rendererOne.count == 2)
     #expect(rendererTwo.count == 2)
+}
+
+@Test
+func blockMathCacheKeyUsesTheExactRenderedMathSource() {
+    let range = MarkdownSourceRange(byteRange: 0..<12, lineRange: 1..<2)
+    func block(math: String) -> MarkdownBlock {
+        MarkdownBlock(
+            id: MarkdownBlockID("custom-math"),
+            kind: .mathBlock,
+            sourceRange: range,
+            text: "unchanged",
+            inlines: [MarkdownInlineRun(kind: .math, text: math, sourceRange: range)],
+            contentHash: 42,
+            isSealed: true
+        )
+    }
+
+    let renderer = IdentityMathRenderer(identity: "exact-source", prefix: "rendered")
+    let configuration = MarkdownRendererConfiguration(
+        mathRenderer: renderer,
+        preparationCache: MarkdownRenderPreparationCache()
+    )
+    let first = configuration.prepare(block: block(math: "x^2"))
+    let second = configuration.prepare(block: block(math: "y^3"))
+
+    #expect(plainString(first.math) == "rendered:x^2")
+    #expect(plainString(second.math) == "rendered:y^3")
+    #expect(renderer.count == 2)
 }
 
 @Test
@@ -5763,6 +6070,28 @@ private final class IdentityCodeHighlighter: MarkdownCodeHighlighter, MarkdownCo
             callCount += 1
         }
         return AttributedString(code)
+    }
+
+    var count: Int {
+        lock.withLock {
+            callCount
+        }
+    }
+}
+
+private final class InfoStringCodeHighlighter: MarkdownCodeHighlighter, MarkdownCodeHighlighterCacheIdentifying, @unchecked Sendable {
+    private let lock = NSLock()
+    private var callCount = 0
+
+    var codeHighlighterCacheIdentity: String {
+        "test.info-string-code"
+    }
+
+    func highlightedCode(_ code: String, infoString: String?) -> AttributedString {
+        lock.withLock {
+            callCount += 1
+        }
+        return AttributedString("\(infoString ?? "nil"):\(code)")
     }
 
     var count: Int {

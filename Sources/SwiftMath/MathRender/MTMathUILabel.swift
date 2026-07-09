@@ -118,6 +118,7 @@ public class MTMathUILabel : MTView {
     @IBInspectable
     public var fontSize:CGFloat {
         set {
+            guard MTFont.canRenderFontSize(newValue) else { return }
             _fontSize = newValue
             let font = font?.copy(withSize: newValue)
             self.font = font  // also forces an update
@@ -230,36 +231,42 @@ public class MTMathUILabel : MTView {
     
     override public func draw(_ dirtyRect: MTRect) {
         super.draw(dirtyRect)
-        if self.mathList == nil { return }
+        guard self.mathList != nil, let displayList else { return }
 
         // drawing code
-        let context = MTGraphicsGetCurrentContext()!
+        guard let context = MTGraphicsGetCurrentContext() else { return }
         context.saveGState()
-        displayList!.draw(context)
+        displayList.draw(context)
         context.restoreGState()
     }
     
     func _layoutSubviews() {
         if _mathList != nil {
             // print("Pre list = \(_mathList!)")
-            _displayList = MTTypesetter.createLineForMathList(_mathList, font: font, style: currentStyle)
-            _displayList!.textColor = textColor
+            guard let displayList = MTTypesetter.createLineForMathList(_mathList, font: font, style: currentStyle) else {
+                _displayList = nil
+                errorLabel?.frame = self.bounds
+                self.setNeedsDisplay()
+                return
+            }
+            _displayList = displayList
+            displayList.textColor = textColor
             // print("Post list = \(_mathList!)")
             var textX = CGFloat(0)
             switch self.textAlignment {
                 case .left:   textX = contentInsets.left
-                case .center: textX = (bounds.size.width - contentInsets.left - contentInsets.right - _displayList!.width) / 2 + contentInsets.left
-                case .right:  textX = bounds.size.width - _displayList!.width - contentInsets.right
+                case .center: textX = (bounds.size.width - contentInsets.left - contentInsets.right - displayList.width) / 2 + contentInsets.left
+                case .right:  textX = bounds.size.width - displayList.width - contentInsets.right
             }
             let availableHeight = bounds.size.height - contentInsets.bottom - contentInsets.top
             
             // center things vertically
-            var height = _displayList!.ascent + _displayList!.descent
+            var height = displayList.ascent + displayList.descent
             if height < fontSize/2 {
                 height = fontSize/2  // set height to half the font size
             }
-            let textY = (availableHeight - height) / 2 + _displayList!.descent + contentInsets.bottom
-            _displayList!.position = CGPointMake(textX, textY)
+            let textY = (availableHeight - height) / 2 + displayList.descent + contentInsets.bottom
+            displayList.position = CGPointMake(textX, textY)
         } else {
             _displayList = nil
         }
@@ -270,10 +277,11 @@ public class MTMathUILabel : MTView {
     func _sizeThatFits(_ size:CGSize) -> CGSize {
         guard _mathList != nil else { return size }
         var size = size
-        var displayList:MTMathListDisplay? = nil
-        displayList = MTTypesetter.createLineForMathList(_mathList, font: font, style: currentStyle)
-        size.width = displayList!.width + contentInsets.left + contentInsets.right
-        size.height = displayList!.ascent + displayList!.descent + contentInsets.top + contentInsets.bottom
+        guard let displayList = MTTypesetter.createLineForMathList(_mathList, font: font, style: currentStyle) else {
+            return size
+        }
+        size.width = displayList.width + contentInsets.left + contentInsets.right
+        size.height = displayList.ascent + displayList.descent + contentInsets.top + contentInsets.bottom
         return size
     }
     

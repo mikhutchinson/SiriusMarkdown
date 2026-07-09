@@ -1453,7 +1453,10 @@ private func inlineLayoutEngineClampsNonFiniteOverwideFallbackUnits() {
 @Test
 private func coreTextMeasurerMatchesPretextBaseFontProfileForMissingGlyphs() {
     #if canImport(CoreText)
-    let measurer = CoreTextInlineMeasurer(fontName: "Helvetica")
+    let measurer = CoreTextInlineMeasurer(
+        fontName: "Helvetica",
+        missingGlyphMeasurement: .pretextBaseFontAdvances
+    )
 
     #expect(abs(measurer.width(of: "Hello SiriusMarkdown", fontSize: 16) - 154.72) < 0.5)
     #expect(abs(measurer.width(of: "🚀🚀 春天 emoji wrap", fontSize: 16) - 126.82) < 0.5)
@@ -1933,6 +1936,70 @@ private func inlineLayoutEngineCachesMeasuredContentAndLayoutResults() {
 }
 
 @Test
+private func measuredInlineCachePreservesCurrentPreparedRunMetadata() {
+    let sourceRange = MarkdownSourceRange(byteRange: 0..<4, lineRange: 1..<2)
+    var engine = InlineLayoutEngine(measurer: CountingWidthMeasurer(), cacheCapacity: 8)
+
+    let first = engine.prepareMeasuredContent(
+        runs: [
+            MarkdownInlineRun(kind: .link, text: "same", destination: "https://example.com/first")
+        ],
+        sourceRange: sourceRange,
+        fontSize: 1
+    )
+    let afterFirst = engine.diagnosticsCounters
+
+    let second = engine.prepareMeasuredContent(
+        runs: [
+            MarkdownInlineRun(kind: .link, text: "same", destination: "https://example.com/second")
+        ],
+        sourceRange: sourceRange,
+        fontSize: 1
+    )
+    let afterSecond = engine.diagnosticsCounters
+
+    #expect(first.prepared.runs.first?.destination == "https://example.com/first")
+    #expect(second.prepared.runs.first?.destination == "https://example.com/second")
+    #expect(afterSecond.prepareCount == afterFirst.prepareCount)
+    #expect(afterSecond.cacheHitCount == afterFirst.cacheHitCount + 1)
+}
+
+@Test
+private func inlineLayoutCacheKeyIncludesSuppliedMeasurements() {
+    let prepared = PreparedInlineContent(
+        runs: [MarkdownInlineRun(kind: .text, text: "a b")]
+    )
+    let compact = MeasuredInlineContent(
+        prepared: prepared,
+        segments: zip(prepared.segments, [1.0, 1.0, 1.0]).map {
+            MeasuredInlineSegment(segment: $0.0, width: $0.1)
+        },
+        naturalWidth: 3,
+        fontSize: 1
+    )
+    let expanded = MeasuredInlineContent(
+        prepared: prepared,
+        segments: zip(prepared.segments, [3.0, 1.0, 3.0]).map {
+            MeasuredInlineSegment(segment: $0.0, width: $0.1)
+        },
+        naturalWidth: 7,
+        fontSize: 1
+    )
+    let options = InlineLayoutOptions(containerWidth: 4, fontSize: 1, lineHeight: 2)
+    var engine = InlineLayoutEngine(measurer: CountingWidthMeasurer(), cacheCapacity: 8)
+
+    let compactLayout = engine.layout(compact, options: options, allowsOverwideFallback: false)
+    let afterCompact = engine.diagnosticsCounters
+    let expandedLayout = engine.layout(expanded, options: options, allowsOverwideFallback: false)
+    let afterExpanded = engine.diagnosticsCounters
+
+    #expect(compactLayout.lines.count == 1)
+    #expect(expandedLayout.lines.count == 2)
+    #expect(expandedLayout.naturalWidth == 7)
+    #expect(afterExpanded.layoutCount == afterCompact.layoutCount + 1)
+}
+
+@Test
 private func inlineLayoutEnginePreparedCacheKeyIncludesRunSourceRanges() {
     let sourceRange = MarkdownSourceRange(byteRange: 0..<16, lineRange: 1..<2)
     let firstRunRange = MarkdownSourceRange(byteRange: 2..<6, lineRange: 1..<2)
@@ -1986,6 +2053,50 @@ private func inlineLayoutEnginePreparedCacheKeySeparatesRunFieldBoundaries() {
     #expect(second.runs.first?.text == "ab")
     #expect(second.runs.first?.destination == "c")
     #expect(afterSecond.cacheMissCount == afterFirst.cacheMissCount + 1)
+}
+
+@Test
+private func inlineLayoutEngineCacheKeyIncludesAttachmentMetrics() {
+    let sourceRange = MarkdownSourceRange(byteRange: 0..<24, lineRange: 1..<2)
+    let imageRange = MarkdownSourceRange(byteRange: 5..<17, lineRange: 1..<2)
+    var engine = InlineLayoutEngine(measurer: CountingWidthMeasurer(), cacheCapacity: 8)
+
+    func imageRun(width: Double, height: Double) -> MarkdownInlineRun {
+        MarkdownInlineRun(
+            kind: .image,
+            text: markdownAttachmentPlaceholderCharacter,
+            sourceRange: imageRange,
+            imageSource: "diagram.png",
+            attachmentMetrics: MarkdownInlineAttachmentMetrics(
+                id: MarkdownAttachmentID(rawValue: "image-1"),
+                pointWidth: width,
+                pointHeight: height,
+                ascent: height * 0.8,
+                descent: height * 0.2,
+                sizingSource: .intrinsicHint
+            )
+        )
+    }
+
+    let large = engine.prepareMeasuredContent(
+        runs: [imageRun(width: 240, height: 120)],
+        sourceRange: sourceRange,
+        fontSize: 14
+    )
+    let afterLarge = engine.diagnosticsCounters
+
+    let compact = engine.prepareMeasuredContent(
+        runs: [imageRun(width: 64, height: 32)],
+        sourceRange: sourceRange,
+        fontSize: 14
+    )
+    let afterCompact = engine.diagnosticsCounters
+
+    #expect(large.segments.first?.segment.attachmentMetrics?.pointWidth == 240)
+    #expect(large.segments.first?.width == 240)
+    #expect(compact.segments.first?.segment.attachmentMetrics?.pointWidth == 64)
+    #expect(compact.segments.first?.width == 64)
+    #expect(afterCompact.cacheMissCount > afterLarge.cacheMissCount)
 }
 
 @Test

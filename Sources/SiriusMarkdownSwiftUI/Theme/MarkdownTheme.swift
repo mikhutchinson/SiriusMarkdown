@@ -277,12 +277,30 @@ public struct MarkdownAttachmentPlaceholderStyle: Sendable, Hashable {
 
     public static let `default` = MarkdownAttachmentPlaceholderStyle()
 
+    var renderPointWidth: Double {
+        sanitizedPositive(pointWidth, fallback: Self.default.pointWidth)
+    }
+
+    var renderPointHeight: Double {
+        sanitizedPositive(pointHeight, fallback: Self.default.pointHeight)
+    }
+
+    var renderCornerRadius: CGFloat {
+        cornerRadius.isFinite && cornerRadius >= 0 ? cornerRadius : Self.default.cornerRadius
+    }
+
     var renderCacheIdentity: String {
         markdownThemeCacheKey([
-            ("width", String(pointWidth)),
-            ("height", String(pointHeight)),
-            ("corner", String(Double(cornerRadius)))
+            ("width", String(renderPointWidth)),
+            ("height", String(renderPointHeight)),
+            ("corner", String(Double(renderCornerRadius))),
+            ("background", markdownThemeHashIdentity(backgroundColor)),
+            ("border", markdownThemeHashIdentity(borderColor))
         ])
+    }
+
+    private func sanitizedPositive(_ value: Double, fallback: Double) -> Double {
+        value.isFinite && value > 0 ? value : fallback
     }
 }
 
@@ -481,6 +499,7 @@ public struct MarkdownTheme: Sendable, Hashable {
 
     var renderCacheIdentity: String {
         markdownThemeCacheKey([
+            ("themeHash", markdownThemeHashIdentity(self)),
             ("paragraphSize", String(paragraphFontSize)),
             ("paragraphLine", String(paragraphLineHeight)),
             ("codeSize", String(codeFontSize)),
@@ -734,6 +753,12 @@ private func markdownThemeCacheKey(_ fields: [(String, String)]) -> String {
         "\(name)#\(value.utf8.count):\(value)"
     }
     .joined(separator: "|")
+}
+
+private func markdownThemeHashIdentity<T: Hashable>(_ value: T) -> String {
+    var hasher = Hasher()
+    hasher.combine(value)
+    return String(hasher.finalize())
 }
 
 public extension MarkdownInlineFontProfiles {

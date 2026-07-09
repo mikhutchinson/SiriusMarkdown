@@ -168,7 +168,7 @@ final class MarkdownAttachmentHostNSView: NSView {
             placeholder = layer
         }
         placeholder?.frame = bounds
-        placeholder?.apply(style: .default)
+        placeholder?.apply(style: record?.placeholderStyle ?? .default)
     }
 
     override func layout() {
@@ -279,7 +279,7 @@ final class MarkdownAttachmentHostUIView: UIView {
             placeholder = chromeLayer
         }
         placeholder?.frame = bounds
-        placeholder?.apply(style: .default)
+        placeholder?.apply(style: record?.placeholderStyle ?? .default)
     }
 
     override func layoutSubviews() {
@@ -301,7 +301,7 @@ final class MarkdownAttachmentPlaceholderChromeLayer: CALayer {
         backgroundColor = style.backgroundColor.resolvedCGColor
         borderColor = style.borderColor.resolvedCGColor
         borderWidth = 1
-        cornerRadius = style.cornerRadius
+        cornerRadius = style.renderCornerRadius
     }
 }
 

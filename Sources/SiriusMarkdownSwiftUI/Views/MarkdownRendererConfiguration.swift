@@ -67,6 +67,7 @@ public struct MarkdownPreparedAttachment: Sendable, Hashable {
     public var descent: Double
     public var sizingSource: MarkdownAttachmentSizingSource
     public var policyDecision: MarkdownPolicyDecision
+    public var placeholderStyle: MarkdownAttachmentPlaceholderStyle
 
     public init(
         id: MarkdownAttachmentID,
@@ -76,7 +77,8 @@ public struct MarkdownPreparedAttachment: Sendable, Hashable {
         ascent: Double,
         descent: Double,
         sizingSource: MarkdownAttachmentSizingSource,
-        policyDecision: MarkdownPolicyDecision
+        policyDecision: MarkdownPolicyDecision,
+        placeholderStyle: MarkdownAttachmentPlaceholderStyle = .default
     ) {
         self.id = id
         self.image = image
@@ -86,6 +88,7 @@ public struct MarkdownPreparedAttachment: Sendable, Hashable {
         self.descent = descent
         self.sizingSource = sizingSource
         self.policyDecision = policyDecision
+        self.placeholderStyle = placeholderStyle
     }
 
     var metrics: MarkdownInlineAttachmentMetrics {
@@ -426,7 +429,7 @@ public struct MarkdownRendererConfiguration: Sendable {
             switch mathPolicy.evaluateMath(math, isBlock: true) {
             case .allow:
                 let fontSize = mathBlockFontSize
-                if let key = blockMathCacheKey(for: block, fontSize: fontSize) {
+                if let key = blockMathCacheKey(for: block, math: math, fontSize: fontSize) {
                     if let cached = preparationCache.math(forKey: key) {
                         diagnosticsRecorder.recordCacheHit()
                         return mathBlockContent(for: block, math: cached)
@@ -763,14 +766,6 @@ public struct MarkdownRendererConfiguration: Sendable {
         return trimmed
     }
 
-    private nonisolated static func cacheKey(for block: MarkdownBlock, namespace: String) -> MarkdownCacheKey {
-        MarkdownCacheKey(
-            sourceRange: block.sourceRange,
-            contentHash: block.contentHash == 0 ? stableHash(block.text) : block.contentHash,
-            namespace: namespace
-        )
-    }
-
     private nonisolated static func cacheNamespace(_ fields: [(String, String)]) -> String {
         fields.map { name, value in
             "\(name)#\(value.utf8.count):\(value)"
@@ -778,18 +773,23 @@ public struct MarkdownRendererConfiguration: Sendable {
         .joined(separator: "|")
     }
 
-    private func blockMathCacheKey(for block: MarkdownBlock, fontSize: Double) -> MarkdownCacheKey? {
+    private func blockMathCacheKey(
+        for block: MarkdownBlock,
+        math: String,
+        fontSize: Double
+    ) -> MarkdownCacheKey? {
         guard let mathPolicyIdentity,
               let mathRendererIdentity
         else {
             return nil
         }
 
-        return Self.cacheKey(
-            for: block,
+        return MarkdownCacheKey(
+            sourceRange: block.sourceRange,
+            contentHash: Self.stableHash(math),
             namespace: Self.cacheNamespace([
                 ("cache", "rendered-math:block"),
-                ("version", "4"),
+                ("version", "5"),
                 ("policy", mathPolicyIdentity),
                 ("renderer", mathRendererIdentity),
                 ("fontSize", String(fontSize))
@@ -920,8 +920,10 @@ public struct MarkdownRendererConfiguration: Sendable {
             contentHash: stableHash(code),
             namespace: cacheNamespace([
                 ("cache", "highlighted-code"),
-                ("version", "3"),
+                ("version", "4"),
                 ("language", language.cacheIdentity),
+                ("infoStringPresent", block.infoString == nil ? "0" : "1"),
+                ("infoString", block.infoString ?? ""),
                 ("palette", palette.cacheIdentity),
                 ("highlighter", highlighterIdentity)
             ])
@@ -1598,7 +1600,8 @@ public struct MarkdownRendererConfiguration: Sendable {
                 ascent: metrics.ascent,
                 descent: metrics.descent,
                 sizingSource: metrics.sizingSource,
-                policyDecision: decision.policyDecision
+                policyDecision: decision.policyDecision,
+                placeholderStyle: theme.attachmentPlaceholder
             )
         }
     }
@@ -1624,11 +1627,17 @@ public struct MarkdownRendererConfiguration: Sendable {
         for source: MarkdownPreparedImageSource
     ) -> (pointWidth: Double, pointHeight: Double, ascent: Double, descent: Double, sizingSource: MarkdownAttachmentSizingSource) {
         let placeholder = theme.attachmentPlaceholder
-        if let probed = Self.probedIntrinsicPointSize(for: source, maxWidth: placeholder.pointWidth) {
+        if let probed = Self.probedIntrinsicPointSize(for: source, maxWidth: placeholder.renderPointWidth) {
             return (probed.width, probed.height, probed.height, 0, .intrinsicHint)
         }
 
-        return (placeholder.pointWidth, placeholder.pointHeight, placeholder.pointHeight, 0, .themeDefault)
+        return (
+            placeholder.renderPointWidth,
+            placeholder.renderPointHeight,
+            placeholder.renderPointHeight,
+            0,
+            .themeDefault
+        )
     }
 
     /// Cheap header-only probe (no full pixel decode) of an attachment's
@@ -1806,6 +1815,7 @@ public struct MarkdownRendererConfiguration: Sendable {
             hash = appendField("text", value: run.text, to: hash)
             hash = appendOptionalField("destination", value: run.destination, to: hash)
             hash = appendOptionalField("imageSource", value: run.imageSource, to: hash)
+            hash = appendAttachmentMetrics(run.attachmentMetrics, to: hash)
             if let sourceRange = run.sourceRange {
                 hash = appendField("source.present", value: "1", to: hash)
                 hash = appendField("source.byte.lower", value: String(sourceRange.byteRange.lowerBound), to: hash)
@@ -1817,6 +1827,41 @@ public struct MarkdownRendererConfiguration: Sendable {
             }
         }
         return hash
+    }
+
+    private nonisolated static func appendAttachmentMetrics(
+        _ metrics: MarkdownInlineAttachmentMetrics?,
+        to initialHash: UInt64
+    ) -> UInt64 {
+        var hash = appendField("attachment.present", value: metrics == nil ? "0" : "1", to: initialHash)
+        guard let metrics else {
+            return hash
+        }
+
+        hash = appendField("attachment.id", value: metrics.id.rawValue, to: hash)
+        hash = appendDoubleField("attachment.pointWidth", value: metrics.pointWidth, to: hash)
+        hash = appendDoubleField("attachment.pointHeight", value: metrics.pointHeight, to: hash)
+        hash = appendDoubleField("attachment.ascent", value: metrics.ascent, to: hash)
+        hash = appendDoubleField("attachment.descent", value: metrics.descent, to: hash)
+        hash = appendField("attachment.sizingSource", value: attachmentSizingSourceKey(metrics.sizingSource), to: hash)
+        return hash
+    }
+
+    private nonisolated static func appendDoubleField(_ name: String, value: Double, to initialHash: UInt64) -> UInt64 {
+        appendField(name, value: String(value.bitPattern), to: initialHash)
+    }
+
+    private nonisolated static func attachmentSizingSourceKey(_ sizingSource: MarkdownAttachmentSizingSource) -> String {
+        switch sizingSource {
+        case .themeDefault:
+            return "themeDefault"
+        case .aspectPlaceholder:
+            return "aspectPlaceholder"
+        case .intrinsicHint:
+            return "intrinsicHint"
+        case .decoded:
+            return "decoded"
+        }
     }
 
     private nonisolated static func stableHash(_ text: String) -> UInt64 {

@@ -14,12 +14,16 @@ internal class MTFontMathTableV2: MTFontMathTable {
     private let fontSize: CGFloat
     private let unitsPerEm: UInt
     private let mTable: NSDictionary
-    init(mathFont: MathFont, size: CGFloat, unitsPerEm: UInt) {
+    init?(mathFont: MathFont, size: CGFloat, unitsPerEm: UInt) {
+        guard let rawMathTable = mathFont.rawMathTableIfAvailable(),
+              let mtfont = mathFont.mtfontIfAvailable(size: size) else {
+            return nil
+        }
         self.mathFont = mathFont
         self.fontSize = size
         self.unitsPerEm = unitsPerEm
-        mTable = mathFont.rawMathTable()
-        super.init(withFont: mathFont.mtfont(size: fontSize), mathTable: mTable)
+        mTable = rawMathTable
+        super.init(withFont: mtfont, mathTable: mTable)
         super._mathTable = nil
         // disable all possible access to _mathTable in superclass!
     }
@@ -47,17 +51,23 @@ internal class MTFontMathTableV2: MTFontMathTable {
     /** Returns an Array of all the vertical variants of the glyph if any. If
      there are no variants for the glyph, the array contains the given glyph. */
     override func getVerticalVariantsForGlyph(_ glyph: CGGlyph) -> [NSNumber?] {
-        guard let variants = mTable[kVertVariants] as? NSDictionary else { return [] }
+        guard let variants = mTable[kVertVariants] as? NSDictionary else {
+            return [NSNumber(value: glyph)]
+        }
         return self.getVariantsForGlyph(glyph, inDictionary: variants)
     }
     /** Returns an Array of all the horizontal variants of the glyph if any. If
      there are no variants for the glyph, the array contains the given glyph. */
     override func getHorizontalVariantsForGlyph(_ glyph: CGGlyph) -> [NSNumber?] {
-        guard let variants = mTable[kHorizVariants] as? NSDictionary else { return [] }
+        guard let variants = mTable[kHorizVariants] as? NSDictionary else {
+            return [NSNumber(value: glyph)]
+        }
         return self.getVariantsForGlyph(glyph, inDictionary:variants)
     }
     override func getVariantsForGlyph(_ glyph: CGGlyph, inDictionary variants: NSDictionary) -> [NSNumber?] {
-        let font = mathFont.mtfont(size: fontSize)
+        guard let font = mathFont.mtfontIfAvailable(size: fontSize) else {
+            return [NSNumber(value: glyph)]
+        }
         let glyphName = font.get(nameForGlyph: glyph)
         
         var glyphArray = [NSNumber]()
@@ -75,13 +85,13 @@ internal class MTFontMathTableV2: MTFontMathTable {
                 glyphArray.append(NSNumber(value:variantGlyph))
             }
         }
-        return glyphArray
+        return glyphArray.isEmpty ? [NSNumber(value: glyph)] : glyphArray
     }
     /** Returns a larger vertical variant of the given glyph if any.
      If there is no larger version, this returns the current glyph.
      */
     override func getLargerGlyph(_ glyph: CGGlyph) -> CGGlyph {
-        let font = mathFont.mtfont(size: fontSize)
+        guard let font = mathFont.mtfontIfAvailable(size: fontSize) else { return glyph }
         let glyphName = font.get(nameForGlyph: glyph)
 
         guard let variants = mTable[kVertVariants] as? NSDictionary,
@@ -102,7 +112,7 @@ internal class MTFontMathTableV2: MTFontMathTable {
     /** Returns the italic correction for the given glyph if any. If there
      isn't any this returns 0. */
     override func getItalicCorrection(_ glyph: CGGlyph) -> CGFloat {
-        let font = mathFont.mtfont(size: fontSize)
+        guard let font = mathFont.mtfontIfAvailable(size: fontSize) else { return .zero }
         let glyphName = font.get(nameForGlyph: glyph)
 
         guard let italics = mTable[kItalic] as? NSDictionary, let val = italics[glyphName] as? NSNumber else {
@@ -112,7 +122,7 @@ internal class MTFontMathTableV2: MTFontMathTable {
         return fontUnitsToPt(val.intValue)
     }
     override func getTopAccentAdjustment(_ glyph: CGGlyph) -> CGFloat {
-        let font = mathFont.mtfont(size: fontSize)
+        guard let font = mathFont.mtfontIfAvailable(size: fontSize) else { return .zero }
         let glyphName = font.get(nameForGlyph: glyph)
         
         guard let accents = mTable[kAccents] as? NSDictionary, let val = accents[glyphName] as? NSNumber else {
@@ -125,7 +135,7 @@ internal class MTFontMathTableV2: MTFontMathTable {
         return fontUnitsToPt(val.intValue)
     }
     override func getVerticalGlyphAssembly(forGlyph glyph: CGGlyph) -> [GlyphPart] {
-        let font = mathFont.mtfont(size: fontSize)
+        guard let font = mathFont.mtfontIfAvailable(size: fontSize) else { return [] }
         let glyphName = font.get(nameForGlyph: glyph)
         
         guard let assemblyTable = mTable[kVertAssembly] as? NSDictionary,

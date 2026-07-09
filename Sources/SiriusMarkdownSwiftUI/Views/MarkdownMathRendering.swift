@@ -77,12 +77,43 @@ public extension MarkdownMathRenderer {
 }
 
 extension MarkdownPreparedMathImage {
+    private static let maximumRenderPointDimension = 16_384.0
+
+    var renderScale: CGFloat {
+        guard scale.isFinite, scale > 0 else {
+            return 1
+        }
+        return CGFloat(scale)
+    }
+
+    var renderPointWidth: CGFloat {
+        CGFloat(Self.sanitizedDimension(pointWidth))
+    }
+
+    var renderPointHeight: CGFloat {
+        CGFloat(Self.sanitizedDimension(pointHeight))
+    }
+
+    var renderDescent: CGFloat {
+        guard descent.isFinite, descent > 0 else {
+            return 0
+        }
+        return min(CGFloat(descent), renderPointHeight)
+    }
+
+    private static func sanitizedDimension(_ value: Double) -> Double {
+        guard value.isFinite, value > 0 else {
+            return 0
+        }
+        return min(value, maximumRenderPointDimension)
+    }
+
     /// A correctly point-sized template `Image` whose RGB is replaced by the
     /// applied foreground style. The bitmap is stored at `scale`x pixels, so the
     /// platform image is reconstructed at that scale to recover its point size.
     var templateImage: Image? {
         #if canImport(UIKit)
-        guard let image = UIImage(data: imageData, scale: CGFloat(scale)) else {
+        guard let image = UIImage(data: imageData, scale: renderScale) else {
             return nil
         }
         return Image(uiImage: image.withRenderingMode(.alwaysTemplate))
@@ -90,7 +121,7 @@ extension MarkdownPreparedMathImage {
         guard let image = NSImage(data: imageData) else {
             return nil
         }
-        image.size = NSSize(width: pointWidth, height: pointHeight)
+        image.size = NSSize(width: renderPointWidth, height: renderPointHeight)
         image.isTemplate = true
         return Image(nsImage: image)
         #else
@@ -217,7 +248,7 @@ struct InlineMathTextView: View {
     /// display-list metrics from `MTMathImage.LayoutInfo` extracted during
     /// preparation.
     private func baselineOffset(for image: MarkdownPreparedMathImage) -> CGFloat {
-        -CGFloat(image.descent)
+        -image.renderDescent
     }
 }
 
@@ -231,7 +262,7 @@ struct MarkdownMathImageView: View {
             templateImage
                 .resizable()
                 .interpolation(.medium)
-                .frame(width: CGFloat(image.pointWidth), height: CGFloat(image.pointHeight))
+                .frame(width: image.renderPointWidth, height: image.renderPointHeight)
                 .foregroundStyle(color)
                 .accessibilityLabel(Text(image.accessibilityLabel))
         } else {

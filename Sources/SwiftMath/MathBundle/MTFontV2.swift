@@ -11,7 +11,15 @@ import CoreText
 
 extension MathFont {
     public func mtfont(size: CGFloat) -> MTFontV2 {
-        MTFontV2(font: self, size: size)
+        guard let font = mtfontIfAvailable(size: size) else {
+            fatalError("\(#function) unable to locate math font \(fontName)")
+        }
+        return font
+    }
+
+    internal func mtfontIfAvailable(size: CGFloat) -> MTFontV2? {
+        guard MTFont.canRenderFontSize(size) else { return nil }
+        return MTFontV2(font: self, size: size)
     }
 }
 public final class MTFontV2: MTFont {
@@ -21,13 +29,19 @@ public final class MTFontV2: MTFont {
     private let _ctFont: CTFont
     private let unitsPerEm: UInt
     private var _mathTab: MTFontMathTableV2?
-    init(font: MathFont = .latinModernFont, size: CGFloat) {
+    init?(font: MathFont = .latinModernFont, size: CGFloat) {
+        guard MTFont.canRenderFontSize(size),
+              let cgFont = font.cgFontIfAvailable(),
+              let ctFont = font.ctFontIfAvailable(withSize: size),
+              font.rawMathTableIfAvailable() != nil else {
+            return nil
+        }
         self.font = font
         self.size = size
         // MathFont cgfont and ctfont are fast & threadsafe, keep a local copy is cheaper than
         // handling via NSLock
-        self._cgFont = font.cgFont()
-        self._ctFont = font.ctFont(withSize: size)
+        self._cgFont = cgFont
+        self._ctFont = ctFont
         self.unitsPerEm = self._ctFont.unitsPerEm
         super.init()
         
@@ -48,14 +62,12 @@ public final class MTFontV2: MTFont {
     override var mathTable: MTFontMathTable? {
         set { fatalError("\(#function): change to \(font.rawValue) not allowed.") }
         get {
-            guard _mathTab == nil else { return _mathTab }
-            //Note: lazy _mathTab initialization is now threadsafe.
-            mtfontV2LockOnMathTable.lock()
-            defer { mtfontV2LockOnMathTable.unlock() }
-            if _mathTab == nil {
-                _mathTab = MTFontMathTableV2(mathFont: font, size: size, unitsPerEm: unitsPerEm)
+            mtfontV2LockOnMathTable.withLock {
+                if _mathTab == nil {
+                    _mathTab = MTFontMathTableV2(mathFont: font, size: size, unitsPerEm: unitsPerEm)
+                }
+                return _mathTab
             }
-            return _mathTab
         }
     }
     override var rawMathTable: NSDictionary? {
@@ -63,6 +75,6 @@ public final class MTFontV2: MTFont {
         get { fatalError("\(#function): access to \(font.rawValue) not allowed.") }
     }
     public override func copy(withSize size: CGFloat) -> MTFont {
-        MTFontV2(font: font, size: size)
+        MTFontV2(font: font, size: size) ?? self
     }
 }

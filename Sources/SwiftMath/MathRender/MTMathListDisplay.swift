@@ -11,20 +11,24 @@ import QuartzCore
 import CoreText
 import SwiftUI
 
+private let mtDisplaySupportLock = NSLock()
+
 func isIos6Supported() -> Bool {
-    if !MTDisplay.initialized {
+    mtDisplaySupportLock.withLock {
+        if !MTDisplay.initialized {
 #if os(iOS) || os(visionOS)
-        let reqSysVer = "6.0"
-        let currSysVer = UIDevice.current.systemVersion
-        if currSysVer.compare(reqSysVer, options: .numeric) != .orderedAscending {
-            MTDisplay.supported = true
-        }
+            let reqSysVer = "6.0"
+            let currSysVer = UIDevice.current.systemVersion
+            if currSysVer.compare(reqSysVer, options: .numeric) != .orderedAscending {
+                MTDisplay.supported = true
+            }
 #else
-        MTDisplay.supported = true
+            MTDisplay.supported = true
 #endif
-        MTDisplay.initialized = true
+            MTDisplay.initialized = true
+        }
+        return MTDisplay.supported
     }
-    return MTDisplay.supported
 }
 
 // The Downshift protocol allows an MTDisplay to be shifted down by a given amount.

@@ -9,9 +9,9 @@
 
 import Foundation
 
-public class MTFontManager {
+public class MTFontManager: @unchecked Sendable {
     
-    static public private(set) var manager: MTFontManager = {
+    static public let manager: MTFontManager = {
         MTFontManager()
     }()
     
@@ -23,18 +23,26 @@ public class MTFontManager {
 
     public init() { }
 
-    @RWLocked
-    var nameToFontMap = [String: MTFont]()
+    private let nameToFontMapLock = NSLock()
+    private var nameToFontMap = [String: MTFont]()
 
     public func font(withName name:String, size:CGFloat) -> MTFont? {
-        var f = self.nameToFontMap[name]
-        if f == nil {
-            f = MTFont(fontWithName: name, size: size)
-            self.nameToFontMap[name] = f
+        guard MTFont.canRenderFontSize(size) else { return nil }
+
+        let font: MTFont? = nameToFontMapLock.withLock {
+            if let cached = self.nameToFontMap[name] {
+                return cached
+            }
+            guard let loaded = MTFont(fontWithName: name, size: size) else {
+                return nil
+            }
+            self.nameToFontMap[name] = loaded
+            return loaded
         }
-        
-        if f!.fontSize == size { return f }
-        else { return f!.copy(withSize: size) }
+
+        guard let font else { return nil }
+        if font.fontSize == size { return font }
+        else { return font.copy(withSize: size) }
     }
     
     public func latinModernFont(withSize size:CGFloat) -> MTFont? {

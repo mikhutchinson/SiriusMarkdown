@@ -73,15 +73,19 @@ class MTFontMathTable {
     }
     
     func constantFromTable(_ constName:String) -> CGFloat {
-        let consts = _mathTable[kConstants] as! NSDictionary?
-        let val = consts![constName] as! NSNumber?
-        return fontUnitsToPt(val!.intValue)
+        guard let consts = _mathTable[kConstants] as? NSDictionary,
+              let val = consts[constName] as? NSNumber else {
+            return .zero
+        }
+        return fontUnitsToPt(val.intValue)
     }
     
     func percentFromTable(_ percentName:String) -> CGFloat {
-        let consts = _mathTable[kConstants] as! NSDictionary?
-        let val = consts![percentName] as! NSNumber?
-        return CGFloat(val!.floatValue) / 100
+        guard let consts = _mathTable[kConstants] as? NSDictionary,
+              let val = consts[percentName] as? NSNumber else {
+            return .zero
+        }
+        return CGFloat(val.floatValue) / 100
     }
     
     /// Math Font Metrics from the opentype specification
@@ -189,52 +193,59 @@ class MTFontMathTable {
     /** Returns an Array of all the vertical variants of the glyph if any. If
      there are no variants for the glyph, the array contains the given glyph. */
     func getVerticalVariantsForGlyph( _ glyph:CGGlyph) -> [NSNumber?] {
-        let variants = _mathTable[kVertVariants] as! NSDictionary?
-        return self.getVariantsForGlyph(glyph, inDictionary: variants!)
+        guard let variants = _mathTable[kVertVariants] as? NSDictionary else {
+            return [NSNumber(value: glyph)]
+        }
+        return self.getVariantsForGlyph(glyph, inDictionary: variants)
     }
 
     /** Returns an Array of all the horizontal variants of the glyph if any. If
      there are no variants for the glyph, the array contains the given glyph. */
     func getHorizontalVariantsForGlyph( _ glyph:CGGlyph) -> [NSNumber?] {
-        let variants = _mathTable[kHorizVariants] as! NSDictionary
+        guard let variants = _mathTable[kHorizVariants] as? NSDictionary else {
+            return [NSNumber(value: glyph)]
+        }
         return self.getVariantsForGlyph(glyph, inDictionary:variants)
     }
     
     func getVariantsForGlyph(_ glyph: CGGlyph, inDictionary variants:NSDictionary) -> [NSNumber?] {
-        let glyphName = self.font!.get(nameForGlyph: glyph)
-        let variantGlyphs = variants[glyphName] as! NSArray?
+        guard let font else { return [NSNumber(value: glyph)] }
+        let glyphName = font.get(nameForGlyph: glyph)
+        let variantGlyphs = variants[glyphName] as? NSArray
         var glyphArray = [NSNumber]()
         if variantGlyphs == nil || variantGlyphs?.count == 0 {
             // There are no extra variants, so just add the current glyph to it.
-            let glyph = self.font!.get(glyphWithName: glyphName)
+            let glyph = font.get(glyphWithName: glyphName)
             glyphArray.append(NSNumber(value:glyph))
             return glyphArray
         }
         for gvn in variantGlyphs! {
-            let glyphVariantName = gvn as! String?
-            let variantGlyph = self.font?.get(glyphWithName: glyphVariantName!)
-            glyphArray.append(NSNumber(value:variantGlyph!))
+            if let glyphVariantName = gvn as? String {
+                let variantGlyph = font.get(glyphWithName: glyphVariantName)
+                glyphArray.append(NSNumber(value:variantGlyph))
+            }
         }
-        return glyphArray
+        return glyphArray.isEmpty ? [NSNumber(value: glyph)] : glyphArray
     }
 
     /** Returns a larger vertical variant of the given glyph if any.
      If there is no larger version, this returns the current glyph.
      */
     func getLargerGlyph(_ glyph:CGGlyph) -> CGGlyph {
-        let variants = _mathTable[kVertVariants] as! NSDictionary?
-        let glyphName = self.font?.get(nameForGlyph: glyph)
-        let variantGlyphs = variants![glyphName!] as! NSArray?
-        if variantGlyphs == nil || variantGlyphs?.count == 0 {
+        guard let variants = _mathTable[kVertVariants] as? NSDictionary,
+              let font else {
+            return glyph
+        }
+        let glyphName = font.get(nameForGlyph: glyph)
+        guard let variantGlyphs = variants[glyphName] as? NSArray, variantGlyphs.count > 0 else {
             // There are no extra variants, so just returnt the current glyph.
             return glyph
         }
         // Find the first variant with a different name.
-        for gvn in variantGlyphs! {
-            let glyphVariantName = gvn as! String?
-            if glyphVariantName != glyphName {
-                let variantGlyph = self.font?.get(glyphWithName: glyphVariantName!)
-                return variantGlyph!
+        for gvn in variantGlyphs {
+            if let glyphVariantName = gvn as? String, glyphVariantName != glyphName {
+                let variantGlyph = font.get(glyphWithName: glyphVariantName)
+                return variantGlyph
             }
         }
         // We did not find any variants of this glyph so return it.
@@ -248,9 +259,12 @@ class MTFontMathTable {
     /** Returns the italic correction for the given glyph if any. If there
      isn't any this returns 0. */
     func getItalicCorrection(_ glyph: CGGlyph) -> CGFloat {
-        let italics = _mathTable[kItalic] as! NSDictionary?
-        let glyphName = self.font?.get(nameForGlyph: glyph)
-        let val = italics![glyphName!] as! NSNumber?
+        guard let italics = _mathTable[kItalic] as? NSDictionary,
+              let font else {
+            return .zero
+        }
+        let glyphName = font.get(nameForGlyph: glyph)
+        let val = italics[glyphName] as? NSNumber
         // if val is nil, this returns 0.
         return self.fontUnitsToPt(val?.intValue ?? 0)
     }
@@ -263,15 +277,16 @@ class MTFontMathTable {
      If there isn't any this returns -1. */
     func getTopAccentAdjustment(_ glyph: CGGlyph) -> CGFloat {
         var glyph = glyph
-        let accents = _mathTable[kAccents] as! NSDictionary?
-        let glyphName = self.font?.get(nameForGlyph: glyph)
-        let val = accents![glyphName!] as! NSNumber?
+        guard let font else { return .zero }
+        let accents = _mathTable[kAccents] as? NSDictionary
+        let glyphName = font.get(nameForGlyph: glyph)
+        let val = accents?[glyphName] as? NSNumber
         if let val = val {
             return self.fontUnitsToPt(val.intValue)
         } else {
             // If no top accent is defined then it is the center of the advance width.
             var advances = CGSize.zero
-            CTFontGetAdvancesForGlyphs(self.font!.ctFont, .horizontal, &glyph, &advances, 1)
+            CTFontGetAdvancesForGlyphs(font.ctFont, .horizontal, &glyph, &advances, 1)
             return advances.width/2
         }
     }
@@ -287,32 +302,35 @@ class MTFontMathTable {
     /** Returns an array of the glyph parts to be used for constructing vertical variants
      of this glyph. If there is no glyph assembly defined, returns an empty array. */
     func getVerticalGlyphAssembly(forGlyph glyph:CGGlyph) -> [GlyphPart] {
-        let assemblyTable = _mathTable[kVertAssembly] as! NSDictionary?
-        let glyphName = self.font?.get(nameForGlyph: glyph)
-        let assemblyInfo = assemblyTable![glyphName!] as! NSDictionary?
-        if assemblyInfo == nil {
+        guard let assemblyTable = _mathTable[kVertAssembly] as? NSDictionary,
+              let font else {
+            return []
+        }
+        let glyphName = font.get(nameForGlyph: glyph)
+        guard let assemblyInfo = assemblyTable[glyphName] as? NSDictionary else {
             // No vertical assembly defined for glyph
             return []
         }
-        let parts = assemblyInfo![kAssemblyParts] as! NSArray?
-        if parts == nil {
+        guard let parts = assemblyInfo[kAssemblyParts] as? NSArray else {
             // parts should always have been defined, but if it isn't return nil
             return []
         }
         var rv = [GlyphPart]()
-        for part in parts! {
-            let partInfo = part as! NSDictionary?
+        for part in parts {
+            guard let partInfo = part as? NSDictionary,
+                  let adv = partInfo["advance"] as? NSNumber,
+                  let end = partInfo["endConnector"] as? NSNumber,
+                  let start = partInfo["startConnector"] as? NSNumber,
+                  let ext = partInfo["extender"] as? NSNumber,
+                  let glyphName = partInfo["glyph"] as? String else {
+                continue
+            }
             var part = GlyphPart()
-            let adv = partInfo!["advance"] as! NSNumber?
-            part.fullAdvance = self.fontUnitsToPt(adv!.intValue)
-            let end = partInfo!["endConnector"] as! NSNumber?
-            part.endConnectorLength = self.fontUnitsToPt(end!.intValue)
-            let start = partInfo!["startConnector"] as! NSNumber?
-            part.startConnectorLength = self.fontUnitsToPt(start!.intValue)
-            let ext = partInfo!["extender"] as! NSNumber?
-            part.isExtender = ext!.boolValue
-            let glyphName = partInfo!["glyph"] as! String?
-            part.glyph = self.font?.get(glyphWithName: glyphName!)
+            part.fullAdvance = self.fontUnitsToPt(adv.intValue)
+            part.endConnectorLength = self.fontUnitsToPt(end.intValue)
+            part.startConnectorLength = self.fontUnitsToPt(start.intValue)
+            part.isExtender = ext.boolValue
+            part.glyph = font.get(glyphWithName: glyphName)
             rv.append(part)
         }
         return rv

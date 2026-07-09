@@ -947,6 +947,7 @@ struct MarkdownDocumentSelectionTextGeometry: Equatable, Sendable {
                 value: MarkdownDocumentSelectionCTFont.font(
                     profile: fontProfiles.body,
                     kind: .text,
+                    presentation: [],
                     size: fontSize
                 ),
                 range: NSRange(location: 0, length: attributed.length)
@@ -979,6 +980,7 @@ struct MarkdownDocumentSelectionTextGeometry: Equatable, Sendable {
                     value: MarkdownDocumentSelectionCTFont.font(
                         profile: fontProfiles.profile(for: run.presentation, kind: run.kind),
                         kind: run.kind,
+                        presentation: run.presentation,
                         size: fontSize
                     ),
                     range: range
@@ -1250,92 +1252,18 @@ extension Array where Element == MarkdownBlockID {
 
 #if canImport(CoreText)
 private enum MarkdownDocumentSelectionCTFont {
-    static func font(profile: MarkdownFontProfile, kind: MarkdownInlineKind, size: Double) -> CTFont {
-        let pointSize = CGFloat(size)
-        let base: CTFont
-        let symbolicTraits: CTFontSymbolicTraits
-        switch profile {
-        case let .named(name, weight):
-            base = CTFontCreateWithName(name as CFString, pointSize, nil)
-            symbolicTraits = kind == .emphasis ? .traitItalic : []
-            return apply(weight: weight, symbolicTraits: symbolicTraits, to: base, size: pointSize)
-        case let .monospacedSystem(weight):
-            base = CTFontCreateUIFontForLanguage(.system, pointSize, nil) ??
-                CTFontCreateWithName("Menlo" as CFString, pointSize, nil)
-            symbolicTraits = kind == .emphasis ? [.traitMonoSpace, .traitItalic] : .traitMonoSpace
-            return apply(weight: weight, symbolicTraits: symbolicTraits, to: base, size: pointSize)
-        case let .system(weight, design):
-            base = systemFont(design: design, size: pointSize)
-            var traits = fontSymbolicTraits(for: design)
-            if kind == .emphasis {
-                traits.insert(.traitItalic)
-            }
-            return apply(weight: weight, symbolicTraits: traits, to: base, size: pointSize)
-        }
-    }
-
-    private static func apply(
-        weight: MarkdownFontWeight,
-        symbolicTraits: CTFontSymbolicTraits,
-        to font: CTFont,
-        size: CGFloat
+    static func font(
+        profile: MarkdownFontProfile,
+        kind: MarkdownInlineKind,
+        presentation: MarkdownInlinePresentation,
+        size: Double
     ) -> CTFont {
-        guard weight != .regular || !symbolicTraits.isEmpty else {
-            return font
-        }
-        var traits: [CFString: Any] = [:]
-        if let weightValue = fontWeightValue(for: weight) {
-            traits[kCTFontWeightTrait] = weightValue
-        }
-        let descriptor = CTFontDescriptorCreateWithAttributes([
-            kCTFontTraitsAttribute: traits
-        ] as CFDictionary)
-        let weighted = CTFontCreateCopyWithAttributes(font, size, nil, descriptor)
-        guard !symbolicTraits.isEmpty else {
-            return weighted
-        }
-        return CTFontCreateCopyWithSymbolicTraits(
-            weighted,
-            size,
-            nil,
-            symbolicTraits,
-            symbolicTraits
-        ) ?? weighted
-    }
-
-    private static func systemFont(design: MarkdownFontDesign, size: CGFloat) -> CTFont {
-        switch design {
-        case .serif:
-            return CTFontCreateWithName("Times" as CFString, size, nil)
-        case .monospaced:
-            return CTFontCreateUIFontForLanguage(.system, size, nil) ??
-                CTFontCreateWithName("Menlo" as CFString, size, nil)
-        case .default, .rounded:
-            return CTFontCreateUIFontForLanguage(.system, size, nil) ??
-                CTFontCreateWithName("Helvetica" as CFString, size, nil)
-        }
-    }
-
-    private static func fontSymbolicTraits(for design: MarkdownFontDesign) -> CTFontSymbolicTraits {
-        switch design {
-        case .monospaced:
-            return .traitMonoSpace
-        case .default, .serif, .rounded:
-            return []
-        }
-    }
-
-    private static func fontWeightValue(for weight: MarkdownFontWeight) -> CGFloat? {
-        switch weight {
-        case .regular:
-            return nil
-        case .medium:
-            return 0.23
-        case .semibold:
-            return 0.3
-        case .bold:
-            return 0.4
-        }
+        MarkdownCoreTextFontBridge.font(
+            profile: profile,
+            kind: kind,
+            presentation: presentation,
+            size: size
+        )
     }
 }
 #endif

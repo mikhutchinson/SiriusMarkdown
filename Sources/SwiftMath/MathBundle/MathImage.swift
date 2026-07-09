@@ -36,6 +36,10 @@ public struct MathImage {
     }
 }
 extension MathImage {
+    private static let maximumAssumedRasterScale: CGFloat = 4
+    private static let maximumRasterPixelDimension: CGFloat = 16_384
+    private static let maximumRasterPixelCount: CGFloat = 16_777_216
+
     public var currentStyle: MTLineStyle {
         switch labelMode {
             case .display: return .display
@@ -43,8 +47,27 @@ extension MathImage {
         }
     }
     private func intrinsicContentSize(_ displayList: MTMathListDisplay) -> CGSize {
-        CGSize(width: displayList.width + contentInsets.left + contentInsets.right,
-               height: displayList.ascent + displayList.descent + contentInsets.top + contentInsets.bottom)
+        let contentHeight =
+            displayList.ascent + displayList.descent + contentInsets.top + contentInsets.bottom
+        let minimumHeight = (fontSize / 2) + contentInsets.top + contentInsets.bottom
+        return CGSize(
+            width: displayList.width + contentInsets.left + contentInsets.right,
+            height: max(contentHeight, minimumHeight)
+        )
+    }
+    private static func canRasterize(size: CGSize) -> Bool {
+        guard size.width.isFinite, size.height.isFinite, size.width > 0, size.height > 0 else {
+            return false
+        }
+        let pixelWidth = (size.width * maximumAssumedRasterScale).rounded(.up)
+        let pixelHeight = (size.height * maximumAssumedRasterScale).rounded(.up)
+        return pixelWidth.isFinite
+            && pixelHeight.isFinite
+            && pixelWidth > 0
+            && pixelHeight > 0
+            && pixelWidth <= maximumRasterPixelDimension
+            && pixelHeight <= maximumRasterPixelDimension
+            && pixelWidth * pixelHeight <= maximumRasterPixelCount
     }
     public struct LayoutInfo {
         public var ascent: CGFloat = 0
@@ -56,6 +79,10 @@ extension MathImage {
         }
     }
     public mutating func asImage() -> (NSError?, MTImage?, LayoutInfo?) {
+        guard MTFont.canRenderFontSize(fontSize) else {
+            return (nil, nil, nil)
+        }
+
         func layoutImage(size: CGSize, displayList: MTMathListDisplay) {
             var textX = CGFloat(0)
             switch self.textAlignment {
@@ -74,7 +101,7 @@ extension MathImage {
             displayList.position = CGPoint(x: textX, y: textY)
         }
         var error: NSError?
-        let mtfont: MTFont? = font.mtfont(size: fontSize)
+        let mtfont: MTFont? = font.mtfontIfAvailable(size: fontSize)
 
         guard let mathList = MTMathListBuilder.build(fromString: latex, error: &error), error == nil,
               let displayList = MTTypesetter.createLineForMathList(mathList, font: mtfont, style: currentStyle) else {
@@ -85,6 +112,9 @@ extension MathImage {
         displayList.textColor = textColor
 
         let size = intrinsicContentSize.regularized
+        guard Self.canRasterize(size: size) else {
+            return (nil, nil, nil)
+        }
         layoutImage(size: size, displayList: displayList)
         
         #if os(iOS) || os(visionOS)
