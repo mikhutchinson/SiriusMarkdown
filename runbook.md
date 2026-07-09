@@ -17,7 +17,7 @@ swift test
 ```
 
 Current status: `swift test` must pass with strict Swift-vs-Pretext comparison enabled across the required product fixture groups. Missing groups, duplicate fixture names/groups, absent required layout metadata (`font`, `lineHeight`, `whiteSpace`, `wordBreak`), invalid/nonzero `letterSpacing`, or known-drift allowlists are release blockers.
-The release-gate discovery floor for this slice is `643` Swift tests.
+The release-gate discovery floor for this slice is `697` Swift tests.
 
 Count the Swift test functions reported by the runner and keep the release-gate discovery floor current:
 
@@ -97,6 +97,30 @@ Layout and renderer acceptance for the current slice:
   `MarkdownSelectionPerformanceTests` in the release gate when changing
   document selection, prepared native lines, preference publication, or inline
   layout cache keys.
+- **Inter-block drag continuity:** Document selection drag must resolve
+  continuously across paragraph → list → code block transitions. When the
+  pointer is in vertical theme-spacing gutters between fragments, the
+  nearest-fragment fallback must resolve to the nearest fragment within
+  the inter-block gutter threshold (hitSlop × 8 ≈ 32 pt). Pointers in
+  large empty regions beyond the document content still resolve to nil.
+  Source-backed endpoints must remain valid (INV-NS1). No per-glyph
+  overlays added (INV-NS2). `MarkdownDocumentSelectionAffinityTests` must
+  pass in the release gate.
+- **Scrollable selection contexts:** Activating code-block or table selection
+  must clear document multi-block selection and vice versa. A drag entirely
+  within a code/table block activates `.scrollableRegion`; a drag crossing
+  block boundaries activates `.document`. `MarkdownSelectionContextTests`
+  must pass in the release gate.
+- **Pasteboard richness:** Document Cmd-C must write a multi-representation
+  `NSPasteboardItem` (macOS): `.string` = plain text, `net.siriusmarkdown.markdown`
+  = exact Markdown source, optional `.rtf`/`.html`. Do not produce network fetches
+  or WebKit HTML generation on copy. `MarkdownPasteboardTests` must pass in
+  the release gate.
+- **Text.Layout bridge:** Enabling `nativeTextSelection` by default or switching
+  the default-path selection authority to `Text.Layout` are out of bounds.
+  The Part 04 evaluation (2026-07-09) concluded: Parts 01–03 close the feel
+  gap on the CoreText default path; a `Text.Layout` bridge is not warranted
+  and risks the `SelectionOverlay` hang class. Reject recorded; INV-NS3 upheld.
 - Native text selection must stay a separate compatibility knob bounded to
   stable text leaves. Keep `MarkdownRendererConfiguration.nativeTextSelection`
   defaulted to `.disabled`. On macOS, `.enabled` must work by using

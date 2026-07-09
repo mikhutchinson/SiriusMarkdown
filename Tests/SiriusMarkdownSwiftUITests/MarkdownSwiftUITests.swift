@@ -1979,9 +1979,10 @@ func defaultDocumentSelectionResolvesDragAndCmdCCopyAcrossBlockBoundariesOnMacOS
     let copySpy = MarkdownCopySpy()
     var configuration = MarkdownRendererConfiguration.document
     configuration.copyProvider = MarkdownCopyProvider(markdownSource: markdown)
-    configuration.affordanceActionHandler = MarkdownAffordanceActionHandler { string in
-        copySpy.copied = string
-    }
+    // Spy on copyString — it is still called after the multi-rep pasteboard write.
+    configuration.affordanceActionHandler = MarkdownAffordanceActionHandler(
+        copyString: { string in copySpy.copied = string }
+    )
     #expect(configuration.documentSelection == .enabled)
     #expect(configuration.nativeTextSelection == .disabled)
 
@@ -2046,9 +2047,10 @@ func defaultDocumentSelectionCommandASelectsAndCopiesFullDocumentMarkdownOnMacOS
     let copySpy = MarkdownCopySpy()
     var configuration = MarkdownRendererConfiguration.document
     configuration.copyProvider = MarkdownCopyProvider(markdownSource: markdown)
-    configuration.affordanceActionHandler = MarkdownAffordanceActionHandler { string in
-        copySpy.copied = string
-    }
+    // Spy on copyString — it is still called after the multi-rep pasteboard write.
+    configuration.affordanceActionHandler = MarkdownAffordanceActionHandler(
+        copyString: { string in copySpy.copied = string }
+    )
 
     let snapshot = stream.snapshot()
     let prepared = configuration.prepare(snapshot: snapshot)

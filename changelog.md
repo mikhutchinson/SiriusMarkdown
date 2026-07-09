@@ -2,6 +2,50 @@
 
 ## Unreleased
 
+### Native Selection Feel (Parts 01–04)
+
+- **Continuous drag affinity (Part 01):** Inter-block drag selection no longer freezes
+  when the pointer sits in vertical spacing between fragments. `hitFragment` now has
+  a nearest-fragment fallback within the inter-block gutter threshold (hitSlop × 8),
+  resolving nil hits in theme-spacing gutters between paragraphs, lists, and code
+  blocks. Gutter ties break via `MarkdownDocumentSelectionAffinity` (`.upstream` /
+  `.downstream`) derived from drag direction. The drag layer now passes affinity hints
+  derived from movement direction. Source-backed endpoints remain correct (INV-NS1);
+  no per-glyph overlays are added (INV-NS2).
+
+- **Scrollable selection contexts (Part 02):** `MarkdownSelectionController` now
+  tracks an `activeContext: MarkdownSelectionContextKind` (`.document` or
+  `.scrollableRegion(MarkdownScrollableSelectionRegionID)`). Activating one context
+  clears the other — matching Textual's documented rule that selecting inside a
+  scrollable code/table region clears document multi-block selection and vice versa.
+  Document drag that crosses block boundaries activates `.document` and clears region
+  clamp. New types: `MarkdownScrollableSelectionRegionID`, `MarkdownSelectionContextKind`.
+
+- **Pasteboard richness (Part 03):** `MarkdownPasteboard` now writes
+  multi-representation payloads via `MarkdownPasteboard.copy(MarkdownPasteboardPayload)`.
+  On macOS, one `NSPasteboardItem` carries `.string` = visible plain text,
+  `net.siriusmarkdown.markdown` = exact Markdown source (INV-NS1), and optional `.rtf`
+  / `.html` when present. On iOS/iPadOS, plain text and the custom Markdown type are
+  written. Document Cmd-C writes the multi-rep payload and also calls
+  `affordanceActionHandler.copyString(markdown)` for backward-compatible host
+  notification.
+
+  **Breaking change for hosts reading the pasteboard:** `NSPasteboard.string(forType: .string)`
+  now contains **plain text** (visible rendered text), not Markdown source. Hosts that
+  previously assumed `.string` was Markdown source must now read
+  `NSPasteboard.data(forType: NSPasteboardType("net.siriusmarkdown.markdown"))`.
+  In-process `selectedMarkdown` and `MarkdownCopyProvider` APIs are unchanged.
+  `MarkdownPasteboard.markdownPasteboardType` exposes the type constant.
+
+  New types: `MarkdownPasteboardPayload`.
+
+- **Text.Layout bridge (Part 04, evaluated and rejected):** Parts 01–03 close the
+  feel gap on the default `coreTextPaintedLines` path. A `Text.Layout` bridge for
+  cross-view Markdown selection is not warranted on the CoreText default path and
+  would risk the `SelectionOverlay` hang class documented in `runbook.md`.
+  `nativeTextSelection` remains opt-in and disabled by default. No bridge code
+  shipped; `INV-NS3` upheld.
+
 - Completed math-quality metrics: `SwiftMathTypesetter` now consumes vendored
   SwiftMath `MTMathImage.LayoutInfo` (`MTMathListDisplay` ascent/descent)
   instead of the interim atom-tree fraction estimator, keeping `-descent`

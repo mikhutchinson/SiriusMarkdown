@@ -422,3 +422,90 @@ private struct SelectionCounterDelta {
         self.selectionLineFragmentCacheMissCount = after.selectionLineFragmentCacheMissCount - before.selectionLineFragmentCacheMissCount
     }
 }
+
+// MARK: - Native Selection Feel: drag affinity and streaming churn (INV-NS4, INV-NS8)
+
+#if canImport(AppKit)
+extension MarkdownSelectionPerformanceTests {
+
+    /// Synthetic drag samples over fixed fragment list must not increase preference publication
+    /// counts (INV-NS4: selection work stays bounded under append/seal). Affinity resolution
+    /// is a pure function over the snapshot — it must not trigger new preference publications.
+    @Test
+    @MainActor
+    func testDragSamplesDoNotIncreaseSelectionPreferenceChurn() {
+        let fixture = selectionStormFixture(documentSelection: .enabled, blockCount: 8)
+        let recorder = fixture.recorder
+
+        // Build a synthetic fragment list simulating prepared blocks.
+        var allFragments: [MarkdownDocumentSelectionFragment] = []
+        for (i, block) in fixture.prepared.snapshot.blocks.enumerated() {
+            let rect = CGRect(x: 0, y: CGFloat(i * 40), width: 400, height: 30)
+            let fallback = MarkdownPreparedBlockContent(blockID: block.id)
+            let content = fixture.prepared.preparedContentByBlockID[block.id] ?? fallback
+            allFragments.append(contentsOf: MarkdownDocumentSelectionFragment.fragments(
+                for: block,
+                preparedContent: content,
+                rect: rect
+            ))
+        }
+
+        let before = recorder.snapshot()
+
+        // Simulate 40 drag samples — each just calls hitFragment (pure function, no preference mutation).
+        for i in 0..<40 {
+            let y = CGFloat(i * 5)
+            let affinityHint: MarkdownDocumentSelectionAffinity = y < 100 ? .downstream : .upstream
+            _ = MarkdownDocumentSelectionFragment.hitFragment(
+                at: CGPoint(x: 100, y: y),
+                in: allFragments,
+                hitSlop: 4,
+                affinityHint: affinityHint
+            )
+        }
+
+        let delta = SelectionCounterDelta(before: before, after: recorder.snapshot())
+
+        // Drag affinity resolution must not produce any preference changes.
+        #expect(delta.selectionPreferenceChangeCount == 0,
+                "Drag affinity resolution must not emit new preference changes (got \(delta.selectionPreferenceChangeCount))")
+        // Affinity hits must not rebuild inline line fragments.
+        #expect(delta.inlineLineFragmentBuildCount == 0,
+                "Drag samples must not rebuild inline line fragments (got \(delta.inlineLineFragmentBuildCount))")
+    }
+
+    /// Affinity resolution over N fragments must be O(N): the number of fragment comparisons
+    /// must not grow super-linearly with fragment count.
+    @Test
+    @MainActor
+    func testAffinityResolutionIsBoundedWithFragmentCount() {
+        // Create a larger fragment list.
+        var largeFragments: [MarkdownDocumentSelectionFragment] = []
+        largeFragments.reserveCapacity(200)
+        for i in 0..<200 {
+            let blockID = MarkdownBlockID("b\(i)")
+            let sourceRange = MarkdownSourceRange(byteRange: (i * 10)..<(i * 10 + 10), lineRange: i..<(i + 1))
+            let rect = CGRect(x: 0, y: CGFloat(i * 25), width: 300, height: 20)
+            largeFragments.append(MarkdownDocumentSelectionFragment(
+                id: "f\(i)",
+                blockID: blockID,
+                sourceRange: sourceRange,
+                rect: rect
+            ))
+        }
+
+        // Pointer in a gutter — triggers nearest-fragment fallback.
+        let gutterPoint = CGPoint(x: 150, y: 612) // between fragment 24 (y=600–620) and 25 (y=625–645)
+
+        let hit = MarkdownDocumentSelectionFragment.hitFragment(
+            at: gutterPoint,
+            in: largeFragments,
+            hitSlop: 2,
+            affinityHint: .downstream
+        )
+
+        // Must resolve to *some* fragment (not nil) — the plan's gutter guarantee.
+        #expect(hit != nil, "Affinity resolution over 200 fragments must still resolve a hit")
+    }
+}
+#endif

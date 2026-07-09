@@ -415,13 +415,16 @@ private struct MarkdownDocumentSelectionLayer<Content: View>: View {
                     return
                 }
                 takeFocus()
-                let anchor = dragAnchor ?? hitEndpoint(at: value.startLocation)
+                let anchor = dragAnchor ?? hitEndpoint(at: value.startLocation, affinityHint: nil)
                 dragAnchor = anchor
-                guard let anchor,
-                      let current = hitEndpoint(at: value.location)
-                else {
+                guard let anchor else { return }
+                // Affinity: downward drag → prefer next-fragment start; upward → prefer current-fragment end.
+                let affinityHint: MarkdownDocumentSelectionAffinity =
+                    value.location.y >= value.startLocation.y ? .downstream : .upstream
+                guard let current = hitEndpoint(at: value.location, affinityHint: affinityHint) else {
                     return
                 }
+                activateContextForDrag(startBlockID: anchor.blockID, currentBlockID: current.blockID)
                 selectRange(from: anchor, to: current)
             }
             .onEnded { _ in
@@ -444,12 +447,45 @@ private struct MarkdownDocumentSelectionLayer<Content: View>: View {
         }
     }
 
-    private func hitEndpoint(at location: CGPoint) -> MarkdownDocumentSelectionEndpoint? {
-        hitFragment(at: location)?.endpoint(at: location)
+    private func hitEndpoint(
+        at location: CGPoint,
+        affinityHint: MarkdownDocumentSelectionAffinity? = nil
+    ) -> MarkdownDocumentSelectionEndpoint? {
+        hitFragment(at: location, affinityHint: affinityHint)?.endpoint(at: location)
     }
 
-    private func hitFragment(at location: CGPoint) -> MarkdownDocumentSelectionFragment? {
-        MarkdownDocumentSelectionFragment.hitFragment(at: location, in: fragments, hitSlop: 4)
+    private func hitFragment(
+        at location: CGPoint,
+        affinityHint: MarkdownDocumentSelectionAffinity? = nil
+    ) -> MarkdownDocumentSelectionFragment? {
+        MarkdownDocumentSelectionFragment.hitFragment(
+            at: location,
+            in: fragments,
+            hitSlop: 4,
+            affinityHint: affinityHint
+        )
+    }
+
+    /// Activates the appropriate selection context using already-resolved endpoint blockIDs.
+    ///
+    /// Single-block code/table drags activate that block's scrollable context.
+    /// Cross-block drags (or drags where either endpoint is outside a scrollable block) activate `.document`.
+    /// Uses blockIDs from already-computed endpoints to avoid redundant `hitFragment` calls.
+    private func activateContextForDrag(
+        startBlockID: MarkdownBlockID,
+        currentBlockID: MarkdownBlockID
+    ) {
+        guard startBlockID == currentBlockID,
+              let block = preparedSnapshot.snapshot.blocks.first(where: { $0.id == startBlockID }),
+              block.kind == .codeBlock || block.kind == .table
+        else {
+            selectionController.activateContext(.document)
+            return
+        }
+        let role: MarkdownScrollableSelectionRegionID.Role = block.kind == .table ? .table : .codeBlock
+        selectionController.activateContext(
+            .scrollableRegion(MarkdownScrollableSelectionRegionID(blockID: startBlockID, role: role))
+        )
     }
 
     private func selectRange(
@@ -501,6 +537,14 @@ struct MarkdownDocumentSelectionCopyContext {
         guard !markdown.isEmpty else {
             return
         }
+        let plainText = selectionController.selectedPlainText(in: preparedSnapshot)
+        let payload = MarkdownPasteboardPayload(
+            plainText: plainText.isEmpty ? markdown : plainText,
+            markdown: markdown
+        )
+        // Write multi-representation payload (plain + Markdown UTI + optional RTF/HTML).
+        MarkdownPasteboard.copy(payload)
+        // Also notify host via copyString for any in-process interception (e.g. custom toast UI).
         affordanceActionHandler.copyString(markdown)
     }
 

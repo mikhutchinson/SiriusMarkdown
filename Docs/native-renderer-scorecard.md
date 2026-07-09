@@ -21,7 +21,7 @@ The goal is a native, streaming-first Markdown renderer for Apple applications: 
   detection for `$$`, `\[...\]`, and `\begin{...}...\end{...}` environments.
 - Font measurement: production CoreText measurement defaults to system-profile fonts and includes font profiles in cache identity; Pretext fixtures pin explicit named fonts for oracle stability.
 - Safety: links, images, HTML, code, and math stay policy controlled, with no remote image fetch by default.
-- Interaction: selection and copy are bounded at block/range level and never create unbounded per-fragment overlays; package-owned document/code/Mermaid controls keep explicit accessibility labels on buttons and treat SF Symbol images as decorative.
+- Interaction: selection and copy are bounded at block/range level and never create unbounded per-fragment overlays; package-owned document/code/Mermaid controls keep explicit accessibility labels on buttons and treat SF Symbol images as decorative. Document drag selection resolves continuously through inter-block gutters via nearest-fragment affinity (INV-NS2 compliant). Code/table `ScrollView` regions mutually exclude document multi-block selection via `MarkdownSelectionContextKind`. Cmd-C writes multi-representation pasteboard items (plain text + Markdown UTI; INV-NS5: no network or WebKit on copy). `nativeTextSelection` remains opt-in; default path is CoreText-painted lines (INV-NS3).
 - Product surfaces: demos show clean transcript and reader behavior first, with diagnostics available as inspection rather than primary UI.
 
 ## Product Gate

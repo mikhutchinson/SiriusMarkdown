@@ -1,6 +1,32 @@
 import SiriusMarkdownCore
 import SwiftUI
 
+// MARK: - Selection context types (Part 02)
+
+/// Identifies a scrollable block region that can own an exclusive selection context.
+public struct MarkdownScrollableSelectionRegionID: Hashable, Sendable {
+    public enum Role: Hashable, Sendable {
+        case codeBlock
+        case table
+    }
+
+    public var blockID: MarkdownBlockID
+    public var role: Role
+
+    public init(blockID: MarkdownBlockID, role: Role) {
+        self.blockID = blockID
+        self.role = role
+    }
+}
+
+/// The currently active selection owner. Activating one context clears the other.
+public enum MarkdownSelectionContextKind: Sendable, Hashable {
+    case document
+    case scrollableRegion(MarkdownScrollableSelectionRegionID)
+}
+
+// MARK: -
+
 public struct MarkdownCopyPayload: Sendable, Hashable {
     public var markdown: String
     public var sourceRange: MarkdownSourceRange
@@ -99,6 +125,13 @@ public struct MarkdownAffordanceActionHandler: Sendable {
 public final class MarkdownSelectionController: ObservableObject {
     @Published public private(set) var selectedBlockIDs: [MarkdownBlockID] = []
     @Published public private(set) var selectedSourceRanges: [MarkdownSourceRange] = []
+    /// The currently active selection context. Default is `.document`.
+    ///
+    /// Calling `activateContext(_:)` with a different context clears all existing
+    /// selected ranges and block IDs before switching. This matches Textual's
+    /// documented rule: activating a scrollable region clears document selection
+    /// and vice versa.
+    @Published public private(set) var activeContext: MarkdownSelectionContextKind = .document
 
     public var maximumSelectedBlockCount: Int {
         didSet {
@@ -239,6 +272,17 @@ public final class MarkdownSelectionController: ObservableObject {
         selectionIntent = .none
     }
 
+    /// Activates the given selection context, clearing all selected ranges if the context changes.
+    ///
+    /// If `context` equals `activeContext`, this is a no-op (avoids spurious published changes).
+    /// Use `.document` for the main document drag path and `.scrollableRegion` for code/table
+    /// horizontal scrollers.
+    public func activateContext(_ context: MarkdownSelectionContextKind) {
+        guard context != activeContext else { return }
+        clearSelection()
+        activeContext = context
+    }
+
     public func isSelected(_ blockID: MarkdownBlockID) -> Bool {
         selectedBlockIDs.contains(blockID)
     }
@@ -341,8 +385,12 @@ public final class MarkdownSelectionController: ObservableObject {
         guard !markdown.isEmpty else {
             return
         }
-
-        MarkdownPasteboard.copy(markdown)
+        let plainText = selectedPlainText(in: preparedSnapshot)
+        let payload = MarkdownPasteboardPayload(
+            plainText: plainText.isEmpty ? markdown : plainText,
+            markdown: markdown
+        )
+        MarkdownPasteboard.copy(payload)
     }
 
     public func copySelectedPlainText(in preparedSnapshot: MarkdownPreparedSnapshot) {
@@ -350,8 +398,7 @@ public final class MarkdownSelectionController: ObservableObject {
         guard !plainText.isEmpty else {
             return
         }
-
-        MarkdownPasteboard.copy(plainText)
+        MarkdownPasteboard.copy(MarkdownPasteboardPayload(plainText: plainText, markdown: plainText))
     }
 
     private func selectedBlocks(in preparedSnapshot: MarkdownPreparedSnapshot) -> [MarkdownBlock] {

@@ -43,6 +43,14 @@ struct MarkdownDocumentSelectionHighlight: Identifiable {
     var rect: CGRect
 }
 
+/// Affinity used when `hitFragment` resolves a pointer location that falls in the
+/// vertical gap between two fragments. `.upstream` prefers the fragment that ends
+/// above the pointer; `.downstream` prefers the one that starts below.
+enum MarkdownDocumentSelectionAffinity: Sendable {
+    case upstream
+    case downstream
+}
+
 struct MarkdownDocumentSelectionDragActivation: Equatable, Sendable {
     static let defaultMinimumDistance: CGFloat = 4
 
@@ -272,18 +280,84 @@ struct MarkdownDocumentSelectionFragment: Identifiable, Equatable {
         in fragments: [MarkdownDocumentSelectionFragment],
         hitSlop: CGFloat
     ) -> MarkdownDocumentSelectionFragment? {
-        if let direct = fragments.first(where: { $0.rect.insetBy(dx: -hitSlop, dy: -hitSlop).contains(location) }) {
+        hitFragment(at: location, in: fragments, hitSlop: hitSlop, affinityHint: nil)
+    }
+
+    /// Resolves the fragment nearest to `location`, with full affinity disambiguation.
+    ///
+    /// - Pass `affinityHint: .upstream` when the drag is moving upward (current < anchor Y).
+    /// - Pass `affinityHint: .downstream` when moving downward.
+    /// - Pass `nil` for non-drag hit resolution (clicks, tests).
+    ///
+    /// Resolution order:
+    /// 1. Direct inset hit — exact containment after expanding by `hitSlop`.
+    /// 2. Y-band + horizontal-distance fallback — fragment whose Y band contains the pointer.
+    /// 3. Nearest-fragment fallback — minimum `verticalGapDistance`, breaking ties by
+    ///    horizontal distance, then affinity hint, then document (source byte) order.
+    static func hitFragment(
+        at location: CGPoint,
+        in fragments: [MarkdownDocumentSelectionFragment],
+        hitSlop: CGFloat,
+        affinityHint: MarkdownDocumentSelectionAffinity?
+    ) -> MarkdownDocumentSelectionFragment? {
+        // 1. Direct inset hit — avoids CGRect allocation per fragment by using inline bounds.
+        if let direct = fragments.first(where: {
+            location.x >= $0.rect.minX - hitSlop &&
+            location.x <= $0.rect.maxX + hitSlop &&
+            location.y >= $0.rect.minY - hitSlop &&
+            location.y <= $0.rect.maxY + hitSlop
+        }) {
             return direct
         }
 
-        return fragments
-            .filter { fragment in
-                location.y >= fragment.rect.minY - hitSlop &&
-                    location.y <= fragment.rect.maxY + hitSlop
-            }
-            .min { lhs, rhs in
+        // 2. Y-band + horizontal-distance fallback.
+        let yBand = fragments.filter { fragment in
+            location.y >= fragment.rect.minY - hitSlop &&
+                location.y <= fragment.rect.maxY + hitSlop
+        }
+        if !yBand.isEmpty {
+            return yBand.min { lhs, rhs in
                 lhs.horizontalDistanceSquared(to: location) < rhs.horizontalDistanceSquared(to: location)
             }
+        }
+
+        // 3. Nearest-fragment fallback: resolves nil-hit vertical gutters between adjacent blocks.
+        //
+        // Only activates when the pointer is within a short distance of the nearest fragment —
+        // specifically within the inter-block gutter threshold (hitSlop × 8 ≈ 32 pts at slop=4).
+        // Pointers far beyond the document content (large empty space) still return nil so that
+        // tapping or clicking in empty areas below the last block does not snap to distant text.
+        guard !fragments.isEmpty else { return nil }
+        let gutterThreshold = hitSlop * 8
+        let nearest = fragments.min { lhs, rhs in
+            let lVGap = lhs.verticalGapDistance(to: location)
+            let rVGap = rhs.verticalGapDistance(to: location)
+            if abs(lVGap - rVGap) > 0.5 {
+                return lVGap < rVGap
+            }
+            let lHDist = lhs.horizontalDistanceSquared(to: location)
+            let rHDist = rhs.horizontalDistanceSquared(to: location)
+            if abs(lHDist - rHDist) > 0.5 {
+                return lHDist < rHDist
+            }
+            // Tie-break: affinity hint decides upstream/downstream preference.
+            // upstream  → prefer the fragment that appears EARLIER in document order (above pointer).
+            // downstream → prefer the fragment that appears LATER in document order (below pointer).
+            switch affinityHint {
+            case .upstream:
+                return lhs.sourceRange.byteRange.lowerBound < rhs.sourceRange.byteRange.lowerBound
+            case .downstream:
+                return lhs.sourceRange.byteRange.lowerBound > rhs.sourceRange.byteRange.lowerBound
+            case nil:
+                return lhs.sourceRange.byteRange.lowerBound < rhs.sourceRange.byteRange.lowerBound
+            }
+        }
+        guard let nearest,
+              nearest.verticalGapDistance(to: location) <= gutterThreshold
+        else {
+            return nil
+        }
+        return nearest
     }
 
     func intersectsAny(_ ranges: [MarkdownSourceRange]) -> Bool {
@@ -351,6 +425,18 @@ struct MarkdownDocumentSelectionFragment: Identifiable, Equatable {
             sourceByteOffset: sourceByteOffset,
             line: location.x <= rect.midX ? sourceRange.lineRange.lowerBound : sourceRange.lineRange.upperBound
         )
+    }
+
+    /// Vertical distance from `point` to this fragment's Y band.
+    /// Returns 0 when `point.y` is inside `[rect.minY, rect.maxY]`.
+    func verticalGapDistance(to point: CGPoint) -> CGFloat {
+        if point.y < rect.minY {
+            return rect.minY - point.y
+        }
+        if point.y > rect.maxY {
+            return point.y - rect.maxY
+        }
+        return 0
     }
 
     private func horizontalDistanceSquared(to point: CGPoint) -> CGFloat {
