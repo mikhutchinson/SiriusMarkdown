@@ -722,7 +722,7 @@ final class MarkdownCoreTextPaintedNSView: NSView {
 
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
-        linkClickTracker.begin(at: point, fragments: plan.linkFragments, hitSlop: 2)
+        _ = linkClickTracker.begin(at: point, fragments: plan.linkFragments, hitSlop: 2)
         dragStartPoint = point
         super.mouseDown(with: event)
     }
@@ -788,6 +788,7 @@ private struct CoreTextPaintedInlineLineSurface: UIViewRepresentable {
     var textColor: Color
     var containerWidth: CGFloat
     var linkAction: MarkdownLinkAction?
+    var dragSelectionHandler: ((CGPoint, CGPoint) -> Void)?
 
     func makeUIView(context _: Context) -> MarkdownCoreTextPaintedUIView {
         let view = MarkdownCoreTextPaintedUIView(frame: .zero)
@@ -825,6 +826,7 @@ private struct CoreTextPaintedInlineLineSurface: UIViewRepresentable {
         }
         view.textColor = resolvedCGColor(textColor)
         view.linkAction = linkAction
+        view.dragSelectionHandler = dragSelectionHandler
         view.frame.size.width = containerWidth
         view.accessibilityLabel = String(fallbackAttributed.characters)
         view.setNeedsDisplay()
@@ -840,6 +842,7 @@ final class MarkdownCoreTextPaintedUIView: UIView {
     var plan = MarkdownCoreTextPaintedLinePlan.empty
     var textColor: CGColor = UIColor.label.cgColor
     var linkAction: MarkdownLinkAction?
+    var dragSelectionHandler: ((CGPoint, CGPoint) -> Void)?
     /// Cached key from the last explicit `MarkdownCoreTextPaintedLinePlan.make()` call so
     /// repeated `updateUIView` calls with identical content+layout skip `make()` (INV-P1).
     var cachedLinePlanKey: CTPlanCacheKey?

@@ -13,23 +13,30 @@ public struct NativeMarkdownMathRenderer: MarkdownMathRenderer, MarkdownMathRend
 
     /// Rasterization scale matching the screen's backing scale (min 2.0 for
     /// sharp glyphs on non-Retina displays). Resolved lazily on first access
-    /// since `UIScreen`/`NSScreen` queries must happen on the main thread.
+    /// since screen queries must happen on the main thread where platforms expose them.
     static let renderScale: Double = NativeMarkdownMathRenderer.resolveBackingScale()
 
     private static func resolveBackingScale() -> Double {
         if Thread.isMainThread {
-            return resolveBackingScaleOnMain()
+            return MainActor.assumeIsolated {
+                resolveBackingScaleOnMain()
+            }
         }
         var scale: Double = 3.0
         DispatchQueue.main.sync {
-            scale = resolveBackingScaleOnMain()
+            scale = MainActor.assumeIsolated {
+                resolveBackingScaleOnMain()
+            }
         }
         return scale
     }
 
+    @MainActor
     private static func resolveBackingScaleOnMain() -> Double {
-        #if canImport(UIKit)
-        return max(2.0, Double(UIScreen.main?.scale ?? 2.0))
+        #if os(visionOS) || os(watchOS)
+        return 2.0
+        #elseif canImport(UIKit)
+        return max(2.0, Double(UIScreen.main.scale))
         #elseif canImport(AppKit)
         return max(2.0, Double(NSScreen.main?.backingScaleFactor ?? 2.0))
         #else

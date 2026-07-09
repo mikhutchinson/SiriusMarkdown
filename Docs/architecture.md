@@ -71,6 +71,65 @@ Products (see `Package.swift`): **`SiriusMarkdown`** (app-facing umbrella module
 - **`MarkdownTheme`** owns `MarkdownSyntaxHighlightingPalette`, so default token colors are theme-owned and included in highlighted-code cache identity instead of being hidden inside SwiftUI body work.
 - **`MarkdownBlockView`** branches on `MarkdownBlockKind` for structured blocks and consumes `MarkdownPreparedBlockContent` for inline text, lists, nested lists, tables, code, math, and HTML. List and table rendering uses prepared source-range IDs rather than array offsets. Tables use prepared cell inline layouts and measured natural widths to choose bounded adaptive columns in SwiftUI; the view layer does not reparse table Markdown or measure raw source.
 - **`MarkdownTheme`** owns renderer-level table presentation tokens (`tableBackground`, header/alternate-row backgrounds, border/accent colors, corner radius, and cell padding). This keeps table styling part of the public renderer surface instead of a demo-only skin.
+
+### Block styles (`Theme/Styles/`)
+
+- `MarkdownBlockView` dispatches rendering through fourteen `@MainActor`
+  per-block style protocols (`MarkdownHeadingBlockStyle`,
+  `MarkdownParagraphBlockStyle`, `MarkdownBlockQuoteStyle`,
+  `MarkdownCodeBlockStyle`, `MarkdownTableBlockStyle`,
+  `MarkdownTableCellStyle`, `MarkdownListItemStyle`,
+  `MarkdownUnorderedListMarkerStyle`, `MarkdownOrderedListMarkerStyle`,
+  `MarkdownTaskListMarkerStyle`, `MarkdownThematicBreakStyle`,
+  `MarkdownMathBlockStyle`, `MarkdownHTMLBlockStyle`,
+  `MarkdownMermaidBlockStyle`) rather than owning chrome geometry inline.
+  Each `makeBody(configuration:)` receives an already-prepared
+  `MarkdownBlockStyleLabel` (a type-erased `View`) plus metadata (theme,
+  block ID, indentation level, slot-specific fields) built by
+  `MarkdownBlockView` from `MarkdownPreparedBlockContent` — styles never
+  call `configuration.prepare(...)`, parse Markdown, run inline layout, or
+  perform CoreText prepare. `MarkdownTheme` remains the sole prepare/layout
+  cache identity core (`renderCacheIdentity`); style protocol types are not
+  `Hashable` and are never part of a cache key. `MarkdownDefault*Style`
+  (one per protocol) reproduces the pre-protocol hardcoded chrome exactly.
+  The aggregate `MarkdownDocumentStyle` protocol bundles all fourteen
+  slots behind a single conformance, with `MarkdownDefaultDocumentStyle` /
+  `.default` as the all-defaults bundle.
+- **Injection** (`View+Markdown.swift`): `MarkdownRendererConfiguration.documentStyle`
+  (default `nil`, boxed in an internal `@unchecked Sendable`
+  `MarkdownDocumentStyleBox` so the `Sendable` configuration type can carry
+  a `@MainActor` existential) is the session-default style source. A
+  `.markdown` namespace (`MarkdownNamespace<Base: View>`) exposes per-slot
+  environment modifiers (`.markdown.headingStyle(_:)`, …) plus an aggregate
+  `.markdown.documentStyle(_:)`. `MarkdownBlockView` and the private list-item
+  row resolve each slot via the internal `resolvedMarkdownStyle` helper:
+  `environment override ?? environment aggregate slot ?? configuration.documentStyle
+  slot ?? MarkdownDefault*Style` — a per-block environment override always
+  wins over an aggregate document style regardless of which modifier is
+  applied first (avoiding Textual's aggregate-clobber bug). Both
+  environment keys default to `nil` rather than a constructed
+  `MarkdownDefault*Style`, because `EnvironmentKey.defaultValue` runs in a
+  nonisolated context and cannot construct a `@MainActor`-isolated default;
+  the `MarkdownDefault*Style()` fallback only happens inside
+  `resolvedMarkdownStyle`, called from an already-`@MainActor` view.
+  Resolving a style never reparses Markdown, never changes prepare/layout
+  cache identity, and never churns sealed block IDs.
+- **GitHub-inspired preset** (`Theme/Styles/GitHub/`): opt-in
+  `MarkdownTheme.gitHub` (heading sizes/line heights, table padding/zebra/
+  border tokens) pairs with `MarkdownGitHubDocumentStyle` / `.gitHub`
+  (semibold headings with an H1/H2 divider underlay, a GitHub-bordered
+  block-quote bar, denser code-block padding, hierarchical disc/circle/
+  square unordered markers) through the `MarkdownRendererConfiguration.gitHub`
+  convenience. `MarkdownGitHubColors` builds its palette from SwiftUI
+  semantic colors (`.primary`/`.secondary`/`.blue` with opacity) rather than
+  fixed sRGB values or an asset catalog, so it adapts to light/dark
+  automatically. Slots the plan calls structurally identical to defaults
+  (paragraph, ordered marker, list item, table, table cell, math, HTML,
+  Mermaid) are left on `MarkdownDocumentStyle`'s own default extensions —
+  table chrome in particular reads GitHub-flavored tokens straight from
+  `MarkdownTheme.gitHub` without needing a distinct table style. Neither
+  `.compactChat` nor `.document` is affected; GitHub is never the default.
+
 - **Cross-block selection** (`MarkdownDocumentSelectionGeometry.swift`) uses a unified two-path strategy for all block types: blocks with `inlineLayout` (paragraphs, headings, block quotes) produce per-line `inlineLineFragments` from `inlineLayout`; blocks with only `selectionInlineLayout` (code blocks, math blocks) produce per-line fragments from `selectionInlineLayout`; table cells and list items use `inlineLineFragments` per cell/item when `inlineLayout ?? selectionInlineLayout` is available, falling back to a source-backed rect fragment when neither is present. `fragments(for:preparedContent:rect:)` checks `selectionInlineLayout` after `inlineLayout` so code and math blocks produce text-geometry-aware fragments without `inlineLayout` being set. `emitsTextLeafSelectionFragments` inspects table cells and list items recursively so the document-level selection layer can skip the fallback container fragment when any descendant has prepared inline content. Policy-denied blocks produce a source-backed rect fragment covering the block's source range so selection and copy remain correct even when rendering is suppressed.
 
 - **Selection feel — drag affinity and contexts** (`MarkdownDocumentSelectionGeometry.swift`, `MarkdownInteraction.swift`, `MarkdownDocumentView.swift`):

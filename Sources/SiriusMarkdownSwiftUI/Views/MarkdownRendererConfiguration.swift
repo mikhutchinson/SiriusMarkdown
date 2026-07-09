@@ -211,6 +211,26 @@ public struct MarkdownRendererConfiguration: Sendable {
     public var preparationCache: MarkdownRenderPreparationCache
     public var diagnosticsRecorder: MarkdownDiagnosticsRecorder
 
+    /// Session-default block chrome style bundle (Part 02 §2.2 Channel A).
+    ///
+    /// `nil` means "no configuration-level override" — `MarkdownBlockView`
+    /// falls back to `.markdown` environment styles and finally to each
+    /// slot's `MarkdownDefault*Style` (INV-BS9 merge order). Storing or
+    /// copying this property never requires the main actor — only
+    /// *invoking* `makeBody` on a resolved style does, and that already
+    /// happens exclusively inside `@MainActor` `MarkdownBlockView` /
+    /// `MarkdownListItemRow` call sites. Storage uses an internal
+    /// `@unchecked Sendable` box so this `Sendable` configuration type can
+    /// still carry the `@MainActor` `MarkdownDocumentStyle` existential
+    /// (see `MarkdownDocumentStyleBox`). Prepare/cache paths never read
+    /// this property (INV-BS1, INV-BS2).
+    public var documentStyle: (any MarkdownDocumentStyle)? {
+        get { documentStyleBox?.style }
+        set { documentStyleBox = newValue.map(MarkdownDocumentStyleBox.init) }
+    }
+
+    private var documentStyleBox: MarkdownDocumentStyleBox?
+
     public init(
         theme: MarkdownTheme = .compactChat,
         inlineRenderingMode: MarkdownInlineRenderingMode = .coreTextPaintedLines,
@@ -227,6 +247,7 @@ public struct MarkdownRendererConfiguration: Sendable {
         codeHighlighter: any MarkdownCodeHighlighter = DefaultMarkdownCodeHighlighter(),
         mermaidRenderer: (any MarkdownMermaidRenderer)? = DefaultMarkdownMermaidRenderer(),
         mathRenderer: any MarkdownMathRenderer = PlainMarkdownMathRenderer(),
+        documentStyle: (any MarkdownDocumentStyle)? = nil,
         affordanceActionHandler: MarkdownAffordanceActionHandler = .platformDefault,
         preparationCache: MarkdownRenderPreparationCache = MarkdownRenderPreparationCache(),
         diagnosticsRecorder: MarkdownDiagnosticsRecorder = MarkdownDiagnosticsRecorder()
@@ -246,6 +267,7 @@ public struct MarkdownRendererConfiguration: Sendable {
         self.codeHighlighter = codeHighlighter
         self.mermaidRenderer = mermaidRenderer
         self.mathRenderer = mathRenderer
+        self.documentStyleBox = documentStyle.map(MarkdownDocumentStyleBox.init)
         self.affordanceActionHandler = affordanceActionHandler
         self.preparationCache = preparationCache
         self.diagnosticsRecorder = diagnosticsRecorder
@@ -264,6 +286,7 @@ public struct MarkdownRendererConfiguration: Sendable {
         codeHighlighter: any MarkdownCodeHighlighter = DefaultMarkdownCodeHighlighter(),
         mermaidRenderer: (any MarkdownMermaidRenderer)? = DefaultMarkdownMermaidRenderer(),
         mathRenderer: any MarkdownMathRenderer = PlainMarkdownMathRenderer(),
+        documentStyle: (any MarkdownDocumentStyle)? = nil,
         affordanceActionHandler: MarkdownAffordanceActionHandler = .platformDefault,
         preparationCache: MarkdownRenderPreparationCache = MarkdownRenderPreparationCache(),
         diagnosticsRecorder: MarkdownDiagnosticsRecorder = MarkdownDiagnosticsRecorder()
@@ -283,6 +306,7 @@ public struct MarkdownRendererConfiguration: Sendable {
         self.codeHighlighter = codeHighlighter
         self.mermaidRenderer = mermaidRenderer
         self.mathRenderer = mathRenderer
+        self.documentStyleBox = documentStyle.map(MarkdownDocumentStyleBox.init)
         self.affordanceActionHandler = affordanceActionHandler
         self.preparationCache = preparationCache
         self.diagnosticsRecorder = diagnosticsRecorder
@@ -303,6 +327,7 @@ public struct MarkdownRendererConfiguration: Sendable {
         codeHighlighter: any MarkdownCodeHighlighter = DefaultMarkdownCodeHighlighter(),
         mermaidRenderer: (any MarkdownMermaidRenderer)? = DefaultMarkdownMermaidRenderer(),
         mathRenderer: any MarkdownMathRenderer = PlainMarkdownMathRenderer(),
+        documentStyle: (any MarkdownDocumentStyle)? = nil,
         affordanceActionHandler: MarkdownAffordanceActionHandler = .platformDefault,
         preparationCache: MarkdownRenderPreparationCache = MarkdownRenderPreparationCache(),
         diagnosticsRecorder: MarkdownDiagnosticsRecorder = MarkdownDiagnosticsRecorder()
@@ -323,6 +348,7 @@ public struct MarkdownRendererConfiguration: Sendable {
             codeHighlighter: codeHighlighter,
             mermaidRenderer: mermaidRenderer,
             mathRenderer: mathRenderer,
+            documentStyle: documentStyle,
             affordanceActionHandler: affordanceActionHandler,
             preparationCache: preparationCache,
             diagnosticsRecorder: diagnosticsRecorder

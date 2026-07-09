@@ -166,6 +166,51 @@ small surfaces. Production paths should pass `MarkdownPreparedSnapshot`.
   apps must ship `SiriusMarkdown_SwiftMath.bundle` under `Contents/Resources`.
   The core renderer stays pluggable.
 
+## Customization
+
+`MarkdownTheme` owns typography, colors, and metrics. `MarkdownDocumentStyle`
+and its fourteen per-block style protocols (heading, paragraph, block quote,
+code block, table, table cell, list item, unordered/ordered/task markers,
+thematic break, math block, HTML block, Mermaid block) own chrome — borders,
+backgrounds, dividers, and marker glyphs around already-prepared content.
+Every protocol ships a `MarkdownDefault*Style` that reproduces the built-in
+look, so restyling one block never requires forking `MarkdownBlockView`:
+
+```swift
+struct UnderlineH1: MarkdownHeadingBlockStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            configuration.label
+            if configuration.headingLevel == 1 {
+                Divider()
+            }
+        }
+    }
+}
+
+MarkdownDocumentView(preparedSnapshot: prepared, configuration: configuration)
+    .markdown.headingStyle(UnderlineH1())
+```
+
+Per-block `.markdown.<slot>Style(_:)` overrides always win over an aggregate
+`.markdown.documentStyle(_:)`, which in turn wins over
+`MarkdownRendererConfiguration.documentStyle`, which falls back to
+`MarkdownDefault*Style` — regardless of modifier order. Style resolution
+never reparses Markdown, never changes prepare/layout cache identity, and
+never churns sealed block IDs.
+
+An opt-in, GitHub-inspired preset pairs a matching theme with matching chrome:
+
+```swift
+MarkdownDocumentView(preparedSnapshot: prepared, configuration: .gitHub)
+```
+
+`MarkdownRendererConfiguration.gitHub` approximates common README
+rendering — semibold headings with H1/H2 divider rules, a bordered
+block-quote bar, denser code padding, and hierarchical unordered markers. It
+is not a pixel match for github.com's CSS, and it is never the default;
+`.compactChat` and `.document` are unaffected.
+
 ## CoreText Inline Rendering
 
 Inline work follows the Pretext-style split:

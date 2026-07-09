@@ -656,7 +656,7 @@ private struct PreparedInlineTextView: View {
                     refreshLayoutIfPossible()
                 }
             }
-            .onChange(of: layoutIdentity) { _ in
+            .markdownOnChange(of: layoutIdentity) { _ in
                 layoutResult = prepared.initialLayoutResult ?? InlineLayoutResult(lines: [], naturalWidth: 0, height: 0)
                 if let initial = prepared.initialLayoutResult, !initial.lines.isEmpty {
                     containerWidth = CGFloat(prepared.defaultLayoutWidth)
@@ -826,8 +826,6 @@ private struct PreparedInlineTextView: View {
         let prepared = prepared
         let layoutResult = layoutResult
         return { startPoint, endPoint in
-            let lineHeight = CGFloat(prepared.lineHeight)
-            let spacing = InlineRunsView.nativeLineSpacing(for: prepared)
             let fragments = MarkdownDocumentSelectionFragment.inlineLineFragments(
                 blockID: blockID,
                 prepared: prepared,

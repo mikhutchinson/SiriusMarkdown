@@ -70,7 +70,7 @@ public struct MarkdownDocumentView: View {
         .onAppear {
             controller?.updateSnapshot(preparedSnapshot.snapshot)
         }
-        .onChange(of: preparedSnapshot.snapshot.generation) { _ in
+        .markdownOnChange(of: preparedSnapshot.snapshot.generation) { _ in
             controller?.updateSnapshot(preparedSnapshot.snapshot)
         }
     }
@@ -225,7 +225,7 @@ public struct StreamingMarkdownView: View {
         .onAppear {
             controller?.updateSnapshot(preparedSnapshot.snapshot)
         }
-        .onChange(of: preparedSnapshot.snapshot.generation) { _ in
+        .markdownOnChange(of: preparedSnapshot.snapshot.generation) { _ in
             controller?.updateSnapshot(preparedSnapshot.snapshot)
         }
     }
@@ -320,7 +320,7 @@ private struct MarkdownSelectionFragmentContainer<Content: View>: View {
         content()
             .environment(\.markdownDocumentSelectionContext, MarkdownDocumentSelectionContext(blockID: block.id))
             .background(fragmentPreference)
-            .contextMenu {
+            .markdownContextMenu {
                 Button("Select Block") {
                     selectionController.select(block.id)
                 }
@@ -393,7 +393,7 @@ private struct MarkdownDocumentSelectionLayer<Content: View>: View {
                 configuration.diagnosticsRecorder.recordSelectionPreferenceChange()
                 fragments = sorted
             }
-            .contextMenu {
+            .markdownContextMenu {
                 Button("Select All") {
                     selectAll()
                 }

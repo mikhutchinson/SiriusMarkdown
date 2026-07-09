@@ -290,7 +290,7 @@ final class MarkdownAttachmentHostUIView: UIView {
 }
 #endif
 
-#if canImport(QuartzCore)
+#if canImport(QuartzCore) && !os(watchOS)
 import QuartzCore
 
 /// Quiet reserved-box chrome drawn without any host image/network

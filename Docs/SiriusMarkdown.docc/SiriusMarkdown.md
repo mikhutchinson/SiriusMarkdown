@@ -82,6 +82,49 @@ SiriusMarkdown's default tests assert this contract through renderer preparation
 
 `MarkdownRendererConfiguration.compactChat`, `.document`, and direct custom configuration select `MarkdownInlineRenderingMode.coreTextPaintedLines` by default, so chat and document views paint prepared line slices inside the finite proposal supplied by the host. `MarkdownInlineRenderingMode.preparedNativeLines` and `.systemText` remain explicit compatibility fallbacks.
 
+### Block styles
+
+**`MarkdownTheme`** owns typography, colors, and metrics — and stays the prepare/layout cache identity core. **`MarkdownDocumentStyle`** and its fourteen per-block protocols (**`MarkdownHeadingBlockStyle`**, **`MarkdownParagraphBlockStyle`**, **`MarkdownBlockQuoteStyle`**, **`MarkdownCodeBlockStyle`**, **`MarkdownTableBlockStyle`**, **`MarkdownTableCellStyle`**, **`MarkdownListItemStyle`**, **`MarkdownUnorderedListMarkerStyle`**, **`MarkdownOrderedListMarkerStyle`**, **`MarkdownTaskListMarkerStyle`**, **`MarkdownThematicBreakStyle`**, **`MarkdownMathBlockStyle`**, **`MarkdownHTMLBlockStyle`**, **`MarkdownMermaidBlockStyle`**) own chrome — borders, backgrounds, dividers, and marker glyphs around already-prepared content. `makeBody(configuration:)` receives a prepared `MarkdownBlockStyleLabel` plus metadata; implementations must not parse Markdown, run inline layout, or perform CoreText prepare. Every protocol ships a `MarkdownDefault*Style` that reproduces the pre-protocol look.
+
+Override one block without forking `MarkdownBlockView`:
+
+```swift
+struct UnderlineH1: MarkdownHeadingBlockStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            configuration.label
+            if configuration.headingLevel == 1 {
+                Divider()
+            }
+        }
+    }
+}
+
+MarkdownDocumentView(preparedSnapshot: prepared, configuration: configuration)
+    .markdown.headingStyle(UnderlineH1())
+```
+
+Restyle every slot at once with a custom `MarkdownDocumentStyle` — unspecified slots fall back to their own default:
+
+```swift
+struct ReaderStyle: MarkdownDocumentStyle {
+    var headingStyle: some MarkdownHeadingBlockStyle { UnderlineH1() }
+}
+
+MarkdownDocumentView(preparedSnapshot: prepared, configuration: configuration)
+    .markdown.documentStyle(ReaderStyle())
+```
+
+Effective style per slot resolves as `.markdown.<slot>Style(_:)` override, then `.markdown.documentStyle(_:)` aggregate, then `MarkdownRendererConfiguration.documentStyle`, then `MarkdownDefault*Style` — a per-block override always wins over an aggregate document style regardless of which modifier is applied first. Chrome-only style changes never reparse Markdown, never change prepare/layout cache identity, and never churn sealed block IDs.
+
+An opt-in, GitHub-inspired preset pairs a matching theme with matching chrome — apply both together, since heading sizes are a theme (prepare/measurement) concern:
+
+```swift
+MarkdownDocumentView(preparedSnapshot: prepared, configuration: .gitHub)
+```
+
+`MarkdownRendererConfiguration.gitHub` approximates common README rendering; it is not a pixel match for github.com's CSS, and it is never the default — `.compactChat` and `.document` are unaffected.
+
 ### Source navigation and reveal
 
 SiriusMarkdown resolves which rendered block corresponds to a source line or range. Host apps own scrolling: ``SiriusMarkdownSwiftUI/StreamingMarkdownView`` does not wrap a `ScrollView`, while ``SiriusMarkdownSwiftUI/MarkdownDocumentView`` owns its own internal scroll surface.
@@ -156,6 +199,26 @@ Architecture rules and the product quality bar are documented in `Docs/architect
 - ``SiriusMarkdownSwiftUI/MarkdownMermaidDiagramAffordances``
 - ``SiriusMarkdownSwiftUI/MarkdownMermaidDiagramGeometry``
 - ``SiriusMarkdownSwiftUI/MarkdownMermaidViewBox``
+
+### Block styles
+
+- ``SiriusMarkdownSwiftUI/MarkdownDocumentStyle``
+- ``SiriusMarkdownSwiftUI/MarkdownHeadingBlockStyle``
+- ``SiriusMarkdownSwiftUI/MarkdownParagraphBlockStyle``
+- ``SiriusMarkdownSwiftUI/MarkdownBlockQuoteStyle``
+- ``SiriusMarkdownSwiftUI/MarkdownCodeBlockStyle``
+- ``SiriusMarkdownSwiftUI/MarkdownTableBlockStyle``
+- ``SiriusMarkdownSwiftUI/MarkdownTableCellStyle``
+- ``SiriusMarkdownSwiftUI/MarkdownListItemStyle``
+- ``SiriusMarkdownSwiftUI/MarkdownUnorderedListMarkerStyle``
+- ``SiriusMarkdownSwiftUI/MarkdownOrderedListMarkerStyle``
+- ``SiriusMarkdownSwiftUI/MarkdownTaskListMarkerStyle``
+- ``SiriusMarkdownSwiftUI/MarkdownThematicBreakStyle``
+- ``SiriusMarkdownSwiftUI/MarkdownMathBlockStyle``
+- ``SiriusMarkdownSwiftUI/MarkdownHTMLBlockStyle``
+- ``SiriusMarkdownSwiftUI/MarkdownMermaidBlockStyle``
+- ``SiriusMarkdownSwiftUI/MarkdownBlockStyleLabel``
+- ``SiriusMarkdownSwiftUI/MarkdownGitHubDocumentStyle``
 
 ### Layout and measurement
 

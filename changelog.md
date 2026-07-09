@@ -2,6 +2,55 @@
 
 ## Unreleased
 
+### Block Style Protocols (Parts 01–03)
+
+- **Style protocol surface (Part 01):** Fourteen `@MainActor` per-block
+  style protocols (`MarkdownHeadingBlockStyle`, `MarkdownParagraphBlockStyle`,
+  `MarkdownBlockQuoteStyle`, `MarkdownCodeBlockStyle`, `MarkdownTableBlockStyle`,
+  `MarkdownTableCellStyle`, `MarkdownListItemStyle`,
+  `MarkdownUnorderedListMarkerStyle`, `MarkdownOrderedListMarkerStyle`,
+  `MarkdownTaskListMarkerStyle`, `MarkdownThematicBreakStyle`,
+  `MarkdownMathBlockStyle`, `MarkdownHTMLBlockStyle`,
+  `MarkdownMermaidBlockStyle`) replace `MarkdownBlockView`'s hardcoded chrome.
+  Each `makeBody(configuration:)` receives an already-prepared
+  `MarkdownBlockStyleLabel` plus metadata (theme, block ID, indentation level,
+  and slot-specific fields such as `headingLevel` or `languageHint`) — styles
+  never parse, highlight, or run inline layout (INV-BS2). `MarkdownDefault*Style`
+  implementations reproduce pre-protocol chrome exactly (INV-BS3), and the
+  aggregate `MarkdownDocumentStyle` protocol bundles all fourteen slots with a
+  `MarkdownDefaultDocumentStyle` / `.default` convenience.
+- **Environment + configuration injection (Part 02):**
+  `MarkdownRendererConfiguration.documentStyle` (default `nil`) carries a
+  session-default style bundle, and a new `.markdown` namespace
+  (`View+Markdown.swift`) exposes per-slot modifiers
+  (`.markdown.headingStyle(_:)`, `.markdown.codeBlockStyle(_:)`, …) plus an
+  aggregate `.markdown.documentStyle(_:)`. Effective style per slot resolves as
+  `environment override ?? environment aggregate slot ?? configuration.documentStyle
+  slot ?? MarkdownDefault*Style` (INV-BS9) — a per-block modifier always wins over
+  an aggregate document style regardless of which is applied first, avoiding
+  Textual's aggregate-clobber footgun. Style resolution never reparses Markdown,
+  never changes prepare/layout cache identity, and never churns sealed block IDs
+  (INV-BS1, INV-BS6) — `MarkdownTheme` remains the sole prepare/layout cache
+  identity core.
+- **GitHub-inspired preset (Part 03):** Opt-in `MarkdownTheme.gitHub`
+  (heading sizes 32/24/20/16/14/14pt with matching line heights, denser table
+  padding, GitHub-flavored borders/zebra rows) pairs with
+  `MarkdownGitHubDocumentStyle` / `.gitHub` (semibold headings with an H1/H2
+  divider underlay and tertiary H6 color, a GitHub-bordered block-quote bar,
+  denser code-block padding, and hierarchical disc/circle/square unordered
+  markers) via the `MarkdownRendererConfiguration.gitHub` convenience. Neither
+  `.compactChat` nor `.document` is affected — GitHub is never the default
+  (INV-BS4), and it approximates Textual's `.gitHub`, not github.com's exact
+  CSS (Part 03 §3.3.3).
+- 27 new tests cover default-style parity (geometry constants locked for
+  block-quote bar, code corner radius, list marker widths, thematic break,
+  and heading pass-through), merge-order precedence (including
+  order-independence of override vs. aggregate modifiers),
+  configuration-vs-environment precedence, custom style invocation,
+  cache/streaming safety under style changes, GitHub theme metrics, GitHub
+  opt-in status, GitHub slot overrides, hierarchical markers, and nested-list
+  indentation with custom marker widths.
+
 ### Inline Attachments (Parts 01–04)
 
 - **Model + prepare (Part 01):** Allowed images (`MarkdownImagePolicy` `.allow`)

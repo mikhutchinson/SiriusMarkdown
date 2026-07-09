@@ -63,7 +63,7 @@ struct MarkdownAffordanceActionHandlerTests {
     @Test
     @MainActor
     func replacingHandlerOnOneCopyDoesNotAffectOther() {
-        var config1 = MarkdownRendererConfiguration.document
+        let config1 = MarkdownRendererConfiguration.document
         let original = config1.affordanceActionHandler
         var config2 = config1
         config2.affordanceActionHandler = MarkdownAffordanceActionHandler()

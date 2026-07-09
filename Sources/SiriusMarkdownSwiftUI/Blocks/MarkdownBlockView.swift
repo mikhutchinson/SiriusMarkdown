@@ -8,9 +8,126 @@ public struct MarkdownBlockView: View {
     @State private var isCodeBlockCollapsed: Bool
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.markdownDocumentSelectionContext) private var documentSelectionContext
+    @Environment(\.markdownDocumentStyleAggregate) private var documentStyleAggregate
+    @Environment(\.markdownHeadingBlockStyleOverride) private var headingBlockStyleOverride
+    @Environment(\.markdownParagraphBlockStyleOverride) private var paragraphBlockStyleOverride
+    @Environment(\.markdownBlockQuoteStyleOverride) private var blockQuoteStyleOverride
+    @Environment(\.markdownThematicBreakStyleOverride) private var thematicBreakStyleOverride
+    @Environment(\.markdownCodeBlockStyleOverride) private var codeBlockStyleOverride
+    @Environment(\.markdownMermaidBlockStyleOverride) private var mermaidBlockStyleOverride
+    @Environment(\.markdownMathBlockStyleOverride) private var mathBlockStyleOverride
+    @Environment(\.markdownHTMLBlockStyleOverride) private var htmlBlockStyleOverride
+    @Environment(\.markdownTableBlockStyleOverride) private var tableBlockStyleOverride
+    @Environment(\.markdownTableCellStyleOverride) private var tableCellStyleOverride
 
     private var theme: MarkdownTheme {
         configuration.theme
+    }
+
+    // MARK: - Style resolution (INV-BS9)
+    //
+    // `override ?? environment aggregate slot ?? configuration.documentStyle
+    // slot ?? MarkdownDefault*Style` — see `resolvedMarkdownStyle` in
+    // `View+Markdown.swift` for the merge-order contract.
+
+    private var resolvedHeadingStyle: any MarkdownHeadingBlockStyle {
+        resolvedMarkdownStyle(
+            override: headingBlockStyleOverride,
+            aggregate: documentStyleAggregate,
+            configuration: configuration,
+            slot: { $0.headingStyle },
+            default: MarkdownDefaultHeadingBlockStyle()
+        )
+    }
+
+    private var resolvedParagraphStyle: any MarkdownParagraphBlockStyle {
+        resolvedMarkdownStyle(
+            override: paragraphBlockStyleOverride,
+            aggregate: documentStyleAggregate,
+            configuration: configuration,
+            slot: { $0.paragraphStyle },
+            default: MarkdownDefaultParagraphBlockStyle()
+        )
+    }
+
+    private var resolvedBlockQuoteStyle: any MarkdownBlockQuoteStyle {
+        resolvedMarkdownStyle(
+            override: blockQuoteStyleOverride,
+            aggregate: documentStyleAggregate,
+            configuration: configuration,
+            slot: { $0.blockQuoteStyle },
+            default: MarkdownDefaultBlockQuoteStyle()
+        )
+    }
+
+    private var resolvedThematicBreakStyle: any MarkdownThematicBreakStyle {
+        resolvedMarkdownStyle(
+            override: thematicBreakStyleOverride,
+            aggregate: documentStyleAggregate,
+            configuration: configuration,
+            slot: { $0.thematicBreakStyle },
+            default: MarkdownDefaultThematicBreakStyle()
+        )
+    }
+
+    private var resolvedCodeBlockStyle: any MarkdownCodeBlockStyle {
+        resolvedMarkdownStyle(
+            override: codeBlockStyleOverride,
+            aggregate: documentStyleAggregate,
+            configuration: configuration,
+            slot: { $0.codeBlockStyle },
+            default: MarkdownDefaultCodeBlockStyle()
+        )
+    }
+
+    private var resolvedMermaidBlockStyle: any MarkdownMermaidBlockStyle {
+        resolvedMarkdownStyle(
+            override: mermaidBlockStyleOverride,
+            aggregate: documentStyleAggregate,
+            configuration: configuration,
+            slot: { $0.mermaidBlockStyle },
+            default: MarkdownDefaultMermaidBlockStyle()
+        )
+    }
+
+    private var resolvedMathBlockStyle: any MarkdownMathBlockStyle {
+        resolvedMarkdownStyle(
+            override: mathBlockStyleOverride,
+            aggregate: documentStyleAggregate,
+            configuration: configuration,
+            slot: { $0.mathBlockStyle },
+            default: MarkdownDefaultMathBlockStyle()
+        )
+    }
+
+    private var resolvedHTMLBlockStyle: any MarkdownHTMLBlockStyle {
+        resolvedMarkdownStyle(
+            override: htmlBlockStyleOverride,
+            aggregate: documentStyleAggregate,
+            configuration: configuration,
+            slot: { $0.htmlBlockStyle },
+            default: MarkdownDefaultHTMLBlockStyle()
+        )
+    }
+
+    private var resolvedTableStyle: any MarkdownTableBlockStyle {
+        resolvedMarkdownStyle(
+            override: tableBlockStyleOverride,
+            aggregate: documentStyleAggregate,
+            configuration: configuration,
+            slot: { $0.tableStyle },
+            default: MarkdownDefaultTableBlockStyle()
+        )
+    }
+
+    private var resolvedTableCellStyle: any MarkdownTableCellStyle {
+        resolvedMarkdownStyle(
+            override: tableCellStyleOverride,
+            aggregate: documentStyleAggregate,
+            configuration: configuration,
+            slot: { $0.tableCellStyle },
+            default: MarkdownDefaultTableCellStyle()
+        )
     }
 
     @available(*, deprecated, message: "Prepare block content outside SwiftUI update paths and use init(block:configuration:preparedContent:) for streaming or large documents.")
@@ -44,25 +161,13 @@ public struct MarkdownBlockView: View {
         Group {
             switch block.kind {
             case .heading:
-                inlineContent(baseFont: headingFont, fallbackText: headingFallbackText)
+                headingContent
             case .codeBlock:
                 codeBlockContent
             case .blockQuote:
-                MarkdownLeadingContentLayout(leadingWidth: 3, spacing: 8, stretchesLeadingToContentHeight: true) {
-                    Rectangle()
-                        .fill(theme.quoteAccent)
-                        .frame(width: 3)
-                    inlineContent(
-                        baseFont: theme.paragraphFont,
-                        fallbackText: block.text,
-                        nativeTextSelection: selectionModeInsideLeadingLayout
-                    )
-                        .foregroundStyle(theme.secondaryTextColor)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
+                blockQuoteContent
             case .thematicBreak:
-                Divider()
+                thematicBreakContent
             case .unorderedList, .orderedList, .taskList:
                 listContent
             case .table:
@@ -74,12 +179,12 @@ public struct MarkdownBlockView: View {
             case .blank:
                 EmptyView()
             case .paragraph:
-                inlineContent(baseFont: theme.paragraphFont, fallbackText: block.text)
+                paragraphContent
             }
         }
         .id(block.id)
         .accessibilityLabel(Self.accessibilityLabel(for: block))
-        .contextMenu {
+        .markdownContextMenu {
             if configuration.copyProvider != nil {
                 Button("Copy Markdown") {
                     copyBlockMarkdown()
@@ -89,6 +194,56 @@ public struct MarkdownBlockView: View {
         .onAppear {
             MarkdownDiagnostics().signpostEvent("BlockRender", category: "SwiftUI")
         }
+    }
+
+    private var headingContent: some View {
+        AnyView(resolvedHeadingStyle.makeBody(
+            configuration: MarkdownHeadingBlockStyleConfiguration(
+                label: MarkdownBlockStyleLabel(inlineContent(baseFont: headingFont, fallbackText: headingFallbackText)),
+                theme: theme,
+                blockID: block.id,
+                indentationLevel: 0,
+                headingLevel: block.headingLevel ?? 1
+            )
+        ))
+    }
+
+    private var paragraphContent: some View {
+        AnyView(resolvedParagraphStyle.makeBody(
+            configuration: MarkdownParagraphBlockStyleConfiguration(
+                label: MarkdownBlockStyleLabel(inlineContent(baseFont: theme.paragraphFont, fallbackText: block.text)),
+                theme: theme,
+                blockID: block.id,
+                indentationLevel: 0
+            )
+        ))
+    }
+
+    private var blockQuoteContent: some View {
+        AnyView(resolvedBlockQuoteStyle.makeBody(
+            configuration: MarkdownBlockQuoteStyleConfiguration(
+                label: MarkdownBlockStyleLabel(
+                    inlineContent(
+                        baseFont: theme.paragraphFont,
+                        fallbackText: block.text,
+                        nativeTextSelection: selectionModeInsideLeadingLayout
+                    )
+                ),
+                theme: theme,
+                blockID: block.id,
+                indentationLevel: 0
+            )
+        ))
+    }
+
+    private var thematicBreakContent: some View {
+        AnyView(resolvedThematicBreakStyle.makeBody(
+            configuration: MarkdownThematicBreakStyleConfiguration(
+                theme: theme,
+                blockID: block.id,
+                indentationLevel: 0
+            )
+        ))
     }
 
     @ViewBuilder
@@ -194,40 +349,41 @@ public struct MarkdownBlockView: View {
     @ViewBuilder
     private var codeBlockContent: some View {
         if let mermaid = preparedContent.mermaid {
-            VStack(alignment: .leading, spacing: 0) {
-                if showsCodeBlockHeader {
-                    codeBlockHeader
-                }
-                if !isCodeBlockCollapsed {
-                    MarkdownMermaidDiagramView(
-                        mermaid: mermaid,
-                        colorScheme: colorScheme,
-                        theme: theme,
-                        baseFont: theme.codeFont
-                    )
-                    .padding(.horizontal, 10)
-                    .padding(.top, showsCodeBlockHeader ? 4 : 10)
-                    .padding(.bottom, 10)
-                } else {
-                    Text("\(Self.codeCopyText(for: block).utf8.count.formatted()) bytes hidden")
-                        .font(.caption)
-                        .foregroundStyle(theme.secondaryTextColor)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 8)
-                        .accessibilityLabel("Mermaid diagram collapsed")
-                }
-            }
-            .background(theme.codeBackground)
-            .clipShape(RoundedRectangle(cornerRadius: 6))
+            AnyView(resolvedMermaidBlockStyle.makeBody(
+                configuration: MarkdownMermaidBlockStyleConfiguration(
+                    label: MarkdownBlockStyleLabel(mermaidLabel(mermaid)),
+                    theme: theme,
+                    blockID: block.id,
+                    indentationLevel: 0,
+                    languageLabel: Self.codeBlockLanguageLabel(for: block),
+                    isCollapsed: isCodeBlockCollapsed,
+                    actions: codeBlockActions
+                )
+            ))
         } else if let code = preparedContent.code {
-            VStack(alignment: .leading, spacing: 0) {
-                if showsCodeBlockHeader {
-                    codeBlockHeader
-                }
-                if !isCodeBlockCollapsed {
-                    ScrollView(.horizontal) {
+            AnyView(resolvedCodeBlockStyle.makeBody(
+                configuration: MarkdownCodeBlockStyleConfiguration(
+                    label: MarkdownBlockStyleLabel(codeLabel(code)),
+                    theme: theme,
+                    blockID: block.id,
+                    indentationLevel: 0,
+                    languageHint: block.infoString,
+                    languageLabel: Self.codeBlockLanguageLabel(for: block),
+                    isCollapsed: isCodeBlockCollapsed,
+                    actions: codeBlockActions
+                )
+            ))
+        } else if let reason = preparedContent.policyDenialReason {
+            policyDeniedView(reason: reason)
+        } else {
+            // Deprecated unprepared path: no highlighting ever ran, so
+            // default chrome intentionally shows no header/affordances
+            // here, matching pre-style `MarkdownBlockView` exactly.
+            AnyView(resolvedCodeBlockStyle.makeBody(
+                configuration: MarkdownCodeBlockStyleConfiguration(
+                    label: MarkdownBlockStyleLabel(
                         selectableText(
-                            code,
+                            AttributedString(MarkdownRendererConfiguration.codeText(for: block)),
                             font: theme.codeFont,
                             textColor: theme.textColor,
                             selectionMode: configuration.nativeTextSelection,
@@ -235,111 +391,80 @@ public struct MarkdownBlockView: View {
                             wraps: false,
                             selectionInlineLayout: preparedContent.selectionInlineLayout
                         )
-                            .padding(.horizontal, 10)
-                            .padding(.top, showsCodeBlockHeader ? 4 : 10)
-                            .padding(.bottom, 10)
-                            .fixedSize(horizontal: true, vertical: false)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                } else {
-                    Text("\(Self.codeCopyText(for: block).utf8.count.formatted()) bytes hidden")
-                        .font(.caption)
-                        .foregroundStyle(theme.secondaryTextColor)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 8)
-                        .accessibilityLabel("Code block collapsed")
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(theme.codeBackground)
-            .clipShape(RoundedRectangle(cornerRadius: 6))
-        } else if let reason = preparedContent.policyDenialReason {
-            policyDeniedView(reason: reason)
-        } else {
-            ScrollView(.horizontal) {
-                selectableText(
-                    AttributedString(MarkdownRendererConfiguration.codeText(for: block)),
-                    font: theme.codeFont,
-                    textColor: theme.textColor,
-                    selectionMode: configuration.nativeTextSelection,
-                    metrics: codeTextMetrics,
-                    wraps: false,
-                    selectionInlineLayout: preparedContent.selectionInlineLayout
+                    ),
+                    theme: theme,
+                    blockID: block.id,
+                    indentationLevel: 0,
+                    languageHint: nil,
+                    languageLabel: nil,
+                    isCollapsed: false,
+                    actions: MarkdownCodeBlockActions()
                 )
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 10)
-                    .fixedSize(horizontal: true, vertical: false)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(theme.codeBackground)
-            .clipShape(RoundedRectangle(cornerRadius: 6))
+            ))
         }
-    }
-
-    private var showsCodeBlockHeader: Bool {
-        (theme.codeBlockAffordances.showsLanguageLabel && Self.codeBlockLanguageLabel(for: block) != nil) ||
-            theme.codeBlockAffordances.showsCopyButton ||
-            theme.codeBlockAffordances.showsExportButton ||
-            theme.codeBlockAffordances.showsCollapseButton
     }
 
     @ViewBuilder
-    private var codeBlockHeader: some View {
-        HStack(spacing: 8) {
-            if theme.codeBlockAffordances.showsLanguageLabel,
-               let label = Self.codeBlockLanguageLabel(for: block)
-            {
-                Text(label)
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(theme.secondaryTextColor)
-                    .lineLimit(1)
-                    .accessibilityLabel("Code language: \(label)")
-            }
-
-            Spacer(minLength: 8)
-
-            if theme.codeBlockAffordances.showsCopyButton {
-                Button {
-                    copyCodeBlock()
-                } label: {
-                    MarkdownAffordanceIcon(systemName: MarkdownAffordanceSymbols.copy, size: 12)
-                }
-                .buttonStyle(.plain)
+    private func mermaidLabel(_ mermaid: MarkdownPreparedMermaidDiagram) -> some View {
+        if isCodeBlockCollapsed {
+            Text("\(Self.codeCopyText(for: block).utf8.count.formatted()) bytes hidden")
+                .font(.caption)
                 .foregroundStyle(theme.secondaryTextColor)
-                .accessibilityLabel("Copy code")
-                .help("Copy code")
-            }
-
-            if theme.codeBlockAffordances.showsExportButton {
-                Button {
-                    exportCodeBlock()
-                } label: {
-                    MarkdownAffordanceIcon(systemName: MarkdownAffordanceSymbols.export, size: 12)
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(theme.secondaryTextColor)
-                .accessibilityLabel("Export code")
-                .help("Export code")
-            }
-
-            if theme.codeBlockAffordances.showsCollapseButton {
-                Button {
-                    isCodeBlockCollapsed.toggle()
-                } label: {
-                    MarkdownAffordanceIcon(
-                        systemName: isCodeBlockCollapsed ? MarkdownAffordanceSymbols.expand : MarkdownAffordanceSymbols.collapse,
-                        size: 12
-                    )
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(theme.secondaryTextColor)
-                .accessibilityLabel(isCodeBlockCollapsed ? "Expand code block" : "Collapse code block")
-                .help(isCodeBlockCollapsed ? "Expand code block" : "Collapse code block")
-            }
+                .accessibilityLabel("Mermaid diagram collapsed")
+        } else {
+            MarkdownMermaidDiagramView(
+                mermaid: mermaid,
+                colorScheme: colorScheme,
+                theme: theme,
+                baseFont: theme.codeFont
+            )
         }
-        .padding(.horizontal, 10)
-        .padding(.top, 8)
-        .padding(.bottom, 2)
+    }
+
+    @ViewBuilder
+    private func codeLabel(_ code: AttributedString) -> some View {
+        if isCodeBlockCollapsed {
+            Text("\(Self.codeCopyText(for: block).utf8.count.formatted()) bytes hidden")
+                .font(.caption)
+                .foregroundStyle(theme.secondaryTextColor)
+                .accessibilityLabel("Code block collapsed")
+        } else {
+            selectableText(
+                code,
+                font: theme.codeFont,
+                textColor: theme.textColor,
+                selectionMode: configuration.nativeTextSelection,
+                metrics: codeTextMetrics,
+                wraps: false,
+                selectionInlineLayout: preparedContent.selectionInlineLayout
+            )
+        }
+    }
+
+    private var codeBlockActions: MarkdownCodeBlockActions {
+        // NOTE: built with `if` statements rather than `?:` ternaries.
+        // Ternary branches selecting between a `self`-capturing closure
+        // literal and `nil` do not propagate the `@MainActor` (implicitly
+        // `Sendable`) target type into the closure literal correctly, and
+        // fail with a spurious Sendable conversion error (or, with three
+        // in one initializer call, a compiler diagnostic-emission crash).
+        var copyAction: (@MainActor () -> Void)?
+        if theme.codeBlockAffordances.showsCopyButton {
+            copyAction = { copyCodeBlock() }
+        }
+        var exportAction: (@MainActor () -> Void)?
+        if theme.codeBlockAffordances.showsExportButton {
+            exportAction = { exportCodeBlock() }
+        }
+        var collapseAction: (@MainActor () -> Void)?
+        if theme.codeBlockAffordances.showsCollapseButton {
+            collapseAction = { isCodeBlockCollapsed.toggle() }
+        }
+        return MarkdownCodeBlockActions(
+            copy: copyAction,
+            export: exportAction,
+            toggleCollapse: collapseAction
+        )
     }
 
     private var listContent: some View {
@@ -348,7 +473,9 @@ public struct MarkdownBlockView: View {
             kind: block.kind,
             orderedStart: block.orderedListStart,
             configuration: configuration,
-            theme: theme
+            theme: theme,
+            blockID: block.id,
+            indentationLevel: 0
         )
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -357,36 +484,34 @@ public struct MarkdownBlockView: View {
     private var tableContent: some View {
         if let table = preparedContent.table {
             let columnWidths = tableColumnWidths(for: table)
-
-            ScrollView(.horizontal) {
-                VStack(alignment: .leading, spacing: 0) {
-                    if !table.header.isEmpty {
-                        tableRow(
-                            cells: table.header,
-                            rowIndex: -1,
-                            isHeader: true,
-                            columnWidths: columnWidths
-                        )
-                    }
-
-                    ForEach(Array(table.rows.enumerated()), id: \.element.id) { rowIndex, row in
-                        tableRow(
-                            cells: row.cells,
-                            rowIndex: rowIndex,
-                            isHeader: false,
-                            columnWidths: columnWidths
-                        )
-                    }
+            let grid = VStack(alignment: .leading, spacing: 0) {
+                if !table.header.isEmpty {
+                    tableRow(
+                        cells: table.header,
+                        rowIndex: -1,
+                        isHeader: true,
+                        columnWidths: columnWidths
+                    )
                 }
-                .background(theme.tableBackground)
-                .clipShape(RoundedRectangle(cornerRadius: theme.renderTableCornerRadius))
-                .overlay {
-                    RoundedRectangle(cornerRadius: theme.renderTableCornerRadius)
-                        .stroke(theme.tableBorderColor)
+
+                ForEach(Array(table.rows.enumerated()), id: \.element.id) { rowIndex, row in
+                    tableRow(
+                        cells: row.cells,
+                        rowIndex: rowIndex,
+                        isHeader: false,
+                        columnWidths: columnWidths
+                    )
                 }
-                .padding(.vertical, 4)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+
+            AnyView(resolvedTableStyle.makeBody(
+                configuration: MarkdownTableBlockStyleConfiguration(
+                    label: MarkdownBlockStyleLabel(grid),
+                    theme: theme,
+                    blockID: block.id,
+                    indentationLevel: 0
+                )
+            ))
         } else {
             inlineContent(baseFont: theme.codeFont, fallbackText: block.text)
         }
@@ -402,7 +527,9 @@ public struct MarkdownBlockView: View {
             ForEach(columnWidths.indices, id: \.self) { column in
                 tableCell(
                     cells[safe: column],
+                    row: rowIndex,
                     column: column,
+                    columnCount: columnWidths.count,
                     isHeader: isHeader,
                     isLastColumn: column == columnWidths.count - 1,
                     width: columnWidths[column]
@@ -429,21 +556,36 @@ public struct MarkdownBlockView: View {
         if let mathRender = preparedContent.mathRender {
             switch mathRender {
             case let .image(image):
-                mathImageBlock(image)
+                mathBlockStyleBody(label: mathImageLabel(image), isImage: true)
             case let .text(attributed):
-                mathTextBlock(attributed)
+                mathBlockStyleBody(label: mathTextLabel(attributed), isImage: false)
             }
         } else if let math = preparedContent.math {
-            mathTextBlock(math)
+            mathBlockStyleBody(label: mathTextLabel(math), isImage: false)
         } else if let reason = preparedContent.policyDenialReason {
             policyDeniedView(reason: reason)
         } else {
-            mathTextBlock(AttributedString(MarkdownRendererConfiguration.mathText(for: block)))
+            mathBlockStyleBody(
+                label: mathTextLabel(AttributedString(MarkdownRendererConfiguration.mathText(for: block))),
+                isImage: false
+            )
         }
     }
 
+    private func mathBlockStyleBody(label: some View, isImage: Bool) -> some View {
+        AnyView(resolvedMathBlockStyle.makeBody(
+            configuration: MarkdownMathBlockStyleConfiguration(
+                label: MarkdownBlockStyleLabel(label),
+                theme: theme,
+                blockID: block.id,
+                indentationLevel: 0,
+                isImage: isImage
+            )
+        ))
+    }
+
     @ViewBuilder
-    private func mathImageBlock(_ image: MarkdownPreparedMathImage) -> some View {
+    private func mathImageLabel(_ image: MarkdownPreparedMathImage) -> some View {
         let mathView = MarkdownMathImageView(image: image, color: theme.textColor)
             .padding(.vertical, 6)
         ViewThatFits(in: .horizontal) {
@@ -511,7 +653,7 @@ public struct MarkdownBlockView: View {
     }
 
     @ViewBuilder
-    private func mathTextBlock(_ attributed: AttributedString) -> some View {
+    private func mathTextLabel(_ attributed: AttributedString) -> some View {
         selectableText(
             attributed,
             font: theme.codeFont,
@@ -520,22 +662,28 @@ public struct MarkdownBlockView: View {
             metrics: codeTextMetrics,
             selectionInlineLayout: preparedContent.selectionInlineLayout
         )
-            .padding(8)
-            .background(theme.codeBackground)
-            .clipShape(RoundedRectangle(cornerRadius: 6))
     }
 
     @ViewBuilder
     private var htmlBlockContent: some View {
         if preparedContent.htmlAllowed == true {
-            selectableText(
-                AttributedString(block.text),
-                font: theme.codeFont,
-                textColor: theme.secondaryTextColor,
-                selectionMode: configuration.nativeTextSelection,
-                metrics: codeTextMetrics,
-                selectionInlineLayout: preparedContent.selectionInlineLayout
-            )
+            AnyView(resolvedHTMLBlockStyle.makeBody(
+                configuration: MarkdownHTMLBlockStyleConfiguration(
+                    label: MarkdownBlockStyleLabel(
+                        selectableText(
+                            AttributedString(block.text),
+                            font: theme.codeFont,
+                            textColor: theme.secondaryTextColor,
+                            selectionMode: configuration.nativeTextSelection,
+                            metrics: codeTextMetrics,
+                            selectionInlineLayout: preparedContent.selectionInlineLayout
+                        )
+                    ),
+                    theme: theme,
+                    blockID: block.id,
+                    indentationLevel: 0
+                )
+            ))
         } else if let reason = preparedContent.policyDenialReason {
             policyDeniedView(reason: reason)
         } else {
@@ -546,55 +694,62 @@ public struct MarkdownBlockView: View {
     @ViewBuilder
     private func tableCell(
         _ cell: MarkdownPreparedTableCell?,
+        row: Int,
         column: Int,
+        columnCount: Int,
         isHeader: Bool,
         isLastColumn: Bool,
         width: CGFloat
     ) -> some View {
-        Group {
-            if let inlineLayout = cell?.inlineLayout {
-                InlineRunsView(
-                    prepared: inlineLayout,
-                    theme: theme,
-                    baseFont: isHeader ? theme.paragraphFont.bold() : theme.paragraphFont,
-                    linkAction: configuration.linkAction,
-                    inlineRenderingMode: configuration.inlineRenderingMode,
-                    nativeTextSelection: selectionModeInsideCompositeGrid
-                )
-            } else if let selectionInlineLayout = cell?.selectionInlineLayout {
-                InlineRunsView(
-                    prepared: selectionInlineLayout,
-                    theme: theme,
-                    baseFont: isHeader ? theme.paragraphFont.bold() : theme.paragraphFont,
-                    linkAction: configuration.linkAction,
-                    inlineRenderingMode: configuration.inlineRenderingMode,
-                    nativeTextSelection: selectionModeInsideCompositeGrid
-                )
-            } else {
-                InlineRunsView(
-                    attributed: cell?.inline ?? AttributedString(""),
-                    theme: theme,
-                    baseFont: isHeader ? theme.paragraphFont.bold() : theme.paragraphFont,
-                    linkAction: configuration.linkAction,
-                    inlineRenderingMode: configuration.inlineRenderingMode,
-                    nativeTextSelection: selectionModeInsideCompositeGrid,
-                    fontSize: paragraphTextMetrics.fontSize,
-                    lineHeight: paragraphTextMetrics.lineHeight,
-                    fontProfile: paragraphTextMetrics.fontProfile
-                )
-            }
-        }
-        .foregroundStyle(theme.textColor)
-        .padding(.horizontal, theme.renderTableHorizontalCellPadding)
-        .padding(.vertical, theme.renderTableVerticalCellPadding)
-        .frame(width: width, alignment: tableAlignment(column))
-        .frame(minHeight: 38)
-        .overlay(alignment: .trailing) {
-            if !isLastColumn {
-                Rectangle()
-                    .fill(theme.tableBorderColor.opacity(0.72))
-                    .frame(width: 1)
-            }
+        AnyView(resolvedTableCellStyle.makeBody(
+            configuration: MarkdownTableCellStyleConfiguration(
+                label: MarkdownBlockStyleLabel(tableCellLabel(cell, isHeader: isHeader)),
+                theme: theme,
+                blockID: block.id,
+                indentationLevel: 0,
+                row: row,
+                column: column,
+                columnCount: columnCount,
+                isHeader: isHeader,
+                isLastColumn: isLastColumn,
+                alignment: preparedContent.table?.columnAlignments[safe: column] ?? nil,
+                width: width
+            )
+        ))
+    }
+
+    @ViewBuilder
+    private func tableCellLabel(_ cell: MarkdownPreparedTableCell?, isHeader: Bool) -> some View {
+        if let inlineLayout = cell?.inlineLayout {
+            InlineRunsView(
+                prepared: inlineLayout,
+                theme: theme,
+                baseFont: isHeader ? theme.paragraphFont.bold() : theme.paragraphFont,
+                linkAction: configuration.linkAction,
+                inlineRenderingMode: configuration.inlineRenderingMode,
+                nativeTextSelection: selectionModeInsideCompositeGrid
+            )
+        } else if let selectionInlineLayout = cell?.selectionInlineLayout {
+            InlineRunsView(
+                prepared: selectionInlineLayout,
+                theme: theme,
+                baseFont: isHeader ? theme.paragraphFont.bold() : theme.paragraphFont,
+                linkAction: configuration.linkAction,
+                inlineRenderingMode: configuration.inlineRenderingMode,
+                nativeTextSelection: selectionModeInsideCompositeGrid
+            )
+        } else {
+            InlineRunsView(
+                attributed: cell?.inline ?? AttributedString(""),
+                theme: theme,
+                baseFont: isHeader ? theme.paragraphFont.bold() : theme.paragraphFont,
+                linkAction: configuration.linkAction,
+                inlineRenderingMode: configuration.inlineRenderingMode,
+                nativeTextSelection: selectionModeInsideCompositeGrid,
+                fontSize: paragraphTextMetrics.fontSize,
+                lineHeight: paragraphTextMetrics.lineHeight,
+                fontProfile: paragraphTextMetrics.fontProfile
+            )
         }
     }
 
@@ -636,21 +791,6 @@ public struct MarkdownBlockView: View {
                 Double(cell.inline?.characters.count ?? 0) * paragraphTextMetrics.fontSize * 0.56
         }
         return measuredWidths.max() ?? 0
-    }
-
-    private func tableAlignment(_ column: Int) -> Alignment {
-        guard let alignment = preparedContent.table?.columnAlignments[safe: column] ?? nil else {
-            return .leading
-        }
-
-        switch alignment {
-        case .left:
-            return .leading
-        case .center:
-            return .center
-        case .right:
-            return .trailing
-        }
     }
 
     private var selectionModeInsideLeadingLayout: MarkdownNativeTextSelection {
@@ -915,6 +1055,8 @@ private struct MarkdownListItemsView: View {
     var orderedStart: UInt?
     var configuration: MarkdownRendererConfiguration
     var theme: MarkdownTheme
+    var blockID: MarkdownBlockID
+    var indentationLevel: Int
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -925,7 +1067,9 @@ private struct MarkdownListItemsView: View {
                     kind: kind,
                     orderedStart: orderedStart,
                     configuration: configuration,
-                    theme: theme
+                    theme: theme,
+                    blockID: blockID,
+                    indentationLevel: indentationLevel
                 )
             }
         }
@@ -939,15 +1083,68 @@ private struct MarkdownListItemRow: View {
     var orderedStart: UInt?
     var configuration: MarkdownRendererConfiguration
     var theme: MarkdownTheme
+    var blockID: MarkdownBlockID
+    var indentationLevel: Int
+
+    @Environment(\.markdownDocumentStyleAggregate) private var documentStyleAggregate
+    @Environment(\.markdownListItemStyleOverride) private var listItemStyleOverride
+    @Environment(\.markdownUnorderedListMarkerStyleOverride) private var unorderedListMarkerStyleOverride
+    @Environment(\.markdownOrderedListMarkerStyleOverride) private var orderedListMarkerStyleOverride
+    @Environment(\.markdownTaskListMarkerStyleOverride) private var taskListMarkerStyleOverride
+
+    // MARK: - Style resolution (INV-BS9) — see `MarkdownBlockView` above.
+
+    private var resolvedListItemStyle: any MarkdownListItemStyle {
+        resolvedMarkdownStyle(
+            override: listItemStyleOverride,
+            aggregate: documentStyleAggregate,
+            configuration: configuration,
+            slot: { $0.listItemStyle },
+            default: MarkdownDefaultListItemStyle()
+        )
+    }
+
+    private var resolvedUnorderedListMarkerStyle: any MarkdownUnorderedListMarkerStyle {
+        resolvedMarkdownStyle(
+            override: unorderedListMarkerStyleOverride,
+            aggregate: documentStyleAggregate,
+            configuration: configuration,
+            slot: { $0.unorderedListMarkerStyle },
+            default: MarkdownDefaultUnorderedListMarkerStyle()
+        )
+    }
+
+    private var resolvedOrderedListMarkerStyle: any MarkdownOrderedListMarkerStyle {
+        resolvedMarkdownStyle(
+            override: orderedListMarkerStyleOverride,
+            aggregate: documentStyleAggregate,
+            configuration: configuration,
+            slot: { $0.orderedListMarkerStyle },
+            default: MarkdownDefaultOrderedListMarkerStyle()
+        )
+    }
+
+    private var resolvedTaskListMarkerStyle: any MarkdownTaskListMarkerStyle {
+        resolvedMarkdownStyle(
+            override: taskListMarkerStyleOverride,
+            aggregate: documentStyleAggregate,
+            configuration: configuration,
+            slot: { $0.taskListMarkerStyle },
+            default: MarkdownDefaultTaskListMarkerStyle()
+        )
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            MarkdownLeadingContentLayout(leadingWidth: markerWidth, spacing: 8) {
-                markerView
-                    .frame(width: markerWidth, alignment: .trailing)
-                listItemInlineView
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
+            AnyView(resolvedListItemStyle.makeBody(
+                configuration: MarkdownListItemStyleConfiguration(
+                    marker: MarkdownBlockStyleLabel(markerView),
+                    block: MarkdownBlockStyleLabel(listItemInlineView),
+                    theme: theme,
+                    blockID: blockID,
+                    indentationLevel: indentationLevel
+                )
+            ))
             .frame(maxWidth: .infinity, alignment: .leading)
 
             if !item.childItems.isEmpty {
@@ -956,9 +1153,11 @@ private struct MarkdownListItemRow: View {
                     kind: item.childListKind ?? .unorderedList,
                     orderedStart: item.childOrderedListStart,
                     configuration: configuration,
-                    theme: theme
+                    theme: theme,
+                    blockID: blockID,
+                    indentationLevel: indentationLevel + 1
                 )
-                .padding(.leading, markerWidth + 8)
+                .padding(.leading, markerIndentationWidth + MarkdownDefaultListItemStyle.spacing)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
@@ -1004,35 +1203,45 @@ private struct MarkdownListItemRow: View {
         configuration.nativeTextSelection
     }
 
-    private var marker: String {
-        switch kind {
-        case .orderedList:
-            return "\(Int(orderedStart ?? 1) + index)."
-        default:
-            return "•"
-        }
-    }
-
     @ViewBuilder
     private var markerView: some View {
         if let taskState = item.taskState {
-            Image(systemName: taskState == .checked ? "checkmark.square.fill" : "square")
-                .font(.system(size: taskMarkerFontSize, weight: .semibold))
-                .foregroundStyle(taskState == .checked ? Color.accentColor : theme.secondaryTextColor)
-                .frame(height: paragraphTextMetrics.lineHeight, alignment: .trailing)
+            AnyView(resolvedTaskListMarkerStyle.makeBody(
+                configuration: MarkdownTaskListMarkerStyleConfiguration(
+                    theme: theme,
+                    blockID: blockID,
+                    indentationLevel: indentationLevel,
+                    isChecked: taskState == .checked
+                )
+            ))
+        } else if kind == .orderedList {
+            AnyView(resolvedOrderedListMarkerStyle.makeBody(
+                configuration: MarkdownOrderedListMarkerStyleConfiguration(
+                    theme: theme,
+                    blockID: blockID,
+                    indentationLevel: indentationLevel,
+                    ordinal: Int(orderedStart ?? 1) + index
+                )
+            ))
         } else {
-            Text(marker)
-                .font(theme.codeFont)
-                .foregroundStyle(theme.secondaryTextColor)
+            AnyView(resolvedUnorderedListMarkerStyle.makeBody(
+                configuration: MarkdownUnorderedListMarkerStyleConfiguration(
+                    theme: theme,
+                    blockID: blockID,
+                    indentationLevel: indentationLevel
+                )
+            ))
         }
     }
 
-    private var markerWidth: CGFloat {
-        kind == .orderedList ? 34 : 28
-    }
-
-    private var taskMarkerFontSize: CGFloat {
-        CGFloat(min(max(paragraphTextMetrics.fontSize - 2, 12), 14))
+    private var markerIndentationWidth: CGFloat {
+        if item.taskState != nil {
+            return resolvedTaskListMarkerStyle.markerWidth ?? MarkdownDefaultTaskListMarkerStyle.width
+        }
+        if kind == .orderedList {
+            return resolvedOrderedListMarkerStyle.markerWidth ?? MarkdownDefaultOrderedListMarkerStyle.width
+        }
+        return resolvedUnorderedListMarkerStyle.markerWidth ?? MarkdownDefaultUnorderedListMarkerStyle.width
     }
 
     private var paragraphTextMetrics: MarkdownInlineFallbackMetrics {
@@ -1043,67 +1252,6 @@ private struct MarkdownListItemRow: View {
             fallbackFontSize: 16,
             fallbackLineHeight: 22
         )
-    }
-}
-
-private struct MarkdownLeadingContentLayout: Layout {
-    var leadingWidth: CGFloat
-    var spacing: CGFloat
-    var stretchesLeadingToContentHeight: Bool = false
-
-    func sizeThatFits(
-        proposal: ProposedViewSize,
-        subviews: Subviews,
-        cache _: inout ()
-    ) -> CGSize {
-        guard subviews.count >= 2 else {
-            return subviews.first?.sizeThatFits(proposal) ?? .zero
-        }
-
-        let availableWidth = finiteWidth(from: proposal)
-        let contentWidth = availableWidth.map { max(0, $0 - leadingWidth - spacing) }
-        let leadingSize = subviews[0].sizeThatFits(
-            ProposedViewSize(width: leadingWidth, height: proposal.height)
-        )
-        let contentSize = subviews[1].sizeThatFits(
-            ProposedViewSize(width: contentWidth, height: proposal.height)
-        )
-        let height = max(leadingSize.height, contentSize.height)
-        let width = availableWidth ?? leadingWidth + spacing + contentSize.width
-        return CGSize(width: width, height: height)
-    }
-
-    func placeSubviews(
-        in bounds: CGRect,
-        proposal _: ProposedViewSize,
-        subviews: Subviews,
-        cache _: inout ()
-    ) {
-        guard subviews.count >= 2 else {
-            subviews.first?.place(
-                at: bounds.origin,
-                proposal: ProposedViewSize(width: bounds.width, height: bounds.height)
-            )
-            return
-        }
-
-        let contentWidth = max(0, bounds.width - leadingWidth - spacing)
-        let leadingHeight = stretchesLeadingToContentHeight ? bounds.height : nil
-        subviews[0].place(
-            at: bounds.origin,
-            proposal: ProposedViewSize(width: leadingWidth, height: leadingHeight)
-        )
-        subviews[1].place(
-            at: CGPoint(x: bounds.minX + leadingWidth + spacing, y: bounds.minY),
-            proposal: ProposedViewSize(width: contentWidth, height: bounds.height)
-        )
-    }
-
-    private func finiteWidth(from proposal: ProposedViewSize) -> CGFloat? {
-        guard let width = proposal.width, width.isFinite, width > 0 else {
-            return nil
-        }
-        return width
     }
 }
 
