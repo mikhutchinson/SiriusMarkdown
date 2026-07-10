@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.6.6 - 2026-07-09
 
 ### Block Style Protocols (Parts 01–03)
 
@@ -95,11 +95,68 @@
   the theme's `attachmentPlaceholder` fingerprint whenever allowed
   attachments exist, so changing the default box size invalidates stale
   cached box metrics.
-- This is the placement layer only — no network fetch, no multi-frame
-  decode/animation. [Async Image Loading](.plan/SiriusMarkdown%20Async%20Image%20Loading%20Plan/README.md)
-  and [Animated Media](.plan/SiriusMarkdown%20Animated%20Media%20Plan/README.md)
-  plug bytes/frames into these same attachment slots as independent,
-  separately opt-in plans.
+- This is the placement layer only: no network fetch, no multi-frame decode,
+  and no animation ships in this release. Future loaders can provide bytes or
+  frames through the same attachment slots without adding a second inline
+  layout path.
+
+### Native Math, Layout, and Cache Correctness
+
+- Added a shared 50-case math/LaTeX corpus consumed by both Swift and the
+  JavaScript parity tool. Native coverage requires 48 SwiftMath-backed image
+  cases, preserves original LaTeX for copy/accessibility, checks display-list
+  metrics and visual golden bands, records `mathFallbackCount`, and proves
+  bounded math-cache reuse. The web subset is checked against current KaTeX
+  and MathJax 4; Sirius-only aliases and intentionally invalid diagnostics are
+  explicit rather than silently skipped.
+- Expanded generated-formula compatibility for fractions/binomials, relations,
+  arrows, arrays and small matrices while keeping original source untouched.
+  Compatibility replacement now respects complete command boundaries,
+  preserves nondigit script groups such as `x^{n+1}` and `y_{ij}`, and leaves
+  escaped script markers and escaped Unicode commands unchanged.
+- Corrected prepared cache identity across the renderer. Measured inline cache
+  hits now rebind visual metrics to the requesting run metadata; measured-layout
+  keys include the actual supplied measurements; code highlighting includes the
+  complete fence info string; Mermaid keys include render-relevant colors and
+  fonts; block math hashes exact source rather than trusting a caller-provided
+  stale `contentHash`; and attachment keys include placeholder colors, metrics,
+  and sizing inputs.
+- Allowed attachment placeholder chrome now reaches the AppKit/UIKit hosts, and
+  all placeholder width, height, and corner-radius values are finite, positive,
+  and bounded before entering CoreText, SwiftUI, or layer geometry.
+- CoreText measurement now uses real fallback shaping for missing glyphs and
+  applies semantic italic/monospace traits consistently. Selection geometry
+  uses the same font resolver as painting, so nested strong/emphasis/code
+  presentation no longer measures with different glyph metrics.
+- Custom math renderers can no longer inject nonfinite, negative, or enormous
+  image dimensions into SwiftUI/AppKit/UIKit frame calculations. Raster size,
+  scale, point geometry, and ascent/descent are sanitized before publication.
+
+### Vendored SwiftMath Safety and Serialization
+
+- Replaced lazy mutable reverse lookup and inter-element spacing tables with
+  immutable initialization. Font/math-table access, display-support state, and
+  the custom LaTeX symbol registry now synchronize shared mutable state; custom
+  symbol overrides remove stale reverse mappings and restore the canonical
+  built-in mapping when an override moves to a new nucleus.
+- Hardened public mutable atom models. Copies dispatch by runtime subclass,
+  canonicalize impossible type/storage combinations before copying scripts,
+  drop scripts from no-script atom classes, and make malformed composite atoms
+  fail closed instead of trapping in enum-driven force casts.
+- Fixed `MTMathTable.finalized` mutating temporary row copies instead of the
+  returned table's cells. Numeric fusion and operator normalization now apply
+  recursively inside table cells, and negative public row/column indices are
+  ignored safely.
+- Reworked `MTMathListBuilder.mathListToString` into a non-mutating serializer.
+  Matrix/alignment helper atoms are skipped through array slices instead of
+  being deleted from caller-owned cells; `color`, `textcolor`, and `colorbox`
+  atoms retain their contents; incomplete fractions/inner lists and unknown
+  custom operators degrade to valid bounded output instead of force-unwrapping;
+  and a stale duplicate command parser with unsafe color handling was removed.
+- Added adversarial regressions for concurrent symbol/font-table access,
+  malformed public models, serializer purity and color round trips, table-cell
+  finalization, exact cache invalidation, Unicode fallback shaping, attachment
+  geometry, and custom renderer dimensions.
 
 ## 0.6.5 - 2026-07-09
 

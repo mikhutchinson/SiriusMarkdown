@@ -194,6 +194,42 @@ func docsDoNotClaimSwiftUIBodyDoesExpensiveWork() throws {
     )
 }
 
+@Test
+func publicDocsDoNotLinkIgnoredInternalPlans() throws {
+    let root = packageRootURL()
+    let topLevelDocs = ["README.md", "runbook.md", "changelog.md", "bugfix.md"]
+    for path in topLevelDocs {
+        let content = try readFile(path)
+        #expect(!content.contains("](.plan/"), "\(path) should not link ignored internal plans")
+    }
+
+    for file in try docFiles(under: root) {
+        let content = try String(contentsOf: file, encoding: .utf8)
+        #expect(
+            !content.contains("](.plan/"),
+            "\(file.lastPathComponent) should not link ignored internal plans"
+        )
+    }
+}
+
+@Test
+func releaseRunbookPublishesMatchingGitHubRelease() throws {
+    let runbook = try readFile("runbook.md")
+    let changelog = try readFile("changelog.md")
+    let latestHeading = try #require(changelog.components(separatedBy: .newlines).first {
+        $0.hasPrefix("## ") && !$0.hasPrefix("## Unreleased")
+    })
+    let version = latestHeading
+        .replacingOccurrences(of: "## ", with: "")
+        .components(separatedBy: " - ")
+        .first ?? ""
+
+    #expect(runbook.contains("gh release create \(version)"))
+    #expect(runbook.contains("gh release view \(version)"))
+    #expect(runbook.contains("--verify-tag"))
+    #expect(runbook.contains("--latest"))
+}
+
 // MARK: - Historical preservation (INV-D3)
 
 @Test
@@ -208,6 +244,7 @@ func changelogHistoricalEntriesPreserved() throws {
 func bugfixLogHistoricalEntriesPreserved() throws {
     let bugfix = try readFile("bugfix.md")
     #expect(bugfix.contains("## Fixed"), "Bugfix log should preserve 'Fixed' section")
+    #expect(bugfix.contains("## Resolved in 0.6.6"), "Bugfix log should record the current release")
     #expect(bugfix.contains("## Resolved in 0.6.0"), "Bugfix log should have 'Resolved in 0.6.0' section")
 }
 
@@ -217,8 +254,8 @@ func bugfixLogHistoricalEntriesPreserved() throws {
 func releaseCheckTestFloorMatchesCurrentCount() throws {
     let releaseCheck = try readFile("Tools/release-check.sh")
     #expect(
-        releaseCheck.contains("MINIMUM_TEST_COUNT=798"),
-        "release-check.sh test floor should be 798"
+        releaseCheck.contains("MINIMUM_TEST_COUNT=850"),
+        "release-check.sh test floor should be 850"
     )
 }
 

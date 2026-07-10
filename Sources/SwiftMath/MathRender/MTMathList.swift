@@ -195,10 +195,12 @@ public class MTMathAtom: NSObject {
     
     init(_ atom:MTMathAtom?) {
         guard let atom = atom else { return }
-        self.type = atom.type
+        self.type = atom.canonicalType
         self.nucleus = atom.nucleus
-        self.subScript = MTMathList(atom.subScript)
-        self.superScript = MTMathList(atom.superScript)
+        if self.type.isScriptAllowed() {
+            self.subScript = MTMathList(atom.subScript)
+            self.superScript = MTMathList(atom.superScript)
+        }
         self.indexRange = atom.indexRange
         self.fontStyle = atom.fontStyle
         self.fusedAtoms = atom.fusedAtoms
@@ -216,35 +218,74 @@ public class MTMathAtom: NSObject {
     
     /// Returns a copy of `self`.
     public func copy() -> MTMathAtom {
-        switch self.type {
-            case .largeOperator:
-                return MTLargeOperator(self as? MTLargeOperator)
-            case .fraction:
-                return MTFraction(self as? MTFraction)
-            case .radical:
-                return MTRadical(self as? MTRadical)
-            case .style:
-                return MTMathStyle(self as? MTMathStyle)
-            case .inner:
-                return MTInner(self as? MTInner)
-            case .underline:
-                return MTUnderLine(self as? MTUnderLine)
-            case .overline:
-                return MTOverLine(self as? MTOverLine)
-            case .accent:
-                return MTAccent(self as? MTAccent)
-            case .space:
-                return MTMathSpace(self as? MTMathSpace)
-            case .color:
-                return MTMathColor(self as? MTMathColor)
-            case .textcolor:
-                return MTMathTextColor(self as? MTMathTextColor)
-            case .colorBox:
-                return MTMathColorbox(self as? MTMathColorbox)
-            case .table:
-                return MTMathTable(self as! MTMathTable)
+        switch self {
+        case let atom as MTLargeOperator:
+            return MTLargeOperator(atom)
+        case let atom as MTFraction:
+            return MTFraction(atom)
+        case let atom as MTRadical:
+            return MTRadical(atom)
+        case let atom as MTMathStyle:
+            return MTMathStyle(atom)
+        case let atom as MTInner:
+            return MTInner(atom)
+        case let atom as MTUnderLine:
+            return MTUnderLine(atom)
+        case let atom as MTOverLine:
+            return MTOverLine(atom)
+        case let atom as MTAccent:
+            return MTAccent(atom)
+        case let atom as MTMathSpace:
+            return MTMathSpace(atom)
+        case let atom as MTMathColor:
+            return MTMathColor(atom)
+        case let atom as MTMathTextColor:
+            return MTMathTextColor(atom)
+        case let atom as MTMathColorbox:
+            return MTMathColorbox(atom)
+        case let atom as MTMathTable:
+            return MTMathTable(atom)
+        default:
+            return MTMathAtom(self)
+        }
+    }
+
+    var canonicalType: MTMathAtomType {
+        switch self {
+        case is MTLargeOperator:
+            return .largeOperator
+        case is MTFraction:
+            return .fraction
+        case is MTRadical:
+            return .radical
+        case is MTInner:
+            return .inner
+        case is MTUnderLine:
+            return .underline
+        case is MTOverLine:
+            return .overline
+        case is MTAccent:
+            return .accent
+        case is MTMathSpace:
+            return .space
+        case is MTMathStyle:
+            return .style
+        case is MTMathColor:
+            return .color
+        case is MTMathTextColor:
+            return .textcolor
+        case is MTMathColorbox:
+            return .colorBox
+        case is MTMathTable:
+            return .table
+        default:
+            switch type {
+            case .largeOperator, .fraction, .radical, .inner, .underline, .overline,
+                 .accent, .space, .style, .color, .textcolor, .colorBox, .table:
+                return .ordinary
             default:
-                return MTMathAtom(self)
+                return type
+            }
         }
     }
     
@@ -489,7 +530,7 @@ public class MTInner: MTMathAtom {
         if self.leftBoundary != nil {
             string += "[\(self.leftBoundary!.nucleus)]"
         }
-        string += "{\(self.innerList!.description)}"
+        string += "{\(self.innerList?.description ?? "")}"
         if self.rightBoundary != nil {
             string += "[\(self.rightBoundary!.nucleus)]"
         }
@@ -669,7 +710,7 @@ public class MTMathColor: MTMathAtom {
     }
     
     public override var string: String {
-        "\\color{\(self.colorString)}{\(self.innerList!.string)}"
+        "\\color{\(self.colorString)}{\(self.innerList?.string ?? "")}"
     }
     
     override public var finalized: MTMathAtom {
@@ -701,7 +742,7 @@ public class MTMathTextColor: MTMathAtom {
     }
 
     public override var string: String {
-        "\\textcolor{\(self.colorString)}{\(self.innerList!.string)}"
+        "\\textcolor{\(self.colorString)}{\(self.innerList?.string ?? "")}"
     }
 
     override public var finalized: MTMathAtom {
@@ -733,7 +774,7 @@ public class MTMathColorbox: MTMathAtom {
     }
     
     public override var string: String {
-        "\\colorbox{\(self.colorString)}{\(self.innerList!.string)}"
+        "\\colorbox{\(self.colorString)}{\(self.innerList?.string ?? "")}"
     }
     
     override public var finalized: MTMathAtom {
@@ -779,10 +820,8 @@ public class MTMathTable: MTMathAtom {
     
     override public var finalized: MTMathAtom {
         let table = super.finalized as! MTMathTable
-        for var row in table.cells {
-            for i in 0..<row.count {
-                row[i] = row[i].finalized
-            }
+        table.cells = table.cells.map { row in
+            row.map(\.finalized)
         }
         return table
     }
@@ -818,6 +857,7 @@ public class MTMathTable: MTMathAtom {
     
     /// Set the value of a given cell. The table is automatically resized to contain this cell.
     public func set(cell list: MTMathList, forRow row:Int, column:Int) {
+        guard row >= 0, column >= 0 else { return }
         if self.cells.count <= row {
             for _ in self.cells.count...row {
                 self.cells.append([])
@@ -835,6 +875,7 @@ public class MTMathTable: MTMathAtom {
     /// Set the alignment of a particular column. The table is automatically resized to
     /// contain this column and any new columns added have their alignment set to center.
     public func set(alignment: MTColumnAlignment, forColumn col: Int) {
+        guard col >= 0 else { return }
         if self.alignments.count <= col {
             for _ in self.alignments.count...col {
                 self.alignments.append(MTColumnAlignment.center)
@@ -847,7 +888,7 @@ public class MTMathTable: MTMathAtom {
     /// Gets the alignment for a given column. If the alignment is not specified it defaults
     /// to center.
     public func get(alignmentForColumn col: Int) -> MTColumnAlignment {
-        if self.alignments.count <= col {
+        if col < 0 || self.alignments.count <= col {
             return MTColumnAlignment.center
         } else {
             return self.alignments[col]

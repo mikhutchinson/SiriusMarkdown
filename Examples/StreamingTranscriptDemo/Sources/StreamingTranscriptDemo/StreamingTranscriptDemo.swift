@@ -636,7 +636,7 @@ private struct StreamingCase: Identifiable, Hashable {
             steps: [
                 .append("The first paragraph starts with [release notes][release-ref] before the destination exists.\n\n"),
                 .append("While that label is unresolved, the region should remain the mutable tail instead of sealing into the wrong semantics.\n\n"),
-                .append("[release-ref]: https://example.com/siriusmarkdown/0.5.3\n\n"),
+                .append("[release-ref]: https://example.com/siriusmarkdown/releases/current\n\n"),
                 .append("A later paragraph can reuse [release notes][release-ref] after the definition has already sealed.\n\n"),
                 .append("[docs-ref]: https://example.com/siriusmarkdown/docs\n\n"),
                 .append("Definitions can also arrive before use: [documentation][docs-ref] should resolve without keeping the tail open.\n"),

@@ -1,6 +1,6 @@
 # Runbook
 
-This runbook is the local release authority for `SiriusMarkdown`. For the current public package release, use `0.6.5` as the tag and do not publish unless every release blocker below is clear.
+This runbook is the local release authority for `SiriusMarkdown`. For the current public package release, use `0.6.6` as the tag and do not publish unless every release blocker below is clear.
 
 ## Build
 
@@ -17,7 +17,7 @@ swift test
 ```
 
 Current status: `swift test` must pass with strict Swift-vs-Pretext comparison enabled across the required product fixture groups. Missing groups, duplicate fixture names/groups, absent required layout metadata (`font`, `lineHeight`, `whiteSpace`, `wordBreak`), invalid/nonzero `letterSpacing`, or known-drift allowlists are release blockers.
-The release-gate discovery floor for this slice is `732` Swift tests.
+The release-gate discovery floor for this slice is `850` Swift tests.
 
 Count the Swift test functions reported by the runner and keep the release-gate discovery floor current:
 
@@ -47,6 +47,14 @@ Layout and renderer acceptance for the current slice:
 - Document and code affordances must stay generic, source-backed, and replaceable. `MarkdownDocumentSurface` may own copy/export/collapse chrome, `MarkdownCodeBlockAffordances` may own code chrome visibility, and `MarkdownAffordanceActionHandler` may own platform actions; none of these APIs may hardcode private host-app concepts. Shared affordance icons are decorative SF Symbols; accessibility labels and help text belong on the enclosing buttons.
 - Mermaid rendering must stay package-owned and prepared before SwiftUI body evaluation. `DefaultMarkdownMermaidRenderer` may produce ASCII plus concrete-color SVG and prepared root geometry; `MarkdownBlockView` may render the prepared image in a bounded pan/zoom viewport with controls from `MarkdownTheme.mermaidAffordances`. Mermaid zoom/fit/reset buttons must keep explicit accessibility labels while their decorative SF Symbol images stay hidden from accessibility synthesis. Do not add WebKit, app-private Mermaid wrappers, or a second Mermaid semantic engine.
 - Heading typography must resolve H1-H6 through `MarkdownTheme.headings`. Visual SwiftUI `Font` and prepared-line CoreText measurement inputs (`fontSize`, `lineHeight`, `MarkdownInlineFontProfiles`) must come from the same `MarkdownTextStyle`; do not infer measurement profiles from arbitrary SwiftUI fonts.
+- Block chrome customization must resolve through the fourteen per-block style
+  protocols without moving parse, highlighting, math, or inline preparation
+  into `body`. Per-slot environment overrides win over aggregate environment
+  styles, which win over `MarkdownRendererConfiguration.documentStyle`, which
+  wins over package defaults. Style changes must not alter prepared cache keys,
+  sealed block IDs, or the `.compactChat` / `.document` defaults. The
+  GitHub-inspired preset remains explicit opt-in through
+  `MarkdownRendererConfiguration.gitHub`.
 - Inline math detection must remain source-preserving and must not rewrite code spans, fenced code, or Markdown source before `swift-markdown` parsing. Dollar-delimited inline math must not consume common currency/reward amounts such as `$100 - $5,500`, `$108,500`, or compact ISO currency-code amounts; compact currency-code coverage should derive from Foundation's `Locale.Currency.isoCurrencies` rather than a hand-maintained code list. Bare-TeX recovery is only a conservative routing layer for generated math; it must keep code spans, paths, unknown commands, escaped Markdown, and prose out of math while preserving whole generated formula families as source-backed math runs.
 - Image handling must produce prepared decisions and placeholders by default; no network image fetch is allowed without an explicit host resolver.
 - Allowed images (an explicit `MarkdownImagePolicy` `.allow` decision) must become prepared inline attachments — reserved `pointWidth`/`pointHeight`/`ascent`/`descent` box metrics on the atomic image segment, a `CTRunDelegate`-backed gap on the CoreText line plan, and exactly one host view per attachment ID (`hosts.count == attachmentGaps.count`, INV-IA6). Denied images (the default) must keep the existing alt/`[image: reason]` text-atomic path unchanged. Width-only relayout must not re-invoke the image resolver or re-probe bytes. No `URLSession` call or full-frame `CGImageSourceCreate*` decode may live in a host's `body`/`updateNSView`/`updateUIView`; a cheap header-only size probe of already-resolved `Data`/local-file bytes during prepare is the one sanctioned exception. Do not add a parallel image rendering path (e.g. a `Text`-composition bypass) for the allowed box path — CoreText line gaps are the only paint path for allowed images.
@@ -147,6 +155,16 @@ Layout and renderer acceptance for the current slice:
 - Performance benchmarks must pass in release mode with defined frame budgets (INV-P8). See `MarkdownPerformanceBenchmarkTests.swift`.
 - `MarkdownPreparedMathImage` must carry real ascent/descent estimated from the parsed atom tree, not `pointHeight`/`0` (INV-M2). Inline math baseline alignment uses `-descent`, not a heuristic.
 - Math rasterization scale must match the screen's backing scale (min 2.0), not a fixed 3.0. `MarkdownMathImageView` must use `.interpolation(.medium)`.
+- Math and attachment render geometry must be finite, positive, and bounded
+  before entering CoreText, SwiftUI, AppKit/UIKit frames, or layer corner
+  radii. Math cache identity must hash exact formula source; code highlighting
+  must include the complete fence info string; Mermaid and attachment cache
+  identity must include every render-relevant theme/style field.
+- Vendored SwiftMath public-model paths must fail closed. Runtime subclass and
+  atom type must be canonicalized before copying/finalizing; table cells must
+  finalize recursively; `mathListToString` must not mutate caller-owned cells
+  and must preserve color atoms; shared font tables and custom symbol maps must
+  remain synchronized under concurrent reads and writes.
 - Streaming math detection must track open `$$`, `\[...\]`, and `\begin{...}...\end{...}` environments to prevent early sealing (INV-M5).
 
 ## Pretext Golden Tool
@@ -181,11 +199,26 @@ Run this before claiming native-renderer product quality. It wraps the release g
 
 ## Public Release Checklist
 
-Use this checklist for `0.6.5`.
+Use this checklist for `0.6.6`.
 
 1. Confirm public hygiene:
 
    Review README, DocC, runbook, changelog, notices, package manifests, source, tests, examples, and tool metadata for stale internal references, stale dependency names, and unreleased implementation claims. Package-name references to SiriusMarkdown are expected.
+
+   Reconcile local and live release state before choosing a version:
+
+   ```sh
+   git fetch origin --prune --tags
+   git describe --tags --always --dirty
+   git ls-remote --heads --tags origin
+   gh release list --repo mikhutchinson/SiriusMarkdown --limit 100
+   ```
+
+   Historical tags are immutable. Every public release tag should have a
+   matching GitHub Release record; backfill a missing record from the matching
+   changelog section instead of moving or deleting the tag. The new version is
+   valid only when neither a local/remote tag nor a GitHub Release already uses
+   it.
 
 2. Confirm third-party credit files:
 
@@ -215,19 +248,41 @@ Use this checklist for `0.6.5`.
 5. Commit the release candidate:
 
    ```sh
-   git add README.md runbook.md NOTICE.md changelog.md bugfix.md Docs Sources Tests Examples Tools Package.swift Package.resolved
-   git commit -m "Prepare SiriusMarkdown 0.6.5 release"
+   git add README.md runbook.md NOTICE.md changelog.md bugfix.md release-notes Docs Sources Tests Examples Tools Package.swift Package.resolved
+   git commit -m "Prepare SiriusMarkdown 0.6.6 release"
    ```
 
 6. Tag and push:
 
    ```sh
-   git tag -a 0.6.5 -m "SiriusMarkdown 0.6.5"
+   git tag -a 0.6.6 -m "SiriusMarkdown 0.6.6"
    git push origin HEAD
-   git push origin 0.6.5
+   git push origin 0.6.6
    ```
 
-7. After pushing, create the public release notes from `changelog.md`. The release notes must keep the claim precise: native SwiftUI block rendering, CoreText-painted prepared-line inline rendering, streaming snapshots, safe policies, language-aware default code highlighting, package-owned Mermaid pan/zoom over prepared SVG/ASCII, explicit accessibility labels for package-owned affordance controls, Pretext-backed layout gate, and demo/product probes. Do not claim a new Mermaid semantic engine or a WebKit renderer.
+7. After pushing, create the public release from the matching `changelog.md`
+   section and verify that GitHub marks it as Latest:
+
+   ```sh
+   gh release create 0.6.6 \
+     --repo mikhutchinson/SiriusMarkdown \
+     --verify-tag \
+     --latest \
+     --title "SiriusMarkdown 0.6.6" \
+     --notes-file release-notes/0.6.6.md
+   gh release view 0.6.6 \
+     --repo mikhutchinson/SiriusMarkdown \
+     --json tagName,name,isDraft,isPrerelease,publishedAt,url
+   ```
+
+   The release notes must keep the claim precise: native SwiftUI block
+   rendering, CoreText-painted prepared-line inline rendering, streaming
+   snapshots, safe policies, language-aware default code highlighting,
+   package-owned Mermaid pan/zoom over prepared SVG/ASCII, explicit
+   accessibility labels for package-owned affordance controls, Pretext-backed
+   layout and math-corpus gates, and demo/product probes. Do not claim a new
+   Mermaid semantic engine, network image loading, animated media, or a WebKit
+   renderer.
 
 ## Release Blockers
 
@@ -236,6 +291,8 @@ Use this checklist for `0.6.5`.
 - Pretext fixture comparison has missing required groups, duplicate fixture names/groups, missing bundled metadata, or known-drift allowlists.
 - `Tools/RenderProbe`, when intentionally enabled, reports blank, trivial, collapsed-spacing, clipped-wide, or insufficient-width rendering.
 - `README.md`, DocC, runbook, changelog, or notices describe stale internal, stale dependency, or uncredited Pretext behavior.
+- Local/remote tags, the latest changelog version, README install version,
+  runbook version, release-check fallback version, or GitHub Releases disagree.
 - The public package surface requires non-package app concepts or a downstream app integration to function.
 - `git remote -v` does not point at the intended public repository before pushing tags.
 

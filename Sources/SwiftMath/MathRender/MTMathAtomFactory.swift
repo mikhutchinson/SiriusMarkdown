@@ -62,32 +62,22 @@ public class MTMathAtomFactory {
         "rfloor" : "\u{230B}"
     ]
     
-    private static let delimValueLock = NSLock()
-    static var _delimValueToName = [String: String]()
-    public static var delimValueToName: [String: String] {
-        if _delimValueToName.isEmpty {
-            var output = [String: String]()
-            for (key, value) in Self.delimiters {
-                if let existingValue = output[value] {
-                    if key.count > existingValue.count {
+    public static let delimValueToName: [String: String] = {
+        var output = [String: String]()
+        for (key, value) in MTMathAtomFactory.delimiters {
+            if let existingValue = output[value] {
+                if key.count > existingValue.count {
+                    continue
+                } else if key.count == existingValue.count {
+                    if key.compare(existingValue) == .orderedDescending {
                         continue
-                    } else if key.count == existingValue.count {
-                        if key.compare(existingValue) == .orderedDescending {
-                            continue
-                        }
                     }
                 }
-                output[value] = key
             }
-            // protect lazily loading table in a multi-thread concurrent environment
-            delimValueLock.lock()
-            defer { delimValueLock.unlock() }
-            if _delimValueToName.isEmpty {
-                _delimValueToName = output
-            }
+            output[value] = key
         }
-        return _delimValueToName
-    }
+        return output
+    }()
     
     public static let accents = [
         "grave" :  "\u{0300}",
@@ -104,40 +94,33 @@ public class MTMathAtomFactory {
         "widetilde" :  "\u{0303}"
     ]
     
-    private static let accentValueLock = NSLock()
-    static var _accentValueToName: [String: String]? = nil
-    public static var accentValueToName: [String: String] {
-        if _accentValueToName == nil {
-            var output = [String: String]()
-
-            for (key, value) in Self.accents {
-                if let existingValue = output[value] {
-                    if key.count > existingValue.count {
+    public static let accentValueToName: [String: String] = {
+        var output = [String: String]()
+        for (key, value) in MTMathAtomFactory.accents {
+            if let existingValue = output[value] {
+                if key.count > existingValue.count {
+                    continue
+                } else if key.count == existingValue.count {
+                    if key.compare(existingValue) == .orderedDescending {
                         continue
-                    } else if key.count == existingValue.count {
-                        if key.compare(existingValue) == .orderedDescending {
-                            continue
-                        }
                     }
                 }
-                output[value] = key
             }
-            // protect lazily loading table in a multi-thread concurrent environment
-            accentValueLock.lock()
-            defer { accentValueLock.unlock() }
-            if _accentValueToName == nil {
-                _accentValueToName = output
-            }
+            output[value] = key
         }
-        return _accentValueToName!
-    }
+        return output
+    }()
+
+    private static let supportedLatexSymbolsLock = NSLock()
+    private static var textToLatexSymbolNameStorage: [String: String]?
     
     static var supportedLatexSymbolNames:[String] {
-        let commands = MTMathAtomFactory.supportedLatexSymbols
-        return commands.keys.map { String($0) }
+        supportedLatexSymbolsLock.withLock {
+            supportedLatexSymbolsStorage.keys.map { String($0) }
+        }
     }
     
-    static var supportedLatexSymbols: [String: MTMathAtom] = [
+    private static var supportedLatexSymbolsStorage: [String: MTMathAtom] = [
         "square" : MTMathAtomFactory.placeholder(),
         
          // Greek characters
@@ -412,7 +395,7 @@ public class MTMathAtomFactory {
         "scriptscriptstyle" : MTMathStyle(style: .scriptOfScript),
     ]
 	
-	static var supportedAccentedCharacters: [Character: (String, String)] = [
+	static let supportedAccentedCharacters: [Character: (String, String)] = [
 		// Acute accents
 		"á": ("acute", "a"), "é": ("acute", "e"), "í": ("acute", "i"),
 		"ó": ("acute", "o"), "ú": ("acute", "u"), "ý": ("acute", "y"),
@@ -454,44 +437,32 @@ public class MTMathAtomFactory {
 		"Œ": ("OE", ""),
 	]
     
-    private static let textToLatexLock = NSLock()
-    static var _textToLatexSymbolName: [String: String]? = nil
     public static var textToLatexSymbolName: [String: String] {
-        get {
-            if self._textToLatexSymbolName == nil {
-                var output = [String: String]()
-                for (key, atom) in Self.supportedLatexSymbols {
-                    if atom.nucleus.count == 0 {
+        supportedLatexSymbolsLock.withLock {
+            if let cached = textToLatexSymbolNameStorage {
+                return cached
+            }
+
+            var output = [String: String]()
+            for (key, atom) in supportedLatexSymbolsStorage {
+                if atom.nucleus.isEmpty {
+                    continue
+                }
+                if let existingText = output[atom.nucleus] {
+                    // If there are two keys for the same symbol, choose one deterministically.
+                    if key.count > existingText.count {
                         continue
-                    }
-                    if let existingText = output[atom.nucleus] {
-                        // If there are 2 key for the same symbol, choose one deterministically.
-                        if key.count > existingText.count {
-                            // Keep the shorter command
+                    } else if key.count == existingText.count {
+                        if key.compare(existingText) == .orderedDescending {
                             continue
-                        } else if key.count == existingText.count {
-                            // If the length is the same, keep the alphabetically first
-                            if key.compare(existingText) == .orderedDescending {
-                                continue
-                            }
                         }
                     }
-                    output[atom.nucleus] = key
                 }
-                // protect lazily loading table in a multi-thread concurrent environment
-                textToLatexLock.lock()
-                defer { textToLatexLock.unlock() }
-                if self._textToLatexSymbolName == nil {
-                    self._textToLatexSymbolName = output
-                }
+                output[atom.nucleus] = key
             }
-            return self._textToLatexSymbolName!
+            textToLatexSymbolNameStorage = output
+            return output
         }
-        // make textToLatexSymbolName readonly (allows internal load)
-        // entries can be lazily added with NSLock protection.
-        // set {
-        //     self._textToLatexSymbolName = newValue
-        // }
     }
     
   //  public static let sharedInstance = MTMathAtomFactory()
@@ -674,10 +645,9 @@ public class MTMathAtomFactory {
         if let canonicalName = aliases[name] {
             name = canonicalName
         }
-        if let atom = supportedLatexSymbols[name] {
-            return atom.copy()
+        return supportedLatexSymbolsLock.withLock {
+            supportedLatexSymbolsStorage[name]?.copy()
         }
-        return nil
     }
     
     /** Finds the name of the LaTeX symbol name for the given atom. This function is a reverse
@@ -698,13 +668,42 @@ public class MTMathAtomFactory {
      e.g. to define a symbol for "lcm" one can call:
      `MTMathAtomFactory.add(latexSymbol:"lcm", value:MTMathAtomFactory.operatorWithName("lcm", limits: false))` */
     public static func add(latexSymbol name: String, value: MTMathAtom) {
-        let _ = Self.textToLatexSymbolName
-        // above force textToLatexSymbolName to initialise first, _textToLatexSymbolName also initialized.
-        // protect lazily loading table in a multi-thread concurrent environment
-        textToLatexLock.lock()
-        defer { textToLatexLock.unlock() }
-        supportedLatexSymbols[name] = value
-        Self._textToLatexSymbolName?[value.nucleus] = name
+        let storedValue: MTMathAtom = value.copy()
+        supportedLatexSymbolsLock.withLock {
+            if textToLatexSymbolNameStorage == nil {
+                var reverse = [String: String]()
+                for (key, atom) in supportedLatexSymbolsStorage where !atom.nucleus.isEmpty {
+                    if let existing = reverse[atom.nucleus],
+                       key.count > existing.count ||
+                       (key.count == existing.count && key.compare(existing) == .orderedDescending) {
+                        continue
+                    }
+                    reverse[atom.nucleus] = key
+                }
+                textToLatexSymbolNameStorage = reverse
+            }
+
+            let oldNucleus = supportedLatexSymbolsStorage[name]?.nucleus
+            supportedLatexSymbolsStorage[name] = storedValue
+            if let oldNucleus, oldNucleus != storedValue.nucleus,
+               textToLatexSymbolNameStorage?[oldNucleus] == name {
+                textToLatexSymbolNameStorage?[oldNucleus] = preferredRegisteredName(
+                    for: oldNucleus
+                )
+            }
+            if !storedValue.nucleus.isEmpty {
+                textToLatexSymbolNameStorage?[storedValue.nucleus] = name
+            }
+        }
+    }
+
+    private static func preferredRegisteredName(for nucleus: String) -> String? {
+        supportedLatexSymbolsStorage.lazy
+            .filter { $0.value.nucleus == nucleus }
+            .map(\.key)
+            .min { lhs, rhs in
+                lhs.count == rhs.count ? lhs < rhs : lhs.count < rhs.count
+            }
     }
     
     /** Returns a large opertor for the given name. If limits is true, limits are set up on

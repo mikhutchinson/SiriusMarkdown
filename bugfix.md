@@ -4,6 +4,42 @@
 
 - None currently tracked.
 
+## Resolved in 0.6.6
+
+- Fixed stale/cross-caller cache reuse across measured inline content, supplied
+  layout measurements, highlighted code fence metadata, Mermaid theme inputs,
+  block-math source, and attachment placeholder styling. Cache hits now retain
+  reusable metrics while rebinding caller-owned run/source metadata, and every
+  render-relevant input participates in the corresponding bounded cache key.
+- Fixed CoreText paint/measurement divergence. Missing glyphs use native
+  fallback shaping, semantic italic/monospace traits reach the selected font,
+  and document-selection geometry shares the paint-path font resolver instead
+  of maintaining a less capable duplicate.
+- Fixed native math compatibility normalization corrupting command prefixes,
+  nondigit script groups, escaped script markers, and escaped Unicode commands.
+  Invalid custom image scale/geometry and invalid attachment box metrics are
+  now finite, positive, bounded, and safe before they enter platform layout.
+- Fixed vendored SwiftMath shared-state races in inter-element spacing tables,
+  delimiter/accent/text reverse lookups, font/math-table initialization, display
+  support detection, and custom symbol registration. Registry reads and writes
+  are synchronized; replacing a custom symbol removes stale nucleus mappings
+  and restores the preferred built-in name when appropriate.
+- Fixed public mutable `MTMathAtom` models trapping when the declared enum type
+  disagreed with runtime storage or when scripts survived on no-script atom
+  classes. Copy/finalization now dispatches by runtime subclass, canonicalizes
+  impossible base types before script copying, and drops structurally invalid
+  scripts. Malformed composite typesetting returns no display instead of
+  force-casting or force-unwrapping.
+- Fixed `MTMathTable.finalized` updating throwaway row copies, negative public
+  table indices trapping, and LaTeX serialization mutating caller-owned matrix
+  cells. The serializer now preserves color/textcolor/colorbox content, handles
+  incomplete public models without traps, leaves source cells untouched across
+  repeated calls, and no longer carries a duplicate unsafe command parser.
+- Added regression coverage for each path above, plus focused AddressSanitizer
+  and ThreadSanitizer coverage, the shared 50-case native/web math corpus, and
+  final offscreen rendering probes for document, chat, multilingual, overflow,
+  code, Mermaid, attachment, and native-selection surfaces.
+
 ## Resolved in 0.6.0
 
 - Streaming performance: CTLine creation moved to prepare phase; two-pass

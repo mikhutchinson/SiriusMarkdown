@@ -30,7 +30,7 @@ TEST_LIST_FILE="$(mktemp)"
 trap 'rm -f "$TEST_LIST_FILE"; rm -rf "${CONSUMER_DIR:-}"' EXIT
 swift test list > "$TEST_LIST_FILE"
 TEST_COUNT="$(grep -Ec '^[A-Za-z0-9_]+Tests\.' "$TEST_LIST_FILE")"
-MINIMUM_TEST_COUNT=798
+MINIMUM_TEST_COUNT=850
 if (( TEST_COUNT < MINIMUM_TEST_COUNT )); then
   echo "error: swift test list discovered $TEST_COUNT tests; expected at least $MINIMUM_TEST_COUNT" >&2
   exit 1
@@ -217,6 +217,14 @@ for required_test in \
   "SiriusMarkdownMathTests.nativeMathFallbackDiagnosticsCountTextFallbacksOnlyOncePerCachedFormula()" \
   "SiriusMarkdownMathTests.imageBackedInlineMathCorpusCopyUsesOriginalMarkdownSource()" \
   "SiriusMarkdownMathTests.sharedMathCorpusRenderPreparationStaysWithinCacheBudget()" \
+  "SiriusMarkdownMathTests.swiftMathAtomCopiesNormalizeMismatchedPublicTypesWithoutTrapping()" \
+  "SiriusMarkdownMathTests.swiftMathTableFinalizationFinalizesCopiedCells()" \
+  "SiriusMarkdownMathTests.swiftMathLatexSerializationDoesNotMutateTableCells()" \
+  "SiriusMarkdownMathTests.swiftMathLatexSerializationPreservesColorAtoms()" \
+  "SiriusMarkdownMathTests.swiftMathLatexSerializationFailsClosedForIncompletePublicModels()" \
+  "SiriusMarkdownMathTests.swiftMathTableIgnoresNegativePublicIndices()" \
+  "SiriusMarkdownTests.publicDocsDoNotLinkIgnoredInternalPlans()" \
+  "SiriusMarkdownTests.releaseRunbookPublishesMatchingGitHubRelease()" \
   "SiriusMarkdownMathTests.paragraphEmbeddedDisplayMathPreparesTypesetImage()" \
   "SiriusMarkdownMathTests.degradedBareDisplayBracketMathPreparesTypesetImage()" \
   "SiriusMarkdownSwiftUITests.documentSelectionDefaultsToEnabledWhileNativeSelectionStaysLeafCompatibilityKnob()" \
@@ -369,5 +377,5 @@ xcrun docc convert Docs/SiriusMarkdown.docc \
   --additional-symbol-graph-dir "$SYMBOL_GRAPH_DIR" \
   --fallback-display-name SiriusMarkdown \
   --fallback-bundle-identifier com.sirius.markdown \
-  --fallback-bundle-version 0.6.5 \
+  --fallback-bundle-version 0.6.6 \
   --output-path /tmp/SiriusMarkdown.doccarchive

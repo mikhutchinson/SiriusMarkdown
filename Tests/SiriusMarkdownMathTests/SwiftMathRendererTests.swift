@@ -352,6 +352,133 @@ func swiftMathTypesetterRejectsMalformedCompositeAtomsWithoutTrapping() throws {
 }
 
 @Test
+func swiftMathAtomCopiesNormalizeMismatchedPublicTypesWithoutTrapping() {
+    #if canImport(SwiftMath)
+    let baseAtom = MTMathAtomFactory.placeholder()
+    baseAtom.type = .largeOperator
+
+    let scriptedBaseAtom = MTMathAtomFactory.placeholder()
+    scriptedBaseAtom.superScript = MTMathList(atom: MTMathAtomFactory.placeholder())
+    scriptedBaseAtom.type = .space
+
+    let fraction = MTMathAtomFactory.placeholderFraction()
+    fraction.type = .table
+
+    let style = MTMathStyle(style: .display)
+    style.type = .overline
+
+    let scriptedStyle = MTMathStyle(style: .display)
+    scriptedStyle.type = .ordinary
+    scriptedStyle.subScript = MTMathList(atom: MTMathAtomFactory.placeholder())
+    scriptedStyle.type = .style
+
+    let copiedBase: MTMathAtom = baseAtom.copy()
+    let copiedScriptedBase: MTMathAtom = scriptedBaseAtom.copy()
+    let copiedFraction: MTMathAtom = fraction.copy()
+    let copiedStyle: MTMathAtom = style.copy()
+    let copiedScriptedStyle: MTMathAtom = scriptedStyle.copy()
+
+    #expect(copiedBase.type == .ordinary)
+    #expect(copiedScriptedBase.type == .ordinary)
+    #expect(copiedScriptedBase.superScript != nil)
+    #expect(copiedFraction is MTFraction)
+    #expect(copiedFraction.type == .fraction)
+    #expect(copiedStyle is MTMathStyle)
+    #expect(copiedStyle.type == .style)
+    #expect(copiedScriptedStyle is MTMathStyle)
+    #expect(copiedScriptedStyle.type == .style)
+    #expect(copiedScriptedStyle.subScript == nil)
+
+    _ = MTMathList(atom: baseAtom).finalized
+    _ = MTMathList(atom: scriptedBaseAtom).finalized
+    _ = MTMathList(atom: fraction).finalized
+    _ = MTMathList(atom: style).finalized
+    _ = MTMathList(atom: scriptedStyle).finalized
+    #endif
+}
+
+@Test
+func swiftMathTableFinalizationFinalizesCopiedCells() throws {
+    #if canImport(SwiftMath)
+    let list = try #require(MTMathListBuilder.build(fromString: "\\begin{matrix}12\\end{matrix}"))
+    let table = try #require(list.atoms.first as? MTMathTable)
+    let originalCell = try #require(table.cells.first?.first)
+    let finalizedTable = try #require(table.finalized as? MTMathTable)
+    let finalizedCell = try #require(finalizedTable.cells.first?.first)
+
+    let originalNumbers = originalCell.atoms.filter { $0.type == .number }
+    let finalizedNumbers = finalizedCell.atoms.filter { $0.type == .number }
+    #expect(originalNumbers.map(\.nucleus) == ["1", "2"])
+    #expect(finalizedNumbers.count == 1)
+    #expect(finalizedNumbers.first?.nucleus == "12")
+    #expect(finalizedCell !== originalCell)
+    #endif
+}
+
+@Test
+func swiftMathLatexSerializationDoesNotMutateTableCells() throws {
+    #if canImport(SwiftMath)
+    let list = try #require(MTMathListBuilder.build(
+        fromString: "\\begin{matrix}1&2\\\\3&4\\end{matrix}"
+    ))
+    let table = try #require(list.atoms.first as? MTMathTable)
+    let atomCountsBefore = table.cells.map { row in row.map { $0.atoms.count } }
+
+    let first = MTMathListBuilder.mathListToString(list)
+    let second = MTMathListBuilder.mathListToString(list)
+
+    #expect(first == second)
+    #expect(first.contains("\\begin{matrix}"))
+    #expect(first.contains("\\end{matrix}"))
+    #expect(table.cells.map { row in row.map { $0.atoms.count } } == atomCountsBefore)
+    #endif
+}
+
+@Test
+func swiftMathLatexSerializationPreservesColorAtoms() throws {
+    #if canImport(SwiftMath)
+    let latex = "\\color{#FF0000}{x}+\\textcolor{blue}{y}+\\colorbox{yellow}{z}"
+    let list = try #require(MTMathListBuilder.build(fromString: latex))
+    let serialized = MTMathListBuilder.mathListToString(list)
+
+    #expect(serialized == latex)
+    #expect(MTMathListBuilder.build(fromString: serialized) != nil)
+    #endif
+}
+
+@Test
+func swiftMathLatexSerializationFailsClosedForIncompletePublicModels() {
+    #if canImport(SwiftMath)
+    let customOperator = MTMathAtomFactory.operatorWithName("customop", limits: false)
+    let fraction = MTFraction()
+    let color = MTMathColor()
+    color.colorString = "red"
+    let list = MTMathList(atoms: [customOperator, fraction, color])
+
+    let serialized = MTMathListBuilder.mathListToString(list)
+
+    #expect(serialized.contains("customop"))
+    #expect(serialized.contains("\\frac{}{}"))
+    #expect(serialized.contains("\\color{red}{}"))
+    #expect(color.string == "\\color{red}{}")
+    #endif
+}
+
+@Test
+func swiftMathTableIgnoresNegativePublicIndices() {
+    #if canImport(SwiftMath)
+    let table = MTMathTable()
+    table.set(cell: MTMathList(), forRow: -1, column: 0)
+    table.set(cell: MTMathList(), forRow: 0, column: -1)
+    table.set(alignment: .left, forColumn: -1)
+
+    #expect(table.cells.isEmpty)
+    #expect(table.alignments.isEmpty)
+    #expect(table.get(alignmentForColumn: -1) == .center)
+    #endif
+}
+
+@Test
 func swiftMathTypesetterFallsBackWhenMathTableVariantListsAreEmpty() throws {
     #if canImport(SwiftMath)
     let font = try #require(MTFontManager.manager.latinModernFont(withSize: 20))
@@ -539,6 +666,46 @@ func swiftMathV2FontSupportsConcurrentMathTableUse() {
 
     #expect(group.wait(timeout: .now() + 5) == .success)
     #expect(failures.value == 0)
+    #endif
+}
+
+@Test
+func swiftMathCustomSymbolRegistrySupportsConcurrentReadsAndCleanOverrides() throws {
+    #if canImport(SwiftMath)
+    let symbolName = "siriusConcurrentRegistryProbe"
+    let oldValue = MTMathAtomFactory.operatorWithName("siriusOldRegistryValue", limits: false)
+    let newValue = MTMathAtomFactory.operatorWithName("siriusNewRegistryValue", limits: false)
+
+    MTMathAtomFactory.add(latexSymbol: symbolName, value: oldValue)
+    #expect(MTMathAtomFactory.latexSymbolName(for: oldValue) == symbolName)
+
+    MTMathAtomFactory.add(latexSymbol: symbolName, value: newValue)
+    #expect(MTMathAtomFactory.atom(forLatexSymbol: symbolName)?.nucleus == newValue.nucleus)
+    #expect(MTMathAtomFactory.latexSymbolName(for: oldValue) == nil)
+    #expect(MTMathAtomFactory.latexSymbolName(for: newValue) == symbolName)
+
+    let alpha = try #require(MTMathAtomFactory.atom(forLatexSymbol: "alpha"))
+    MTMathAtomFactory.add(latexSymbol: symbolName, value: alpha)
+    #expect(MTMathAtomFactory.latexSymbolName(for: alpha) == symbolName)
+    MTMathAtomFactory.add(latexSymbol: symbolName, value: newValue)
+    #expect(MTMathAtomFactory.latexSymbolName(for: alpha) == "alpha")
+
+    DispatchQueue.concurrentPerform(iterations: 200) { index in
+        if index.isMultiple(of: 4) {
+            let value = MTMathAtomFactory.operatorWithName(
+                index.isMultiple(of: 8) ? "siriusConcurrentA" : "siriusConcurrentB",
+                limits: false
+            )
+            MTMathAtomFactory.add(latexSymbol: symbolName, value: value)
+        } else {
+            _ = MTMathAtomFactory.atom(forLatexSymbol: symbolName)
+            _ = MTMathAtomFactory.textToLatexSymbolName
+            _ = MTMathAtomFactory.delimValueToName
+            _ = MTMathAtomFactory.accentValueToName
+        }
+    }
+
+    #expect(MTMathAtomFactory.atom(forLatexSymbol: symbolName) != nil)
     #endif
 }
 

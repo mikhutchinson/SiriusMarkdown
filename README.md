@@ -18,36 +18,37 @@ The core contract is simple:
 
 ## Current Release
 
-`0.6.5` ships native selection feel improvements, pasteboard API richness, and a SIGBUS fix for `MarkdownAffordanceActionHandler`:
-inline LaTeX math rendering trapped with `EXC_BREAKPOINT` inside SwiftPM's
-generated `Bundle.module` accessor. `0.6.2`/`0.6.3` located
-`SiriusMarkdown_SwiftMath.bundle` via `Bundle.url(forResource:withExtension:)`,
-which a macOS 26.5.x Foundation change stopped returning for nested `.bundle`
-directories, so the fallback to `Bundle.module` fatals (its accessor only
-checks the `.app` root and a build-time path — never `Contents/Resources`).
-`MTFont.fontBundle` now resolves the inner `mathFonts.bundle` by direct
-filesystem probe of `Contents/Resources` (and the `.app` root / owning
-bundle resources), loads it with `Bundle(url:)`, and never reaches
-`Bundle.module` in a packaged `.app`. `canEnterSwiftMath` shares the same
-resolver so the entry guard and the loader agree. The resource bundle is
-named `SiriusMarkdown_SwiftMath.bundle`. It sits on top of the `0.6.0` work,
-which delivered measured streaming performance, cross-block selection
-consistency, and native math rendering quality:
+`0.6.6` ships the block-style API, a GitHub-inspired opt-in preset, atomic
+inline attachments for policy-allowed images, expanded native math coverage,
+and a broad correctness hardening pass:
 
-- **Streaming performance:** CTLine creation runs in the prepare phase, not
-  the SwiftUI update path. New blocks render in a single pass without
-  width-preference latency. Incremental snapshot publishing ensures only
-  changed blocks trigger view updates. Measured benchmarks enforce <16ms per
-  append for 100+ blocks at 60fps.
-- **Selection consistency:** Source-backed document selection is consistent
-  across all block types — paragraphs, headings, block quotes, lists, task
-  lists, nested lists, code blocks, tables, math blocks, and HTML blocks.
-  Drag selection, highlight geometry, and copy produce correct results for
-  every block type.
-- **Math quality:** Native LaTeX math through `SiriusMarkdownMath` renders
-  with display-list typographic metrics from vendored SwiftMath
-  (`MTMathImage.LayoutInfo`), proper baseline alignment, screen-matched
-  rasterization sharpness, and reliable streaming detection.
+- **Block customization:** Fourteen `@MainActor` per-block style protocols and
+  `MarkdownDocumentStyle` let hosts replace prepared block chrome without
+  reparsing, remeasuring, or changing cache identity. The opt-in
+  `MarkdownRendererConfiguration.gitHub` pairs GitHub-inspired typography,
+  borders, code treatment, and list markers while leaving `.compactChat` and
+  `.document` unchanged.
+- **Atomic attachments:** Allowed images reserve bounded CoreText boxes, wrap
+  atomically, preserve link hit regions and source-backed selection, and mount
+  one AppKit/UIKit host per prepared attachment. The default remains deny;
+  SiriusMarkdown performs no network fetch and no image decode from SwiftUI
+  `body`.
+- **Math quality and compatibility:** A shared 50-case corpus validates native
+  rendering, original-source preservation, visual metric bands, cache reuse,
+  and KaTeX/MathJax parity where applicable. Generated formulas gain broader
+  fraction, matrix, relation, arrow, and operator compatibility without
+  rewriting the copied/accessibility LaTeX.
+- **Correctness and safety:** Cache keys now cover exact measurements, source,
+  fence metadata, theme inputs, and attachment styling. CoreText missing-glyph
+  shaping and semantic font traits match paint behavior. Math and attachment
+  geometry is finite and bounded, vendored SwiftMath shared registries are
+  synchronized, malformed public atom models fail closed, table finalization
+  is recursive, and LaTeX serialization is non-mutating and color-preserving.
+
+The release retains the measured streaming path from `0.6.0`: CTLine creation
+runs during prepare, append-only sessions reuse sealed prepared content, source-
+backed selection spans every structured block type, and focused performance
+tests enforce the long-transcript budgets.
 
 The default inline renderer paints prepared line ranges with CoreText.
 `preparedNativeLines` and `systemText` remain explicit compatibility fallbacks.
@@ -62,7 +63,7 @@ The default inline renderer paints prepared line ranges with CoreText.
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/mikhutchinson/SiriusMarkdown.git", from: "0.6.5")
+    .package(url: "https://github.com/mikhutchinson/SiriusMarkdown.git", from: "0.6.6")
 ],
 targets: [
     .target(
@@ -304,11 +305,12 @@ git diff --check
 - Release runbook: `runbook.md`
 - Changelog: `changelog.md`
 - Bugfix log: `bugfix.md`
+- Current release notes: `release-notes/0.6.6.md`
 - Third-party credits: `NOTICE.md`
 
 ## Release
 
-`0.6.5` is ready only when the docs describe the current public package surface,
+`0.6.6` is ready only when the docs describe the current public package surface,
 `bash Tools/product-check.sh` passes from the repository root, `git diff --check`
 is clean, the public remote is correct, and the release commit is tagged and
-pushed as `0.6.5`.
+pushed as `0.6.6` with a matching published GitHub Release.

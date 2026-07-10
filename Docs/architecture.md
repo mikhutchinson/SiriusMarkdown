@@ -170,16 +170,23 @@ Products (see `Package.swift`): **`SiriusMarkdown`** (app-facing umbrella module
   attachment's font run, so drag/hit-test x-mapping reflects `pointWidth`
   instead of the placeholder character's own glyph advance, while atomic
   snapping still resolves any partial hit to the whole image source range.
-- **Downstream, not upstream**: Async Image Loading (network fetch/session
-  patching) and Animated Media (decode/playback) plug bytes and frames into
-  these same attachment slots; neither plan invents a parallel placement
-  model, and this package alone does not claim remote fetch or animation.
+- **Future loading stays downstream**: an opt-in host loader can plug bytes or
+  frames into these same attachment slots without inventing a parallel
+  placement model. This package alone does not claim remote fetch, multi-frame
+  decode, or animation.
 
 ### Math (`SiriusMarkdownMath`, optional)
 
 - **`MarkdownMathRenderer`** is the pluggable seam. `preparedMath(_:isBlock:fontSize:)` returns `MarkdownPreparedMath` (`.text` or a typeset `.image`); the default implementation wraps the legacy `renderedMath(_:isBlock:)` so the core path stays text-only and dependency-free.
 - **`NativeMarkdownMathRenderer`** (in the optional `SiriusMarkdownMath` product) typesets LaTeX with CoreText via SwiftMath. `SwiftMathTypesetter` is a locked, `@unchecked Sendable` singleton (mirroring the Mermaid runtime) that confines non-`Sendable` typesetting objects and yields only a `Sendable` `MarkdownPreparedMathImage` (alpha-coverage PNG plus point metrics). The SwiftMath dependency is linked only on iOS/macOS/visionOS and gated with `#if canImport(SwiftMath)`.
-- **Preparation, not body**: typesetting and rasterization happen in `prepare(block:)`/`preparedInline`, keyed by source range, content hash, renderer identity, and font size in the bounded math cache. SwiftUI draws the cached image as a theme-tinted template; width changes never re-typeset. Block math renders centered with horizontal-scroll overflow; inline math composes through `MarkdownInlineMathPiece` with native `Text` so it wraps with prose. SwiftMath compatibility normalization for common generated LaTeX such as `\operatorname*`, `cases`, `equation`, and `align*` happens inside math preparation while preserving the original LaTeX source. Partial/invalid LaTeX and currency-shaped dollar text fall back to text until real math is present.
+- **Preparation, not body**: typesetting and rasterization happen in `prepare(block:)`/`preparedInline`, keyed by the exact formula source, source range, renderer identity, font size, and backing scale in the bounded math cache. SwiftUI draws the cached image as a theme-tinted template; width changes never re-typeset. Block math renders centered with horizontal-scroll overflow; inline math composes through `MarkdownInlineMathPiece` with native `Text` so it wraps with prose. SwiftMath compatibility normalization for common generated LaTeX such as `\operatorname*`, `cases`, `equation`, and `align*` happens inside math preparation while preserving the original LaTeX source. Partial/invalid LaTeX and currency-shaped dollar text fall back to text until real math is present.
+- **Vendored safety boundary**: SwiftMath's mutable symbol registry, reverse
+  lookup tables, font tables, and display-support state are synchronized or
+  immutable. Public atom models are canonicalized by runtime storage before
+  copy/finalization, malformed composites fail closed, table cells finalize
+  recursively, and `MTMathListBuilder.mathListToString` never mutates its input.
+  The shared native/web math corpus and focused sanitizer tests guard this
+  boundary in the release gate.
 
 Host-native content between Markdown segments is modeled in Core via **`MarkdownSnapshot.items`** and **`appendHostBoundary`**; built-in document views now render prepared items and expose a host-boundary closure with an empty default.
 
