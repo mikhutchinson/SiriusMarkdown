@@ -18,7 +18,9 @@ The core contract is simple:
 
 ## Current Release
 
-`0.6.6` ships the block-style API, a GitHub-inspired opt-in preset, atomic
+`0.6.7` carries the `0.6.6` feature set and fixes a clean-checkout Swift
+compiler portability failure in the custom LaTeX symbol registry. It ships the
+block-style API, a GitHub-inspired opt-in preset, atomic
 inline attachments for policy-allowed images, expanded native math coverage,
 and a broad correctness hardening pass:
 
@@ -63,7 +65,7 @@ The default inline renderer paints prepared line ranges with CoreText.
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/mikhutchinson/SiriusMarkdown.git", from: "0.6.6")
+    .package(url: "https://github.com/mikhutchinson/SiriusMarkdown.git", from: "0.6.7")
 ],
 targets: [
     .target(
@@ -305,12 +307,12 @@ git diff --check
 - Release runbook: `runbook.md`
 - Changelog: `changelog.md`
 - Bugfix log: `bugfix.md`
-- Current release notes: `release-notes/0.6.6.md`
+- Current release notes: `release-notes/0.6.7.md`
 - Third-party credits: `NOTICE.md`
 
 ## Release
 
-`0.6.6` is ready only when the docs describe the current public package surface,
+`0.6.7` is ready only when the docs describe the current public package surface,
 `bash Tools/product-check.sh` passes from the repository root, `git diff --check`
 is clean, the public remote is correct, and the release commit is tagged and
-pushed as `0.6.6` with a matching published GitHub Release.
+pushed as `0.6.7` with a matching published GitHub Release and green CI.

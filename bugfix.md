@@ -4,6 +4,14 @@
 
 - None currently tracked.
 
+## Resolved in 0.6.7
+
+- Fixed GitHub Actions clean-checkout compilation failing when the runner's
+  Swift toolchain exceeded its type-checking budget on the custom symbol
+  registry's lazy `filter`/`map`/`min` chain. The preferred-name lookup is now
+  an explicit linear scan with identical shortest-name/lexicographic behavior.
+  The `0.6.6` tag remains immutable; `0.6.7` is the compiler-portable release.
+
 ## Resolved in 0.6.6
 
 - Fixed stale/cross-caller cache reuse across measured inline content, supplied

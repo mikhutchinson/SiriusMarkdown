@@ -698,12 +698,17 @@ public class MTMathAtomFactory {
     }
 
     private static func preferredRegisteredName(for nucleus: String) -> String? {
-        supportedLatexSymbolsStorage.lazy
-            .filter { $0.value.nucleus == nucleus }
-            .map(\.key)
-            .min { lhs, rhs in
-                lhs.count == rhs.count ? lhs < rhs : lhs.count < rhs.count
+        var preferredName: String?
+        for (name, atom) in supportedLatexSymbolsStorage where atom.nucleus == nucleus {
+            guard let current = preferredName else {
+                preferredName = name
+                continue
             }
+            if name.count < current.count || (name.count == current.count && name < current) {
+                preferredName = name
+            }
+        }
+        return preferredName
     }
     
     /** Returns a large opertor for the given name. If limits is true, limits are set up on

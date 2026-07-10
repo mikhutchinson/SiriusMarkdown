@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.6.7 - 2026-07-09
+
+- Fixed a clean-checkout GitHub Actions compiler failure in vendored SwiftMath.
+  The GitHub macOS runner's Swift toolchain could not type-check the chained
+  lazy `filter`/`map`/`min` expression used to restore a preferred registered
+  LaTeX symbol name, even though the release compiler accepted it locally.
+  The lookup is now an explicit single-pass loop with the same deterministic
+  rule (shortest name, then lexicographically first), avoiding compiler
+  complexity without changing runtime behavior.
+- `0.6.6` remains an immutable historical tag. `0.6.7` carries the same block
+  styles, atomic attachments, math corpus, cache correctness, serializer, and
+  concurrency hardening with the compiler-portable registry implementation.
+
 ## 0.6.6 - 2026-07-09
 
 ### Block Style Protocols (Parts 01–03)
