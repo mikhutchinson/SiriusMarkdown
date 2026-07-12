@@ -953,7 +953,9 @@ struct SiriusMarkdownRenderProbe {
                 in: NSRange(location: 0, length: storage.length)
             ) { value, _, _ in
                 if let attachment = value as? NSTextAttachment,
-                   attachment.contents != nil {
+                   attachment.image != nil,
+                   attachment.bounds.width > 0,
+                   attachment.bounds.height > 0 {
                     count += 1
                 }
             }

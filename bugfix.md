@@ -9,10 +9,11 @@
 - Fixed GitHub's newer macOS AppKit clearing the custom math attachment cell
   created through `NSTextAttachment(data:ofType:)`, which failed the release
   check even though the older local AppKit retained it. The TextKit math path
-  now creates an empty attachment and assigns its PNG contents, public PNG UTI,
-  and baseline-aware cell explicitly, then retains the cell beside the bounded
-  cache entry so it survives TextKit insertion on both AppKit generations.
-  `0.6.8` remains immutable; `0.6.9` is the portable fix-forward release.
+  now creates an empty attachment and assigns its prepared image and
+  baseline-adjusted bounds explicitly. The bounded cache retains the
+  legacy cell for older AppKit, while newer AppKit can copy the attachment and
+  keep the same image/bounds geometry without that cell. `0.6.8` remains
+  immutable; `0.6.9` is the portable fix-forward release.
 
 ## Resolved in 0.6.8
 

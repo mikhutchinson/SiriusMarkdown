@@ -6,13 +6,14 @@
 
 - Fixed image-backed inline math losing its custom baseline attachment cell on
   the newer AppKit version used by GitHub's macOS runner. Math attachments now
-  assign PNG contents, file type, and the package-owned cell explicitly instead
-  of relying on `NSTextAttachment(data:ofType:)` initialization behavior, and
-  retain that cell beside the bounded attachment cache entry for AppKit
-  versions whose TextKit insertion path does not keep it alive strongly.
+  assign the prepared image, baseline-adjusted bounds, and package-owned cell
+  explicitly instead of relying on `NSTextAttachment(data:ofType:)`
+  initialization behavior. The image and bounds are the portable layout
+  contract; the bounded cache also retains the legacy cell for older AppKit
+  versions that use it.
 - `0.6.8` remains an immutable historical tag. `0.6.9` carries the same native
   macOS selection/menu release with the cross-AppKit attachment construction
-  fix and a release regression that requires both the payload and custom cell.
+  fix and a release regression that requires the preserved image and geometry.
 
 ## 0.6.8 - 2026-07-11
 

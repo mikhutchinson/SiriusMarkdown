@@ -553,21 +553,26 @@ private struct MarkdownAppKitSelectableTextView: NSViewRepresentable {
             }
             // `NSTextAttachment(data:ofType:)` can replace or clear a custom
             // attachment cell when TextKit inserts the attributed string on
-            // newer macOS runners. Assign the payload and cell explicitly so
-            // baseline geometry has one stable owner across AppKit versions.
+            // newer macOS runners. The image and bounds survive that
+            // normalization and provide stable geometry across AppKit versions.
             let attachment = NSTextAttachment()
-            attachment.contents = image.imageData
-            attachment.fileType = "public.png"
+            attachment.image = tintedImage
+            attachment.bounds = NSRect(
+                x: 0,
+                y: -image.renderDescent,
+                width: size.width,
+                height: size.height
+            )
             let attachmentCell = MarkdownAppKitMathAttachmentCell(
                 image: tintedImage,
                 size: size,
                 descent: image.renderDescent
             )
             attachment.attachmentCell = attachmentCell
-            // Newer AppKit releases no longer keep the custom attachment cell
-            // alive strongly in every TextKit insertion path. Retain it beside
-            // the bounded attachment cache entry so `attachmentCell` remains
-            // valid for drawing, baseline metrics, and selection inspection.
+            // Newer AppKit releases may copy the attachment during TextKit
+            // insertion and omit its legacy cell. `image` plus baseline-adjusted
+            // `bounds` are therefore the portable drawing/layout contract;
+            // retain the custom cell beside the bounded cache for older AppKit.
             mathAttachmentCache[key] = (image, color, attachment, attachmentCell)
             return attachment
         }

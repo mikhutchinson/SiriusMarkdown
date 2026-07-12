@@ -1590,15 +1590,16 @@ func nativeSelectionCoversImageBackedInlineMathWithoutSelectionOverlayOnMacOS() 
         textStorage.attribute(.attachment, at: attachmentRange.location, effectiveRange: nil)
             as? NSTextAttachment
     )
-    let cell = try #require(attachment.attachmentCell as? MarkdownAppKitMathAttachmentCell)
     let viewTypes = appKitViewTypeNames(in: hostingView)
 
     #expect(textView.isSelectable)
     #expect(attachmentRange.location != NSNotFound)
-    #expect(attachment.contents?.isEmpty == false)
-    #expect(attachment.fileType == "public.png")
-    #expect(cell.cellSize == NSSize(width: 18, height: 12))
-    #expect(cell.cellBaselineOffset() == NSPoint(x: 0, y: -3))
+    #expect(attachment.image?.size == NSSize(width: 18, height: 12))
+    #expect(attachment.bounds == NSRect(x: 0, y: -3, width: 18, height: 12))
+    if let cell = attachment.attachmentCell as? MarkdownAppKitMathAttachmentCell {
+        #expect(cell.cellSize == NSSize(width: 18, height: 12))
+        #expect(cell.cellBaselineOffset() == NSPoint(x: 0, y: -3))
+    }
     #expect(textView.nativeMathAttachmentCacheCount == 1)
     #expect(textView.plainTextRepresentation(in: NSRange(location: 0, length: textStorage.length)) == "Before x^2 after")
     #expect(textView.accessibilityValue() == "Before x^2 after")
