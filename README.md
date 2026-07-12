@@ -18,34 +18,24 @@ The core contract is simple:
 
 ## Current Release
 
-`0.6.7` carries the `0.6.6` feature set and fixes a clean-checkout Swift
-compiler portability failure in the custom LaTeX symbol registry. It ships the
-block-style API, a GitHub-inspired opt-in preset, atomic
-inline attachments for policy-allowed images, expanded native math coverage,
-and a broad correctness hardening pass:
+`0.6.8` makes macOS selection and secondary-click behavior native by default
+while retaining the block styles, atomic attachments, math corpus, cache
+hardening, and compiler portability fixes shipped through `0.6.7`:
 
-- **Block customization:** Fourteen `@MainActor` per-block style protocols and
-  `MarkdownDocumentStyle` let hosts replace prepared block chrome without
-  reparsing, remeasuring, or changing cache identity. The opt-in
-  `MarkdownRendererConfiguration.gitHub` pairs GitHub-inspired typography,
-  borders, code treatment, and list markers while leaving `.compactChat` and
-  `.document` unchanged.
-- **Atomic attachments:** Allowed images reserve bounded CoreText boxes, wrap
-  atomically, preserve link hit regions and source-backed selection, and mount
-  one AppKit/UIKit host per prepared attachment. The default remains deny;
-  SiriusMarkdown performs no network fetch and no image decode from SwiftUI
-  `body`.
-- **Math quality and compatibility:** A shared 50-case corpus validates native
-  rendering, original-source preservation, visual metric bands, cache reuse,
-  and KaTeX/MathJax parity where applicable. Generated formulas gain broader
-  fraction, matrix, relation, arrow, and operator compatibility without
-  rewriting the copied/accessibility LaTeX.
-- **Correctness and safety:** Cache keys now cover exact measurements, source,
-  fence metadata, theme inputs, and attachment styling. CoreText missing-glyph
-  shaping and semantic font traits match paint behavior. Math and attachment
-  geometry is finite and bounded, vendored SwiftMath shared registries are
-  synchronized, malformed public atom models fail closed, table finalization
-  is recursive, and LaTeX serialization is non-mutating and color-preserving.
+- **Native macOS interaction:** Bounded noneditable `NSTextView` leaves own
+  AppKit selection color, word/drag/keyboard selection, continuous wrapping,
+  Copy, and the standard contextual menu. Package-only per-block “Copy
+  Markdown” menus no longer intercept secondary clicks.
+- **Rich inline continuity:** Image-backed inline math is a baseline-aligned
+  TextKit attachment inside the same selectable paragraph. Links, prepared
+  images, math, Mermaid ASCII, and invalid-image math fallbacks preserve
+  selection, semantic copy, and accessibility.
+- **Streaming stability:** The AppKit selection owner and semantic ranges stay
+  stable as a mutable tail transitions between text fallback and prepared math
+  imagery. Attachment caches and host views are pruned when content changes.
+- **Explicit exact-source mode:** Hosts can still enable source-backed
+  cross-block Markdown selection. That mode disables native leaf selection and
+  owns one document-level context menu, avoiding competing gesture/menu owners.
 
 The release retains the measured streaming path from `0.6.0`: CTLine creation
 runs during prepare, append-only sessions reuse sealed prepared content, the
@@ -69,7 +59,7 @@ competing selection owners. Other platforms retain the source-backed default.
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/mikhutchinson/SiriusMarkdown.git", from: "0.6.7")
+    .package(url: "https://github.com/mikhutchinson/SiriusMarkdown.git", from: "0.6.8")
 ],
 targets: [
     .target(
@@ -312,12 +302,12 @@ git diff --check
 - Release runbook: `runbook.md`
 - Changelog: `changelog.md`
 - Bugfix log: `bugfix.md`
-- Current release notes: `release-notes/0.6.7.md`
+- Current release notes: `release-notes/0.6.8.md`
 - Third-party credits: `NOTICE.md`
 
 ## Release
 
-`0.6.7` is ready only when the docs describe the current public package surface,
+`0.6.8` is ready only when the docs describe the current public package surface,
 `bash Tools/product-check.sh` passes from the repository root, `git diff --check`
 is clean, the public remote is correct, and the release commit is tagged and
-pushed as `0.6.7` with a matching published GitHub Release and green CI.
+pushed as `0.6.8` with a matching published GitHub Release and green CI.

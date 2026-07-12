@@ -1,6 +1,6 @@
 # Runbook
 
-This runbook is the local release authority for `SiriusMarkdown`. For the current public package release, use `0.6.7` as the tag and do not publish unless every release blocker below is clear.
+This runbook is the local release authority for `SiriusMarkdown`. For the current public package release, use `0.6.8` as the tag and do not publish unless every release blocker below is clear.
 
 ## Build
 
@@ -58,12 +58,13 @@ Layout and renderer acceptance for the current slice:
 - Inline math detection must remain source-preserving and must not rewrite code spans, fenced code, or Markdown source before `swift-markdown` parsing. Dollar-delimited inline math must not consume common currency/reward amounts such as `$100 - $5,500`, `$108,500`, or compact ISO currency-code amounts; compact currency-code coverage should derive from Foundation's `Locale.Currency.isoCurrencies` rather than a hand-maintained code list. Bare-TeX recovery is only a conservative routing layer for generated math; it must keep code spans, paths, unknown commands, escaped Markdown, and prose out of math while preserving whole generated formula families as source-backed math runs.
 - Image handling must produce prepared decisions and placeholders by default; no network image fetch is allowed without an explicit host resolver.
 - Allowed images (an explicit `MarkdownImagePolicy` `.allow` decision) must become prepared inline attachments — reserved `pointWidth`/`pointHeight`/`ascent`/`descent` box metrics on the atomic image segment, a `CTRunDelegate`-backed gap on the CoreText line plan, and exactly one host view per attachment ID (`hosts.count == attachmentGaps.count`, INV-IA6). Denied images (the default) must keep the existing alt/`[image: reason]` text-atomic path unchanged. Width-only relayout must not re-invoke the image resolver or re-probe bytes. No `URLSession` call or full-frame `CGImageSourceCreate*` decode may live in a host's `body`/`updateNSView`/`updateUIView`; a cheap header-only size probe of already-resolved `Data`/local-file bytes during prepare is the one sanctioned exception. Do not add a parallel image rendering path (e.g. a `Text`-composition bypass) for the allowed box path — CoreText line gaps are the only paint path for allowed images.
-- Document selection must default on through
-  `MarkdownRendererConfiguration.documentSelection` for `compactChat`,
-  `document`, `MarkdownDocumentView`, `StreamingMarkdownView`, and
-  `MarkdownDocumentSurface`. If no host controller is supplied, the views must
-  create an internal `MarkdownSelectionController` and still support drag
-  selection, highlights, and Cmd-C source copy.
+- macOS selection must default to bounded package-owned AppKit text leaves
+  through `MarkdownRendererConfiguration.nativeTextSelection`. The
+  source-backed `documentSelection` layer remains the default on other
+  platforms and an explicit macOS mode for exact cross-block Markdown copy. If
+  that mode is enabled without a host controller, the views must create an
+  internal `MarkdownSelectionController` and still support drag selection,
+  highlights, and Cmd-C source copy.
 - Selection/copy must stay range bounded and source-backed. Contiguous
   selections copy one exact source slice; non-contiguous selections copy
   ordered source slices deterministically; prepared plain text is only a
@@ -125,22 +126,19 @@ Layout and renderer acceptance for the current slice:
   = exact Markdown source, optional `.rtf`/`.html`. Do not produce network fetches
   or WebKit HTML generation on copy. `MarkdownPasteboardTests` must pass in
   the release gate.
-- **Text.Layout bridge:** Enabling `nativeTextSelection` by default or switching
-  the default-path selection authority to `Text.Layout` are out of bounds.
-  The Part 04 evaluation (2026-07-09) concluded: Parts 01–03 close the feel
-  gap on the CoreText default path; a `Text.Layout` bridge is not warranted
-  and risks the `SelectionOverlay` hang class. Reject recorded; INV-NS3 upheld.
-- Native text selection must stay a separate compatibility knob bounded to
-  stable text leaves. Keep `MarkdownRendererConfiguration.nativeTextSelection`
-  defaulted to `.disabled`. On macOS, `.enabled` must work by using
-  package-owned selectable AppKit text leaves instead of SwiftUI's private
-  `SelectionOverlay`; on other Apple platforms, the SwiftUI selection helper
-  remains bounded. Native text selection must avoid document, scroll, stack,
-  custom leading-layout containers, table-grid containers, toolbar,
-  Mermaid-control, and host containers, while list, quote, and table cell text
-  leaves stay selectable. The product gate's enabled-selection AppKit probe
-  must keep passing and must observe selectable AppKit text leaves before a
-  host opts in.
+- **Text.Layout bridge:** SwiftUI `.textSelection` or a `Text.Layout` bridge
+  must not become the macOS selection authority. The default macOS path uses
+  bounded package-owned AppKit text views and must not mount SwiftUI's private
+  `SelectionOverlay`; INV-NS3 remains upheld.
+- Native text selection must remain bounded to stable text leaves. On macOS,
+  `.platformDefault` resolves to `.enabled` and uses package-owned selectable
+  AppKit leaves. On other Apple platforms, the SwiftUI selection helper remains
+  bounded and source-backed document selection stays the default. Native text
+  selection must avoid document, scroll, stack, custom leading-layout
+  containers, table-grid containers, toolbar, Mermaid-control, and host
+  containers, while list, quote, table-cell, fallback, image, and inline-math
+  text stays selectable. The product gate's AppKit probe must keep passing and
+  must observe selectable leaves without a host opt-in.
   SwiftUI tests must prove list/quote/table leaves mount selectable
   `NSTextView`s and that a hosted list leaf can select and copy through the
   AppKit pasteboard path.
@@ -199,7 +197,7 @@ Run this before claiming native-renderer product quality. It wraps the release g
 
 ## Public Release Checklist
 
-Use this checklist for `0.6.7`.
+Use this checklist for `0.6.8`.
 
 1. Confirm public hygiene:
 
@@ -249,28 +247,28 @@ Use this checklist for `0.6.7`.
 
    ```sh
    git add README.md runbook.md NOTICE.md changelog.md bugfix.md release-notes Docs Sources Tests Examples Tools Package.swift Package.resolved
-   git commit -m "Prepare SiriusMarkdown 0.6.7 release"
+   git commit -m "Prepare SiriusMarkdown 0.6.8 release"
    ```
 
 6. Tag and push:
 
    ```sh
-   git tag -a 0.6.7 -m "SiriusMarkdown 0.6.7"
+   git tag -a 0.6.8 -m "SiriusMarkdown 0.6.8"
    git push origin HEAD
-   git push origin 0.6.7
+   git push origin 0.6.8
    ```
 
 7. After pushing, create the public release from the matching `changelog.md`
    section and verify that GitHub marks it as Latest:
 
    ```sh
-   gh release create 0.6.7 \
+   gh release create 0.6.8 \
      --repo mikhutchinson/SiriusMarkdown \
      --verify-tag \
      --latest \
-     --title "SiriusMarkdown 0.6.7" \
-     --notes-file release-notes/0.6.7.md
-   gh release view 0.6.7 \
+     --title "SiriusMarkdown 0.6.8" \
+     --notes-file release-notes/0.6.8.md
+   gh release view 0.6.8 \
      --repo mikhutchinson/SiriusMarkdown \
      --json tagName,name,isDraft,isPrerelease,publishedAt,url
    ```

@@ -4,7 +4,7 @@
 
 - None currently tracked.
 
-## Resolved after 0.6.7
+## Resolved in 0.6.8
 
 - Fixed macOS rendered text using a pale custom line-rectangle selector and
   nested SwiftUI context menus whose innermost hit target exposed only “Copy

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.6.8 - 2026-07-11
+
 - macOS selection now defaults to bounded noneditable `NSTextView` leaves, so
   AppKit owns glyph-backed highlights, word/drag/keyboard selection, continuous
   prose wrapping and copy, and the standard contextual menu.
