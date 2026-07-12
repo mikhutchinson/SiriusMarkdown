@@ -1275,7 +1275,7 @@ func defaultJavaScriptResourceLoadingUsesNonTrappingLookup() throws {
 @Test
 func releaseAndProductChecksKeepRenderProbeVisualsOptIn() throws {
     let root = packageRootURL()
-    let currentReleaseVersion = "0.6.8"
+    let currentReleaseVersion = "0.6.9"
     let releaseCheck = try String(
         contentsOf: root.appending(path: "Tools/release-check.sh"),
         encoding: .utf8
@@ -1595,6 +1595,8 @@ func nativeSelectionCoversImageBackedInlineMathWithoutSelectionOverlayOnMacOS() 
 
     #expect(textView.isSelectable)
     #expect(attachmentRange.location != NSNotFound)
+    #expect(attachment.contents?.isEmpty == false)
+    #expect(attachment.fileType == "public.png")
     #expect(cell.cellSize == NSSize(width: 18, height: 12))
     #expect(cell.cellBaselineOffset() == NSPoint(x: 0, y: -3))
     #expect(textView.nativeMathAttachmentCacheCount == 1)

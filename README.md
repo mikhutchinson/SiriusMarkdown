@@ -18,9 +18,10 @@ The core contract is simple:
 
 ## Current Release
 
-`0.6.8` makes macOS selection and secondary-click behavior native by default
-while retaining the block styles, atomic attachments, math corpus, cache
-hardening, and compiler portability fixes shipped through `0.6.7`:
+`0.6.9` is the AppKit-portable follow-up to `0.6.8`. It makes macOS selection
+and secondary-click behavior native by default while retaining the block
+styles, atomic attachments, math corpus, cache hardening, and compiler
+portability fixes shipped through `0.6.7`:
 
 - **Native macOS interaction:** Bounded noneditable `NSTextView` leaves own
   AppKit selection color, word/drag/keyboard selection, continuous wrapping,
@@ -59,7 +60,7 @@ competing selection owners. Other platforms retain the source-backed default.
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/mikhutchinson/SiriusMarkdown.git", from: "0.6.8")
+    .package(url: "https://github.com/mikhutchinson/SiriusMarkdown.git", from: "0.6.9")
 ],
 targets: [
     .target(
@@ -302,12 +303,12 @@ git diff --check
 - Release runbook: `runbook.md`
 - Changelog: `changelog.md`
 - Bugfix log: `bugfix.md`
-- Current release notes: `release-notes/0.6.8.md`
+- Current release notes: `release-notes/0.6.9.md`
 - Third-party credits: `NOTICE.md`
 
 ## Release
 
-`0.6.8` is ready only when the docs describe the current public package surface,
+`0.6.9` is ready only when the docs describe the current public package surface,
 `bash Tools/product-check.sh` passes from the repository root, `git diff --check`
 is clean, the public remote is correct, and the release commit is tagged and
-pushed as `0.6.8` with a matching published GitHub Release and green CI.
+pushed as `0.6.9` with a matching published GitHub Release and green CI.

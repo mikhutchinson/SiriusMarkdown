@@ -4,6 +4,15 @@
 
 - None currently tracked.
 
+## Resolved in 0.6.9
+
+- Fixed GitHub's newer macOS AppKit clearing the custom math attachment cell
+  created through `NSTextAttachment(data:ofType:)`, which failed the release
+  check even though the older local AppKit retained it. The TextKit math path
+  now creates an empty attachment and assigns its PNG contents, public PNG UTI,
+  and baseline-aware cell explicitly. `0.6.8` remains immutable; `0.6.9` is the
+  portable fix-forward release.
+
 ## Resolved in 0.6.8
 
 - Fixed macOS rendered text using a pale custom line-rectangle selector and

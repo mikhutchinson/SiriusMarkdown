@@ -546,7 +546,13 @@ private struct MarkdownAppKitSelectableTextView: NSViewRepresentable {
                 )
                 return true
             }
-            let attachment = NSTextAttachment(data: image.imageData, ofType: "public.png")
+            // `NSTextAttachment(data:ofType:)` can replace or clear a custom
+            // attachment cell when TextKit inserts the attributed string on
+            // newer macOS runners. Assign the payload and cell explicitly so
+            // baseline geometry has one stable owner across AppKit versions.
+            let attachment = NSTextAttachment()
+            attachment.contents = image.imageData
+            attachment.fileType = "public.png"
             attachment.attachmentCell = MarkdownAppKitMathAttachmentCell(
                 image: tintedImage,
                 size: size,
