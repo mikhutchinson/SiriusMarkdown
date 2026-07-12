@@ -4,6 +4,21 @@
 
 - None currently tracked.
 
+## Resolved in 0.6.11
+
+- Fixed macOS AppKit selectable text leaves (`nativeTextSelection: .enabled`,
+  the macOS platform default since 0.6.8) rebuilding the full attributed
+  source and reconciling attachment hosts on every SwiftUI layout proposal. A
+  host app captured a live sample with the main thread 100% CPU-bound for 30+
+  seconds inside `MarkdownAppKitSelectableTextView.configure` /
+  `attributedStringWithFallbackAttributes` under a long list/quote document,
+  followed by an `EXC_BREAKPOINT` crash raised by AppKit's re-entrant
+  `_postWindowNeedsUpdateConstraints` guard when host subview mutation ran
+  inside the `updateConstraints` traversal. `configure` now short-circuits
+  behind an equatable content/environment key, measured sizes are cached per
+  proposed width, and attachment host reconciliation is confined to
+  `layout()`.
+
 ## Resolved in 0.6.10
 
 - Fixed native renderer bridges flattening SwiftUI semantic colors under the

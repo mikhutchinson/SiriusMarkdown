@@ -175,13 +175,60 @@ private struct MarkdownAppKitSelectableTextView: NSViewRepresentable {
     ) -> CGSize? {
         let textView = container.textView
         configure(textView, coordinator: context.coordinator)
-        return measuredSize(for: textView, proposedWidth: proposal.width)
+        // SwiftUI layout negotiation proposes many widths per pass and
+        // nested layouts (lists, quotes) multiply the passes. Measuring
+        // re-runs TextKit layout, so cache per proposed width and only
+        // re-measure when the content key or the proposal actually changed.
+        let widthKey = Self.measuredWidthKey(for: proposal.width)
+        if let cached = context.coordinator.measuredSizes[widthKey] {
+            return cached
+        }
+        let measured = measuredSize(for: textView, proposedWidth: proposal.width)
+        context.coordinator.measuredSizes[widthKey] = measured
+        return measured
+    }
+
+    /// The full set of inputs that determine the text view's content and
+    /// measurement. When this key is unchanged, `configure` is a no-op: the
+    /// attributed source, attachment reconciliation, and accessibility value
+    /// are already applied. Rebuilding them on every SwiftUI layout proposal
+    /// is what previously turned long documents into multi-second main-thread
+    /// stalls (each proposal re-converted the full `AttributedString`,
+    /// re-enumerated attributes, and re-applied attachments).
+    private var configurationKey: MarkdownAppKitLeafConfigurationKey {
+        MarkdownAppKitLeafConfigurationKey(
+            attributed: attributed,
+            fallbackFontSize: fallbackFontSize,
+            fallbackLineHeight: fallbackLineHeight,
+            fallbackFontProfile: fallbackFontProfile,
+            textColor: textColor,
+            lineSpacing: lineSpacing,
+            wraps: wraps,
+            mathTextPieces: mathTextPieces,
+            attachments: preparedInlineContent?.attachments,
+            colorScheme: colorScheme
+        )
+    }
+
+    private static func measuredWidthKey(for proposedWidth: CGFloat?) -> CGFloat {
+        guard let proposedWidth, proposedWidth.isFinite, proposedWidth > 0 else {
+            return -1
+        }
+        return proposedWidth
     }
 
     private func configure(
         _ textView: MarkdownAppKitNativeSelectableTextView,
         coordinator: Coordinator
     ) {
+        let key = configurationKey
+        guard coordinator.configuredKey != key else {
+            return
+        }
+        coordinator.configuredKey = key
+        coordinator.measuredSizes.removeAll(keepingCapacity: true)
+        textView.contentBuildCount += 1
+
         let resolvedTextColor = MarkdownPlatformColorResolver.appKitColor(
             textColor,
             colorScheme: colorScheme
@@ -230,7 +277,14 @@ private struct MarkdownAppKitSelectableTextView: NSViewRepresentable {
         if textView.accessibilityValue() != next.plainText {
             textView.setAccessibilityValue(next.plainText)
         }
-        textView.reconcilePreparedAttachmentHosts()
+        // Never mutate attachment host subviews here: `configure` runs from
+        // `sizeThatFits`, which AppKit can invoke inside the window's
+        // `updateConstraints` traversal. Adding/removing subviews there
+        // re-enters `_postWindowNeedsUpdateConstraints` and AppKit converts
+        // the guard exception into a deliberate crash. `layout()` on both
+        // the container and the text view already reconciles hosts at a
+        // mutation-safe point in the display cycle.
+        textView.needsLayout = true
     }
 
     private func measuredSize(for textView: NSTextView, proposedWidth: CGFloat?) -> CGSize {
@@ -246,14 +300,14 @@ private struct MarkdownAppKitSelectableTextView: NSViewRepresentable {
         let naturalWidth = max(1, ceil(textView.textStorage?.size().width ?? 1) + 1)
         let targetWidth = wraps ? (finiteProposedWidth ?? naturalWidth) : naturalWidth
 
-        if wraps {
+        if wraps, textView.frame.size.width != targetWidth {
             textView.frame.size.width = targetWidth
         }
-        textContainer.containerSize = CGSize(width: targetWidth, height: CGFloat.greatestFiniteMagnitude)
-        layoutManager.ensureLayout(for: textContainer)
-        if let nativeTextView = textView as? MarkdownAppKitNativeSelectableTextView {
-            nativeTextView.reconcilePreparedAttachmentHosts()
+        let containerSize = CGSize(width: targetWidth, height: CGFloat.greatestFiniteMagnitude)
+        if textContainer.containerSize != containerSize {
+            textContainer.containerSize = containerSize
         }
+        layoutManager.ensureLayout(for: textContainer)
         let usedRect = layoutManager.usedRect(for: textContainer)
         let measuredWidth = wraps ? (finiteProposedWidth ?? ceil(usedRect.width)) : ceil(usedRect.width)
         let measuredHeight = max(CGFloat(fallbackLineHeight), ceil(usedRect.height))
@@ -501,6 +555,12 @@ private struct MarkdownAppKitSelectableTextView: NSViewRepresentable {
 
     final class Coordinator: NSObject, NSTextViewDelegate {
         var linkAction: MarkdownLinkAction?
+        /// Last applied content/environment key; `configure` short-circuits
+        /// while it is unchanged so repeated layout proposals stay cheap.
+        var configuredKey: MarkdownAppKitLeafConfigurationKey?
+        /// Measured sizes per proposed-width key, invalidated whenever
+        /// `configuredKey` changes.
+        var measuredSizes: [CGFloat: CGSize] = [:]
         private var attachmentCache: [MarkdownAttachmentID: (MarkdownPreparedAttachment, NSTextAttachment)] = [:]
         private var mathAttachmentCache: [
             MarkdownAppKitMathAttachmentKey: (
@@ -618,6 +678,24 @@ private struct MarkdownAppKitSelectableTextView: NSViewRepresentable {
     }
 }
 
+/// Equatable bundle of every input that shapes the AppKit selectable leaf's
+/// text storage and measurement. Comparing this key is a fast early-exit
+/// (string memcmp scale) versus rebuilding the attributed source, which
+/// allocates, converts scopes, enumerates attributes, and re-applies
+/// attachments on each call.
+struct MarkdownAppKitLeafConfigurationKey: Equatable {
+    var attributed: AttributedString
+    var fallbackFontSize: Double
+    var fallbackLineHeight: Double
+    var fallbackFontProfile: MarkdownFontProfile
+    var textColor: Color
+    var lineSpacing: CGFloat
+    var wraps: Bool
+    var mathTextPieces: [MarkdownInlineMathPiece]?
+    var attachments: [MarkdownAttachmentID: MarkdownPreparedAttachment]?
+    var colorScheme: ColorScheme
+}
+
 private extension NSAttributedString.Key {
     static let markdownNativePlainText = NSAttributedString.Key(
         "net.siriusmarkdown.native-selection.plain-text"
@@ -668,6 +746,11 @@ struct MarkdownAppKitMathAttachmentKey: Hashable {
 }
 
 final class MarkdownAppKitNativeSelectableTextView: NSTextView {
+    /// Number of times `configure` actually rebuilt and applied the attributed
+    /// source (test hook). Steady-state layout passes must not increment this:
+    /// rebuilding per SwiftUI size proposal is the BUG class that pegged host
+    /// main threads for 30+ seconds under long list/quote documents.
+    var contentBuildCount = 0
     var nativeAttachmentCacheCount = 0
     var nativeMathAttachmentCacheCount = 0
     var colorScheme: ColorScheme = .light

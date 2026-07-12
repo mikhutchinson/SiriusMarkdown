@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+## 0.6.11 - 2026-07-12
+
+- Fixed the macOS AppKit selectable text leaves rebuilding their full
+  attributed source, re-enumerating attributes, and re-applying attachments on
+  every SwiftUI layout proposal. Under long nested list/quote documents,
+  SwiftUI's repeated size negotiation compounded that into multi-second
+  main-thread stalls in host apps. `configure` now short-circuits behind an
+  equatable content/environment key, and measured sizes are cached per
+  proposed width until the key changes.
+- AppKit selectable leaves no longer add or remove attachment host subviews
+  during SwiftUI size negotiation. `sizeThatFits` can run inside the window's
+  `updateConstraints` traversal, where view-hierarchy mutation re-enters
+  `_postWindowNeedsUpdateConstraints` and AppKit converts its guard exception
+  into a deliberate crash. Host reconciliation now happens only in `layout()`.
+- Added a hosted streaming scaling gate proving per-append main-thread cost
+  stays bounded as a document grows in the Core Text painted-line +
+  document-selection configuration, plus a regression test that fails if
+  stable-content layout passes rebuild AppKit leaf content.
+
 ## 0.6.10 - 2026-07-12
 
 - Fixed semantic theme colors such as `Color.primary` being converted to

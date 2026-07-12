@@ -1275,7 +1275,7 @@ func defaultJavaScriptResourceLoadingUsesNonTrappingLookup() throws {
 @Test
 func releaseAndProductChecksKeepRenderProbeVisualsOptIn() throws {
     let root = packageRootURL()
-    let currentReleaseVersion = "0.6.10"
+    let currentReleaseVersion = "0.6.11"
     let releaseCheck = try String(
         contentsOf: root.appending(path: "Tools/release-check.sh"),
         encoding: .utf8
@@ -1556,6 +1556,54 @@ func enabledNativeTextSelectionCanSelectAndCopyListTextLeafOnMacOS() throws {
 
     #expect(textView.isSelectable)
     #expect(copied == "List selectable text")
+}
+
+@Test
+@MainActor
+func enabledNativeTextSelectionDoesNotRebuildContentPerLayoutPassOnMacOS() throws {
+    // Regression: `configure` used to rebuild the full attributed source and
+    // reconcile attachment hosts on every SwiftUI size proposal. Under long
+    // nested list/quote documents that compounded into 30+ second main-thread
+    // stalls and an AppKit re-entrant `updateConstraints` crash in host apps.
+    // Steady-state layout passes must not rebuild content.
+    let markdown = """
+    > Quote stability text
+
+    - List stability text
+      - Nested stability text
+
+    Paragraph stability text.
+    """
+    var stream = MarkdownStream()
+    stream.append(markdown)
+    stream.finish()
+
+    var configuration = MarkdownRendererConfiguration.document
+    configuration.nativeTextSelection = .enabled
+    let prepared = configuration.prepare(snapshot: stream.snapshot())
+    let view = MarkdownDocumentView(preparedSnapshot: prepared, configuration: configuration)
+        .frame(width: 420, height: 360, alignment: .topLeading)
+
+    let hostingView = NSHostingView(rootView: view)
+    hostingView.frame = NSRect(origin: .zero, size: NSSize(width: 420, height: 360))
+    let window = offscreenTestWindow(hostingView)
+    defer { tearDownWindow(window) }
+    pumpLayout(hostingView)
+
+    let textViews = appKitTextViews(in: hostingView)
+        .compactMap { $0 as? MarkdownAppKitNativeSelectableTextView }
+    #expect(!textViews.isEmpty)
+    let buildCountsAfterMount = textViews.map(\.contentBuildCount)
+    for count in buildCountsAfterMount {
+        #expect(count >= 1)
+    }
+
+    // Repeated stable-content layout passes: no leaf may rebuild its content.
+    pumpLayout(hostingView)
+    pumpLayout(hostingView)
+
+    let buildCountsAfterRepump = textViews.map(\.contentBuildCount)
+    #expect(buildCountsAfterRepump == buildCountsAfterMount)
 }
 
 @Test

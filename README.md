@@ -18,10 +18,17 @@ The core contract is simple:
 
 ## Current Release
 
-`0.6.10` fixes semantic color handling across SiriusMarkdown's native drawing
-bridges while retaining the native macOS selection behavior introduced in
-`0.6.8` and made AppKit-portable in `0.6.9`:
+`0.6.11` makes the macOS AppKit selectable text leaves cheap under SwiftUI
+layout pressure, on top of `0.6.10`'s semantic color fixes and the native
+macOS selection behavior introduced in `0.6.8`/`0.6.9`:
 
+- **No rebuild per layout proposal:** AppKit leaves apply their attributed
+  source once per content/environment change and cache measured sizes per
+  proposed width, so long list/quote documents no longer compound SwiftUI
+  size negotiation into multi-second main-thread stalls.
+- **Constraint-safe attachment hosts:** attachment host subviews mutate only
+  in `layout()`, never inside `sizeThatFits`, avoiding AppKit's re-entrant
+  `updateConstraints` crash guard.
 - **Correct CoreText color contract:** Prepared `CTLine` objects opt into the
   CGContext foreground, so source-backed document-selection mode paints
   readable semantic text in both light and dark appearances.
@@ -57,7 +64,7 @@ competing selection owners. Other platforms retain the source-backed default.
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/mikhutchinson/SiriusMarkdown.git", from: "0.6.10")
+    .package(url: "https://github.com/mikhutchinson/SiriusMarkdown.git", from: "0.6.11")
 ],
 targets: [
     .target(
@@ -300,12 +307,12 @@ git diff --check
 - Release runbook: `runbook.md`
 - Changelog: `changelog.md`
 - Bugfix log: `bugfix.md`
-- Current release notes: `release-notes/0.6.10.md`
+- Current release notes: `release-notes/0.6.11.md`
 - Third-party credits: `NOTICE.md`
 
 ## Release
 
-`0.6.10` is ready only when the docs describe the current public package surface,
+`0.6.11` is ready only when the docs describe the current public package surface,
 `bash Tools/product-check.sh` passes from the repository root, `git diff --check`
 is clean, the public remote is correct, and the release commit is tagged and
-pushed as `0.6.10` with a matching published GitHub Release and green CI.
+pushed as `0.6.11` with a matching published GitHub Release and green CI.
