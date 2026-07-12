@@ -488,7 +488,12 @@ private struct MarkdownAppKitSelectableTextView: NSViewRepresentable {
         var linkAction: MarkdownLinkAction?
         private var attachmentCache: [MarkdownAttachmentID: (MarkdownPreparedAttachment, NSTextAttachment)] = [:]
         private var mathAttachmentCache: [
-            MarkdownAppKitMathAttachmentKey: (MarkdownPreparedMathImage, NSColor, NSTextAttachment)
+            MarkdownAppKitMathAttachmentKey: (
+                MarkdownPreparedMathImage,
+                NSColor,
+                NSTextAttachment,
+                MarkdownAppKitMathAttachmentCell
+            )
         ] = [:]
 
         init(linkAction: MarkdownLinkAction?) {
@@ -553,12 +558,17 @@ private struct MarkdownAppKitSelectableTextView: NSViewRepresentable {
             let attachment = NSTextAttachment()
             attachment.contents = image.imageData
             attachment.fileType = "public.png"
-            attachment.attachmentCell = MarkdownAppKitMathAttachmentCell(
+            let attachmentCell = MarkdownAppKitMathAttachmentCell(
                 image: tintedImage,
                 size: size,
                 descent: image.renderDescent
             )
-            mathAttachmentCache[key] = (image, color, attachment)
+            attachment.attachmentCell = attachmentCell
+            // Newer AppKit releases no longer keep the custom attachment cell
+            // alive strongly in every TextKit insertion path. Retain it beside
+            // the bounded attachment cache entry so `attachmentCell` remains
+            // valid for drawing, baseline metrics, and selection inspection.
+            mathAttachmentCache[key] = (image, color, attachment, attachmentCell)
             return attachment
         }
 
