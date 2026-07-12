@@ -127,6 +127,8 @@ private struct MarkdownAppKitSelectableTextView: NSViewRepresentable {
     var preparedInlineContent: MarkdownPreparedInlineContent?
     var mathTextPieces: [MarkdownInlineMathPiece]?
 
+    @Environment(\.colorScheme) private var colorScheme
+
     func makeCoordinator() -> Coordinator {
         Coordinator(linkAction: linkAction)
     }
@@ -180,6 +182,10 @@ private struct MarkdownAppKitSelectableTextView: NSViewRepresentable {
         _ textView: MarkdownAppKitNativeSelectableTextView,
         coordinator: Coordinator
     ) {
+        let resolvedTextColor = MarkdownPlatformColorResolver.appKitColor(
+            textColor,
+            colorScheme: colorScheme
+        )
         textView.textContainer?.lineFragmentPadding = 0
         textView.textContainerInset = .zero
         textView.isHorizontallyResizable = !wraps
@@ -187,10 +193,14 @@ private struct MarkdownAppKitSelectableTextView: NSViewRepresentable {
         textView.textContainer?.widthTracksTextView = wraps
         textView.textContainer?.heightTracksTextView = false
         textView.textContainer?.lineBreakMode = wraps ? .byWordWrapping : .byClipping
-        textView.textColor = NSColor(textColor)
+        textView.colorScheme = colorScheme
+        textView.textColor = resolvedTextColor
         textView.font = fallbackFont
 
-        let next = attributedStringWithFallbackAttributes(coordinator: coordinator)
+        let next = attributedStringWithFallbackAttributes(
+            coordinator: coordinator,
+            resolvedTextColor: resolvedTextColor
+        )
         let nextAttributed = next.attributed
         if textView.textStorage?.string != nextAttributed.string ||
             textView.textStorage?.length != nextAttributed.length ||
@@ -251,14 +261,18 @@ private struct MarkdownAppKitSelectableTextView: NSViewRepresentable {
     }
 
     private func attributedStringWithFallbackAttributes(
-        coordinator: Coordinator
+        coordinator: Coordinator,
+        resolvedTextColor: NSColor
     ) -> (
         attributed: NSAttributedString,
         attachments: [MarkdownAppKitNativeAttachmentPlacement],
         mathAttachmentKeys: Set<MarkdownAppKitMathAttachmentKey>,
         plainText: String
     ) {
-        let source = appKitAttributedSource(coordinator: coordinator)
+        let source = appKitAttributedSource(
+            coordinator: coordinator,
+            resolvedTextColor: resolvedTextColor
+        )
         let nsAttributed = source.attributed
         let fullRange = NSRange(location: 0, length: nsAttributed.length)
         guard fullRange.length > 0 else {
@@ -276,7 +290,7 @@ private struct MarkdownAppKitSelectableTextView: NSViewRepresentable {
             guard value == nil else {
                 return
             }
-            nsAttributed.addAttribute(.foregroundColor, value: NSColor(textColor), range: range)
+            nsAttributed.addAttribute(.foregroundColor, value: resolvedTextColor, range: range)
         }
 
         let paragraphStyle = NSMutableParagraphStyle()
@@ -298,7 +312,8 @@ private struct MarkdownAppKitSelectableTextView: NSViewRepresentable {
     }
 
     private func appKitAttributedSource(
-        coordinator: Coordinator
+        coordinator: Coordinator,
+        resolvedTextColor: NSColor
     ) -> (
         attributed: NSMutableAttributedString,
         attachments: [MarkdownAppKitNativeAttachmentPlacement],
@@ -410,7 +425,7 @@ private struct MarkdownAppKitSelectableTextView: NSViewRepresentable {
                 if let attachment = coordinator.nativeMathTextAttachment(
                     for: image,
                     key: attachmentKey,
-                    color: NSColor(textColor)
+                    color: resolvedTextColor
                 ) {
                     attributes[.attachment] = attachment
                     attributes[.markdownNativePlainText] = image.latex
@@ -655,6 +670,7 @@ struct MarkdownAppKitMathAttachmentKey: Hashable {
 final class MarkdownAppKitNativeSelectableTextView: NSTextView {
     var nativeAttachmentCacheCount = 0
     var nativeMathAttachmentCacheCount = 0
+    var colorScheme: ColorScheme = .light
     var preparedAttachments: [MarkdownAppKitNativeAttachmentPlacement] = [] {
         didSet {
             guard preparedAttachments != oldValue else { return }
@@ -835,6 +851,7 @@ final class MarkdownAppKitNativeSelectableTextView: NSTextView {
                 attachmentHostsByID[placement.id] = host
             }
             host.frame = rect
+            host.colorScheme = colorScheme
             host.record = placement.record
         }
 

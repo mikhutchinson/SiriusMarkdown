@@ -4,6 +4,24 @@
 
 - None currently tracked.
 
+## Resolved in 0.6.10
+
+- Fixed native renderer bridges flattening SwiftUI semantic colors under the
+  process appearance instead of the view's effective `colorScheme`. On macOS,
+  `Color.primary` could become a fixed black `CGColor` in Core Text-painted
+  lines and remain unreadable after switching to Dark appearance. Core Text
+  plans also omitted `kCTForegroundColorFromContextAttributeName`, so
+  `CTLineDraw` ignored the CGContext fill color and painted its default black
+  even after the requested semantic color was resolved correctly. The same
+  conversion boundary affected AppKit selectable text, prepared math fallback
+  attachments, UIKit Core Text painting, and semantic attachment placeholder
+  chrome. Every Core Text line now opts into the context foreground, while a
+  shared platform resolver snapshots colors under an explicit AppKit
+  appearance or UIKit trait collection. Live appearance changes update the
+  existing native line, selectable text, attachment host, and layer in place;
+  parsing, inline preparation, cached `CTLine` objects, layout caches, sealed
+  block IDs, and host renderer identity do not change.
+
 ## Resolved in 0.6.9
 
 - Fixed GitHub's newer macOS AppKit clearing the custom math attachment cell

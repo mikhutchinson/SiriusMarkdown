@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+## 0.6.10 - 2026-07-12
+
+- Fixed semantic theme colors such as `Color.primary` being converted to
+  fixed AppKit/UIKit/Core Graphics colors without the active SwiftUI
+  appearance. Core Text line plans now also carry the foreground-from-context
+  attribute required for `CTLineDraw` to honor the resolved CGContext fill
+  color. Core Text-painted lines, AppKit selectable text and math fallbacks,
+  and attachment placeholder layers update in place when the scheme changes
+  without rebuilding cached line plans.
+
 ## 0.6.9 - 2026-07-11
 
 - Fixed image-backed inline math losing its custom baseline attachment cell on

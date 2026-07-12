@@ -70,6 +70,7 @@ extension MarkdownCoreTextPaintedNSView {
                 attachmentHostsByID[gap.attachmentID] = host
             }
             host.frame = gap.rect
+            host.colorScheme = colorScheme
             host.record = plan.attachments[gap.attachmentID]
         }
 
@@ -85,6 +86,13 @@ extension MarkdownCoreTextPaintedNSView {
 }
 
 final class MarkdownAttachmentHostNSView: NSView {
+    var colorScheme: ColorScheme = .light {
+        didSet {
+            guard colorScheme != oldValue else { return }
+            updateContent()
+        }
+    }
+
     var record: MarkdownPreparedAttachment? {
         didSet {
             guard record != oldValue else {
@@ -168,7 +176,10 @@ final class MarkdownAttachmentHostNSView: NSView {
             placeholder = layer
         }
         placeholder?.frame = bounds
-        placeholder?.apply(style: record?.placeholderStyle ?? .default)
+        placeholder?.apply(
+            style: record?.placeholderStyle ?? .default,
+            colorScheme: colorScheme
+        )
     }
 
     override func layout() {
@@ -196,6 +207,7 @@ extension MarkdownCoreTextPaintedUIView {
                 attachmentHostsByID[gap.attachmentID] = host
             }
             host.frame = gap.rect
+            host.colorScheme = colorScheme
             host.record = plan.attachments[gap.attachmentID]
         }
 
@@ -211,6 +223,13 @@ extension MarkdownCoreTextPaintedUIView {
 }
 
 final class MarkdownAttachmentHostUIView: UIView {
+    var colorScheme: ColorScheme = .light {
+        didSet {
+            guard colorScheme != oldValue else { return }
+            updateContent()
+        }
+    }
+
     var record: MarkdownPreparedAttachment? {
         didSet {
             guard record != oldValue else {
@@ -279,7 +298,10 @@ final class MarkdownAttachmentHostUIView: UIView {
             placeholder = chromeLayer
         }
         placeholder?.frame = bounds
-        placeholder?.apply(style: record?.placeholderStyle ?? .default)
+        placeholder?.apply(
+            style: record?.placeholderStyle ?? .default,
+            colorScheme: colorScheme
+        )
     }
 
     override func layoutSubviews() {
@@ -297,21 +319,28 @@ import QuartzCore
 /// dependency — a rounded, lightly bordered rect, matching the "reserved
 /// box UI" recommendation for denied/pending attachments (Part 03 §3.2.3).
 final class MarkdownAttachmentPlaceholderChromeLayer: CALayer {
-    func apply(style: MarkdownAttachmentPlaceholderStyle) {
-        backgroundColor = style.backgroundColor.resolvedCGColor
-        borderColor = style.borderColor.resolvedCGColor
+    func apply(style: MarkdownAttachmentPlaceholderStyle, colorScheme: ColorScheme) {
+        #if os(macOS)
+        backgroundColor = MarkdownPlatformColorResolver.appKitCGColor(
+            style.backgroundColor,
+            colorScheme: colorScheme
+        )
+        borderColor = MarkdownPlatformColorResolver.appKitCGColor(
+            style.borderColor,
+            colorScheme: colorScheme
+        )
+        #else
+        backgroundColor = MarkdownPlatformColorResolver.uiKitCGColor(
+            style.backgroundColor,
+            colorScheme: colorScheme
+        )
+        borderColor = MarkdownPlatformColorResolver.uiKitCGColor(
+            style.borderColor,
+            colorScheme: colorScheme
+        )
+        #endif
         borderWidth = 1
         cornerRadius = style.renderCornerRadius
-    }
-}
-
-private extension Color {
-    var resolvedCGColor: CGColor {
-        #if os(macOS)
-        return NSColor(self).cgColor
-        #else
-        return UIColor(self).cgColor
-        #endif
     }
 }
 #endif

@@ -138,14 +138,17 @@ struct MarkdownCoreTextPaintedLinePlan: @unchecked Sendable {
         let fullRange = NSRange(location: 0, length: attributed.length)
 
         if fullRange.length > 0 {
-            attributed.addAttribute(
-                NSAttributedString.Key(kCTFontAttributeName as String),
-                value: MarkdownCoreTextFontBridge.font(
-                    profile: prepared.fontProfiles.body,
-                    kind: .text,
-                    presentation: [],
-                    size: prepared.fontSize
-                ),
+            attributed.addAttributes(
+                [
+                    NSAttributedString.Key(kCTFontAttributeName as String):
+                        MarkdownCoreTextFontBridge.font(
+                            profile: prepared.fontProfiles.body,
+                            kind: .text,
+                            presentation: [],
+                            size: prepared.fontSize
+                        ),
+                    NSAttributedString.Key(kCTForegroundColorFromContextAttributeName as String): true,
+                ],
                 range: fullRange
             )
         }
@@ -627,6 +630,8 @@ private struct CoreTextPaintedInlineLineSurface: NSViewRepresentable {
     var linkAction: MarkdownLinkAction?
     var dragSelectionHandler: ((CGPoint, CGPoint) -> Void)?
 
+    @Environment(\.colorScheme) private var colorScheme
+
     func makeNSView(context _: Context) -> MarkdownCoreTextPaintedNSView {
         let view = MarkdownCoreTextPaintedNSView(frame: .zero)
         view.wantsLayer = true
@@ -663,7 +668,11 @@ private struct CoreTextPaintedInlineLineSurface: NSViewRepresentable {
                 layout: layoutResult
             )
         }
-        view.textColor = resolvedCGColor(textColor)
+        view.textColor = MarkdownPlatformColorResolver.appKitCGColor(
+            textColor,
+            colorScheme: colorScheme
+        )
+        view.colorScheme = colorScheme
         view.linkAction = linkAction
         view.dragSelectionHandler = dragSelectionHandler
         view.frame.size.width = containerWidth
@@ -673,15 +682,12 @@ private struct CoreTextPaintedInlineLineSurface: NSViewRepresentable {
         view.reconcileAttachmentHosts()
     }
 
-    private func resolvedCGColor(_ color: Color) -> CGColor {
-        let resolved = NSColor(color)
-        return resolved.usingColorSpace(.deviceRGB)?.cgColor ?? NSColor.labelColor.cgColor
-    }
 }
 
 final class MarkdownCoreTextPaintedNSView: NSView {
     var plan = MarkdownCoreTextPaintedLinePlan.empty
     var textColor: CGColor = NSColor.labelColor.cgColor
+    var colorScheme: ColorScheme = .light
     var linkAction: MarkdownLinkAction?
     var dragSelectionHandler: ((CGPoint, CGPoint) -> Void)?
     /// Cached key from the last explicit `MarkdownCoreTextPaintedLinePlan.make()` call so
@@ -790,6 +796,8 @@ private struct CoreTextPaintedInlineLineSurface: UIViewRepresentable {
     var linkAction: MarkdownLinkAction?
     var dragSelectionHandler: ((CGPoint, CGPoint) -> Void)?
 
+    @Environment(\.colorScheme) private var colorScheme
+
     func makeUIView(context _: Context) -> MarkdownCoreTextPaintedUIView {
         let view = MarkdownCoreTextPaintedUIView(frame: .zero)
         view.backgroundColor = .clear
@@ -824,7 +832,11 @@ private struct CoreTextPaintedInlineLineSurface: UIViewRepresentable {
                 layout: layoutResult
             )
         }
-        view.textColor = resolvedCGColor(textColor)
+        view.textColor = MarkdownPlatformColorResolver.uiKitCGColor(
+            textColor,
+            colorScheme: colorScheme
+        )
+        view.colorScheme = colorScheme
         view.linkAction = linkAction
         view.dragSelectionHandler = dragSelectionHandler
         view.frame.size.width = containerWidth
@@ -833,14 +845,12 @@ private struct CoreTextPaintedInlineLineSurface: UIViewRepresentable {
         view.reconcileAttachmentHosts()
     }
 
-    private func resolvedCGColor(_ color: Color) -> CGColor {
-        UIColor(color).cgColor
-    }
 }
 
 final class MarkdownCoreTextPaintedUIView: UIView {
     var plan = MarkdownCoreTextPaintedLinePlan.empty
     var textColor: CGColor = UIColor.label.cgColor
+    var colorScheme: ColorScheme = .light
     var linkAction: MarkdownLinkAction?
     var dragSelectionHandler: ((CGPoint, CGPoint) -> Void)?
     /// Cached key from the last explicit `MarkdownCoreTextPaintedLinePlan.make()` call so

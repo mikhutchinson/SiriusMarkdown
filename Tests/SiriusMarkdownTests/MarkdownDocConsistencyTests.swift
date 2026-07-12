@@ -244,7 +244,7 @@ func changelogHistoricalEntriesPreserved() throws {
 func bugfixLogHistoricalEntriesPreserved() throws {
     let bugfix = try readFile("bugfix.md")
     #expect(bugfix.contains("## Fixed"), "Bugfix log should preserve 'Fixed' section")
-    #expect(bugfix.contains("## Resolved in 0.6.9"), "Bugfix log should record the current release")
+    #expect(bugfix.contains("## Resolved in 0.6.10"), "Bugfix log should record the current release")
     #expect(bugfix.contains("## Resolved in 0.6.8"), "Bugfix log should preserve the 0.6.8 entry")
     #expect(bugfix.contains("## Resolved in 0.6.7"), "Bugfix log should preserve the 0.6.7 entry")
     #expect(bugfix.contains("## Resolved in 0.6.6"), "Bugfix log should preserve the 0.6.6 entry")
@@ -257,8 +257,8 @@ func bugfixLogHistoricalEntriesPreserved() throws {
 func releaseCheckTestFloorMatchesCurrentCount() throws {
     let releaseCheck = try readFile("Tools/release-check.sh")
     #expect(
-        releaseCheck.contains("MINIMUM_TEST_COUNT=850"),
-        "release-check.sh test floor should be 850"
+        releaseCheck.contains("MINIMUM_TEST_COUNT=855"),
+        "release-check.sh test floor should be 855"
     )
 }
 

@@ -18,25 +18,22 @@ The core contract is simple:
 
 ## Current Release
 
-`0.6.9` is the AppKit-portable follow-up to `0.6.8`. It makes macOS selection
-and secondary-click behavior native by default while retaining the block
-styles, atomic attachments, math corpus, cache hardening, and compiler
-portability fixes shipped through `0.6.7`:
+`0.6.10` fixes semantic color handling across SiriusMarkdown's native drawing
+bridges while retaining the native macOS selection behavior introduced in
+`0.6.8` and made AppKit-portable in `0.6.9`:
 
-- **Native macOS interaction:** Bounded noneditable `NSTextView` leaves own
-  AppKit selection color, word/drag/keyboard selection, continuous wrapping,
-  Copy, and the standard contextual menu. Package-only per-block “Copy
-  Markdown” menus no longer intercept secondary clicks.
-- **Rich inline continuity:** Image-backed inline math is a baseline-aligned
-  TextKit attachment inside the same selectable paragraph. Links, prepared
-  images, math, Mermaid ASCII, and invalid-image math fallbacks preserve
-  selection, semantic copy, and accessibility.
-- **Streaming stability:** The AppKit selection owner and semantic ranges stay
-  stable as a mutable tail transitions between text fallback and prepared math
-  imagery. Attachment caches and host views are pruned when content changes.
-- **Explicit exact-source mode:** Hosts can still enable source-backed
-  cross-block Markdown selection. That mode disables native leaf selection and
-  owns one document-level context menu, avoiding competing gesture/menu owners.
+- **Correct CoreText color contract:** Prepared `CTLine` objects opt into the
+  CGContext foreground, so source-backed document-selection mode paints
+  readable semantic text in both light and dark appearances.
+- **Appearance-aware native bridges:** AppKit/UIKit CoreText, AppKit selectable
+  text and math fallbacks, and attachment placeholder layers resolve semantic
+  colors under the active SwiftUI scheme.
+- **Native selection preserved:** Bounded noneditable `NSTextView` leaves
+  remain the default macOS selection, wrapping, copy, keyboard, and contextual
+  menu path.
+- **Cached-plan stability:** Appearance changes update native colors in place
+  without reparsing, repreparing, or rebuilding cached CoreText line plans,
+  including long streaming transcripts.
 
 The release retains the measured streaming path from `0.6.0`: CTLine creation
 runs during prepare, append-only sessions reuse sealed prepared content, the
@@ -60,7 +57,7 @@ competing selection owners. Other platforms retain the source-backed default.
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/mikhutchinson/SiriusMarkdown.git", from: "0.6.9")
+    .package(url: "https://github.com/mikhutchinson/SiriusMarkdown.git", from: "0.6.10")
 ],
 targets: [
     .target(
@@ -303,12 +300,12 @@ git diff --check
 - Release runbook: `runbook.md`
 - Changelog: `changelog.md`
 - Bugfix log: `bugfix.md`
-- Current release notes: `release-notes/0.6.9.md`
+- Current release notes: `release-notes/0.6.10.md`
 - Third-party credits: `NOTICE.md`
 
 ## Release
 
-`0.6.9` is ready only when the docs describe the current public package surface,
+`0.6.10` is ready only when the docs describe the current public package surface,
 `bash Tools/product-check.sh` passes from the repository root, `git diff --check`
 is clean, the public remote is correct, and the release commit is tagged and
-pushed as `0.6.9` with a matching published GitHub Release and green CI.
+pushed as `0.6.10` with a matching published GitHub Release and green CI.
