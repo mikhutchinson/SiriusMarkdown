@@ -45,6 +45,8 @@ private func makeHostingView(
     let configuration = MarkdownRendererConfiguration(
         theme: .document,
         inlineRenderingMode: .preparedNativeLines,
+        nativeTextSelection: .disabled,
+        documentSelection: .enabled,
         copyProvider: MarkdownCopyProvider(markdownSource: wideBlocksMarkdown)
     )
     let prepared = configuration.prepare(snapshot: snapshot)

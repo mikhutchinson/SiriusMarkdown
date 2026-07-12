@@ -37,7 +37,7 @@ public struct InlineRunsView: View {
         baseFont: Font? = nil,
         linkAction: MarkdownLinkAction? = nil,
         inlineRenderingMode: MarkdownInlineRenderingMode = .coreTextPaintedLines,
-        nativeTextSelection: MarkdownNativeTextSelection = .disabled,
+        nativeTextSelection: MarkdownNativeTextSelection = .platformDefault,
         linkPolicy: any MarkdownLinkPolicy = DefaultMarkdownPolicy(),
         imagePolicy: any MarkdownImagePolicy = DefaultMarkdownPolicy(),
         fontSize: Double? = nil,
@@ -68,7 +68,7 @@ public struct InlineRunsView: View {
         baseFont: Font? = nil,
         linkAction: MarkdownLinkAction? = nil,
         inlineRenderingMode: MarkdownInlineRenderingMode = .coreTextPaintedLines,
-        nativeTextSelection: MarkdownNativeTextSelection = .disabled,
+        nativeTextSelection: MarkdownNativeTextSelection = .platformDefault,
         fontSize: Double? = nil,
         lineHeight: Double? = nil,
         fontProfile: MarkdownFontProfile? = nil
@@ -93,7 +93,7 @@ public struct InlineRunsView: View {
         baseFont: Font? = nil,
         linkAction: MarkdownLinkAction? = nil,
         inlineRenderingMode: MarkdownInlineRenderingMode = .coreTextPaintedLines,
-        nativeTextSelection: MarkdownNativeTextSelection = .disabled
+        nativeTextSelection: MarkdownNativeTextSelection = .platformDefault
     ) {
         self.attributed = prepared.attributed
         self.prepared = prepared
@@ -115,25 +115,22 @@ public struct InlineRunsView: View {
 
     @ViewBuilder
     public var body: some View {
-        if let prepared, let mathPieces = prepared.mathTextPieces, !mathPieces.isEmpty {
-            InlineMathTextView(
-                pieces: mathPieces,
-                prepared: prepared,
-                font: baseFont,
-                color: theme.textColor,
-                fontSize: prepared.fontSize,
-                linkAction: linkAction
-            )
-        } else if let prepared {
-            PreparedInlineTextView(
-                prepared: prepared,
-                fallbackAttributed: attributed,
-                theme: theme,
-                baseFont: baseFont,
-                linkAction: linkAction,
-                inlineRenderingMode: inlineRenderingMode,
-                nativeTextSelection: nativeTextSelection
-            )
+        if let prepared {
+            #if os(macOS)
+            if nativeTextSelection == .enabled {
+                preparedInlineTextView(prepared)
+            } else if let mathPieces = prepared.mathTextPieces, !mathPieces.isEmpty {
+                inlineMathTextView(pieces: mathPieces, prepared: prepared)
+            } else {
+                preparedInlineTextView(prepared)
+            }
+            #else
+            if let mathPieces = prepared.mathTextPieces, !mathPieces.isEmpty {
+                inlineMathTextView(pieces: mathPieces, prepared: prepared)
+            } else {
+                preparedInlineTextView(prepared)
+            }
+            #endif
         } else {
             MarkdownSelectableText(
                 attributed: attributed,
@@ -147,6 +144,41 @@ public struct InlineRunsView: View {
             )
         }
     }
+
+    private func inlineMathTextView(
+        pieces: [MarkdownInlineMathPiece],
+        prepared: MarkdownPreparedInlineContent
+    ) -> some View {
+        InlineMathTextView(
+            pieces: pieces,
+            prepared: prepared,
+            font: baseFont,
+            color: theme.textColor,
+            fontSize: prepared.fontSize,
+            linkAction: linkAction
+        )
+    }
+
+    private func preparedInlineTextView(_ prepared: MarkdownPreparedInlineContent) -> some View {
+        PreparedInlineTextView(
+            prepared: prepared,
+            fallbackAttributed: attributed,
+            theme: theme,
+            baseFont: baseFont,
+            linkAction: linkAction,
+            inlineRenderingMode: inlineRenderingMode,
+            nativeTextSelection: nativeTextSelection
+        )
+    }
+
+    /*
+     Image-backed inline math normally uses `InlineMathTextView` so SwiftUI can
+     compose its prepared glyph bitmap into `Text`. On macOS native-selection
+     mode, `PreparedInlineTextView` instead feeds those same prepared pieces to
+     the bounded AppKit text leaf as TextKit attachments. This keeps the math
+     visual and makes the entire paragraph selectable without mounting
+     SwiftUI's private `SelectionOverlay`.
+     */
 
     public nonisolated static func plainText(
         for runs: [MarkdownInlineRun],
@@ -667,7 +699,26 @@ private struct PreparedInlineTextView: View {
 
     @ViewBuilder
     private var renderSurface: some View {
-        if canRenderNativeLines {
+        if nativeTextSelection == .enabled {
+            MarkdownNativeSelectableWidthLayout {
+                MarkdownSelectableText(
+                    attributed: InlineRunsView.renderingAttributedString(for: prepared),
+                    font: baseFont,
+                    fontSize: prepared.fontSize,
+                    lineHeight: prepared.lineHeight,
+                    fontProfile: prepared.fontProfiles.body,
+                    textColor: theme.textColor,
+                    linkAction: linkAction,
+                    nativeTextSelection: .enabled,
+                    lineSpacing: InlineRunsView.nativeLineSpacing(for: prepared),
+                    wraps: true,
+                    preparedInlineContent: prepared,
+                    mathTextPieces: prepared.mathTextPieces
+                )
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(widthReader)
+        } else if canRenderNativeLines {
             Color.clear
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .frame(height: nativeLineSurfaceHeight, alignment: .topLeading)
@@ -851,6 +902,41 @@ private struct PreparedInlineTextView: View {
         }
     }
 
+}
+
+private struct MarkdownNativeSelectableWidthLayout: Layout {
+    func sizeThatFits(
+        proposal: ProposedViewSize,
+        subviews: Subviews,
+        cache _: inout ()
+    ) -> CGSize {
+        guard let subview = subviews.first else {
+            return .zero
+        }
+        let finiteWidth = proposal.width.flatMap { width in
+            width.isFinite && width > 0 ? width : nil
+        }
+        let measured = subview.sizeThatFits(
+            ProposedViewSize(width: finiteWidth, height: nil)
+        )
+        return CGSize(width: finiteWidth ?? measured.width, height: measured.height)
+    }
+
+    func placeSubviews(
+        in bounds: CGRect,
+        proposal _: ProposedViewSize,
+        subviews: Subviews,
+        cache _: inout ()
+    ) {
+        guard let subview = subviews.first else {
+            return
+        }
+        subview.place(
+            at: bounds.origin,
+            anchor: .topLeading,
+            proposal: ProposedViewSize(width: bounds.width, height: bounds.height)
+        )
+    }
 }
 
 private struct PreparedInlineWidthPreferenceKey: PreferenceKey {

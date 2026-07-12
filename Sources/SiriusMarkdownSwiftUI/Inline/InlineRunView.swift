@@ -11,7 +11,7 @@ public struct InlineRunView: View {
         run: MarkdownInlineRun,
         theme: MarkdownTheme = .compactChat,
         linkAction: MarkdownLinkAction? = nil,
-        nativeTextSelection: MarkdownNativeTextSelection = .disabled,
+        nativeTextSelection: MarkdownNativeTextSelection = .platformDefault,
         linkPolicy: any MarkdownLinkPolicy = DefaultMarkdownPolicy(),
         imagePolicy: any MarkdownImagePolicy = DefaultMarkdownPolicy()
     ) {

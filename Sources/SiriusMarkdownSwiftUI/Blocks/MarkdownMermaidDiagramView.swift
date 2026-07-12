@@ -12,6 +12,7 @@ struct MarkdownMermaidDiagramView: View {
     var colorScheme: ColorScheme
     var theme: MarkdownTheme
     var baseFont: Font
+    var nativeTextSelection: MarkdownNativeTextSelection
 
     private var platformImage: PlatformImage?
     @State private var scaleMode: MarkdownMermaidScaleMode
@@ -21,12 +22,14 @@ struct MarkdownMermaidDiagramView: View {
         mermaid: MarkdownPreparedMermaidDiagram,
         colorScheme: ColorScheme,
         theme: MarkdownTheme,
-        baseFont: Font
+        baseFont: Font,
+        nativeTextSelection: MarkdownNativeTextSelection = .platformDefault
     ) {
         self.mermaid = mermaid
         self.colorScheme = colorScheme
         self.theme = theme
         self.baseFont = baseFont
+        self.nativeTextSelection = nativeTextSelection
         if let svg = mermaid.svg(for: colorScheme),
            let data = svg.data(using: .utf8) {
             self.platformImage = PlatformImage(data: data)
@@ -105,9 +108,17 @@ struct MarkdownMermaidDiagramView: View {
 
     private var asciiFallback: some View {
         ScrollView([.horizontal, .vertical]) {
-            Text(verbatim: mermaid.ascii)
-                .font(baseFont)
-                .foregroundStyle(theme.textColor)
+            MarkdownSelectableText(
+                attributed: AttributedString(mermaid.ascii),
+                font: baseFont,
+                fontSize: theme.codeFontSize,
+                lineHeight: theme.codeLineHeight,
+                fontProfile: theme.codeFontProfiles.body,
+                textColor: theme.textColor,
+                linkAction: nil,
+                nativeTextSelection: nativeTextSelection,
+                wraps: false
+            )
                 .padding(8)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }

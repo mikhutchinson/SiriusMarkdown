@@ -1,4 +1,5 @@
 import Foundation
+import SiriusMarkdownCore
 import SwiftUI
 
 #if canImport(UIKit)
@@ -256,6 +257,11 @@ struct InlineMathTextView: View {
 struct MarkdownMathImageView: View {
     var image: MarkdownPreparedMathImage
     var color: Color
+    var font: Font = .body
+    var fontSize: Double = 16
+    var lineHeight: Double = 22
+    var fontProfile: MarkdownFontProfile = .system()
+    var nativeTextSelection: MarkdownNativeTextSelection = .platformDefault
 
     var body: some View {
         if let templateImage = image.templateImage {
@@ -266,8 +272,16 @@ struct MarkdownMathImageView: View {
                 .foregroundStyle(color)
                 .accessibilityLabel(Text(image.accessibilityLabel))
         } else {
-            Text(image.latex)
-                .foregroundStyle(color)
+            MarkdownSelectableText(
+                attributed: AttributedString(image.latex),
+                font: font,
+                fontSize: fontSize,
+                lineHeight: lineHeight,
+                fontProfile: fontProfile,
+                textColor: color,
+                linkAction: nil,
+                nativeTextSelection: nativeTextSelection
+            )
         }
     }
 }

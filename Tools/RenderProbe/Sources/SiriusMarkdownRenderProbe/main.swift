@@ -1,6 +1,7 @@
 import AppKit
 import Darwin
 import SiriusMarkdown
+import SiriusMarkdownMath
 import SwiftUI
 
 @main
@@ -174,6 +175,13 @@ struct SiriusMarkdownRenderProbe {
             )
             exit(EXIT_FAILURE)
         }
+        if selectionStressResult.richTextAttachmentCount < 1 {
+            fputs(
+                "error: enabled native text selection stress probe did not mount image-backed inline math inside its AppKit text leaf.\n",
+                stderr
+            )
+            exit(EXIT_FAILURE)
+        }
 
         print("MarkdownDocumentView render probe: \(result.nonWhitePixels) non-white pixels, \(result.distinctColorBuckets) color buckets")
         print("Prepared native document render probe: \(nativeResult.nonWhitePixels) non-white pixels, \(nativeResult.distinctColorBuckets) color buckets")
@@ -191,7 +199,7 @@ struct SiriusMarkdownRenderProbe {
         print("Document affordance surface probe: \(documentAffordanceResult.nonWhitePixels) non-white pixels, rightmost x=\(documentAffordanceResult.nonWhiteRightmostX)")
         print("Collapsed document affordance surface probe: \(collapsedDocumentAffordanceResult.nonWhitePixels) non-white pixels, rightmost x=\(collapsedDocumentAffordanceResult.nonWhiteRightmostX)")
         print("Mermaid diagram probe: \(mermaidResult.nonWhitePixels) non-white pixels, \(mermaidResult.distinctColorBuckets) color buckets, right-band pixels=\(mermaidResult.rightBandNonWhitePixels), fitting width \(mermaidResult.fittingWidth)")
-        print("Enabled native text selection stress probe: \(selectionStressResult.nonWhitePixels) non-white pixels, \(selectionStressResult.distinctColorBuckets) color buckets, selectable AppKit text leaves=\(selectionStressResult.selectableTextViewCount)")
+        print("Enabled native text selection stress probe: \(selectionStressResult.nonWhitePixels) non-white pixels, \(selectionStressResult.distinctColorBuckets) color buckets, selectable AppKit text leaves=\(selectionStressResult.selectableTextViewCount), inline math attachments=\(selectionStressResult.richTextAttachmentCount)")
     }
 
     private static func assertRenderable(
@@ -614,7 +622,7 @@ struct SiriusMarkdownRenderProbe {
         ) {
             model.columnWidth = finalColumnWidth
         }
-        result.maximumDarkRightmostX = Int(Double(leadingInset + finalColumnWidth - 4) * result.pixelScale)
+        result.maximumDarkRightmostX = Int(Double(leadingInset + finalColumnWidth - 4) * result.pixelScale) + 1
         result.fittingWidth = fittingWidth
         result.maximumFittingWidth = Double(finalColumnWidth + 1)
         return result
@@ -734,6 +742,7 @@ struct SiriusMarkdownRenderProbe {
         withWatchdog("enabled native text selection stress probe", timeout: 18) {
             var configuration = MarkdownRendererConfiguration.compactChat
             configuration.nativeTextSelection = .enabled
+            configuration.mathRenderer = NativeMarkdownMathRenderer()
             let initialColumnWidth = CGFloat(520)
             let finalColumnWidth = CGFloat(300)
             let size = NSSize(width: 720, height: 620)
@@ -749,6 +758,8 @@ struct SiriusMarkdownRenderProbe {
                 - Streaming list item with enough text to wrap across prepared native lines while selection is enabled.
                   - Nested child item with `inline code` and a URL https://example.com/native-selection/probe.
 
+                Native selection also stays continuous around image-backed inline math such as $x^2 + y^2 = z^2$, without mounting SelectionOverlay.
+
                 """
             )
 
@@ -760,7 +771,8 @@ struct SiriusMarkdownRenderProbe {
             return renderHosted(
                 root,
                 size: size,
-                outputPath: ProcessInfo.processInfo.environment["SIRIUS_MARKDOWN_SELECTION_STRESS_PROBE_OUTPUT"]
+                outputPath: ProcessInfo.processInfo.environment["SIRIUS_MARKDOWN_SELECTION_STRESS_PROBE_OUTPUT"],
+                selectedTextRange: NSRange(location: 9, length: 38)
             ) {
                 model.columnWidth = CGFloat(560)
                 model.append(
@@ -830,6 +842,7 @@ struct SiriusMarkdownRenderProbe {
         _ root: V,
         size: NSSize,
         outputPath: String?,
+        selectedTextRange: NSRange? = nil,
         afterInitialLayout: (() -> Void)? = nil
     ) -> RenderResult {
         let hostingView = NSHostingView(rootView: root)
@@ -863,6 +876,15 @@ struct SiriusMarkdownRenderProbe {
             }
         }
 
+        if let selectedTextRange,
+           let textView = firstSelectableTextView(in: hostingView),
+           NSMaxRange(selectedTextRange) <= textView.string.utf16.count
+        {
+            textView.setSelectedRange(selectedTextRange)
+            hostingView.displayIfNeeded()
+            RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+        }
+
         guard let bitmap = hostingView.bitmapImageRepForCachingDisplay(in: hostingView.bounds) else {
             fputs("error: could not allocate render bitmap\n", stderr)
             exit(EXIT_FAILURE)
@@ -880,7 +902,8 @@ struct SiriusMarkdownRenderProbe {
             wideDarkColumnGaps: sample.wideDarkColumnGaps,
             rightBandNonWhitePixels: sample.rightBandNonWhitePixels,
             pixelScale: pixelScale,
-            selectableTextViewCount: selectableTextViewCount(in: hostingView)
+            selectableTextViewCount: selectableTextViewCount(in: hostingView),
+            richTextAttachmentCount: richTextAttachmentCount(in: hostingView)
         )
         window.orderOut(nil)
         window.contentView = nil
@@ -903,6 +926,40 @@ struct SiriusMarkdownRenderProbe {
 
         return view.subviews.reduce(localCount) { count, subview in
             count + selectableTextViewCount(in: subview)
+        }
+    }
+
+    @MainActor
+    private static func firstSelectableTextView(in view: NSView) -> NSTextView? {
+        if let textView = view as? NSTextView,
+           textView.isSelectable,
+           !textView.isEditable {
+            return textView
+        }
+        for subview in view.subviews {
+            if let match = firstSelectableTextView(in: subview) {
+                return match
+            }
+        }
+        return nil
+    }
+
+    @MainActor
+    private static func richTextAttachmentCount(in view: NSView) -> Int {
+        var count = 0
+        if let textView = view as? NSTextView, let storage = textView.textStorage {
+            storage.enumerateAttribute(
+                .attachment,
+                in: NSRange(location: 0, length: storage.length)
+            ) { value, _, _ in
+                if let attachment = value as? NSTextAttachment,
+                   attachment.contents != nil {
+                    count += 1
+                }
+            }
+        }
+        return view.subviews.reduce(count) { partial, subview in
+            partial + richTextAttachmentCount(in: subview)
         }
     }
 
@@ -1180,6 +1237,7 @@ private struct RenderResult {
     var rightBandNonWhitePixels: Int
     var pixelScale = 1.0
     var selectableTextViewCount = 0
+    var richTextAttachmentCount = 0
     var maximumDarkRightmostX = Int.max
     var fittingWidth = 0.0
     var maximumFittingWidth = Double.infinity

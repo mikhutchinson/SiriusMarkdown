@@ -48,13 +48,17 @@ and a broad correctness hardening pass:
   is recursive, and LaTeX serialization is non-mutating and color-preserving.
 
 The release retains the measured streaming path from `0.6.0`: CTLine creation
-runs during prepare, append-only sessions reuse sealed prepared content, source-
-backed selection spans every structured block type, and focused performance
-tests enforce the long-transcript budgets.
+runs during prepare, append-only sessions reuse sealed prepared content, the
+opt-in source-backed selector spans every structured block type, and focused
+performance tests enforce the long-transcript budgets.
 
-The default inline renderer paints prepared line ranges with CoreText.
-`preparedNativeLines` and `systemText` remain explicit compatibility fallbacks.
-`nativeTextSelection` is a separate disabled-by-default compatibility mode.
+On macOS, bounded noneditable `NSTextView` leaves now own selection, wrapping,
+copy, keyboard behavior, and the standard AppKit contextual menu by default.
+They copy continuous prose without synthetic newlines at visual wraps. The
+source-backed cross-block selector remains available by setting
+`documentSelection = .enabled`, which disables native leaf selection to avoid
+competing selection owners. Other platforms retain the source-backed default.
+`preparedNativeLines` and `systemText` remain explicit rendering fallbacks.
 
 ## Requirements
 
@@ -136,10 +140,11 @@ small surfaces. Production paths should pass `MarkdownPreparedSnapshot`.
   math, and policy-denied HTML.
 - Streaming append behavior that reparses only the mutable tail while sealed
   regions remain immutable and cacheable.
-- Source-backed document selection enabled by default, with exact Markdown copy
-  through `MarkdownSelectionController` and `MarkdownCopyProvider`. Selection is
-  consistent across all block types — paragraphs, headings, block quotes, lists,
-  task lists, nested lists, code blocks, tables, math blocks, and HTML blocks.
+- Platform-native bounded text selection on macOS, including image-backed inline
+  math through TextKit attachments, with the source-backed cross-block selector
+  available explicitly for exact Markdown copy through
+  `MarkdownSelectionController` and `MarkdownCopyProvider`. Other platforms keep
+  source-backed document selection as their default.
 - Bounded parser, prepared-inline, measured-layout, highlighted-code, Mermaid,
   and math caches.
 - Safe default policies: links are scheme-gated, network images are not fetched

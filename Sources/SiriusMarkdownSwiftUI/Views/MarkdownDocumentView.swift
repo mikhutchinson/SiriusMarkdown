@@ -320,14 +320,6 @@ private struct MarkdownSelectionFragmentContainer<Content: View>: View {
         content()
             .environment(\.markdownDocumentSelectionContext, MarkdownDocumentSelectionContext(blockID: block.id))
             .background(fragmentPreference)
-            .markdownContextMenu {
-                Button("Select Block") {
-                    selectionController.select(block.id)
-                }
-                Button("Clear Selection") {
-                    selectionController.clearSelection()
-                }
-            }
             .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
@@ -397,12 +389,20 @@ private struct MarkdownDocumentSelectionLayer<Content: View>: View {
                 Button("Select All") {
                     selectAll()
                 }
-                Button("Copy Selection") {
+                Button("Copy") {
                     copySelection()
                 }
+                .disabled(
+                    selectionController.selectedSourceRanges.isEmpty &&
+                        selectionController.selectedBlockIDs.isEmpty
+                )
                 Button("Clear Selection") {
                     selectionController.clearSelection()
                 }
+                .disabled(
+                    selectionController.selectedSourceRanges.isEmpty &&
+                        selectionController.selectedBlockIDs.isEmpty
+                )
             }
     }
 

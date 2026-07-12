@@ -34,7 +34,7 @@ Sources/SiriusMarkdownSwiftUI/
   Theme/MarkdownTheme.swift              — typography, spacing, color tokens
   Interaction/MarkdownInteraction.swift  — selection controller, copy provider
   Interaction/MarkdownDocumentSelectionGeometry.swift — cross-block selection fragments, text-geometry-aware fragment generation for all block types
-  Interaction/MarkdownNativeTextSelection.swift — native text selection compatibility knob
+  Interaction/MarkdownNativeTextSelection.swift — platform-native text selection policy
   Interaction/MarkdownAffordanceSymbols.swift — decorative SF Symbol helpers
   Platform/MarkdownPlatformHooks.swift   — AppKit/UIKit/CoreText bridges
 
@@ -136,7 +136,7 @@ Products (see `Package.swift`): **`SiriusMarkdown`** (app-facing umbrella module
   - *Continuous drag:* `hitFragment(at:in:hitSlop:affinityHint:)` adds a nearest-fragment fallback within the inter-block gutter threshold (hitSlop × 8) so drag selection through vertical theme-spacing gutters between blocks does not freeze. `MarkdownDocumentSelectionAffinity` (`.upstream` / `.downstream`) breaks ties using drag direction. Source byte endpoints remain correct; no per-glyph overlays are added.
   - *Selection contexts:* `MarkdownSelectionController.activeContext: MarkdownSelectionContextKind` tracks whether the active owner is `.document` or a `.scrollableRegion(MarkdownScrollableSelectionRegionID)`. `activateContext(_:)` clears all ranges when switching contexts — matching Textual's rule that selecting inside a code/table scroller clears document multi-block selection and vice versa.
   - *Pasteboard richness:* `MarkdownPasteboardPayload` carries `plainText`, `markdown` (exact source), and optional `rtf`/`html`. `MarkdownPasteboard.copy(MarkdownPasteboardPayload)` writes a multi-representation `NSPasteboardItem` on macOS (`.string` = plain text, `net.siriusmarkdown.markdown` = Markdown source) and a multi-type item on iOS. The `MarkdownPasteboard.markdownPasteboardType` constant (`"net.siriusmarkdown.markdown"`) identifies the Markdown UTI. Document Cmd-C routes through `affordanceActionHandler.copyPayload` only; single-string affordance copy still uses `copyString`. RTF/HTML must not involve network fetches or WebKit.
-  - *Text.Layout bridge (Part 04):* Evaluated 2026-07-09. Not adopted. `nativeTextSelection` stays opt-in; `coreTextPaintedLines` remains the default-path selection authority.
+  - *macOS native interaction:* Bounded noneditable `NSTextView` leaves are the default macOS selection authority. AppKit owns glyph-backed highlights, word/drag/keyboard selection, continuous-prose wrapping/copy, and the contextual menu. Image-backed inline math stays inside the same stable TextKit leaf as a prepared baseline-aligned attachment; transitioning between streamed text fallback and a prepared math image does not remount the selection owner. The source-backed cross-block selector remains an explicit mode and automatically disables native leaf selection so gesture owners cannot overlap. CoreText-painted prepared lines remain its rendering/geometry authority.
 
 ### Inline Attachments (allowed images as reserved-box atomics)
 

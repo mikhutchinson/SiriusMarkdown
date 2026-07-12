@@ -1,5 +1,23 @@
 # Changelog
 
+## Unreleased
+
+- macOS selection now defaults to bounded noneditable `NSTextView` leaves, so
+  AppKit owns glyph-backed highlights, word/drag/keyboard selection, continuous
+  prose wrapping and copy, and the standard contextual menu.
+- Removed the per-block SwiftUI context menu that intercepted secondary clicks
+  with only “Copy Markdown.” Exact-source cross-block selection remains an
+  explicit mode and disables native leaf selection while active.
+- Closed the remaining default-selection hole for paragraphs containing
+  image-backed inline math. Prepared equations now become baseline-aligned
+  TextKit attachments inside the same bounded AppKit leaf, preserve links and
+  semantic plain-text copy/accessibility, coexist with prepared image
+  attachments, and do not mount SwiftUI's private `SelectionOverlay`.
+- Kept the AppKit selection owner stable while a streamed tail transitions
+  between text fallback and prepared math imagery, and made the release gate
+  require the default menu, streaming-selection, inline-math, and attachment
+  cache regressions that define the macOS product contract.
+
 ## 0.6.7 - 2026-07-09
 
 - Fixed a clean-checkout GitHub Actions compiler failure in vendored SwiftMath.

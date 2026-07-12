@@ -227,7 +227,16 @@ for required_test in \
   "SiriusMarkdownTests.releaseRunbookPublishesMatchingGitHubRelease()" \
   "SiriusMarkdownMathTests.paragraphEmbeddedDisplayMathPreparesTypesetImage()" \
   "SiriusMarkdownMathTests.degradedBareDisplayBracketMathPreparesTypesetImage()" \
-  "SiriusMarkdownSwiftUITests.documentSelectionDefaultsToEnabledWhileNativeSelectionStaysLeafCompatibilityKnob()" \
+  "SiriusMarkdownSwiftUITests.selectionDefaultsAreNativeOnMacOSAndSourceBackedElsewhere()" \
+  "SiriusMarkdownSwiftUITests.MarkdownNativeTextSelectionAppKitTests/defaultMacOSSelectionUsesAppKitHighlightWrappingCopyAndContextMenu()" \
+  "SiriusMarkdownSwiftUITests.MarkdownNativeTextSelectionAppKitTests/nativeSelectionSurvivesStreamingTextReplacementOnMacOS()" \
+  "SiriusMarkdownSwiftUITests.MarkdownNativeTextSelectionAppKitTests/nativeSelectionCoversImageBackedInlineMathWithoutSelectionOverlayOnMacOS()" \
+  "SiriusMarkdownSwiftUITests.MarkdownNativeTextSelectionAppKitTests/nativeInlineMathAttachmentPreservesLinkAndPrunesItsCacheOnUpdate()" \
+  "SiriusMarkdownSwiftUITests.MarkdownNativeTextSelectionAppKitTests/nativeSelectionMapsSemanticRangesAcrossMathFallbackAndAttachmentTransitions()" \
+  "SiriusMarkdownSwiftUITests.MarkdownNativeTextSelectionAppKitTests/nativeSelectionPreservesMixedImageAndMathAttachmentOrderAndPlainCopy()" \
+  "SiriusMarkdownSwiftUITests.MarkdownNativeTextSelectionAppKitTests/nativeSelectionCopiesImageOnlyAttachmentsAsSemanticPlainText()" \
+  "SiriusMarkdownSwiftUITests.MarkdownNativeTextSelectionAppKitTests/nativeSelectionReachesMermaidASCIIAndInvalidMathImageTextFallbacks()" \
+  "SiriusMarkdownSwiftUITests.removingAnAttachmentPrunesItsNativeTextKitReservationCache()" \
   "SiriusMarkdownSwiftUITests.renderSessionResetSuppressesStaleQueuedAppendPublication()" \
   "SiriusMarkdownSwiftUITests.MarkdownNativeTextSelectionAppKitTests/defaultDocumentSelectionResolvesWrappedLineDragToExactSourceOnMacOS()" \
   "SiriusMarkdownSwiftUITests.MarkdownNativeTextSelectionAppKitTests/defaultDocumentSelectionResolvesDragAndCmdCCopyAcrossBlockBoundariesOnMacOS()" \

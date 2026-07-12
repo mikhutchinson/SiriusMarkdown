@@ -184,13 +184,6 @@ public struct MarkdownBlockView: View {
         }
         .id(block.id)
         .accessibilityLabel(Self.accessibilityLabel(for: block))
-        .markdownContextMenu {
-            if configuration.copyProvider != nil {
-                Button("Copy Markdown") {
-                    copyBlockMarkdown()
-                }
-            }
-        }
         .onAppear {
             MarkdownDiagnostics().signpostEvent("BlockRender", category: "SwiftUI")
         }
@@ -416,7 +409,8 @@ public struct MarkdownBlockView: View {
                 mermaid: mermaid,
                 colorScheme: colorScheme,
                 theme: theme,
-                baseFont: theme.codeFont
+                baseFont: theme.codeFont,
+                nativeTextSelection: configuration.nativeTextSelection
             )
         }
     }
@@ -586,7 +580,15 @@ public struct MarkdownBlockView: View {
 
     @ViewBuilder
     private func mathImageLabel(_ image: MarkdownPreparedMathImage) -> some View {
-        let mathView = MarkdownMathImageView(image: image, color: theme.textColor)
+        let mathView = MarkdownMathImageView(
+            image: image,
+            color: theme.textColor,
+            font: theme.codeFont,
+            fontSize: codeTextMetrics.fontSize,
+            lineHeight: codeTextMetrics.lineHeight,
+            fontProfile: codeTextMetrics.fontProfile,
+            nativeTextSelection: configuration.nativeTextSelection
+        )
             .padding(.vertical, 6)
         ViewThatFits(in: .horizontal) {
             mathView
@@ -849,16 +851,6 @@ public struct MarkdownBlockView: View {
             .padding(8)
             .background(theme.codeBackground)
             .clipShape(RoundedRectangle(cornerRadius: 6))
-    }
-
-    private func copyBlockMarkdown() {
-        guard let markdown = configuration.copyProvider?.markdown(block.sourceRange) else {
-            return
-        }
-
-        Task { @MainActor in
-            configuration.affordanceActionHandler.copyString(markdown)
-        }
     }
 
     private func copyCodeBlock() {

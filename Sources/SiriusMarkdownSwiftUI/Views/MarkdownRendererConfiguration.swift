@@ -180,25 +180,49 @@ public struct MarkdownRendererConfiguration: Sendable {
         case enabled
         /// Disable document-level drag selection and package-owned Cmd-C copy.
         case disabled
+
+        /// The platform-appropriate default document-selection layer.
+        ///
+        /// macOS uses bounded AppKit text views by default, so the custom
+        /// cross-block layer stays off unless a host requests it explicitly.
+        /// Other platforms keep the source-backed document selector.
+        public static var platformDefault: Self {
+            #if os(macOS)
+            .disabled
+            #else
+            .enabled
+            #endif
+        }
     }
 
     public var theme: MarkdownTheme
     public var inlineRenderingMode: MarkdownInlineRenderingMode
     /// Native text leaf selection policy.
     ///
-    /// Disabled by default. The package's source-backed document selection
-    /// layer (`MarkdownSelectionController`) provides cross-block drag
-    /// selection, highlight overlays, and Cmd-C source copy without
-    /// requiring SwiftUI's native text-selection overlay. Cross-block
-    /// document selection is controlled separately by `documentSelection`.
-    public var nativeTextSelection: MarkdownNativeTextSelection
+    /// On macOS this defaults to bounded AppKit text selection. Other
+    /// platforms keep native leaf selection disabled by default. Cross-block
+    /// source selection is controlled separately by `documentSelection`.
+    public var nativeTextSelection: MarkdownNativeTextSelection {
+        didSet {
+            if nativeTextSelection == .enabled {
+                documentSelection = .disabled
+            }
+        }
+    }
     /// Source-backed cross-block selection owned by SiriusMarkdown.
     ///
-    /// This is the default product selection path. It does not require
-    /// `nativeTextSelection` and does not mount SwiftUI's container-level
-    /// SwiftUI native-selection modifiers or private `SelectionOverlay`
-    /// surfaces.
-    public var documentSelection: DocumentSelection
+    /// This is the default product selection path outside macOS. On macOS it
+    /// is an explicit compatibility mode for hosts that require exact-source
+    /// cross-block selection. It does not require `nativeTextSelection` and
+    /// does not mount SwiftUI's container-level native-selection modifiers or
+    /// private `SelectionOverlay` surfaces.
+    public var documentSelection: DocumentSelection {
+        didSet {
+            if documentSelection == .enabled {
+                nativeTextSelection = .disabled
+            }
+        }
+    }
     public var linkAction: MarkdownLinkAction?
     public var copyProvider: MarkdownCopyProvider?
     public var linkPolicy: any MarkdownLinkPolicy
@@ -237,8 +261,8 @@ public struct MarkdownRendererConfiguration: Sendable {
     public init(
         theme: MarkdownTheme = .compactChat,
         inlineRenderingMode: MarkdownInlineRenderingMode = .coreTextPaintedLines,
-        nativeTextSelection: MarkdownNativeTextSelection = .disabled,
-        documentSelection: DocumentSelection = .enabled,
+        nativeTextSelection: MarkdownNativeTextSelection = .platformDefault,
+        documentSelection: DocumentSelection = .platformDefault,
         linkAction: MarkdownLinkAction? = nil,
         copyProvider: MarkdownCopyProvider? = nil,
         linkPolicy: any MarkdownLinkPolicy = DefaultMarkdownPolicy(),
@@ -259,6 +283,9 @@ public struct MarkdownRendererConfiguration: Sendable {
         self.inlineRenderingMode = inlineRenderingMode
         self.nativeTextSelection = nativeTextSelection
         self.documentSelection = documentSelection
+        if documentSelection == .enabled {
+            self.nativeTextSelection = .disabled
+        }
         self.linkAction = linkAction
         self.copyProvider = copyProvider
         self.linkPolicy = linkPolicy
@@ -296,8 +323,8 @@ public struct MarkdownRendererConfiguration: Sendable {
     ) {
         self.theme = theme
         self.inlineRenderingMode = .coreTextPaintedLines
-        self.nativeTextSelection = .disabled
-        self.documentSelection = .enabled
+        self.nativeTextSelection = .platformDefault
+        self.documentSelection = .platformDefault
         self.linkAction = linkAction
         self.copyProvider = copyProvider
         self.linkPolicy = linkPolicy
@@ -318,7 +345,7 @@ public struct MarkdownRendererConfiguration: Sendable {
     public init(
         theme: MarkdownTheme = .compactChat,
         inlineRenderingMode: MarkdownInlineRenderingMode = .coreTextPaintedLines,
-        nativeTextSelection: MarkdownNativeTextSelection = .disabled,
+        nativeTextSelection: MarkdownNativeTextSelection = .platformDefault,
         linkAction: MarkdownLinkAction? = nil,
         copyProvider: MarkdownCopyProvider? = nil,
         linkPolicy: any MarkdownLinkPolicy = DefaultMarkdownPolicy(),
@@ -339,7 +366,7 @@ public struct MarkdownRendererConfiguration: Sendable {
             theme: theme,
             inlineRenderingMode: inlineRenderingMode,
             nativeTextSelection: nativeTextSelection,
-            documentSelection: .enabled,
+            documentSelection: nativeTextSelection == .enabled ? .disabled : .enabled,
             linkAction: linkAction,
             copyProvider: copyProvider,
             linkPolicy: linkPolicy,

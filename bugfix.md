@@ -4,6 +4,19 @@
 
 - None currently tracked.
 
+## Resolved after 0.6.7
+
+- Fixed macOS rendered text using a pale custom line-rectangle selector and
+  nested SwiftUI context menus whose innermost hit target exposed only “Copy
+  Markdown.” The default now uses bounded AppKit text views with system
+  selection and contextual commands. Native wrapping keeps continuous prose
+  continuous on the pasteboard; the exact-source cross-block selector remains
+  available explicitly without competing with native selection gestures.
+- Fixed image-backed inline math bypassing that AppKit path and making the
+  entire containing paragraph unselectable. Math now uses a baseline-aligned
+  TextKit attachment with link, semantic copy, accessibility, mixed-image
+  ordering, bounded-cache, and streaming identity regressions.
+
 ## Resolved in 0.6.7
 
 - Fixed GitHub Actions clean-checkout compilation failing when the runner's

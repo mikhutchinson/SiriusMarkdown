@@ -21,7 +21,7 @@ struct MarkdownSelectionPerformanceTests {
             invalidations: 40
         )
 
-        #expect(delta.selectionFrameQueryCount > 0)
+        #expect(delta.selectionFrameQueryCount == 0)
         #expect(delta.selectionPreferenceChangeCount == 0)
         #expect(delta.inlineLineFragmentBuildCount == 0)
         #expect(delta.selectionTextGeometryInitializationCount == 0)
@@ -146,6 +146,7 @@ struct MarkdownSelectionPerformanceTests {
         // out across dozens of unrelated, unchanged sealed blocks.)
         let recorder = MarkdownDiagnosticsRecorder()
         var configuration = MarkdownRendererConfiguration.document
+        configuration.documentSelection = .enabled
         configuration.diagnosticsRecorder = recorder
 
         let session = MarkdownRenderSession(

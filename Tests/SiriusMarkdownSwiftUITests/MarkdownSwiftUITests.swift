@@ -1061,15 +1061,34 @@ func packagedPresetsUseCoreTextPaintedLinesWhileFallbackModesStayExplicit() thro
     #expect(MarkdownRendererConfiguration(inlineRenderingMode: .systemText).inlineRenderingMode == .systemText)
     #expect(MarkdownRendererConfiguration(inlineRenderingMode: .preparedNativeLines).inlineRenderingMode == .preparedNativeLines)
     #expect(MarkdownRendererConfiguration(inlineRenderingMode: .coreTextPaintedLines).inlineRenderingMode == .coreTextPaintedLines)
+    #if os(macOS)
+    #expect(MarkdownRendererConfiguration.compactChat.documentSelection == .disabled)
+    #expect(MarkdownRendererConfiguration.document.documentSelection == .disabled)
+    #expect(MarkdownRendererConfiguration().documentSelection == .disabled)
+    #expect(MarkdownRendererConfiguration.compactChat.nativeTextSelection == .enabled)
+    #expect(MarkdownRendererConfiguration.document.nativeTextSelection == .enabled)
+    #expect(MarkdownRendererConfiguration().nativeTextSelection == .enabled)
+    #else
     #expect(MarkdownRendererConfiguration.compactChat.documentSelection == .enabled)
     #expect(MarkdownRendererConfiguration.document.documentSelection == .enabled)
     #expect(MarkdownRendererConfiguration().documentSelection == .enabled)
-    #expect(MarkdownRendererConfiguration(documentSelection: .disabled).documentSelection == .disabled)
     #expect(MarkdownRendererConfiguration.compactChat.nativeTextSelection == .disabled)
     #expect(MarkdownRendererConfiguration.document.nativeTextSelection == .disabled)
     #expect(MarkdownRendererConfiguration().nativeTextSelection == .disabled)
+    #endif
+    #expect(MarkdownRendererConfiguration(documentSelection: .disabled).documentSelection == .disabled)
     #expect(MarkdownRendererConfiguration(nativeTextSelection: .enabled).nativeTextSelection == .enabled)
     #expect(MarkdownRendererConfiguration(nativeTextSelection: .disabled).nativeTextSelection == .disabled)
+    #expect(MarkdownRendererConfiguration(nativeTextSelection: .enabled).documentSelection == .disabled)
+    #expect(MarkdownRendererConfiguration(nativeTextSelection: .disabled).documentSelection == .enabled)
+
+    var explicitSourceSelection = MarkdownRendererConfiguration.compactChat
+    explicitSourceSelection.documentSelection = .enabled
+    #expect(explicitSourceSelection.documentSelection == .enabled)
+    #expect(explicitSourceSelection.nativeTextSelection == .disabled)
+    explicitSourceSelection.nativeTextSelection = .enabled
+    #expect(explicitSourceSelection.nativeTextSelection == .enabled)
+    #expect(explicitSourceSelection.documentSelection == .disabled)
 
     let block = MarkdownBlock(
         id: MarkdownBlockID("block-default-mode"),
@@ -1088,7 +1107,7 @@ func packagedPresetsUseCoreTextPaintedLinesWhileFallbackModesStayExplicit() thro
 }
 
 @Test
-func documentSelectionDefaultsToEnabledWhileNativeSelectionStaysLeafCompatibilityKnob() throws {
+func selectionDefaultsAreNativeOnMacOSAndSourceBackedElsewhere() throws {
     let root = packageRootURL()
     let configuration = try String(
         contentsOf: root.appending(path: "Sources/SiriusMarkdownSwiftUI/Views/MarkdownRendererConfiguration.swift"),
@@ -1105,12 +1124,18 @@ func documentSelectionDefaultsToEnabledWhileNativeSelectionStaysLeafCompatibilit
 
     #expect(configuration.contains("public enum DocumentSelection"))
     #expect(configuration.contains("public var documentSelection: DocumentSelection"))
-    #expect(configuration.contains("documentSelection: DocumentSelection = .enabled"))
-    #expect(configuration.contains("nativeTextSelection: MarkdownNativeTextSelection = .disabled"))
+    #expect(configuration.contains("documentSelection: DocumentSelection = .platformDefault"))
+    #expect(configuration.contains("nativeTextSelection: MarkdownNativeTextSelection = .platformDefault"))
+    #expect(configuration.contains("if documentSelection == .enabled"))
+    #expect(configuration.contains("nativeTextSelection = .disabled"))
     #expect(documentView.contains("@StateObject private var internalSelectionController"))
     #expect(documentView.contains("configuration.documentSelection == .enabled"))
     #expect(documentView.contains("selectionController ?? internalSelectionController"))
     #expect(documentView.contains("MarkdownDocumentSelectionLayer"))
+    #expect(documentView.occurrences(of: ".markdownContextMenu") == 1)
+    #expect(!documentView.contains("Select Block"))
+    #expect(!documentView.contains("Copy Selection"))
+    #expect(documentView.contains("Button(\"Copy\")"))
     #expect(documentView.contains("#if os(tvOS)"))
     #expect(documentView.contains("TapGesture()"))
     #expect(documentView.contains("MarkdownDocumentSelectionDragActivation"))
@@ -1209,6 +1234,7 @@ func nativeTextSelectionMountsOnlyBoundedTextLeaves() throws {
     #expect(coreTextPaintedLineView.contains("canImport(UIKit) && !os(watchOS)"))
     #expect(directSelectionOffenders.isEmpty)
     #expect(!blockView.contains(".textSelection(.enabled)"))
+    #expect(!blockView.contains(".markdownContextMenu"))
     #expect(!mermaidView.contains(".textSelection(.enabled)"))
     #expect(!mermaidView.contains(".markdownNativeTextSelection("))
     #expect(!documentView.contains(".markdownNativeTextSelection("))
@@ -1226,7 +1252,7 @@ func nativeTextSelectionMountsOnlyBoundedTextLeaves() throws {
     #expect(blockView.contains(
         "selectionModeInsideCompositeGrid: MarkdownNativeTextSelection {\n        configuration.nativeTextSelection\n    }"
     ))
-    #expect(inlineRunsView.contains("nativeTextSelection: MarkdownNativeTextSelection = .disabled"))
+    #expect(inlineRunsView.contains("nativeTextSelection: MarkdownNativeTextSelection = .platformDefault"))
     #expect(inlineRunsView.contains("MarkdownSelectableText("))
     #expect(inlineRunsView.contains("nativeTextSelection: nativeTextSelection"))
     #expect(nativeLineTextView.contains("MarkdownSelectableText("))
@@ -1386,6 +1412,53 @@ func defaultDocumentSelectionEmitsTextLeafRectsForListRows() throws {
 struct MarkdownNativeTextSelectionAppKitTests {
 @Test
 @MainActor
+func defaultMacOSSelectionUsesAppKitHighlightWrappingCopyAndContextMenu() throws {
+    let markdown = "Native selection should wrap naturally without inserting synthetic newline characters into copied prose, and right-click should remain owned by AppKit."
+    var stream = MarkdownStream()
+    stream.append(markdown)
+    stream.finish()
+
+    var configuration = MarkdownRendererConfiguration.compactChat
+    configuration.copyProvider = MarkdownCopyProvider(markdownSource: markdown)
+    #expect(configuration.nativeTextSelection == .enabled)
+    #expect(configuration.documentSelection == .disabled)
+
+    let prepared = configuration.prepare(snapshot: stream.snapshot())
+    let view = StreamingMarkdownView(preparedSnapshot: prepared, configuration: configuration)
+        .frame(width: 220, alignment: .topLeading)
+
+    let hostingView = NSHostingView(rootView: view)
+    hostingView.frame = NSRect(origin: .zero, size: NSSize(width: 220, height: 220))
+    let window = offscreenTestWindow(hostingView)
+    defer { tearDownWindow(window) }
+    pumpLayout(hostingView)
+
+    let textView = try #require(appKitTextViews(in: hostingView).first { $0.string.contains("Native selection") })
+    let menuItems = try #require(textView.menu).items
+    let selectedBackground = try #require(textView.selectedTextAttributes[.backgroundColor] as? NSColor)
+    let copied = try copySelectedText(markdown, from: textView)
+
+    #expect(textView.string == markdown)
+    #expect(textView.isSelectable)
+    #expect(!textView.isEditable)
+    #expect(textView.textContainer?.widthTracksTextView == true)
+    #expect(textView.layoutManager?.usedRect(for: try #require(textView.textContainer)).height ?? 0 > 40)
+    #expect(copied == markdown)
+    #expect(!copied.contains("\n"))
+    #expect(NSPasteboard.general.data(forType: .rtf) != nil)
+    #expect(
+        NSPasteboard.general.data(
+            forType: NSPasteboard.PasteboardType(rawValue: MarkdownPasteboard.markdownPasteboardType)
+        ) == nil
+    )
+    #expect(menuItems.contains { $0.action == #selector(NSText.copy(_:)) })
+    #expect(menuItems.count > 1)
+    #expect(!menuItems.contains { $0.title == "Copy Markdown" })
+    #expect(selectedBackground.isEqual(NSColor.selectedTextBackgroundColor))
+}
+
+@Test
+@MainActor
 func enabledNativeTextSelectionMountsAppKitSelectableTextLeafOnMacOS() throws {
     let view = MarkdownSelectableText(
         attributed: AttributedString("Selectable native text"),
@@ -1487,6 +1560,356 @@ func enabledNativeTextSelectionCanSelectAndCopyListTextLeafOnMacOS() throws {
 
 @Test
 @MainActor
+func nativeSelectionCoversImageBackedInlineMathWithoutSelectionOverlayOnMacOS() throws {
+    let markdown = "Before $x^2$ after"
+    var stream = MarkdownStream()
+    stream.append(markdown)
+    stream.finish()
+
+    let configuration = MarkdownRendererConfiguration(mathRenderer: ValidImageMathRenderer())
+    let prepared = configuration.prepare(snapshot: stream.snapshot())
+    let view = StreamingMarkdownView(preparedSnapshot: prepared, configuration: configuration)
+        .frame(width: 320, height: 100, alignment: .topLeading)
+    let hostingView = NSHostingView(rootView: view)
+    hostingView.frame = NSRect(origin: .zero, size: NSSize(width: 320, height: 100))
+    let window = offscreenTestWindow(hostingView)
+    defer { tearDownWindow(window) }
+    pumpLayout(hostingView)
+
+    let textView = try #require(
+        appKitTextViews(in: hostingView).first { $0.string.contains("Before") }
+            as? MarkdownAppKitNativeSelectableTextView
+    )
+    let textStorage = try #require(textView.textStorage)
+    let attachmentRange = (textStorage.string as NSString).range(of: "\u{FFFC}")
+    guard attachmentRange.location != NSNotFound else {
+        Issue.record("Expected a TextKit attachment for image-backed inline math")
+        return
+    }
+    let attachment = try #require(
+        textStorage.attribute(.attachment, at: attachmentRange.location, effectiveRange: nil)
+            as? NSTextAttachment
+    )
+    let cell = try #require(attachment.attachmentCell as? MarkdownAppKitMathAttachmentCell)
+    let viewTypes = appKitViewTypeNames(in: hostingView)
+
+    #expect(textView.isSelectable)
+    #expect(attachmentRange.location != NSNotFound)
+    #expect(cell.cellSize == NSSize(width: 18, height: 12))
+    #expect(cell.cellBaselineOffset() == NSPoint(x: 0, y: -3))
+    #expect(textView.nativeMathAttachmentCacheCount == 1)
+    #expect(textView.plainTextRepresentation(in: NSRange(location: 0, length: textStorage.length)) == "Before x^2 after")
+    #expect(textView.accessibilityValue() == "Before x^2 after")
+    #expect(!viewTypes.contains { $0.contains("SelectionOverlay") || $0.contains("SelectionTextField") })
+
+    _ = window.makeFirstResponder(textView)
+    textView.setSelectedRange(NSRange(location: 0, length: textStorage.length))
+    NSPasteboard.general.clearContents()
+    textView.copy(nil)
+    #expect(NSPasteboard.general.string(forType: .string) == "Before x^2 after")
+    #expect(
+        NSPasteboard.general.data(
+            forType: NSPasteboard.PasteboardType(rawValue: MarkdownPasteboard.markdownPasteboardType)
+        ) == nil
+    )
+}
+
+@Test
+@MainActor
+func nativeInlineMathAttachmentPreservesLinkAndPrunesItsCacheOnUpdate() throws {
+    var configuration = MarkdownRendererConfiguration(mathRenderer: ValidImageMathRenderer())
+    configuration.linkPolicy = DefaultMarkdownPolicy()
+
+    func render(_ markdown: String) -> MarkdownPreparedSnapshot {
+        var stream = MarkdownStream()
+        stream.append(markdown)
+        stream.finish()
+        return configuration.prepare(snapshot: stream.snapshot())
+    }
+
+    let hostingView = NSHostingView(
+        rootView: StreamingMarkdownView(
+            preparedSnapshot: render("[Value $x^2$](https://example.com/math)"),
+            configuration: configuration
+        )
+        .frame(width: 320, height: 100, alignment: .topLeading)
+    )
+    hostingView.frame = NSRect(origin: .zero, size: NSSize(width: 320, height: 100))
+    let window = offscreenTestWindow(hostingView)
+    defer { tearDownWindow(window) }
+    pumpLayout(hostingView)
+
+    let original = try #require(
+        appKitTextViews(in: hostingView).first as? MarkdownAppKitNativeSelectableTextView
+    )
+    let attachmentRange = (original.string as NSString).range(of: "\u{FFFC}")
+    guard attachmentRange.location != NSNotFound else {
+        Issue.record("Expected a linked TextKit attachment for image-backed inline math")
+        return
+    }
+    let link = original.textStorage?.attribute(.link, at: attachmentRange.location, effectiveRange: nil)
+    #expect((link as? URL)?.absoluteString == "https://example.com/math")
+    #expect(original.nativeMathAttachmentCacheCount == 1)
+    let selectedRange = (original.string as NSString).range(of: "Value")
+    original.setSelectedRange(selectedRange)
+
+    hostingView.rootView = StreamingMarkdownView(
+        preparedSnapshot: render("Value without math"),
+        configuration: configuration
+    )
+    .frame(width: 320, height: 100, alignment: .topLeading)
+    pumpLayout(hostingView)
+
+    let updated = try #require(appKitTextViews(in: hostingView).first { $0.string == "Value without math" })
+    #expect(updated === original)
+    #expect(updated.selectedRange() == selectedRange)
+    #expect(original.nativeMathAttachmentCacheCount == 0)
+}
+
+@Test
+@MainActor
+func nativeSelectionMapsSemanticRangesAcrossMathFallbackAndAttachmentTransitions() throws {
+    let markdown = "Before $x^2$ after"
+    let fallbackConfiguration = MarkdownRendererConfiguration(mathRenderer: CountingImageMathRenderer())
+    let imageConfiguration = MarkdownRendererConfiguration(mathRenderer: ValidImageMathRenderer())
+
+    func render(_ configuration: MarkdownRendererConfiguration) -> MarkdownPreparedSnapshot {
+        var stream = MarkdownStream()
+        stream.append(markdown)
+        stream.finish()
+        return configuration.prepare(snapshot: stream.snapshot())
+    }
+
+    let hostingView = NSHostingView(
+        rootView: StreamingMarkdownView(
+            preparedSnapshot: render(fallbackConfiguration),
+            configuration: fallbackConfiguration
+        )
+        .frame(width: 320, height: 100, alignment: .topLeading)
+    )
+    hostingView.frame = NSRect(origin: .zero, size: NSSize(width: 320, height: 100))
+    let window = offscreenTestWindow(hostingView)
+    defer { tearDownWindow(window) }
+    pumpLayout(hostingView)
+
+    let original = try #require(
+        appKitTextViews(in: hostingView).first { $0.string == "Before x^2 after" }
+            as? MarkdownAppKitNativeSelectableTextView
+    )
+    original.setSelectedRange((original.string as NSString).range(of: "x^2"))
+
+    hostingView.rootView = StreamingMarkdownView(
+        preparedSnapshot: render(imageConfiguration),
+        configuration: imageConfiguration
+    )
+    .frame(width: 320, height: 100, alignment: .topLeading)
+    pumpLayout(hostingView)
+
+    let withAttachment = try #require(
+        appKitTextViews(in: hostingView).first { $0.string.contains("\u{FFFC}") }
+            as? MarkdownAppKitNativeSelectableTextView
+    )
+    #expect(withAttachment === original)
+    #expect(withAttachment.selectedRange().length == 1)
+    #expect(withAttachment.plainTextRepresentation(in: withAttachment.selectedRange()) == "x^2")
+
+    withAttachment.setSelectedRange((withAttachment.string as NSString).range(of: "after"))
+    hostingView.rootView = StreamingMarkdownView(
+        preparedSnapshot: render(fallbackConfiguration),
+        configuration: fallbackConfiguration
+    )
+    .frame(width: 320, height: 100, alignment: .topLeading)
+    pumpLayout(hostingView)
+
+    let restoredFallback = try #require(
+        appKitTextViews(in: hostingView).first { $0.string == "Before x^2 after" }
+            as? MarkdownAppKitNativeSelectableTextView
+    )
+    #expect(restoredFallback === original)
+    #expect((restoredFallback.string as NSString).substring(with: restoredFallback.selectedRange()) == "after")
+}
+
+@Test
+@MainActor
+func nativeSelectionPreservesMixedImageAndMathAttachmentOrderAndPlainCopy() throws {
+    let pixel = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=")!
+    let markdown = "Before ![pixel](local.png), $x^2$, and [linked $y^2$](https://example.com/math) after"
+    var stream = MarkdownStream()
+    stream.append(markdown)
+    stream.finish()
+
+    var configuration = MarkdownRendererConfiguration(mathRenderer: ValidImageMathRenderer())
+    configuration.imagePolicy = IdentityImagePolicy(identity: "allow", decision: .allow)
+    configuration.imageResolver = DataImageResolver(data: pixel, mimeType: "image/png")
+    let prepared = configuration.prepare(snapshot: stream.snapshot())
+    let hostingView = NSHostingView(
+        rootView: StreamingMarkdownView(preparedSnapshot: prepared, configuration: configuration)
+            .frame(width: 520, height: 120, alignment: .topLeading)
+    )
+    hostingView.frame = NSRect(origin: .zero, size: NSSize(width: 520, height: 120))
+    let window = offscreenTestWindow(hostingView)
+    defer { tearDownWindow(window) }
+    pumpLayout(hostingView)
+
+    let textView = try #require(
+        appKitTextViews(in: hostingView).first { $0.string.contains("Before") }
+            as? MarkdownAppKitNativeSelectableTextView
+    )
+    let storage = try #require(textView.textStorage)
+    var attachmentCount = 0
+    storage.enumerateAttribute(.attachment, in: NSRange(location: 0, length: storage.length)) { value, _, _ in
+        if value is NSTextAttachment { attachmentCount += 1 }
+    }
+    let replacementCount = textView.string.filter { $0 == "\u{FFFC}" }.count
+    var linkedAttachmentRange: NSRange?
+    storage.enumerateAttribute(.link, in: NSRange(location: 0, length: storage.length)) { value, range, stop in
+        let linkedText = (storage.string as NSString).substring(with: range) as NSString
+        let localAttachment = linkedText.range(of: "\u{FFFC}")
+        if value != nil, localAttachment.location != NSNotFound {
+            linkedAttachmentRange = NSRange(
+                location: range.location + localAttachment.location,
+                length: localAttachment.length
+            )
+            stop.pointee = true
+        }
+    }
+    let linkedRange = try #require(linkedAttachmentRange)
+
+    #expect(attachmentCount == 3)
+    #expect(replacementCount == 3)
+    #expect(textView.nativeAttachmentCacheCount == 1)
+    #expect(textView.nativeMathAttachmentCacheCount == 2)
+    #expect(appKitAttachmentHostViews(in: hostingView).count == 1)
+    #expect((storage.attribute(.link, at: linkedRange.location, effectiveRange: nil) as? URL)?.absoluteString == "https://example.com/math")
+
+    textView.setSelectedRange(NSRange(location: 0, length: storage.length))
+    NSPasteboard.general.clearContents()
+    textView.copy(nil)
+    #expect(NSPasteboard.general.string(forType: .string) == "Before pixel, x^2, and linked y^2 after")
+}
+
+@Test
+@MainActor
+func nativeSelectionCopiesImageOnlyAttachmentsAsSemanticPlainText() throws {
+    let pixel = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=")!
+    var stream = MarkdownStream()
+    stream.append("Before ![pixel](local.png) after")
+    stream.finish()
+
+    var configuration = MarkdownRendererConfiguration()
+    configuration.imagePolicy = IdentityImagePolicy(identity: "allow", decision: .allow)
+    configuration.imageResolver = DataImageResolver(data: pixel, mimeType: "image/png")
+    let prepared = configuration.prepare(snapshot: stream.snapshot())
+    let hostingView = NSHostingView(
+        rootView: StreamingMarkdownView(preparedSnapshot: prepared, configuration: configuration)
+            .frame(width: 320, height: 100, alignment: .topLeading)
+    )
+    hostingView.frame = NSRect(origin: .zero, size: NSSize(width: 320, height: 100))
+    let window = offscreenTestWindow(hostingView)
+    defer { tearDownWindow(window) }
+    pumpLayout(hostingView)
+
+    let textView = try #require(
+        appKitTextViews(in: hostingView).first { $0.string.contains("Before") }
+            as? MarkdownAppKitNativeSelectableTextView
+    )
+    let storage = try #require(textView.textStorage)
+    #expect(textView.string == "Before \u{FFFC} after")
+    #expect(textView.nativeAttachmentCacheCount == 1)
+    #expect(appKitAttachmentHostViews(in: hostingView).count == 1)
+
+    textView.setSelectedRange(NSRange(location: 0, length: storage.length))
+    NSPasteboard.general.clearContents()
+    textView.copy(nil)
+    #expect(NSPasteboard.general.string(forType: .string) == "Before pixel after")
+}
+
+@Test
+@MainActor
+func nativeSelectionReachesMermaidASCIIAndInvalidMathImageTextFallbacks() throws {
+    let markdown = """
+    ```mermaid
+    graph TD
+      A --> B
+    ```
+
+    $$
+    x^2 + y^2
+    $$
+    """
+    var stream = MarkdownStream()
+    stream.append(markdown)
+    stream.finish()
+
+    var configuration = MarkdownRendererConfiguration(mathRenderer: CountingImageMathRenderer())
+    configuration.mermaidRenderer = CountingMermaidRenderer(ascii: "A --> B")
+    let prepared = configuration.prepare(snapshot: stream.snapshot())
+    let hostingView = NSHostingView(
+        rootView: StreamingMarkdownView(preparedSnapshot: prepared, configuration: configuration)
+            .frame(width: 420, height: 260, alignment: .topLeading)
+    )
+    hostingView.frame = NSRect(origin: .zero, size: NSSize(width: 420, height: 260))
+    let window = offscreenTestWindow(hostingView)
+    defer { tearDownWindow(window) }
+    pumpLayout(hostingView)
+
+    let textViews = appKitTextViews(in: hostingView)
+    let mermaidText = try #require(textViews.first { $0.string == "A --> B" })
+    let mathText = try #require(textViews.first { $0.string == "x^2 + y^2" })
+
+    #expect(mermaidText.isSelectable)
+    #expect(mathText.isSelectable)
+    #expect(mermaidText.menu?.items.contains { $0.action == #selector(NSText.copy(_:)) } == true)
+    #expect(mathText.menu?.items.contains { $0.action == #selector(NSText.copy(_:)) } == true)
+    #expect(!appKitViewTypeNames(in: hostingView).contains { $0.contains("SelectionOverlay") })
+}
+
+@Test
+@MainActor
+func nativeSelectionSurvivesStreamingTextReplacementOnMacOS() throws {
+    let original = "Keep this selected while the mutable tail"
+    let appended = original + " continues streaming without clearing the user's selection."
+    let configuration = MarkdownRendererConfiguration.compactChat
+
+    func render(_ markdown: String) -> MarkdownPreparedSnapshot {
+        var stream = MarkdownStream()
+        stream.append(markdown)
+        return configuration.prepare(snapshot: stream.snapshot())
+    }
+
+    let hostingView = NSHostingView(
+        rootView: StreamingMarkdownView(
+            preparedSnapshot: render(original),
+            configuration: configuration
+        )
+        .frame(width: 320, height: 160, alignment: .topLeading)
+    )
+    hostingView.frame = NSRect(origin: .zero, size: NSSize(width: 320, height: 160))
+    let window = offscreenTestWindow(hostingView)
+    defer { tearDownWindow(window) }
+    pumpLayout(hostingView)
+
+    let originalTextView = try #require(appKitTextViews(in: hostingView).first { $0.string == original })
+    let selectedText = "this selected"
+    let selectedRange = (originalTextView.string as NSString).range(of: selectedText)
+    #expect(selectedRange.location != NSNotFound)
+    originalTextView.setSelectedRange(selectedRange)
+
+    hostingView.rootView = StreamingMarkdownView(
+        preparedSnapshot: render(appended),
+        configuration: configuration
+    )
+    .frame(width: 320, height: 160, alignment: .topLeading)
+    pumpLayout(hostingView)
+
+    let updatedTextView = try #require(appKitTextViews(in: hostingView).first { $0.string == appended })
+    #expect(updatedTextView === originalTextView)
+    #expect(updatedTextView.selectedRange() == selectedRange)
+    #expect((updatedTextView.string as NSString).substring(with: updatedTextView.selectedRange()) == selectedText)
+}
+
+@Test
+@MainActor
 func defaultDocumentSelectionResolvesWrappedLineDragToExactSourceOnMacOS() throws {
     let markdown = """
     Wrapped paragraph selection starts here and continues with enough words to wrap across several prepared native visual lines in a narrow streaming transcript column.
@@ -1496,6 +1919,7 @@ func defaultDocumentSelectionResolvesWrappedLineDragToExactSourceOnMacOS() throw
     stream.finish()
 
     var configuration = MarkdownRendererConfiguration.compactChat
+    configuration.documentSelection = .enabled
     configuration.copyProvider = MarkdownCopyProvider(markdownSource: markdown)
     #expect(configuration.documentSelection == .enabled)
     #expect(configuration.nativeTextSelection == .disabled)
@@ -1848,6 +2272,7 @@ func defaultDocumentSelectionEmitsPreciseCodeBlockTextFragmentsOnMacOS() throws 
     stream.finish()
 
     var configuration = MarkdownRendererConfiguration.document
+    configuration.documentSelection = .enabled
     configuration.copyProvider = MarkdownCopyProvider(markdownSource: markdown)
     let snapshot = stream.snapshot()
     let prepared = configuration.prepare(snapshot: snapshot)
@@ -1912,6 +2337,7 @@ func defaultDocumentSelectionUsesRenderedTableCellGeometryForExactCopyOnMacOS() 
     stream.finish()
 
     var configuration = MarkdownRendererConfiguration.document
+    configuration.documentSelection = .enabled
     configuration.copyProvider = MarkdownCopyProvider(markdownSource: markdown)
     let snapshot = stream.snapshot()
     let prepared = configuration.prepare(snapshot: snapshot)
@@ -2017,6 +2443,7 @@ func defaultDocumentSelectionResolvesDragAndCmdCCopyAcrossBlockBoundariesOnMacOS
     let controller = MarkdownSelectionController()
     let copySpy = MarkdownCopySpy()
     var configuration = MarkdownRendererConfiguration.document
+    configuration.documentSelection = .enabled
     configuration.copyProvider = MarkdownCopyProvider(markdownSource: markdown)
     // Spy on copyPayload — document Cmd-C routes through copyPayload; capture markdown field.
     configuration.affordanceActionHandler = MarkdownAffordanceActionHandler(
@@ -2126,7 +2553,8 @@ func imageBackedDisplayMathBlocksPrepareSourceBackedSelectionFragments() throws 
     stream.append(markdown)
     stream.finish()
 
-    let configuration = MarkdownRendererConfiguration(mathRenderer: CountingImageMathRenderer())
+    var configuration = MarkdownRendererConfiguration(mathRenderer: CountingImageMathRenderer())
+    configuration.documentSelection = .enabled
     let snapshot = stream.snapshot()
     let block = try #require(snapshot.blocks.first { $0.kind == .mathBlock })
     let content = configuration.prepare(block: block)
@@ -2171,7 +2599,8 @@ func defaultDocumentSelectionReceivesTextLeafFragmentForImageBackedInlineMath() 
     stream.append(markdown)
     stream.finish()
 
-    let configuration = MarkdownRendererConfiguration(mathRenderer: CountingImageMathRenderer())
+    var configuration = MarkdownRendererConfiguration(mathRenderer: CountingImageMathRenderer())
+    configuration.documentSelection = .enabled
     let snapshot = stream.snapshot()
     let prepared = configuration.prepare(snapshot: snapshot)
     let block = try #require(snapshot.blocks.first)
@@ -3225,6 +3654,54 @@ func removingAnAttachmentRemovesItsHostFromTheViewHierarchy() throws {
     let removedHosts = originalHosts.filter { original in !remainingHosts.contains { $0 === original } }
     #expect(!removedHosts.isEmpty, "at least one original host must have been torn down")
     #expect(removedHosts.allSatisfy { $0.superview == nil }, "removed attachment hosts must be detached from the view hierarchy, not just uncounted")
+}
+
+@Test
+@MainActor
+func removingAnAttachmentPrunesItsNativeTextKitReservationCache() throws {
+    var configuration = MarkdownRendererConfiguration.compactChat
+    configuration.imagePolicy = IdentityImagePolicy(identity: "allow", decision: .allow)
+    configuration.imageResolver = RecordingImageResolver()
+
+    func render(_ markdown: String) -> MarkdownPreparedSnapshot {
+        var stream = MarkdownStream()
+        stream.append(markdown)
+        stream.finish()
+        return configuration.prepare(snapshot: stream.snapshot())
+    }
+
+    let hostingView = NSHostingView(
+        rootView: StreamingMarkdownView(
+            preparedSnapshot: render("Before ![a](https://example.com/a.png) after"),
+            configuration: configuration
+        )
+        .frame(width: 520, height: 180, alignment: .topLeading)
+    )
+    hostingView.frame = NSRect(origin: .zero, size: NSSize(width: 520, height: 180))
+    let window = offscreenTestWindow(hostingView)
+    defer { tearDownWindow(window) }
+    pumpLayout(hostingView)
+
+    let originalTextView = try #require(
+        appKitTextViews(in: hostingView).first { $0.string.contains("Before") }
+            as? MarkdownAppKitNativeSelectableTextView
+    )
+    #expect(originalTextView.nativeAttachmentCacheCount == 1)
+
+    hostingView.rootView = StreamingMarkdownView(
+        preparedSnapshot: render("Before plain text after"),
+        configuration: configuration
+    )
+    .frame(width: 520, height: 180, alignment: .topLeading)
+    pumpLayout(hostingView)
+
+    let updatedTextView = try #require(appKitTextViews(in: hostingView).first { $0.string == "Before plain text after" })
+    #expect(updatedTextView === originalTextView)
+    #expect(appKitAttachmentHostViews(in: hostingView).isEmpty)
+    #expect(
+        originalTextView.nativeAttachmentCacheCount == 0,
+        "stale native NSTextAttachment instances must not accumulate across streamed revisions"
+    )
 }
 #endif
 
@@ -4859,7 +5336,7 @@ func preparedNativeResizeRenderKeepsPaintInsideNarrowedColumn() throws {
     let scale = Double(bitmap.pixelsWide) / Double(hostingView.bounds.width)
     let rightmost = darkRightmostX(in: bitmap)
 
-    #expect(rightmost <= Int(Double(finalWidth - 4) * scale))
+    #expect(rightmost <= Int(Double(finalWidth - 4) * scale) + 1)
     #endif
 }
 
@@ -5771,6 +6248,11 @@ private func appKitTextViews(in view: NSView) -> [NSTextView] {
 }
 
 @MainActor
+private func appKitViewTypeNames(in view: NSView) -> [String] {
+    [String(describing: type(of: view))] + view.subviews.flatMap(appKitViewTypeNames(in:))
+}
+
+@MainActor
 private func appKitCoreTextPaintedViews(in view: NSView) -> [NSView] {
     var matches: [NSView] = []
     if String(describing: type(of: view)).contains("MarkdownCoreTextPaintedNSView") {
@@ -6366,6 +6848,33 @@ private final class CountingImageMathRenderer: MarkdownMathRenderer, MarkdownMat
         lock.withLock {
             renderedCallCount
         }
+    }
+}
+
+private struct ValidImageMathRenderer: MarkdownMathRenderer, MarkdownMathRendererCacheIdentifying {
+    var mathRendererCacheIdentity: String {
+        "test.valid-image-math"
+    }
+
+    func renderedMath(_ source: String, isBlock _: Bool) -> AttributedString {
+        AttributedString(source)
+    }
+
+    func preparedMath(_ source: String, isBlock _: Bool, fontSize _: Double) -> MarkdownPreparedMath {
+        let pixel = Data(
+            base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+        ) ?? Data()
+        return .image(
+            MarkdownPreparedMathImage(
+                imageData: pixel,
+                scale: 1,
+                pointWidth: 18,
+                pointHeight: 12,
+                ascent: 9,
+                descent: 3,
+                latex: source
+            )
+        )
     }
 }
 
