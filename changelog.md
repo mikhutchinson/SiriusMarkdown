@@ -2,6 +2,34 @@
 
 ## Unreleased
 
+## 0.6.15 - 2026-07-13
+
+- Replaced the streaming SwiftUI surface's `LazyVStack` item-phase dependency
+  with bounded stable regions. Sealed regions cache their size by proposal
+  width and revision; only the region containing the mutable tail invalidates
+  while a generation grows. Geometry publication is asynchronous and
+  coalesced, avoiding synchronous whole-document fitting loops.
+- Prevented active, unsealed inline/code/math/Mermaid values from occupying
+  caches intended for stable prepared content. The active code tail now keeps
+  one rolling highlighter state instead of retaining historical generations.
+- Made plain and Highlight.js-backed code highlighting append-aware during an
+  active stream. The pinned Highlight.js wrapper now forwards its real parser
+  continuation, preserving lexical context across open comments and strings;
+  full-context checkpoints run every 16 KiB and a full-document highlight is
+  mandatory when the code block seals. The native Swift and arbitrary custom
+  highlighters retain full-document semantics where no proven continuation is
+  available.
+- Added a bounded, thread-safe CoreText measurement cache shared by preparation
+  values, keyed by the complete font/presentation profile and text. Unchanged
+  tail tokens therefore reuse glyph widths across publications.
+- Added diagnostics for highlighted byte volume plus AppKit-hosted regressions
+  covering 90 rapid publications of a 179 KB document, persistent hosting-root
+  replacement, bounded region invalidation, incremental highlighting, and
+  cross-measurer CoreText reuse. Mutable-tail layout measured a 2.71 ms median.
+- Preserved the complete rendering surface: Markdown semantics, tables,
+  highlighting, math, Mermaid, links, attachments, copy, and native or
+  source-backed selection are unchanged.
+
 ## 0.6.14 - 2026-07-13
 
 - Kept `MarkdownRenderSession` preparation on the detached executor while

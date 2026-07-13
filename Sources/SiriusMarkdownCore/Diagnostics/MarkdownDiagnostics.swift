@@ -9,6 +9,10 @@ public struct MarkdownDiagnosticsCounters: Sendable, Hashable {
     public var layoutCount: Int
     public var renderPreparationCount: Int
     public var codeHighlightCount: Int
+    /// UTF-8 source bytes submitted to syntax highlighters. This distinguishes
+    /// bounded suffix work from repeatedly highlighting a complete growing
+    /// code tail even when invocation counts are identical.
+    public var codeHighlightByteCount: Int
     public var mermaidRenderCount: Int
     public var mermaidFallbackCount: Int
     public var mathRenderCount: Int
@@ -67,6 +71,7 @@ public struct MarkdownDiagnosticsCounters: Sendable, Hashable {
         layoutCount: Int = 0,
         renderPreparationCount: Int = 0,
         codeHighlightCount: Int = 0,
+        codeHighlightByteCount: Int = 0,
         mermaidRenderCount: Int = 0,
         mermaidFallbackCount: Int = 0,
         mathRenderCount: Int = 0,
@@ -104,6 +109,7 @@ public struct MarkdownDiagnosticsCounters: Sendable, Hashable {
         self.layoutCount = layoutCount
         self.renderPreparationCount = renderPreparationCount
         self.codeHighlightCount = codeHighlightCount
+        self.codeHighlightByteCount = codeHighlightByteCount
         self.mermaidRenderCount = mermaidRenderCount
         self.mermaidFallbackCount = mermaidFallbackCount
         self.mathRenderCount = mathRenderCount
@@ -184,8 +190,13 @@ public final class MarkdownDiagnosticsRecorder: @unchecked Sendable {
     }
 
     public func recordCodeHighlight() {
+        recordCodeHighlight(bytes: 0)
+    }
+
+    public func recordCodeHighlight(bytes: Int) {
         withLock {
             counters.codeHighlightCount += 1
+            counters.codeHighlightByteCount += max(0, bytes)
         }
     }
 

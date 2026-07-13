@@ -10,6 +10,87 @@ struct MarkdownPerformanceBenchmarkTests {
     // MARK: - Part 01: CTLine creation in prepare
 
     @Test
+    func growingCodeTailReusesPriorTokenMeasurements() throws {
+        var configuration = MarkdownRendererConfiguration.compactChat
+        configuration.documentSelection = .enabled
+        var stream = MarkdownStream()
+        stream.append("```python\n")
+        stream.append(
+            (0..<200).map { index in
+                "value_\(index) = transform(shared_value, \(index))\n"
+            }.joined() + "payload = '''open\n"
+        )
+
+        let initial = configuration.prepare(snapshot: stream.snapshot())
+        let before = configuration.preparationCache.coreTextMeasurementCache.statistics
+        let diagnosticsBefore = configuration.diagnosticsRecorder.snapshot()
+
+        let appendedLine = "continued string'''\nvalue_200 = transform(shared_value, 200)\n"
+        stream.append(appendedLine)
+        let updated = configuration.prepare(snapshot: stream.snapshot(), reusing: initial)
+        let after = configuration.preparationCache.coreTextMeasurementCache.statistics
+        let diagnosticsAfter = configuration.diagnosticsRecorder.snapshot()
+
+        #expect(updated.snapshot.sourceLength > initial.snapshot.sourceLength)
+        #expect(after.widthHitCount - before.widthHitCount > 500)
+        #expect(after.widthMissCount - before.widthMissCount < 20)
+        #expect(
+            diagnosticsAfter.codeHighlightByteCount - diagnosticsBefore.codeHighlightByteCount ==
+                appendedLine.utf8.count
+        )
+        guard case let .block(updatedBlock, updatedContent) = updated.items.first else {
+            Issue.record("Expected the active code block")
+            return
+        }
+        let incrementallyHighlighted = try #require(updatedContent.code)
+        let updatedCode = updatedBlock.inlines.map(\.text).joined()
+        let fullyHighlighted = DefaultMarkdownCodeHighlighter().highlightedCode(
+            updatedCode,
+            infoString: "python"
+        )
+        #expect(incrementallyHighlighted == fullyHighlighted)
+
+        stream.append("```\n")
+        stream.finish()
+        let beforeSeal = configuration.diagnosticsRecorder.snapshot()
+        let sealed = configuration.prepare(snapshot: stream.snapshot(), reusing: updated)
+        let afterSeal = configuration.diagnosticsRecorder.snapshot()
+        let sealedBlock = try #require(sealed.snapshot.blocks.first)
+        let sealedCode = sealedBlock.inlines.map(\.text).joined()
+        #expect(sealedBlock.isSealed)
+        #expect(
+            afterSeal.codeHighlightByteCount - beforeSeal.codeHighlightByteCount ==
+                sealedCode.utf8.count
+        )
+    }
+
+    @Test
+    func nativeSwiftTailKeepsFullLexicalContextWhileUnsealed() throws {
+        let configuration = MarkdownRendererConfiguration.compactChat
+        var stream = MarkdownStream()
+        stream.append("```swift\n/* open comment\n")
+        let initial = configuration.prepare(snapshot: stream.snapshot())
+        let before = configuration.diagnosticsRecorder.snapshot()
+
+        stream.append("still comment */\nlet value = 1\n")
+        let updated = configuration.prepare(snapshot: stream.snapshot(), reusing: initial)
+        let after = configuration.diagnosticsRecorder.snapshot()
+        guard case let .block(block, content) = updated.items.first else {
+            Issue.record("Expected the active Swift code block")
+            return
+        }
+        let code = block.inlines.map(\.text).joined()
+        let highlighted = try #require(content.code)
+        let fullyHighlighted = DefaultMarkdownCodeHighlighter().highlightedCode(
+            code,
+            infoString: "swift"
+        )
+
+        #expect(highlighted == fullyHighlighted)
+        #expect(after.codeHighlightByteCount - before.codeHighlightByteCount == code.utf8.count)
+    }
+
+    @Test
     @MainActor
     func preparedInlineContentHasCoreTextLinePlan() throws {
         #if canImport(CoreText)

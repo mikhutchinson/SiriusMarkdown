@@ -4,6 +4,26 @@
 
 - None currently tracked.
 
+## Resolved in 0.6.15
+
+- Fixed long live generations repeatedly invalidating and renegotiating layout
+  for the full prepared document. The streaming SwiftUI surface now uses
+  bounded stable regions whose sealed sizes are cached by width and revision;
+  only the mutable tail region changes during an append. Height publication is
+  asynchronous and coalesced, eliminating the synchronous AppKit/SwiftUI
+  fitting recursion captured in host crash reports.
+- Fixed successive unsealed tail values filling stable preparation caches and
+  repeatedly remeasuring unchanged CoreText tokens. Active values bypass stable
+  caches, while a bounded shared CoreText cache reuses widths across preparation
+  instances using complete font and presentation keys.
+- Fixed Highlight.js-backed code highlighting rescanning an entire growing
+  code fence for every publication. Append-only suffix work uses the pinned
+  parser's real continuation state, preserving open comments and strings, with
+  16 KiB full-context checkpoints and a mandatory full highlight on seal. The
+  native Swift and custom highlighters keep full-document semantics where no
+  proven continuation is available. The package's complete Markdown, table,
+  math, Mermaid, attachment, copy, and selection features remain intact.
+
 ## Resolved in 0.6.14
 
 - Fixed the detached render-pump actor handoff failing strict-concurrency

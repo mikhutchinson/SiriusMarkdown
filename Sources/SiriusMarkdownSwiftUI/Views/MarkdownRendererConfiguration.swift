@@ -411,13 +411,16 @@ public struct MarkdownRendererConfiguration: Sendable {
                     )
                 }
                 let selectionInline = preparedCodeSelectionInline(for: block)
-                let key = Self.codeCacheKey(
+                // A mutable streaming tail changes on every publication. Do
+                // not fill the sealed-content cache with hundreds of complete
+                // historical copies that can never be requested again.
+                let key = block.isSealed ? Self.codeCacheKey(
                     for: block,
                     code: code,
                     language: language,
                     palette: theme.syntaxHighlightingPalette,
                     highlighterIdentity: codeHighlighterCacheIdentity
-                )
+                ) : nil
                 if let key,
                    let cached = preparationCache.code(forKey: key) {
                     diagnosticsRecorder.recordCacheHit()
@@ -431,15 +434,11 @@ public struct MarkdownRendererConfiguration: Sendable {
                 if key != nil {
                     diagnosticsRecorder.recordCacheMiss()
                 }
-                let highlighted: AttributedString
-                if shouldRecordCodeHighlight(language: language) {
-                    diagnosticsRecorder.recordCodeHighlight()
-                    highlighted = MarkdownDiagnostics().signpost("CodeHighlight", category: "RenderPreparation") {
-                        highlightedCode(code, infoString: block.infoString, language: language)
-                    }
-                } else {
-                    highlighted = highlightedCode(code, infoString: block.infoString, language: language)
-                }
+                let highlighted = preparedHighlightedCode(
+                    code,
+                    block: block,
+                    language: language
+                )
                 if let key {
                     preparationCache.insertCode(highlighted, forKey: key)
                 }
@@ -456,7 +455,8 @@ public struct MarkdownRendererConfiguration: Sendable {
             switch mathPolicy.evaluateMath(math, isBlock: true) {
             case .allow:
                 let fontSize = mathBlockFontSize
-                if let key = blockMathCacheKey(for: block, math: math, fontSize: fontSize) {
+                if block.isSealed,
+                   let key = blockMathCacheKey(for: block, math: math, fontSize: fontSize) {
                     if let cached = preparationCache.math(forKey: key) {
                         diagnosticsRecorder.recordCacheHit()
                         return mathBlockContent(for: block, math: cached)
@@ -1071,12 +1071,12 @@ public struct MarkdownRendererConfiguration: Sendable {
             return nil
         }
 
-        let key = Self.mermaidCacheKey(
+        let key = block.isSealed ? Self.mermaidCacheKey(
             for: block,
             code: code,
             rendererIdentity: mermaidRendererCacheIdentity,
             themeIdentity: mermaidThemeCacheIdentity
-        )
+        ) : nil
         if let key,
            let cached = preparationCache.mermaid(forKey: key) {
             diagnosticsRecorder.recordCacheHit()
@@ -1113,7 +1113,7 @@ public struct MarkdownRendererConfiguration: Sendable {
         let metrics = inlineMetrics(for: block)
         let imageDecisions = preparedImageDecisions(for: runs)
         let mathDecisions = preparedMathDecisions(for: runs)
-        let cacheKey = inlineCacheNamespace(
+        let cacheKey = block?.isSealed == false ? nil : inlineCacheNamespace(
             for: runs,
             metrics: metrics,
             imageDecisions: imageDecisions,
@@ -1145,7 +1145,10 @@ public struct MarkdownRendererConfiguration: Sendable {
         )
         let prepared = PreparedInlineContent(runs: inlinePayload.runs, sourceRange: sourceRange)
         diagnosticsRecorder.recordPrepare()
-        let measurer = CoreTextInlineMeasurer(profiles: metrics.fontProfiles)
+        let measurer = CoreTextInlineMeasurer(
+            profiles: metrics.fontProfiles,
+            measurementCache: preparationCache.coreTextMeasurementCache
+        )
         let measured = VariableWidthLineWalker(measurer: measurer).prepare(
             prepared,
             fontSize: metrics.fontSize
@@ -1240,6 +1243,143 @@ public struct MarkdownRendererConfiguration: Sendable {
         }
         return preparedInline(for: selectionRuns, sourceRange: sourceRange, block: block)
     }
+
+    private func preparedHighlightedCode(
+        _ code: String,
+        block: MarkdownBlock,
+        language: MarkdownCodeLanguage
+    ) -> AttributedString {
+        let renderFull: (String) -> AttributedString = { fragment in
+            if shouldRecordCodeHighlight(language: language) {
+                diagnosticsRecorder.recordCodeHighlight(bytes: fragment.utf8.count)
+                return MarkdownDiagnostics().signpost("CodeHighlight", category: "RenderPreparation") {
+                    highlightedCode(fragment, infoString: block.infoString, language: language)
+                }
+            }
+            return highlightedCode(fragment, infoString: block.infoString, language: language)
+        }
+
+        let removeRollingState = {
+            if let removed = preparationCache.removeStreamingCodeHighlightState(blockID: block.id),
+               let backendStateID = removed.backendStateID
+            {
+                DefaultMarkdownCodeHighlighter().removeIncrementalState(backendStateID)
+            }
+        }
+
+        guard !block.isSealed else {
+            removeRollingState()
+            return renderFull(code)
+        }
+
+        let defaultHighlighter = codeHighlighter as? DefaultMarkdownCodeHighlighter
+        let usesContextFreeSuffix = codeHighlighter is PlainMarkdownCodeHighlighter ||
+            (defaultHighlighter != nil && !language.shouldHighlight)
+        let usesHighlightJSContinuation = defaultHighlighter != nil &&
+            language.shouldHighlight && language.backendName != "swift"
+        guard usesContextFreeSuffix || usesHighlightJSContinuation else {
+            // An arbitrary host highlighter may carry its own whole-document
+            // lexical state. The native Swift highlighter also needs its full
+            // prefix for nested comments, raw strings, and interpolation.
+            // Preserve exact output unless a backend has a proven continuation
+            // path; performance work must not trade away live syntax fidelity.
+            removeRollingState()
+            return renderFull(code)
+        }
+
+        let contextIdentity = Self.cacheNamespace([
+            ("streamingCode", "2"),
+            ("language", language.cacheIdentity),
+            ("infoString", block.infoString ?? ""),
+            ("palette", theme.syntaxHighlightingPalette.cacheIdentity),
+            ("highlighter", codeHighlighterCacheIdentity ?? String(reflecting: type(of: codeHighlighter)))
+        ])
+        let backendStateID = usesHighlightJSContinuation
+            ? preparationCache.streamingCodeHighlightStateID(
+                blockID: block.id,
+                contextIdentity: contextIdentity
+            )
+            : nil
+
+        let renderIncrement: (String, Bool) -> AttributedString? = { fragment, reset in
+            guard let defaultHighlighter, let backendStateID else {
+                return renderFull(fragment)
+            }
+            if shouldRecordCodeHighlight(language: language) {
+                diagnosticsRecorder.recordCodeHighlight(bytes: fragment.utf8.count)
+            }
+            return MarkdownDiagnostics().signpost(
+                "CodeHighlight",
+                category: "RenderPreparation"
+            ) {
+                defaultHighlighter.incrementallyHighlightedCode(
+                    fragment,
+                    language: language,
+                    palette: theme.syntaxHighlightingPalette,
+                    stateID: backendStateID,
+                    reset: reset
+                )
+            }
+        }
+
+        let store: (AttributedString, Int) -> Void = { highlighted, fullHighlightByteCount in
+            preparationCache.storeStreamingCodeHighlightState(
+                MarkdownStreamingCodeHighlightState(
+                    blockID: block.id,
+                    contextIdentity: contextIdentity,
+                    backendStateID: backendStateID,
+                    code: code,
+                    highlighted: highlighted,
+                    fullHighlightByteCount: fullHighlightByteCount
+                )
+            )
+        }
+
+        let renderAndStoreFullContext: () -> AttributedString = {
+            if let highlighted = renderIncrement(code, true) {
+                store(highlighted, code.utf8.count)
+                return highlighted
+            }
+
+            // A pinned-runtime mismatch or illegal Highlight.js parse fails
+            // closed to the ordinary full-document highlighter. Do not retain
+            // a rolling state whose continuation fidelity is unknown.
+            if let backendStateID {
+                DefaultMarkdownCodeHighlighter().removeIncrementalState(backendStateID)
+            }
+            _ = preparationCache.removeStreamingCodeHighlightState(blockID: block.id)
+            return renderFull(code)
+        }
+
+        if let previous = preparationCache.streamingCodeHighlightState(
+            blockID: block.id,
+            contextIdentity: contextIdentity
+        ), code.hasPrefix(previous.code) {
+            if code == previous.code {
+                return previous.highlighted
+            }
+            let previousByteCount = previous.code.utf8.count
+            let codeByteCount = code.utf8.count
+            let growthSinceFull = codeByteCount - previous.fullHighlightByteCount
+            if growthSinceFull < Self.streamingCodeFullHighlightCheckpointBytes,
+               previousByteCount <= codeByteCount
+            {
+                let suffixStart = code.utf8.index(code.utf8.startIndex, offsetBy: previousByteCount)
+                let suffix = String(decoding: code.utf8[suffixStart...], as: UTF8.self)
+                if let highlightedSuffix = renderIncrement(suffix, false) {
+                    var highlighted = previous.highlighted
+                    highlighted.append(highlightedSuffix)
+                    store(highlighted, previous.fullHighlightByteCount)
+                    return highlighted
+                }
+                return renderAndStoreFullContext()
+            }
+        }
+
+        return renderAndStoreFullContext()
+    }
+
+    private static let streamingCodeFullHighlightCheckpointBytes = 16 * 1_024
 
     private func inlineCacheNamespace(
         for runs: [MarkdownInlineRun],
@@ -2330,12 +2470,24 @@ public final class MarkdownInlineLayoutCache: @unchecked Sendable {
     }
 }
 
+private struct MarkdownStreamingCodeHighlightState: Sendable {
+    var blockID: MarkdownBlockID
+    var contextIdentity: String
+    var backendStateID: String?
+    var code: String
+    var highlighted: AttributedString
+    var fullHighlightByteCount: Int
+}
+
 public final class MarkdownRenderPreparationCache: @unchecked Sendable {
     private let lock = NSLock()
+    let coreTextMeasurementCache: MarkdownCoreTextMeasurementCache
     private var inlineCache: BoundedMarkdownCache<MarkdownPreparedInlineContent>
     private var codeCache: BoundedMarkdownCache<AttributedString>
     private var mermaidCache: BoundedMarkdownCache<MarkdownPreparedMermaidDiagram>
     private var mathCache: BoundedMarkdownCache<MarkdownPreparedMath>
+    private var activeStreamingCodeHighlight: MarkdownStreamingCodeHighlightState?
+    private let streamingCodeHighlightNamespace = UUID().uuidString
     /// The most recent real container width reported by any prepared inline
     /// text view in this session, used to seed `defaultLayoutWidth` for
     /// newly prepared blocks so their pre-built initial layout / `CTLine`
@@ -2344,6 +2496,9 @@ public final class MarkdownRenderPreparationCache: @unchecked Sendable {
     private var lastKnownContainerWidth: Double?
 
     public init(capacity: Int = 256) {
+        self.coreTextMeasurementCache = MarkdownCoreTextMeasurementCache(
+            widthCapacity: max(4_096, capacity * 64)
+        )
         self.inlineCache = BoundedMarkdownCache(capacity: capacity)
         self.codeCache = BoundedMarkdownCache(capacity: capacity)
         self.mermaidCache = BoundedMarkdownCache(capacity: capacity)
@@ -2399,6 +2554,47 @@ public final class MarkdownRenderPreparationCache: @unchecked Sendable {
         }
     }
 
+    fileprivate func streamingCodeHighlightState(
+        blockID: MarkdownBlockID,
+        contextIdentity: String
+    ) -> MarkdownStreamingCodeHighlightState? {
+        lock.withLock {
+            guard let state = activeStreamingCodeHighlight,
+                  state.blockID == blockID,
+                  state.contextIdentity == contextIdentity
+            else {
+                return nil
+            }
+            return state
+        }
+    }
+
+    fileprivate func storeStreamingCodeHighlightState(
+        _ state: MarkdownStreamingCodeHighlightState
+    ) {
+        lock.withLock {
+            activeStreamingCodeHighlight = state
+        }
+    }
+
+    fileprivate func streamingCodeHighlightStateID(
+        blockID: MarkdownBlockID,
+        contextIdentity: String
+    ) -> String {
+        "\(streamingCodeHighlightNamespace):\(blockID.rawValue):\(contextIdentity)"
+    }
+
+    @discardableResult
+    fileprivate func removeStreamingCodeHighlightState(
+        blockID: MarkdownBlockID
+    ) -> MarkdownStreamingCodeHighlightState? {
+        lock.withLock {
+            guard activeStreamingCodeHighlight?.blockID == blockID else { return nil }
+            defer { activeStreamingCodeHighlight = nil }
+            return activeStreamingCodeHighlight
+        }
+    }
+
     public func mermaid(forKey key: MarkdownCacheKey) -> MarkdownPreparedMermaidDiagram? {
         lock.withLock {
             mermaidCache.value(forKey: key)
@@ -2424,12 +2620,19 @@ public final class MarkdownRenderPreparationCache: @unchecked Sendable {
     }
 
     public func removeAll() {
-        lock.withLock {
+        let backendStateID = lock.withLock {
+            let backendStateID = activeStreamingCodeHighlight?.backendStateID
             inlineCache.removeAll()
             codeCache.removeAll()
             mermaidCache.removeAll()
             mathCache.removeAll()
+            activeStreamingCodeHighlight = nil
+            return backendStateID
         }
+        if let backendStateID {
+            DefaultMarkdownCodeHighlighter().removeIncrementalState(backendStateID)
+        }
+        coreTextMeasurementCache.removeAll()
     }
 }
 

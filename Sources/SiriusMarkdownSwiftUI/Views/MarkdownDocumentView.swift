@@ -168,6 +168,7 @@ public struct StreamingMarkdownView: View {
     private var hostBoundaryView: @MainActor (MarkdownHostBoundary) -> AnyView
 
     @StateObject private var internalSelectionController = MarkdownSelectionController()
+    @StateObject private var regionMeasurementStore = MarkdownStreamingRegionMeasurementStore()
 
     private var theme: MarkdownTheme {
         configuration.theme
@@ -221,12 +222,15 @@ public struct StreamingMarkdownView: View {
 
     public var body: some View {
         let controller = activeSelectionController
+        let regions = streamingRegions
         selectionDocumentContent(selectionController: controller)
         .onAppear {
             controller?.updateSnapshot(preparedSnapshot.snapshot)
+            regionMeasurementStore.synchronize(tokens: regions.map(\.layoutToken))
         }
         .markdownOnChange(of: preparedSnapshot.snapshot.generation) { _ in
             controller?.updateSnapshot(preparedSnapshot.snapshot)
+            regionMeasurementStore.synchronize(tokens: regions.map(\.layoutToken))
         }
     }
 
@@ -239,11 +243,19 @@ public struct StreamingMarkdownView: View {
 
     @ViewBuilder
     private func selectionDocumentContent(selectionController: MarkdownSelectionController?) -> some View {
-        let content = LazyVStack(alignment: .leading, spacing: theme.renderBlockSpacing) {
-            ForEach(preparedSnapshot.renderItems) { item in
-                preparedRenderItemView(item, selectionController: selectionController)
-                    .id(itemViewID(for: item, in: preparedSnapshot))
-            }
+        // StreamingMarkdownView is the host-scrolled surface. It keeps every
+        // prepared item mounted, but groups items into bounded stable regions:
+        // sealed regions reuse their settled natural size and only the region
+        // containing the mutable tail is remeasured. This avoids both the
+        // LazyVStack/AppKit item-phase crash and an eager whole-document
+        // sizeThatFits pass on every publication.
+        let content = markdownStreamingRegionStack(
+            regions: streamingRegions,
+            spacing: theme.renderBlockSpacing,
+            measurementStore: regionMeasurementStore
+        ) { item in
+            preparedRenderItemView(item, selectionController: selectionController)
+                .id(itemViewID(for: item, in: preparedSnapshot))
         }
         .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -258,6 +270,29 @@ public struct StreamingMarkdownView: View {
         } else {
             content
         }
+    }
+
+    private var streamingRegions: [MarkdownStreamingPreparedRegion] {
+        MarkdownStreamingPreparedRegion.make(
+            renderItems: preparedSnapshot.renderItems,
+            layoutContextRevision: streamingLayoutContextRevision
+        ) { item in
+            itemViewID(for: item, in: preparedSnapshot)
+        }
+    }
+
+    private var streamingLayoutContextRevision: Int {
+        // Keep this token derived from explicit renderer inputs. Environment-driven
+        // size changes are observed by each mounted region's geometry relay and
+        // replace its settled measurement. Reading a dynamic environment key at
+        // this persistent host root makes SwiftUI project that key while AppKit is
+        // updating the root view, which is not a safe invalidation boundary.
+        var fingerprint = Hasher()
+        fingerprint.combine(theme)
+        fingerprint.combine(String(describing: configuration.inlineRenderingMode))
+        fingerprint.combine(configuration.nativeTextSelection)
+        fingerprint.combine(configuration.documentSelection)
+        return fingerprint.finalize()
     }
 
     @ViewBuilder

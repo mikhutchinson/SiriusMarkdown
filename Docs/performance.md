@@ -23,6 +23,13 @@ The renderer contract is architectural: SwiftUI **`body`** must not parse Markdo
 
 Bounded LRU-style caches (default capacity **256**) cover prepared, measured, layout, and overwide fallback unit results; **`MarkdownDiagnosticsRecorder`** records **prepareCount**, **layoutCount**, **widthRelayoutCount**, **overwideUnitFallbackCount**, and generic cache hit/miss counts. Per-character unit measurement is lazy and only runs for overwide segment splitting.
 
+One render preparation cache also owns a bounded, thread-safe
+**`MarkdownCoreTextMeasurementCache`** (16,384 widths and 64 fonts by default).
+Its keys include the font profile, size, inline kind and presentation, missing-
+glyph policy, and text. New preparation values for a growing tail therefore
+reuse unchanged token widths without weakening font or presentation
+invalidation.
+
 Prepared, measured, and layout results also carry deterministic two-lane
 **`MarkdownContentFingerprint`** values. The fingerprints are built when those
 values are created or mutated, where content-sized work belongs. Layout cache
@@ -54,6 +61,32 @@ user-initiated task. Its MainActor isolation exists only for pending-operation
 drain and `ObservableObject` publication; expensive pipeline work must not
 inherit a SwiftUI caller's actor or task-local context.
 
+### Bounded streaming layout (INV-P5)
+
+`StreamingMarkdownView` divides prepared render items into regions of at most
+16 items. A custom non-lazy `Layout` keeps every structured Markdown view
+mounted but caches sealed region sizes by identity, content revision, and
+proposal width. A normal append changes only the final region; stable history
+is placed from cached sizes. Region geometry publication is asynchronous,
+quantized, and coalesced so it cannot form a synchronous AppKit/SwiftUI fitting
+loop.
+
+The prepared snapshot path intentionally does not use `LazyVStack` for live
+streams. This avoids depending on private viewport item-phase behavior while
+preserving tables, math, Mermaid, attachments, links, copy, and document
+selection in their native SwiftUI block hierarchy.
+
+### Mutable-tail cache and highlighting policy (INV-P6)
+
+Unsealed inline, code, math, and Mermaid values bypass stable preparation
+caches. Plain and Highlight.js-backed highlighters retain one rolling state per
+active block, highlight appended suffixes with the parser's real continuation,
+take a full-context checkpoint every 16 KiB, and always perform a full highlight
+when the block seals. The native Swift and arbitrary host highlighters retain
+full-document behavior where no proven continuation is available. Diagnostics expose
+`codeHighlightByteCount` as well as invocation count so cumulative work is
+testable directly.
+
 ### Selection preference caching (INV-P4)
 
 **`MarkdownDocumentSelectionLayer.onPreferenceChange`** skips sorting and storage when fragments are unchanged. `MarkdownDocumentSelectionFragment` conforms to `Equatable`, so the comparison is exact. This prevents redundant `sortedForSelection()` calls and `recordSelectionPreferenceChange()` increments during streaming when no blocks change position.
@@ -70,17 +103,21 @@ Performance benchmarks live in `Tests/SiriusMarkdownSwiftUITests/MarkdownPerform
 | Selection preference publication | 0 new builds after warmup | No work when nothing changed |
 | 1,300-line hosted selection invalidation | <16ms median after warmup | One 60fps frame; release reference is 0.418ms |
 | 8x mutable-tail table growth | <20x parse time | Reject quadratic AST source-location conversion; release reference is 8.02x |
+| 179 KB / 90-publication AppKit stream | <16ms mutable-tail median | Only the final bounded region should remeasure; release reference is 2.71ms |
 
 ## Rendering path
 
 - **`MarkdownDocumentView`** / **`StreamingMarkdownView`** should receive **`MarkdownPreparedSnapshot`** values prepared outside SwiftUI body evaluation. Deprecated direct `snapshot:` initializers are kept only for small compatibility cases; they enforce cheap block policies but intentionally skip full highlighting, math rendering, and inline layout preparation.
-- **`MarkdownRendererConfiguration.prepare(snapshot:)`** returns **`MarkdownPreparedSnapshot`**, preparing inline attributed payloads, measured inline content, link/image policy decisions, code highlighting, math rendering, and HTML policy decisions before block bodies consume them. `MarkdownRenderPreparationCache` bounds inline/code/math reuse by source range, content hash, normalized code language, highlighter identity, theme palette identity, and preparation namespace.
+- **`MarkdownRendererConfiguration.prepare(snapshot:)`** returns **`MarkdownPreparedSnapshot`**, preparing inline attributed payloads, measured inline content, link/image policy decisions, code highlighting, math rendering, and HTML policy decisions before block bodies consume them. `MarkdownRenderPreparationCache` bounds sealed inline/code/math reuse by source range, content hash, normalized code language, highlighter identity, theme palette identity, and preparation namespace; mutable values use the rolling/bounded paths described above instead of filling stable caches.
 - **`MarkdownBlockView`** consumes **`MarkdownPreparedBlockContent`** for paragraphs, headings, lists, tables, code, math, and HTML, and exposes copy/context hooks through **`MarkdownCopyProvider`**.
 
 The suite includes headless renderer-performance contract tests:
 
 - repeated preparation of the same snapshot must keep `prepareCount`, `codeHighlightCount`, and `mathRenderCount` stable while cache hits increase;
 - language-aware code highlighting must run only for uncached explicit supported-language fences; plaintext, nohighlight, unlabeled, and unsupported default fences stay plain and do not increment highlight work counters;
+- Highlight.js-backed highlighting of a growing code tail must process only appended bytes between full-context checkpoints, match a full highlight across multiline lexical state, and perform a full highlight on seal; the native Swift and custom paths remain full-context;
+- stable streaming regions must retain their revisions while only the mutable-tail region changes, and AppKit-hosted rapid publication must stay inside the frame budget without constraint recursion;
+- equivalent CoreText token measurements must hit the shared bounded cache across distinct measurer values;
 - large streaming transcript preparation must create unique prepared item IDs for every block and keep an active tail prepared without forcing a full finish;
 - renderer preparation must not eagerly generate per-character unit measurements for every segment;
 - explicit overwide fallback layout can use prepared unit measurements, while SwiftUI view-time line breaking refuses measurement fallback and uses already prepared segment widths only.

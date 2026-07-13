@@ -18,11 +18,35 @@ The core contract is simple:
 
 ## Current Release
 
-`0.6.14` carries the two long-generation fixes from `0.6.13` and makes the
-detached render pump strict-concurrency clean across supported Swift 6
-toolchains, on
-top of `0.6.12`'s constant-time selection/layout cache hits and `0.6.11`'s
-AppKit leaf stability:
+`0.6.15` removes the remaining whole-document SwiftUI layout amplification
+during long live generations without reducing the renderer's feature surface.
+Markdown semantics, tables, highlighting, math, Mermaid, links, attachments,
+copy, and source-backed document selection remain enabled:
+
+- **Bounded streaming regions:** the SwiftUI streaming surface groups stable
+  prepared items into bounded regions, caches each sealed region's size for a
+  proposal width and revision, and invalidates only the mutable tail region.
+  It does not rely on `LazyVStack`'s private item-phase cache and does not
+  eagerly remeasure every prior block after an append.
+- **Mutable work stays mutable:** active tail blocks bypass caches intended for
+  sealed values, so successive generations cannot evict stable prepared
+  content or accumulate historical tail values.
+- **Context-correct incremental highlighting:** plain and Highlight.js-backed
+  languages process appended suffixes while a code block is active. The pinned
+  Highlight.js parser continuation preserves open comment/string state; a
+  full-context checkpoint runs every 16 KiB and every block is fully
+  highlighted on seal. The native Swift and custom highlighters retain
+  full-document semantics where no proven continuation is available.
+- **Shared bounded CoreText measurements:** unchanged inline tokens reuse
+  width measurements across preparation values with keys that include the
+  complete font and presentation profile.
+- **Measured regression:** a 179 KB document across 90 AppKit-hosted
+  publications keeps mutable-tail layout at a 2.71 ms median, and the full
+  release suite discovers 881 tests.
+
+The release builds on `0.6.14`'s strict-concurrency-clean detached render pump,
+`0.6.13`'s linear source mapping, `0.6.12`'s constant-time
+selection/layout cache hits, and `0.6.11`'s AppKit leaf stability:
 
 - **Linear AST source mapping:** each `swift-markdown` parse boundary builds
   one UTF-8 line-start index. Block, table-cell, and inline source locations
@@ -85,7 +109,7 @@ competing selection owners. Other platforms retain the source-backed default.
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/mikhutchinson/SiriusMarkdown.git", from: "0.6.14")
+    .package(url: "https://github.com/mikhutchinson/SiriusMarkdown.git", from: "0.6.15")
 ],
 targets: [
     .target(
@@ -328,12 +352,12 @@ git diff --check
 - Release runbook: `runbook.md`
 - Changelog: `changelog.md`
 - Bugfix log: `bugfix.md`
-- Current release notes: `release-notes/0.6.14.md`
+- Current release notes: `release-notes/0.6.15.md`
 - Third-party credits: `NOTICE.md`
 
 ## Release
 
-`0.6.14` is ready only when the docs describe the current public package surface,
+`0.6.15` is ready only when the docs describe the current public package surface,
 `bash Tools/product-check.sh` passes from the repository root, `git diff --check`
 is clean, the public remote is correct, and the release commit is tagged and
-pushed as `0.6.14` with a matching published GitHub Release and green CI.
+pushed as `0.6.15` with a matching published GitHub Release and green CI.

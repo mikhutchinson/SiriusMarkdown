@@ -1159,6 +1159,10 @@ func documentSelectionLayoutUsesLightweightPreparedIdentities() throws {
         contentsOf: root.appending(path: "Sources/SiriusMarkdownSwiftUI/Views/MarkdownDocumentView.swift"),
         encoding: .utf8
     )
+    let streamingRegionLayout = try String(
+        contentsOf: root.appending(path: "Sources/SiriusMarkdownSwiftUI/Views/MarkdownStreamingRegionLayout.swift"),
+        encoding: .utf8
+    )
     let surfaceView = try String(
         contentsOf: root.appending(path: "Sources/SiriusMarkdownSwiftUI/Views/MarkdownDocumentSurface.swift"),
         encoding: .utf8
@@ -1171,8 +1175,10 @@ func documentSelectionLayoutUsesLightweightPreparedIdentities() throws {
     #expect(configuration.contains("public var renderItems: [MarkdownPreparedSnapshotRenderItem]"))
     #expect(configuration.contains("public var itemIDs: [String]"))
     #expect(configuration.contains("public struct MarkdownPreparedSnapshotRenderItem"))
-    #expect(documentView.occurrences(of: "ForEach(preparedSnapshot.renderItems)") == 2)
+    #expect(documentView.occurrences(of: "ForEach(preparedSnapshot.renderItems)") == 1)
+    #expect(streamingRegionLayout.contains("ForEach(region.renderItems)"))
     #expect(!documentView.contains("ForEach(preparedSnapshot.items)"))
+    #expect(!streamingRegionLayout.contains("ForEach(preparedSnapshot.items)"))
     #expect(surfaceView.contains("self.itemIDs = preparedSnapshot.itemIDs"))
     #expect(selectionGeometry.contains("private var equalityFingerprint: Int"))
     #expect(selectionGeometry.contains("makeEqualityFingerprint"))
@@ -1275,7 +1281,7 @@ func defaultJavaScriptResourceLoadingUsesNonTrappingLookup() throws {
 @Test
 func releaseAndProductChecksKeepRenderProbeVisualsOptIn() throws {
     let root = packageRootURL()
-    let currentReleaseVersion = "0.6.14"
+    let currentReleaseVersion = "0.6.15"
     let releaseCheck = try String(
         contentsOf: root.appending(path: "Tools/release-check.sh"),
         encoding: .utf8
@@ -4473,7 +4479,7 @@ func inlinePreparationCacheKeysIncludeRunSourceRanges() throws {
             MarkdownInlineRun(kind: .strong, text: "same", sourceRange: firstRunRange)
         ],
         contentHash: 1,
-        isSealed: false
+        isSealed: true
     )
     let secondBlock = MarkdownBlock(
         id: MarkdownBlockID("same-block"),
@@ -4484,7 +4490,7 @@ func inlinePreparationCacheKeysIncludeRunSourceRanges() throws {
             MarkdownInlineRun(kind: .strong, text: "same", sourceRange: secondRunRange)
         ],
         contentHash: 2,
-        isSealed: false
+        isSealed: true
     )
 
     let first = try #require(configuration.prepare(block: firstBlock).inlineLayout)
@@ -4516,7 +4522,7 @@ func inlinePreparationCacheKeysSeparateRunFieldBoundaries() throws {
             MarkdownInlineRun(kind: .link, text: "a", destination: "bc")
         ],
         contentHash: 1,
-        isSealed: false
+        isSealed: true
     )
     let secondBlock = MarkdownBlock(
         id: MarkdownBlockID("same-block"),
@@ -4527,7 +4533,7 @@ func inlinePreparationCacheKeysSeparateRunFieldBoundaries() throws {
             MarkdownInlineRun(kind: .link, text: "ab", destination: "c")
         ],
         contentHash: 2,
-        isSealed: false
+        isSealed: true
     )
 
     let first = try #require(configuration.prepare(block: firstBlock).inlineLayout)

@@ -62,6 +62,16 @@ StreamingMarkdownView(preparedSnapshot: prepared, configuration: configuration)
 
 Keeping the configuration alive lets the render-preparation cache reuse inline, highlighted-code, and rendered-math work as the mutable tail changes.
 
+`StreamingMarkdownView` groups prepared render items into stable regions of at
+most 16 items. A region identity includes the prepared item revisions it owns.
+The custom non-lazy region layout caches each settled size by identity,
+revision, and proposal width, so an append normally remeasures only the final
+region containing the mutable tail. Region geometry reports are quantized,
+asynchronous, and coalesced before they invalidate the parent. This keeps the
+full feature-complete SwiftUI hierarchy mounted without relying on
+`LazyVStack`'s private item-phase cache or synchronously fitting the whole
+document after every publication.
+
 ## Snapshots
 
 **`MarkdownSnapshot`** includes:
@@ -84,6 +94,15 @@ drains queued operations and publishes prepared values through narrow
 MainActor hops, while parsing, AST conversion, highlighting, math/Mermaid
 preparation, and inline preparation execute outside the caller's actor and
 task-local context.
+
+Active, unsealed prepared values do not enter the stable inline, code, math, or
+Mermaid caches. Plain and Highlight.js-backed highlighting keeps one rolling
+state for the active block and highlights append-only suffixes between 16 KiB
+full-context checkpoints. The pinned Highlight.js wrapper forwards the
+parser's opaque continuation so multiline comments and strings retain exact
+lexical context. Every block receives a full highlight when it seals. The
+native Swift and custom highlighters continue to receive the full document on
+every publication because no equivalent continuation contract is available.
 
 Semantics always come from **`swift-markdown`** on each parsed slice; the scanner only chooses slice boundaries. The scanner's reference-label tracking is a sealing guard, not a Markdown parser.
 

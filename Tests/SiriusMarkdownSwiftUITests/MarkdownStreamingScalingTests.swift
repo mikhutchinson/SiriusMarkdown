@@ -65,6 +65,20 @@ private final class StreamingScalingHarness {
         return Double(elapsed.components.seconds) * 1000.0
             + Double(elapsed.components.attoseconds) / 1e15
     }
+
+    /// Mirrors a transcript row host publishing a new persistent root value.
+    /// Sirius does this without replacing the NSHostingView itself.
+    func replaceRootAndSettle() {
+        let root = StreamingScalingHost(session: session)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(width: 480, alignment: .topLeading)
+        hostingView.rootView = AnyView(root)
+        hostingView.needsLayout = true
+        hostingView.layoutSubtreeIfNeeded()
+        window.contentView?.needsLayout = true
+        window.contentView?.layoutSubtreeIfNeeded()
+        window.displayIfNeeded()
+    }
 }
 
 private struct StreamingScalingHost: View {
@@ -88,8 +102,37 @@ private func scalingChunk(index: Int) -> String {
     """
 }
 
-@Suite("Streaming scaling")
+@Suite("Streaming scaling", .serialized)
 struct MarkdownStreamingScalingTests {
+    @Test
+    func preparedRegionsStayBoundedAndOnlyTailRegionRevisionChanges() throws {
+        let count = MarkdownStreamingPreparedRegion.capacity * 3 + 5
+        let renderItems = (0..<count).map {
+            MarkdownPreparedSnapshotRenderItem(id: "item-\($0)", itemIndex: $0)
+        }
+        let initial = MarkdownStreamingPreparedRegion.make(renderItems: renderItems) {
+            $0.id + ":0"
+        }
+
+        #expect(initial.count == 4)
+        #expect(initial.dropLast().allSatisfy {
+            $0.renderItems.count == MarkdownStreamingPreparedRegion.capacity
+        })
+        #expect(initial.last?.renderItems.count == 5)
+
+        let tailID = try #require(renderItems.last?.id)
+        let changed = MarkdownStreamingPreparedRegion.make(renderItems: renderItems) { item in
+            item.id == tailID ? item.id + ":1" : item.id + ":0"
+        }
+
+        #expect(changed.map(\.id) == initial.map(\.id))
+        #expect(changed.dropLast().map(\.layoutToken) == initial.dropLast().map(\.layoutToken))
+        #expect(changed.last?.layoutToken != initial.last?.layoutToken)
+        #expect(changed.allSatisfy {
+            $0.renderItems.count <= MarkdownStreamingPreparedRegion.capacity
+        })
+    }
+
     @Test
     @MainActor
     func perAppendMainThreadCostStaysBoundedAsDocumentGrows() async throws {
@@ -170,6 +213,81 @@ struct MarkdownStreamingScalingTests {
             Comment(rawValue: selectionMessage)
         )
     }
+
+    /// Reproduces the host shape that crashed Sirius during a large live
+    /// response: a naturally-sized StreamingMarkdownView inside an AppKit
+    /// scroll document, with prepared snapshots publishing while the window
+    /// actively runs layout/display cycles. The former LazyVStack item-phase
+    /// recycler eventually requested another constraints update from inside
+    /// NSHostingView.layout; AppKit converted that recursive display-cycle
+    /// guard into EXC_BREAKPOINT. This test is intentionally a real NSWindow
+    /// render loop, not a view-construction assertion.
+    @Test
+    @MainActor
+    func rapidPreparedPublicationsStayConstraintSafeInAppKitHost() async throws {
+        let harness = StreamingScalingHarness(documentSelection: .enabled)
+        defer { harness.tearDown() }
+
+        var samples: [Double] = []
+        for index in 0..<90 {
+            let ms = await harness.appendAndSettle(rapidScalingChunk(index: index))
+            harness.window.contentView?.needsLayout = true
+            harness.window.contentView?.layoutSubtreeIfNeeded()
+            harness.window.displayIfNeeded()
+            try? await Task.sleep(for: .milliseconds(2))
+            if index >= 80 {
+                samples.append(ms)
+            }
+        }
+
+        let tailMedian = median(samples)
+        print(
+            "[streaming-constraint-safety] final-document-bytes=\(harness.session.preparedSnapshot.snapshot.sourceLength) " +
+            "tail-layout-median=\(String(format: "%.2f", tailMedian))ms"
+        )
+        #expect(tailMedian < 16.0)
+    }
+
+    /// Guards the persistent-row-host boundary used by Sirius. A streaming
+    /// surface must tolerate root-value replacement while AppKit owns the
+    /// hosting view and is actively driving layout. In particular, layout
+    /// cache identity is derived from explicit renderer inputs; environment
+    /// changes settle through mounted-region geometry instead of a dynamic
+    /// environment projection at this root boundary.
+    @Test
+    @MainActor
+    func persistentHostingRootReplacementStaysEnvironmentSafe() async throws {
+        let harness = StreamingScalingHarness(documentSelection: .enabled)
+        defer { harness.tearDown() }
+
+        for index in 0..<30 {
+            _ = await harness.appendAndSettle(scalingChunk(index: index))
+        }
+
+        for index in 30..<45 {
+            harness.session.append(scalingChunk(index: index))
+            await harness.session.waitUntilIdle()
+            harness.replaceRootAndSettle()
+            try? await Task.sleep(for: .milliseconds(2))
+        }
+
+        #expect(harness.hostingView.frame.width == 480)
+        #expect(harness.session.preparedSnapshot.snapshot.sourceLength > 0)
+    }
+}
+
+private func rapidScalingChunk(index: Int) -> String {
+    (0..<8).map { paragraph in
+        """
+        ## Section \(index).\(paragraph)
+
+        Streaming paragraph \(index).\(paragraph) contains **strong text**, `inline code`, a [safe link](https://example.com), and enough prose to wrap across several prepared Core Text lines in a transcript-width host.
+
+        - Item A for \(index).\(paragraph)
+        - Item B for \(index).\(paragraph)
+
+        """
+    }.joined()
 }
 
 private func median(_ values: [Double]) -> Double {

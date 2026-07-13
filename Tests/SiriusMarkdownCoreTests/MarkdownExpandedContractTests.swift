@@ -1475,6 +1475,26 @@ private func defaultCoreTextMeasurerUsesSystemProfileInsteadOfHelvetica() {
 }
 
 @Test
+private func coreTextMeasurementCacheReusesWidthsAcrossMeasurerValues() {
+    let cache = MarkdownCoreTextMeasurementCache(widthCapacity: 32, fontCapacity: 4)
+    let first = CoreTextInlineMeasurer(fontName: "Menlo", measurementCache: cache)
+    let second = CoreTextInlineMeasurer(fontName: "Menlo", measurementCache: cache)
+
+    let firstWidth = first.width(of: "unchanged streaming token", fontSize: 14)
+    let afterFirst = cache.statistics
+    let secondWidth = second.width(of: "unchanged streaming token", fontSize: 14)
+    let afterSecond = cache.statistics
+
+    #expect(firstWidth == secondWidth)
+    #expect(afterFirst.widthMissCount == 1)
+    #expect(afterSecond.widthHitCount == 1)
+    #expect(afterSecond.cachedWidthCount == 1)
+    #if canImport(CoreText)
+    #expect(afterSecond.cachedFontCount == 1)
+    #endif
+}
+
+@Test
 private func fontProfilesProduceDistinctMeasurementCacheKeys() {
     let system = CoreTextInlineMeasurer()
     let helvetica = CoreTextInlineMeasurer(fontName: "Helvetica")

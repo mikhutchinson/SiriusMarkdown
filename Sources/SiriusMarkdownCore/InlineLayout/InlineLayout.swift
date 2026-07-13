@@ -549,9 +549,156 @@ public enum MarkdownMissingGlyphMeasurement: String, Sendable, Hashable {
     case pretextBaseFontAdvances
 }
 
+struct MarkdownCoreTextFontKey: Sendable, Hashable {
+    var profile: MarkdownFontProfile
+    var fontSizeBits: UInt64
+    var kind: MarkdownInlineKind
+    var presentation: MarkdownInlinePresentation
+}
+
+private struct MarkdownCoreTextWidthKey: Sendable, Hashable {
+    var font: MarkdownCoreTextFontKey
+    var missingGlyphMeasurement: MarkdownMissingGlyphMeasurement
+    var text: String
+}
+
+/// A bounded, thread-safe cache shared by the prepared inline content in one
+/// render session.
+///
+/// Streaming reparses one mutable tail. That tail frequently contains all of
+/// the text seen by its previous generation, especially for an open code
+/// fence. Recreating an equivalent CoreText font and reshaping every unchanged
+/// token makes cumulative preparation quadratic even though the sealed
+/// document is already incremental. This cache gives those unchanged tokens a
+/// constant-time reuse path while keeping the cache key sensitive to every
+/// input that can change glyph advances.
+public final class MarkdownCoreTextMeasurementCache: @unchecked Sendable {
+    public struct Statistics: Sendable, Hashable {
+        public var widthHitCount: UInt64
+        public var widthMissCount: UInt64
+        public var cachedWidthCount: Int
+        public var cachedFontCount: Int
+    }
+
+    private let lock = NSLock()
+    private let widthCapacity: Int
+    private let fontCapacity: Int
+    private var widths: [MarkdownCoreTextWidthKey: Double] = [:]
+    #if canImport(CoreText)
+    private var fonts: [MarkdownCoreTextFontKey: CTFont] = [:]
+    #endif
+    private var widthHitCount: UInt64 = 0
+    private var widthMissCount: UInt64 = 0
+
+    public init(widthCapacity: Int = 16_384, fontCapacity: Int = 64) {
+        self.widthCapacity = max(1, widthCapacity)
+        self.fontCapacity = max(1, fontCapacity)
+    }
+
+    func width(
+        of text: String,
+        fontKey: MarkdownCoreTextFontKey,
+        missingGlyphMeasurement: MarkdownMissingGlyphMeasurement
+    ) -> Double? {
+        let key = MarkdownCoreTextWidthKey(
+            font: fontKey,
+            missingGlyphMeasurement: missingGlyphMeasurement,
+            text: text
+        )
+        return lock.withLock {
+            guard let width = widths[key] else {
+                widthMissCount &+= 1
+                return nil
+            }
+            widthHitCount &+= 1
+            return width
+        }
+    }
+
+    func insertWidth(
+        _ width: Double,
+        of text: String,
+        fontKey: MarkdownCoreTextFontKey,
+        missingGlyphMeasurement: MarkdownMissingGlyphMeasurement
+    ) {
+        let key = MarkdownCoreTextWidthKey(
+            font: fontKey,
+            missingGlyphMeasurement: missingGlyphMeasurement,
+            text: text
+        )
+        lock.withLock {
+            if widths[key] == nil, widths.count >= widthCapacity {
+                evictQuarter(from: &widths, capacity: widthCapacity)
+            }
+            widths[key] = width
+        }
+    }
+
+    #if canImport(CoreText)
+    func font(for key: MarkdownCoreTextFontKey, make: () -> CTFont) -> CTFont {
+        if let cached = lock.withLock({ fonts[key] }) {
+            return cached
+        }
+
+        let created = make()
+        return lock.withLock {
+            if let raced = fonts[key] {
+                return raced
+            }
+            if fonts.count >= fontCapacity {
+                evictQuarter(from: &fonts, capacity: fontCapacity)
+            }
+            fonts[key] = created
+            return created
+        }
+    }
+    #endif
+
+    public var statistics: Statistics {
+        lock.withLock {
+            Statistics(
+                widthHitCount: widthHitCount,
+                widthMissCount: widthMissCount,
+                cachedWidthCount: widths.count,
+                cachedFontCount: cachedFontCount
+            )
+        }
+    }
+
+    public func removeAll() {
+        lock.withLock {
+            widths.removeAll(keepingCapacity: true)
+            #if canImport(CoreText)
+            fonts.removeAll(keepingCapacity: true)
+            #endif
+            widthHitCount = 0
+            widthMissCount = 0
+        }
+    }
+
+    private var cachedFontCount: Int {
+        #if canImport(CoreText)
+        fonts.count
+        #else
+        0
+        #endif
+    }
+
+    private func evictQuarter<Key: Hashable, Value>(
+        from storage: inout [Key: Value],
+        capacity: Int
+    ) {
+        let victims = Array(storage.keys.prefix(max(1, capacity / 4)))
+        for key in victims {
+            storage.removeValue(forKey: key)
+        }
+    }
+}
+
 public struct CoreTextInlineMeasurer: InlineMeasuring {
     public var profiles: MarkdownInlineFontProfiles
     public var missingGlyphMeasurement: MarkdownMissingGlyphMeasurement
+    private let measurementCache: MarkdownCoreTextMeasurementCache
 
     public var fontName: String {
         get {
@@ -572,24 +719,55 @@ public struct CoreTextInlineMeasurer: InlineMeasuring {
     }
 
     public init() {
+        self.init(measurementCache: MarkdownCoreTextMeasurementCache())
+    }
+
+    public init(measurementCache: MarkdownCoreTextMeasurementCache) {
         self.profiles = MarkdownInlineFontProfiles()
         self.missingGlyphMeasurement = .nativeFallbackShaping
+        self.measurementCache = measurementCache
     }
 
     public init(
         fontName: String,
         missingGlyphMeasurement: MarkdownMissingGlyphMeasurement = .nativeFallbackShaping
     ) {
+        self.init(
+            fontName: fontName,
+            missingGlyphMeasurement: missingGlyphMeasurement,
+            measurementCache: MarkdownCoreTextMeasurementCache()
+        )
+    }
+
+    public init(
+        fontName: String,
+        missingGlyphMeasurement: MarkdownMissingGlyphMeasurement = .nativeFallbackShaping,
+        measurementCache: MarkdownCoreTextMeasurementCache
+    ) {
         self.profiles = MarkdownInlineFontProfiles(uniform: .named(fontName))
         self.missingGlyphMeasurement = missingGlyphMeasurement
+        self.measurementCache = measurementCache
     }
 
     public init(
         profiles: MarkdownInlineFontProfiles,
         missingGlyphMeasurement: MarkdownMissingGlyphMeasurement = .nativeFallbackShaping
     ) {
+        self.init(
+            profiles: profiles,
+            missingGlyphMeasurement: missingGlyphMeasurement,
+            measurementCache: MarkdownCoreTextMeasurementCache()
+        )
+    }
+
+    public init(
+        profiles: MarkdownInlineFontProfiles,
+        missingGlyphMeasurement: MarkdownMissingGlyphMeasurement = .nativeFallbackShaping,
+        measurementCache: MarkdownCoreTextMeasurementCache
+    ) {
         self.profiles = profiles
         self.missingGlyphMeasurement = missingGlyphMeasurement
+        self.measurementCache = measurementCache
     }
 
     public func width(of segment: PreparedInlineSegment, fontSize: Double) -> Double {
@@ -628,21 +806,46 @@ public struct CoreTextInlineMeasurer: InlineMeasuring {
         }
 
         #if canImport(CoreText)
-        let font = makeFont(
+        let fontKey = MarkdownCoreTextFontKey(
             profile: profile,
-            fontSize: fontSize,
+            fontSizeBits: fontSize.bitPattern,
             kind: kind,
             presentation: presentation
         )
+        if let cached = measurementCache.width(
+            of: text,
+            fontKey: fontKey,
+            missingGlyphMeasurement: missingGlyphMeasurement
+        ) {
+            return cached
+        }
+
+        let font = measurementCache.font(for: fontKey) {
+            makeFont(
+                profile: profile,
+                fontSize: fontSize,
+                kind: kind,
+                presentation: presentation
+            )
+        }
+        let width: Double
         switch missingGlyphMeasurement {
         case .nativeFallbackShaping:
-            return shapedWidth(of: text, font: font)
+            width = shapedWidth(of: text, font: font)
         case .pretextBaseFontAdvances:
             if selectedFontCoversEveryScalar(in: text, font: font) {
-                return shapedWidth(of: text, font: font)
+                width = shapedWidth(of: text, font: font)
+            } else {
+                width = baseFontAdvanceWidth(of: text, font: font)
             }
-            return baseFontAdvanceWidth(of: text, font: font)
         }
+        measurementCache.insertWidth(
+            width,
+            of: text,
+            fontKey: fontKey,
+            missingGlyphMeasurement: missingGlyphMeasurement
+        )
+        return width
         #else
         return Double(text.count) * fontSize * 0.5
         #endif

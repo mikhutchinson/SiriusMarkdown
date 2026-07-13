@@ -260,7 +260,7 @@ public struct DefaultMarkdownCodeHighlighter: MarkdownCodeHighlighter, MarkdownC
     public init() {}
 
     public var codeHighlighterCacheIdentity: String {
-        "siriusmarkdown.default.highlightjs.11.11.1.native-swift.1"
+        "siriusmarkdown.default.highlightjs.11.11.1.continuation.1.native-swift.1"
     }
 
     public func highlightedCode(_ code: String, infoString: String?) -> AttributedString {
@@ -286,6 +286,37 @@ public struct DefaultMarkdownCodeHighlighter: MarkdownCodeHighlighter, MarkdownC
             language: backendName,
             palette: palette
         ) ?? Self.plainCode(code)
+    }
+
+    /// Highlight.js has a real parser-continuation mode, but its v11 public
+    /// wrapper no longer forwards the continuation option to the internal
+    /// parser. The bundled runtime restores that forwarding and owns the
+    /// opaque JavaScript state. This path is internal to streaming preparation
+    /// so the public highlighter protocol keeps its full-document semantics.
+    func incrementallyHighlightedCode(
+        _ code: String,
+        language: MarkdownCodeLanguage,
+        palette: MarkdownSyntaxHighlightingPalette,
+        stateID: String,
+        reset: Bool
+    ) -> AttributedString? {
+        guard language.shouldHighlight,
+              let backendName = language.backendName,
+              backendName != "swift"
+        else {
+            return nil
+        }
+        return HighlightJavaScriptRuntime.shared.highlightIncrementally(
+            code: code,
+            language: backendName,
+            palette: palette,
+            stateID: stateID,
+            reset: reset
+        )
+    }
+
+    func removeIncrementalState(_ stateID: String) {
+        HighlightJavaScriptRuntime.shared.removeIncrementalState(stateID)
     }
 
     static func plainCode(_ code: String) -> AttributedString {
@@ -625,6 +656,7 @@ private final class HighlightJavaScriptRuntime: @unchecked Sendable {
     private let group: JSContextGroupRef = JSContextGroupCreate()
     private var context: JSGlobalContextRef?
     private var highlightFunction: JSObjectRef?
+    private var incrementalHighlightFunction: JSObjectRef?
 #endif
 
     private init() {}
@@ -659,32 +691,99 @@ private final class HighlightJavaScriptRuntime: @unchecked Sendable {
 #endif
     }
 
+    func highlightIncrementally(
+        code: String,
+        language: String,
+        palette: MarkdownSyntaxHighlightingPalette,
+        stateID: String,
+        reset: Bool
+    ) -> AttributedString? {
 #if canImport(JavaScriptCore)
-    private func ensureRuntime() -> (context: JSGlobalContextRef, function: JSObjectRef)? {
-        if let context, let highlightFunction {
-            return (context, highlightFunction)
+        return lock.withLock {
+            guard let runtime = ensureRuntime(),
+                  let rawJSON = callIncrementalHighlightFunction(
+                      runtime.incrementalFunction,
+                      context: runtime.context,
+                      code: code,
+                      language: language,
+                      stateID: stateID,
+                      mode: reset ? 1 : 0
+                  ),
+                  let result = Self.decodeResult(rawJSON),
+                  result.illegal == false
+            else {
+                return nil
+            }
+
+            return HighlightHTMLParser(palette: palette).attributedString(
+                from: result.value,
+                originalCode: code
+            )
+        }
+#else
+        return nil
+#endif
+    }
+
+    func removeIncrementalState(_ stateID: String) {
+#if canImport(JavaScriptCore)
+        lock.withLock {
+            guard let runtime = ensureRuntime() else { return }
+            _ = callIncrementalHighlightFunction(
+                runtime.incrementalFunction,
+                context: runtime.context,
+                code: "",
+                language: "",
+                stateID: stateID,
+                mode: 2
+            )
+        }
+#endif
+    }
+
+#if canImport(JavaScriptCore)
+    private func ensureRuntime() -> (
+        context: JSGlobalContextRef,
+        function: JSObjectRef,
+        incrementalFunction: JSObjectRef
+    )? {
+        if let context, let highlightFunction, let incrementalHighlightFunction {
+            return (context, highlightFunction, incrementalHighlightFunction)
         }
 
         guard let script = loadedScript(),
               let context = JSGlobalContextCreateInGroup(group, nil),
               Self.evaluate(script, in: context) != nil,
               let functionValue = Self.evaluate(Self.highlightFunctionScript, in: context),
-              JSValueIsObject(context, functionValue)
+              JSValueIsObject(context, functionValue),
+              let incrementalFunctionValue = Self.evaluate(
+                  Self.incrementalHighlightFunctionScript,
+                  in: context
+              ),
+              JSValueIsObject(context, incrementalFunctionValue)
         else {
             return nil
         }
 
         var exception: JSValueRef?
         guard let function = JSValueToObject(context, functionValue, &exception),
+              exception == nil,
+              let incrementalFunction = JSValueToObject(
+                  context,
+                  incrementalFunctionValue,
+                  &exception
+              ),
               exception == nil
         else {
             return nil
         }
 
         JSValueProtect(context, functionValue)
+        JSValueProtect(context, incrementalFunctionValue)
         self.context = context
         self.highlightFunction = function
-        return (context, function)
+        self.incrementalHighlightFunction = incrementalFunction
+        return (context, function, incrementalFunction)
     }
 
     private func loadedScript() -> String? {
@@ -696,12 +795,21 @@ private final class HighlightJavaScriptRuntime: @unchecked Sendable {
         guard let contents = MarkdownJavaScriptResourceLookup.script(
             named: "highlight.min",
             subdirectory: "HighlightJS"
-        ) else {
+        ), contents.contains(Self.highlightContinuationCallSite) else {
             return nil
         }
 
-        script = contents
-        return contents
+        // Highlight.js 11 still implements the internal continuation parameter
+        // (`f(language, code, ignoreIllegals, continuation)`), but its public
+        // wrapper drops the option. Patch only this pinned, asserted call site;
+        // if the vendored runtime changes, loading fails closed instead of
+        // silently returning context-invalid suffix colors.
+        let patched = contents.replacingOccurrences(
+            of: Self.highlightContinuationCallSite,
+            with: Self.highlightContinuationForwardingCallSite
+        )
+        script = patched
+        return patched
     }
 
     private func callHighlightFunction(
@@ -749,6 +857,53 @@ private final class HighlightJavaScriptRuntime: @unchecked Sendable {
             JSStringRelease(resultString)
         }
 
+        return Self.string(from: resultString)
+    }
+
+    private func callIncrementalHighlightFunction(
+        _ function: JSObjectRef,
+        context: JSGlobalContextRef,
+        code: String,
+        language: String,
+        stateID: String,
+        mode: Int32
+    ) -> String? {
+        guard let codeString = Self.makeJSString(code),
+              let languageString = Self.makeJSString(language),
+              let stateIDString = Self.makeJSString(stateID)
+        else {
+            return nil
+        }
+        defer {
+            JSStringRelease(codeString)
+            JSStringRelease(languageString)
+            JSStringRelease(stateIDString)
+        }
+
+        let arguments: [JSValueRef?] = [
+            JSValueMakeString(context, codeString),
+            JSValueMakeString(context, languageString),
+            JSValueMakeString(context, stateIDString),
+            JSValueMakeNumber(context, Double(mode))
+        ]
+        var exception: JSValueRef?
+        let result = arguments.withUnsafeBufferPointer { buffer in
+            JSObjectCallAsFunction(
+                context,
+                function,
+                nil,
+                arguments.count,
+                buffer.baseAddress,
+                &exception
+            )
+        }
+        guard exception == nil, let result,
+              let resultString = JSValueToStringCopy(context, result, &exception),
+              exception == nil
+        else {
+            return nil
+        }
+        defer { JSStringRelease(resultString) }
         return Self.string(from: resultString)
     }
 
@@ -804,6 +959,51 @@ private final class HighlightJavaScriptRuntime: @unchecked Sendable {
               }
             })
             """
+
+    private static let incrementalHighlightFunctionScript =
+            """
+            (function() {
+              var states = Object.create(null);
+              return function(code, language, stateID, mode) {
+                if (mode === 2) {
+                  delete states[stateID];
+                  return JSON.stringify({ supported: false });
+                }
+                if (typeof hljs === "undefined" || !language || !hljs.getLanguage(language)) {
+                  delete states[stateID];
+                  return JSON.stringify({ supported: false });
+                }
+                if (mode === 1) {
+                  delete states[stateID];
+                }
+                try {
+                  var options = { language: language, ignoreIllegals: false };
+                  if (states[stateID]) {
+                    options.continuation = states[stateID];
+                  }
+                  var result = hljs.highlight(code, options);
+                  if (result.illegal) {
+                    delete states[stateID];
+                  } else {
+                    states[stateID] = result._top;
+                  }
+                  return JSON.stringify({
+                    supported: true,
+                    illegal: !!result.illegal,
+                    language: result.language || language,
+                    value: result.value || ""
+                  });
+                } catch (error) {
+                  delete states[stateID];
+                  return JSON.stringify({ supported: false, error: String(error) });
+                }
+              };
+            })()
+            """
+
+    private static let highlightContinuationCallSite = "f(r.language,r.code,t)"
+    private static let highlightContinuationForwardingCallSite =
+        "f(r.language,r.code,t,\"object\"==typeof n?n.continuation:void 0)"
 #endif
 
     private static func decodeResult(_ rawJSON: String) -> HighlightJavaScriptResult? {
