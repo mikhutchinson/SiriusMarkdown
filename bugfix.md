@@ -4,6 +4,16 @@
 
 - None currently tracked.
 
+## Resolved in 0.6.14
+
+- Fixed the detached render-pump actor handoff failing strict-concurrency
+  compilation on the macOS 15 GitHub runner. A task-isolated weak session
+  reference had been captured by nested MainActor closures. The detached task
+  now strongly owns the MainActor-isolated session for the bounded operation
+  drain and calls explicit actor-isolated batch/publication methods. This
+  preserves off-main parse/highlight/prepare execution and deterministically
+  clears the task handle at drain completion.
+
 ## Resolved in 0.6.13
 
 - Fixed beachball-class CPU saturation during a live, large mixed-Markdown

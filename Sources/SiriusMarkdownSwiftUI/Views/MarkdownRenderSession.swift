@@ -122,43 +122,43 @@ public final class MarkdownRenderSession: ObservableObject {
         // Start the pump detached so every pipeline batch originates on the
         // global executor. The only MainActor hops are the small operation drain
         // and prepared-value publication boundaries below.
-        renderTask = Task.detached(priority: .userInitiated) { [weak self] in
-            while true {
-                let batch = await MainActor.run { () -> MarkdownRenderSessionBatch? in
-                    guard let self else {
-                        return nil
-                    }
-
-                    guard !self.pendingOperations.isEmpty else {
-                        self.renderTask = nil
-                        return nil
-                    }
-
-                    let operations = self.drainPendingOperations()
-                    return MarkdownRenderSessionBatch(
-                        operations: operations,
-                        revision: self.presentationRevision
-                    )
-                }
-
-                guard let batch else {
-                    return
-                }
-
+        renderTask = Task.detached(priority: .userInitiated) { [self, pipeline] in
+            while let batch = await nextRenderBatch() {
                 let state = await pipeline.apply(batch.operations)
-                await MainActor.run {
-                    guard let self else {
-                        return
-                    }
-                    guard batch.revision == self.presentationRevision else {
-                        return
-                    }
-                    self.snapshot = state.snapshot
-                    self.preparedSnapshot = state.preparedSnapshot
-                    self.snapshotDiff = state.preparedSnapshot.diff
-                }
+                await publish(state, for: batch)
             }
         }
+    }
+
+    /// MainActor boundary for the detached render pump. Capturing the
+    /// globally-isolated session strongly for the bounded lifetime of one
+    /// drain avoids moving a task-isolated weak reference between executors,
+    /// which older Swift 6 compilers correctly reject under strict
+    /// concurrency. The task clears its stored handle before returning, so
+    /// the temporary self/task retain cycle is broken deterministically.
+    private func nextRenderBatch() -> MarkdownRenderSessionBatch? {
+        guard !pendingOperations.isEmpty else {
+            renderTask = nil
+            return nil
+        }
+
+        return MarkdownRenderSessionBatch(
+            operations: drainPendingOperations(),
+            revision: presentationRevision
+        )
+    }
+
+    /// MainActor publication boundary for prepared render state.
+    private func publish(
+        _ state: MarkdownRenderSessionState,
+        for batch: MarkdownRenderSessionBatch
+    ) {
+        guard batch.revision == presentationRevision else {
+            return
+        }
+        snapshot = state.snapshot
+        preparedSnapshot = state.preparedSnapshot
+        snapshotDiff = state.preparedSnapshot.diff
     }
 
     private func drainPendingOperations() -> [MarkdownRenderSessionOperation] {

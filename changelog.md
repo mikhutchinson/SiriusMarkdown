@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+## 0.6.14 - 2026-07-13
+
+- Kept `MarkdownRenderSession` preparation on the detached executor while
+  making the MainActor handoff compile under the older Swift 6 strict-
+  concurrency checker used by the macOS 15 GitHub runner. The detached task
+  now strongly captures the globally isolated session for one bounded drain
+  and calls explicit MainActor batch/publication methods, instead of sending a
+  task-isolated weak reference into nested `MainActor.run` closures. The task
+  clears its stored handle before returning, breaking the temporary retain
+  cycle deterministically.
+
 ## 0.6.13 - 2026-07-13
 
 - Fixed AST source-range conversion rescanning the mutable-tail source from
