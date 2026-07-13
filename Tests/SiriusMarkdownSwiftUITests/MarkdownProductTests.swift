@@ -2,7 +2,7 @@ import Foundation
 import SwiftUI
 import Testing
 import SiriusMarkdownCore
-import SiriusMarkdownSwiftUI
+@testable import SiriusMarkdownSwiftUI
 
 @Test
 @MainActor
@@ -573,6 +573,44 @@ func ProductDefaultCodeHighlighterHandlesLongSwiftStringLiteralsWithoutCrashing(
     #expect(highlighted.runs.contains { $0.foregroundColor != nil })
 }
 
+#if canImport(JavaScriptCore)
+@Test
+func ProductHighlightJavaScriptRuntimeKeepsBridgeValuesAliveAcrossForcedGarbageCollection() throws {
+    let runtime = HighlightJavaScriptRuntime(forceGarbageCollectionForTesting: true)
+    let palette = MarkdownSyntaxHighlightingPalette.default
+    let fullSource = "const value = { name: \"sirius\", count: 2 };\n"
+    let full = try #require(runtime.highlight(
+        code: fullSource,
+        language: "javascript",
+        palette: palette
+    ))
+
+    #expect(String(full.characters) == fullSource)
+    #expect(full.runs.contains { $0.foregroundColor != nil })
+
+    let stateID = UUID().uuidString
+    defer { runtime.removeIncrementalState(stateID) }
+    let fragments = [
+        "def example(value):\n",
+        "    text = '''open\n",
+        "continued across updates\n",
+        "and closed here'''\n",
+        "    return value\n"
+    ]
+
+    for (index, fragment) in fragments.enumerated() {
+        let highlighted = try #require(runtime.highlightIncrementally(
+            code: fragment,
+            language: "python",
+            palette: palette,
+            stateID: stateID,
+            reset: index == 0
+        ))
+        #expect(String(highlighted.characters) == fragment)
+    }
+}
+#endif
+
 @Test
 func ProductDefaultSwiftCodeHighlighterKeepsNestedInterpolationStringsColored() throws {
     let palette = MarkdownSyntaxHighlightingPalette.default
@@ -786,6 +824,23 @@ func ProductDefaultMermaidRendererPreparesDiagramsAndSupportsOptOut() throws {
     #expect(disabledContent.code != nil)
     #expect(disabledPlan.mermaidRendered == false)
 }
+
+#if canImport(JavaScriptCore)
+@Test
+func ProductMermaidJavaScriptRuntimeKeepsBridgeValuesAliveAcrossForcedGarbageCollection() throws {
+    let runtime = MermaidJavaScriptRuntime(forceGarbageCollectionForTesting: true)
+    let result = try #require(runtime.render(
+        source: "graph LR\nA[Start] --> B[Done]",
+        theme: .compactChat
+    ))
+
+    #expect(result.ascii.contains("Start"))
+    #expect(result.ascii.contains("Done"))
+    #expect(result.svg?.contains("Start") == true)
+    #expect(result.darkSVG?.contains("Done") == true)
+    #expect(result.geometry != nil)
+}
+#endif
 
 private struct ProductInlineMathRenderer: MarkdownMathRenderer {
     func renderedMath(_ source: String, isBlock _: Bool) -> AttributedString {

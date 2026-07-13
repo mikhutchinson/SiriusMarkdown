@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+## 0.6.16 - 2026-07-13
+
+- Fixed a JavaScriptCore lifetime violation in the Highlight.js incremental
+  bridge that could crash a host with `EXC_BAD_ACCESS` in
+  `JSRopeString::resolveToBuffer` during a long streamed code fence. Function,
+  argument, and result values are now protected before they cross another JSC
+  allocation or enter Swift heap storage, and are unprotected only after the
+  bridge finishes consuming them. The Mermaid bridge follows the same rule.
+- Added deterministic Highlight.js and Mermaid regressions that force JSC
+  garbage collection at every protected bridge boundary, including runtime
+  initialization, function invocation, and result conversion.
+
 ## 0.6.15 - 2026-07-13
 
 - Replaced the streaming SwiftUI surface's `LazyVStack` item-phase dependency

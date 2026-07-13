@@ -4,6 +4,17 @@
 
 - None currently tracked.
 
+## Resolved in 0.6.16
+
+- Fixed a host crash in the 0.6.15 incremental Highlight.js path caused by
+  keeping unprotected `JSValueRef` arguments in Swift `Array` storage. JSC's
+  collector cannot discover heap references outside its own object graph, so
+  a later allocation could collect a code, language, state, mode, function, or
+  result value before the bridge consumed it. Both Highlight.js and Mermaid
+  now protect function, argument, and result values for their complete native
+  lifetime, clean up failed contexts, and release owned contexts/groups at
+  teardown. Forced-GC tests cover every lifetime boundary.
+
 ## Resolved in 0.6.15
 
 - Fixed long live generations repeatedly invalidating and renegotiating layout

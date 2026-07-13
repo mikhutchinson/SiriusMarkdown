@@ -639,16 +639,17 @@ private struct NativeSwiftCodeHighlighter {
     ]
 }
 
-private struct HighlightJavaScriptResult: Sendable {
+struct HighlightJavaScriptResult: Sendable {
     var value: String
     var language: String
     var illegal: Bool
 }
 
-private final class HighlightJavaScriptRuntime: @unchecked Sendable {
+final class HighlightJavaScriptRuntime: @unchecked Sendable {
     static let shared = HighlightJavaScriptRuntime()
 
     private let lock = NSLock()
+    private let forceGarbageCollectionForTesting: Bool
 
 #if canImport(JavaScriptCore)
     private var script: String?
@@ -659,7 +660,24 @@ private final class HighlightJavaScriptRuntime: @unchecked Sendable {
     private var incrementalHighlightFunction: JSObjectRef?
 #endif
 
-    private init() {}
+    init(forceGarbageCollectionForTesting: Bool = false) {
+        self.forceGarbageCollectionForTesting = forceGarbageCollectionForTesting
+    }
+
+    deinit {
+#if canImport(JavaScriptCore)
+        if let context {
+            if let highlightFunction {
+                JSValueUnprotect(context, highlightFunction)
+            }
+            if let incrementalHighlightFunction {
+                JSValueUnprotect(context, incrementalHighlightFunction)
+            }
+            JSGlobalContextRelease(context)
+        }
+        JSContextGroupRelease(group)
+#endif
+    }
 
     func highlight(
         code: String,
@@ -752,18 +770,45 @@ private final class HighlightJavaScriptRuntime: @unchecked Sendable {
         }
 
         guard let script = loadedScript(),
-              let context = JSGlobalContextCreateInGroup(group, nil),
-              Self.evaluate(script, in: context) != nil,
-              let functionValue = Self.evaluate(Self.highlightFunctionScript, in: context),
-              JSValueIsObject(context, functionValue),
-              let incrementalFunctionValue = Self.evaluate(
-                  Self.incrementalHighlightFunctionScript,
-                  in: context
-              ),
-              JSValueIsObject(context, incrementalFunctionValue)
+              let context = JSGlobalContextCreateInGroup(group, nil)
         else {
             return nil
         }
+
+        var protectedFunctionValue: JSValueRef?
+        var protectedIncrementalFunctionValue: JSValueRef?
+        var retainedContext = false
+        defer {
+            if !retainedContext {
+                if let protectedIncrementalFunctionValue {
+                    JSValueUnprotect(context, protectedIncrementalFunctionValue)
+                }
+                if let protectedFunctionValue {
+                    JSValueUnprotect(context, protectedFunctionValue)
+                }
+                JSGlobalContextRelease(context)
+            }
+        }
+
+        guard Self.evaluate(script, in: context) != nil,
+              let functionValue = Self.evaluate(Self.highlightFunctionScript, in: context),
+              JSValueIsObject(context, functionValue)
+        else {
+            return nil
+        }
+        JSValueProtect(context, functionValue)
+        protectedFunctionValue = functionValue
+        collectGarbageIfRequested(in: context)
+
+        guard let incrementalFunctionValue = Self.evaluate(
+            Self.incrementalHighlightFunctionScript,
+            in: context
+        ), JSValueIsObject(context, incrementalFunctionValue) else {
+            return nil
+        }
+        JSValueProtect(context, incrementalFunctionValue)
+        protectedIncrementalFunctionValue = incrementalFunctionValue
+        collectGarbageIfRequested(in: context)
 
         var exception: JSValueRef?
         guard let function = JSValueToObject(context, functionValue, &exception),
@@ -778,11 +823,10 @@ private final class HighlightJavaScriptRuntime: @unchecked Sendable {
             return nil
         }
 
-        JSValueProtect(context, functionValue)
-        JSValueProtect(context, incrementalFunctionValue)
         self.context = context
         self.highlightFunction = function
         self.incrementalHighlightFunction = incrementalFunction
+        retainedContext = true
         return (context, function, incrementalFunction)
     }
 
@@ -828,10 +872,18 @@ private final class HighlightJavaScriptRuntime: @unchecked Sendable {
             JSStringRelease(languageString)
         }
 
-        let arguments: [JSValueRef?] = [
-            JSValueMakeString(context, codeString),
-            JSValueMakeString(context, languageString)
-        ]
+        // JSC cannot discover references once Swift stores them in Array heap
+        // storage. Root each value before creating the next allocation.
+        let codeValue = JSValueMakeString(context, codeString)
+        JSValueProtect(context, codeValue)
+        defer { JSValueUnprotect(context, codeValue) }
+
+        let languageValue = JSValueMakeString(context, languageString)
+        JSValueProtect(context, languageValue)
+        defer { JSValueUnprotect(context, languageValue) }
+
+        let arguments: [JSValueRef?] = [codeValue, languageValue]
+        collectGarbageIfRequested(in: context)
         var exception: JSValueRef?
         let result = arguments.withUnsafeBufferPointer { buffer in
             JSObjectCallAsFunction(
@@ -847,6 +899,9 @@ private final class HighlightJavaScriptRuntime: @unchecked Sendable {
         guard exception == nil, let result else {
             return nil
         }
+        JSValueProtect(context, result)
+        defer { JSValueUnprotect(context, result) }
+        collectGarbageIfRequested(in: context)
 
         guard let resultString = JSValueToStringCopy(context, result, &exception),
               exception == nil
@@ -880,12 +935,31 @@ private final class HighlightJavaScriptRuntime: @unchecked Sendable {
             JSStringRelease(stateIDString)
         }
 
+        // Root each argument before any later JSC allocation and before the
+        // values move into Swift Array heap storage.
+        let codeValue = JSValueMakeString(context, codeString)
+        JSValueProtect(context, codeValue)
+        defer { JSValueUnprotect(context, codeValue) }
+
+        let languageValue = JSValueMakeString(context, languageString)
+        JSValueProtect(context, languageValue)
+        defer { JSValueUnprotect(context, languageValue) }
+
+        let stateIDValue = JSValueMakeString(context, stateIDString)
+        JSValueProtect(context, stateIDValue)
+        defer { JSValueUnprotect(context, stateIDValue) }
+
+        let modeValue = JSValueMakeNumber(context, Double(mode))
+        JSValueProtect(context, modeValue)
+        defer { JSValueUnprotect(context, modeValue) }
+
         let arguments: [JSValueRef?] = [
-            JSValueMakeString(context, codeString),
-            JSValueMakeString(context, languageString),
-            JSValueMakeString(context, stateIDString),
-            JSValueMakeNumber(context, Double(mode))
+            codeValue,
+            languageValue,
+            stateIDValue,
+            modeValue
         ]
+        collectGarbageIfRequested(in: context)
         var exception: JSValueRef?
         let result = arguments.withUnsafeBufferPointer { buffer in
             JSObjectCallAsFunction(
@@ -897,14 +971,26 @@ private final class HighlightJavaScriptRuntime: @unchecked Sendable {
                 &exception
             )
         }
-        guard exception == nil, let result,
-              let resultString = JSValueToStringCopy(context, result, &exception),
+        guard exception == nil, let result else {
+            return nil
+        }
+        JSValueProtect(context, result)
+        defer { JSValueUnprotect(context, result) }
+        collectGarbageIfRequested(in: context)
+
+        guard let resultString = JSValueToStringCopy(context, result, &exception),
               exception == nil
         else {
             return nil
         }
         defer { JSStringRelease(resultString) }
         return Self.string(from: resultString)
+    }
+
+    private func collectGarbageIfRequested(in context: JSGlobalContextRef) {
+        if forceGarbageCollectionForTesting {
+            JSGarbageCollect(context)
+        }
     }
 
     private static func evaluate(_ script: String, in context: JSGlobalContextRef) -> JSValueRef? {

@@ -101,7 +101,7 @@ public extension MarkdownCodeLanguage {
     }
 }
 
-private struct MermaidJavaScriptResult: Sendable {
+struct MermaidJavaScriptResult: Sendable {
     var ascii: String
     var svg: String?
     var darkSVG: String?
@@ -431,10 +431,11 @@ enum MermaidSVGGeometryParser {
     }
 }
 
-private final class MermaidJavaScriptRuntime: @unchecked Sendable {
+final class MermaidJavaScriptRuntime: @unchecked Sendable {
     static let shared = MermaidJavaScriptRuntime()
 
     private let lock = NSLock()
+    private let forceGarbageCollectionForTesting: Bool
 
 #if canImport(JavaScriptCore)
     private var script: String?
@@ -445,7 +446,24 @@ private final class MermaidJavaScriptRuntime: @unchecked Sendable {
     private var svgRenderFunction: JSObjectRef?
 #endif
 
-    private init() {}
+    init(forceGarbageCollectionForTesting: Bool = false) {
+        self.forceGarbageCollectionForTesting = forceGarbageCollectionForTesting
+    }
+
+    deinit {
+#if canImport(JavaScriptCore)
+        if let context {
+            if let renderFunction {
+                JSValueUnprotect(context, renderFunction)
+            }
+            if let svgRenderFunction {
+                JSValueUnprotect(context, svgRenderFunction)
+            }
+            JSGlobalContextRelease(context)
+        }
+        JSContextGroupRelease(group)
+#endif
+    }
 
     func renderASCII(source: String, theme: MarkdownTheme) -> String? {
         render(source: source, theme: theme)?.ascii
@@ -524,20 +542,45 @@ private final class MermaidJavaScriptRuntime: @unchecked Sendable {
         }
 
         guard let script = loadedScript(),
-              let context = JSGlobalContextCreateInGroup(self.group, nil),
-              Self.evaluate(Self.bufferShimScript, in: context) != nil,
-              Self.evaluate(script, in: context) != nil
+              let context = JSGlobalContextCreateInGroup(self.group, nil)
         else {
             return nil
         }
 
-        guard let asciiFnValue = Self.evaluate(Self.renderFunctionScript, in: context),
-              JSValueIsObject(context, asciiFnValue),
-              let svgFnValue = Self.evaluate(Self.svgRenderFunctionScript, in: context),
+        var protectedASCIIFunctionValue: JSValueRef?
+        var protectedSVGFunctionValue: JSValueRef?
+        var retainedContext = false
+        defer {
+            if !retainedContext {
+                if let protectedSVGFunctionValue {
+                    JSValueUnprotect(context, protectedSVGFunctionValue)
+                }
+                if let protectedASCIIFunctionValue {
+                    JSValueUnprotect(context, protectedASCIIFunctionValue)
+                }
+                JSGlobalContextRelease(context)
+            }
+        }
+
+        guard Self.evaluate(Self.bufferShimScript, in: context) != nil,
+              Self.evaluate(script, in: context) != nil,
+              let asciiFnValue = Self.evaluate(Self.renderFunctionScript, in: context),
+              JSValueIsObject(context, asciiFnValue)
+        else {
+            return nil
+        }
+        JSValueProtect(context, asciiFnValue)
+        protectedASCIIFunctionValue = asciiFnValue
+        collectGarbageIfRequested(in: context)
+
+        guard let svgFnValue = Self.evaluate(Self.svgRenderFunctionScript, in: context),
               JSValueIsObject(context, svgFnValue)
         else {
             return nil
         }
+        JSValueProtect(context, svgFnValue)
+        protectedSVGFunctionValue = svgFnValue
+        collectGarbageIfRequested(in: context)
 
         var exception: JSValueRef?
         guard let asciiFunction = JSValueToObject(context, asciiFnValue, &exception),
@@ -548,11 +591,10 @@ private final class MermaidJavaScriptRuntime: @unchecked Sendable {
             return nil
         }
 
-        JSValueProtect(context, asciiFnValue)
-        JSValueProtect(context, svgFnValue)
         self.context = context
         self.renderFunction = asciiFunction
         self.svgRenderFunction = svgFunction
+        retainedContext = true
         return (context, asciiFunction, svgFunction)
     }
 
@@ -586,22 +628,34 @@ private final class MermaidJavaScriptRuntime: @unchecked Sendable {
             JSStringRelease(sourceString)
         }
 
-        var arguments: [JSValueRef?] = [
-            JSValueMakeString(context, sourceString)
-        ]
+        // JSC cannot discover references once Swift stores them in Array heap
+        // storage. Root each value before creating the next allocation.
+        let sourceValue = JSValueMakeString(context, sourceString)
+        JSValueProtect(context, sourceValue)
+        defer { JSValueUnprotect(context, sourceValue) }
+
+        var arguments: [JSValueRef?] = [sourceValue]
         var optionsString: JSStringRef?
+        var optionsValue: JSValueRef?
         if let optionsJSON {
             optionsString = Self.makeJSString(optionsJSON)
             if let optionsString {
-                arguments.append(JSValueMakeString(context, optionsString))
+                let value = JSValueMakeString(context, optionsString)
+                JSValueProtect(context, value)
+                optionsValue = value
+                arguments.append(value)
             }
         }
         defer {
+            if let optionsValue {
+                JSValueUnprotect(context, optionsValue)
+            }
             if let optionsString {
                 JSStringRelease(optionsString)
             }
         }
 
+        collectGarbageIfRequested(in: context)
         var exception: JSValueRef?
         let result = arguments.withUnsafeBufferPointer { buffer in
             JSObjectCallAsFunction(
@@ -617,6 +671,9 @@ private final class MermaidJavaScriptRuntime: @unchecked Sendable {
         guard exception == nil, let result else {
             return nil
         }
+        JSValueProtect(context, result)
+        defer { JSValueUnprotect(context, result) }
+        collectGarbageIfRequested(in: context)
 
         guard let resultString = JSValueToStringCopy(context, result, &exception),
               exception == nil
@@ -628,6 +685,12 @@ private final class MermaidJavaScriptRuntime: @unchecked Sendable {
         }
 
         return Self.string(from: resultString)
+    }
+
+    private func collectGarbageIfRequested(in context: JSGlobalContextRef) {
+        if forceGarbageCollectionForTesting {
+            JSGarbageCollect(context)
+        }
     }
 
     private static func evaluate(_ script: String, in context: JSGlobalContextRef) -> JSValueRef? {

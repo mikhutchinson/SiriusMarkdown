@@ -1,6 +1,6 @@
 # Runbook
 
-This runbook is the local release authority for `SiriusMarkdown`. For the current public package release, use `0.6.15` as the tag and do not publish unless every release blocker below is clear.
+This runbook is the local release authority for `SiriusMarkdown`. For the current public package release, use `0.6.16` as the tag and do not publish unless every release blocker below is clear.
 
 ## Build
 
@@ -17,7 +17,7 @@ swift test
 ```
 
 Current status: `swift test` must pass with strict Swift-vs-Pretext comparison enabled across the required product fixture groups. Missing groups, duplicate fixture names/groups, absent required layout metadata (`font`, `lineHeight`, `whiteSpace`, `wordBreak`), invalid/nonzero `letterSpacing`, or known-drift allowlists are release blockers.
-The release-gate discovery floor for this slice is `881` Swift tests.
+The release-gate discovery floor for this slice is `883` Swift tests.
 
 Count the Swift test functions reported by the runner and keep the release-gate discovery floor current:
 
@@ -46,6 +46,7 @@ Layout and renderer acceptance for the current slice:
 - Use `MarkdownRenderSession` or `MarkdownRendererConfiguration.prepare(snapshot:)` in model/controller code and pass `MarkdownPreparedSnapshot` into `MarkdownDocumentView` or `StreamingMarkdownView`. Deprecated direct `snapshot:` view initializers are compatibility shims, not the streaming/document path; they may enforce cheap safety policy decisions but must not run full highlighting, math rendering, or inline preparation synchronously.
 - Renderer configuration must be protocol-driven for link, image, HTML, code, math, code highlighting, and math rendering hooks.
 - Default code highlighting must stay language-aware, pluggable, and conservative: explicit supported languages may be highlighted through the JavaScriptCore/highlight.js backend where available; plaintext, nohighlight, unlabeled, unsupported, unavailable-runtime, and failed-backend fences should render plainly.
+- JavaScriptCore bridge values must obey the C API rooting contract: protect every function retained by Swift and every argument/result that enters Swift heap storage or survives another JSC operation, then unprotect it only after the native consumer is finished. Highlight.js and Mermaid regressions must force garbage collection at runtime-initialization, invocation, and result-conversion boundaries.
 - Document and code affordances must stay generic, source-backed, and replaceable. `MarkdownDocumentSurface` may own copy/export/collapse chrome, `MarkdownCodeBlockAffordances` may own code chrome visibility, and `MarkdownAffordanceActionHandler` may own platform actions; none of these APIs may hardcode private host-app concepts. Shared affordance icons are decorative SF Symbols; accessibility labels and help text belong on the enclosing buttons.
 - Mermaid rendering must stay package-owned and prepared before SwiftUI body evaluation. `DefaultMarkdownMermaidRenderer` may produce ASCII plus concrete-color SVG and prepared root geometry; `MarkdownBlockView` may render the prepared image in a bounded pan/zoom viewport with controls from `MarkdownTheme.mermaidAffordances`. Mermaid zoom/fit/reset buttons must keep explicit accessibility labels while their decorative SF Symbol images stay hidden from accessibility synthesis. Do not add WebKit, app-private Mermaid wrappers, or a second Mermaid semantic engine.
 - Heading typography must resolve H1-H6 through `MarkdownTheme.headings`. Visual SwiftUI `Font` and prepared-line CoreText measurement inputs (`fontSize`, `lineHeight`, `MarkdownInlineFontProfiles`) must come from the same `MarkdownTextStyle`; do not infer measurement profiles from arbitrary SwiftUI fonts.
@@ -201,7 +202,7 @@ Run this before claiming native-renderer product quality. It wraps the release g
 
 ## Public Release Checklist
 
-Use this checklist for `0.6.15`.
+Use this checklist for `0.6.16`.
 
 1. Confirm public hygiene:
 
@@ -251,28 +252,28 @@ Use this checklist for `0.6.15`.
 
    ```sh
    git add README.md runbook.md NOTICE.md changelog.md bugfix.md release-notes Docs Sources Tests Examples Tools Package.swift Package.resolved
-   git commit -m "Prepare SiriusMarkdown 0.6.15 release"
+   git commit -m "Prepare SiriusMarkdown 0.6.16 release"
    ```
 
 6. Tag and push:
 
    ```sh
-   git tag -a 0.6.15 -m "SiriusMarkdown 0.6.15"
+   git tag -a 0.6.16 -m "SiriusMarkdown 0.6.16"
    git push origin HEAD
-   git push origin 0.6.15
+   git push origin 0.6.16
    ```
 
 7. After pushing, create the public release from the matching `changelog.md`
    section and verify that GitHub marks it as Latest:
 
    ```sh
-   gh release create 0.6.15 \
+   gh release create 0.6.16 \
      --repo mikhutchinson/SiriusMarkdown \
      --verify-tag \
      --latest \
-     --title "SiriusMarkdown 0.6.15" \
-     --notes-file release-notes/0.6.15.md
-   gh release view 0.6.15 \
+     --title "SiriusMarkdown 0.6.16" \
+     --notes-file release-notes/0.6.16.md
+   gh release view 0.6.16 \
      --repo mikhutchinson/SiriusMarkdown \
      --json tagName,name,isDraft,isPrerelease,publishedAt,url
    ```

@@ -18,11 +18,15 @@ The core contract is simple:
 
 ## Current Release
 
-`0.6.15` removes the remaining whole-document SwiftUI layout amplification
-during long live generations without reducing the renderer's feature surface.
+`0.6.16` fixes a JavaScriptCore lifetime violation that could crash a host
+during long streamed code fences without reducing the renderer's feature surface.
 Markdown semantics, tables, highlighting, math, Mermaid, links, attachments,
 copy, and source-backed document selection remain enabled:
 
+- **GC-safe JavaScript bridges:** retained functions, heap-stored arguments,
+  and call results stay rooted for their complete native lifetime in both the
+  Highlight.js and Mermaid runtimes. Deterministic tests force collection at
+  each bridge boundary.
 - **Bounded streaming regions:** the SwiftUI streaming surface groups stable
   prepared items into bounded regions, caches each sealed region's size for a
   proposal width and revision, and invalidates only the mutable tail region.
@@ -42,7 +46,7 @@ copy, and source-backed document selection remain enabled:
   complete font and presentation profile.
 - **Measured regression:** a 179 KB document across 90 AppKit-hosted
   publications keeps mutable-tail layout at a 2.71 ms median, and the full
-  release suite discovers 881 tests.
+  release suite discovers 883 tests.
 
 The release builds on `0.6.14`'s strict-concurrency-clean detached render pump,
 `0.6.13`'s linear source mapping, `0.6.12`'s constant-time
@@ -109,7 +113,7 @@ competing selection owners. Other platforms retain the source-backed default.
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/mikhutchinson/SiriusMarkdown.git", from: "0.6.15")
+    .package(url: "https://github.com/mikhutchinson/SiriusMarkdown.git", from: "0.6.16")
 ],
 targets: [
     .target(
@@ -352,12 +356,12 @@ git diff --check
 - Release runbook: `runbook.md`
 - Changelog: `changelog.md`
 - Bugfix log: `bugfix.md`
-- Current release notes: `release-notes/0.6.15.md`
+- Current release notes: `release-notes/0.6.16.md`
 - Third-party credits: `NOTICE.md`
 
 ## Release
 
-`0.6.15` is ready only when the docs describe the current public package surface,
+`0.6.16` is ready only when the docs describe the current public package surface,
 `bash Tools/product-check.sh` passes from the repository root, `git diff --check`
 is clean, the public remote is correct, and the release commit is tagged and
-pushed as `0.6.15` with a matching published GitHub Release and green CI.
+pushed as `0.6.16` with a matching published GitHub Release and green CI.
