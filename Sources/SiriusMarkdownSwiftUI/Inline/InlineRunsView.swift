@@ -605,9 +605,7 @@ private extension MarkdownInlineRun {
 }
 
 struct PreparedInlineLayoutIdentity: Hashable {
-    var measured: MeasuredInlineContent
-    var lineHeight: Double
-    var fontProfilesCacheKey: String
+    var cacheFingerprint: MarkdownContentFingerprint
 }
 
 private struct PreparedInlineTextView: View {
@@ -652,9 +650,7 @@ private struct PreparedInlineTextView: View {
 
     private var layoutIdentity: PreparedInlineLayoutIdentity {
         PreparedInlineLayoutIdentity(
-            measured: prepared.measured,
-            lineHeight: prepared.lineHeight,
-            fontProfilesCacheKey: prepared.fontProfiles.cacheKey
+            cacheFingerprint: prepared.cacheFingerprint
         )
     }
 

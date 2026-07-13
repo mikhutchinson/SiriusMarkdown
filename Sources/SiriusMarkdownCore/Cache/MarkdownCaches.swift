@@ -3,11 +3,26 @@ import Foundation
 public struct MarkdownCacheKey: Sendable, Hashable {
     public var sourceRange: MarkdownSourceRange
     public var contentHash: UInt64
+    /// Second lane for call sites with a precomputed
+    /// `MarkdownContentFingerprint`. Legacy 64-bit cache keys keep zero here.
+    public var contentHashHigh: UInt64
     public var namespace: String
 
     public init(sourceRange: MarkdownSourceRange, contentHash: UInt64, namespace: String) {
         self.sourceRange = sourceRange
         self.contentHash = contentHash
+        self.contentHashHigh = 0
+        self.namespace = namespace
+    }
+
+    public init(
+        sourceRange: MarkdownSourceRange,
+        contentFingerprint: MarkdownContentFingerprint,
+        namespace: String
+    ) {
+        self.sourceRange = sourceRange
+        self.contentHash = contentFingerprint.low
+        self.contentHashHigh = contentFingerprint.high
         self.namespace = namespace
     }
 }

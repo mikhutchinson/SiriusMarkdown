@@ -1275,7 +1275,7 @@ func defaultJavaScriptResourceLoadingUsesNonTrappingLookup() throws {
 @Test
 func releaseAndProductChecksKeepRenderProbeVisualsOptIn() throws {
     let root = packageRootURL()
-    let currentReleaseVersion = "0.6.11"
+    let currentReleaseVersion = "0.6.12"
     let releaseCheck = try String(
         contentsOf: root.appending(path: "Tools/release-check.sh"),
         encoding: .utf8
@@ -3931,14 +3931,10 @@ func preparedInlineLayoutIdentityChangesWhenSemanticMeasurementChanges() {
     )
 
     let plainIdentity = PreparedInlineLayoutIdentity(
-        measured: plain.measured,
-        lineHeight: plain.lineHeight,
-        fontProfilesCacheKey: plain.fontProfiles.cacheKey
+        cacheFingerprint: plain.cacheFingerprint
     )
     let codeIdentity = PreparedInlineLayoutIdentity(
-        measured: code.measured,
-        lineHeight: code.lineHeight,
-        fontProfilesCacheKey: code.fontProfiles.cacheKey
+        cacheFingerprint: code.cacheFingerprint
     )
 
     #expect(plain.prepared.sourceRange == code.prepared.sourceRange)

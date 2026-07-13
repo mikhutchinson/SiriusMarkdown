@@ -4,6 +4,21 @@
 
 - None currently tracked.
 
+## Resolved in 0.6.12
+
+- Fixed a source-backed document-selection beachball captured in a live host
+  app while rendering a roughly 28 KB generated response containing a
+  1,300-line code block. The main thread stayed inside one AppKit/SwiftUI
+  layout transaction while `InlineLayoutEngine.layoutCacheKey`,
+  `PreparedInlineLayoutIdentity`, and selection fragment cache keys repeatedly
+  hashed the full measured content, natural text, runs, and line arrays. Cache
+  hits were therefore still O(content size). Prepared, measured, and layout
+  values now carry deterministic precomputed two-lane fingerprints; every hot
+  cache lookup and view identity combines fixed-size values, while mutation
+  tests prove content, metadata, measurements, fonts, widths, and line geometry
+  still invalidate the correct caches. Release-mode regressions cover both the
+  direct cache path and genuine AppKit-hosted SwiftUI invalidations.
+
 ## Resolved in 0.6.11
 
 - Fixed macOS AppKit selectable text leaves (`nativeTextSelection: .enabled`,

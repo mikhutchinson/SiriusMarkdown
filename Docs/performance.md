@@ -19,6 +19,16 @@ The renderer contract is architectural: SwiftUI **`body`** must not parse Markdo
 
 Bounded LRU-style caches (default capacity **256**) cover prepared, measured, layout, and overwide fallback unit results; **`MarkdownDiagnosticsRecorder`** records **prepareCount**, **layoutCount**, **widthRelayoutCount**, **overwideUnitFallbackCount**, and generic cache hit/miss counts. Per-character unit measurement is lazy and only runs for overwide segment splitting.
 
+Prepared, measured, and layout results also carry deterministic two-lane
+**`MarkdownContentFingerprint`** values. The fingerprints are built when those
+values are created or mutated, where content-sized work belongs. Layout cache
+keys, SwiftUI prepared-content identity, and source-backed selection cache keys
+then combine a fixed number of machine words; a cache hit must not rehash
+natural text, inline runs, measured units, or line arrays. Layout-only
+fingerprints intentionally exclude link destinations and caller-owned source
+metadata from glyph measurement reuse, while the full prepared fingerprint
+retains them for rendering and selection invalidation.
+
 SwiftUI block views consume **prepared inline content** created by **`MarkdownRendererConfiguration.prepare(snapshot:)`**. The prepared inline payload stores both the attributed text and **`MeasuredInlineContent`** so view-time width changes can compute line breaks from cached segment/unit measurements. Use **`InlineLayoutEngine`** directly when you need deterministic metrics outside the SwiftUI renderer (tests, golden comparison, future layout-driven UI).
 
 Prepared inline layout is the cacheable measurement, resize, diagnostics, and metadata layer. The packaged chat and document presets **`MarkdownRendererConfiguration.compactChat`** and **`.document`**, plus direct custom configuration, use **`MarkdownInlineRenderingMode.coreTextPaintedLines`** by default. That mode consumes **`InlineLayoutResult`** ranges, resolves CT fonts from **`MarkdownInlineFontProfiles`**, builds link hit regions only from prepared attributed link attributes that survived policy filtering, and paints each whole line through CoreText **`CTLineDraw`** in narrow AppKit/UIKit platform bridges. **`MarkdownInlineRenderingMode.preparedNativeLines`** and **`.systemText`** remain explicit compatibility fallbacks. All inline rendering modes keep parsing, policy preparation, code/math rendering, and inline measurement out of SwiftUI **`body`**.
@@ -49,6 +59,7 @@ Performance benchmarks live in `Tests/SiriusMarkdownSwiftUITests/MarkdownPerform
 | Width change on single block | <4ms | Quarter frame budget (layout only, no parsing) |
 | CTLine creation in SwiftUI body | 0 after preparation | All CTLine work in prepare phase |
 | Selection preference publication | 0 new builds after warmup | No work when nothing changed |
+| 1,300-line hosted selection invalidation | <16ms median after warmup | One 60fps frame; release reference is 0.418ms |
 
 ## Rendering path
 

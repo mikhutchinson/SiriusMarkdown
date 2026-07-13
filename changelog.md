@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+## 0.6.12 - 2026-07-13
+
+- Fixed source-backed document selection and prepared inline layout cache hits
+  rescanning the full prepared text, inline runs, measured units, and line
+  ranges from SwiftUI layout evaluation. Long generated code blocks could
+  therefore hold a host app's main thread at 100% CPU even though every cache
+  lookup ultimately hit.
+- Added deterministic two-lane content fingerprints that are computed when
+  prepared, measured, and laid-out values are created or mutated. Layout,
+  view-identity, and selection cache keys now combine a constant number of
+  machine words while retaining source metadata, measurement-profile, font,
+  width, and geometry invalidation boundaries.
+- Added direct and AppKit-hosted 1,300-line selection performance regressions.
+  On the release build, 40 repeated layout/selection cache hits fell from a
+  353.9 ms pre-fix baseline to 0.214 ms, and hosted post-warm invalidations
+  measured a 0.418 ms median against a 16 ms release budget.
+
 ## 0.6.11 - 2026-07-12
 
 - Fixed the macOS AppKit selectable text leaves rebuilding their full

@@ -18,9 +18,18 @@ The core contract is simple:
 
 ## Current Release
 
-`0.6.11` makes the macOS AppKit selectable text leaves cheap under SwiftUI
-layout pressure, on top of `0.6.10`'s semantic color fixes and the native
-macOS selection behavior introduced in `0.6.8`/`0.6.9`:
+`0.6.12` makes source-backed selection and prepared-line layout cache hits
+constant-time with respect to document size, on top of `0.6.11`'s AppKit leaf
+stability, `0.6.10`'s semantic color fixes, and the native macOS selection
+behavior introduced in `0.6.8`/`0.6.9`:
+
+- **No content scan on a cache hit:** prepared, measured, and laid-out inline
+  values carry deterministic two-lane fingerprints computed at their mutation
+  boundary. SwiftUI view identity and layout/selection caches combine those
+  fixed-size values instead of rehashing full text, runs, units, and line
+  arrays during layout.
+- **Frame-budget regression:** a release-mode AppKit-hosted 1,300-line code
+  block settles at a 0.418 ms median invalidation, with a hard 16 ms gate.
 
 - **No rebuild per layout proposal:** AppKit leaves apply their attributed
   source once per content/environment change and cache measured sizes per
@@ -64,7 +73,7 @@ competing selection owners. Other platforms retain the source-backed default.
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/mikhutchinson/SiriusMarkdown.git", from: "0.6.11")
+    .package(url: "https://github.com/mikhutchinson/SiriusMarkdown.git", from: "0.6.12")
 ],
 targets: [
     .target(
@@ -307,12 +316,12 @@ git diff --check
 - Release runbook: `runbook.md`
 - Changelog: `changelog.md`
 - Bugfix log: `bugfix.md`
-- Current release notes: `release-notes/0.6.11.md`
+- Current release notes: `release-notes/0.6.12.md`
 - Third-party credits: `NOTICE.md`
 
 ## Release
 
-`0.6.11` is ready only when the docs describe the current public package surface,
+`0.6.12` is ready only when the docs describe the current public package surface,
 `bash Tools/product-check.sh` passes from the repository root, `git diff --check`
 is clean, the public remote is correct, and the release commit is tagged and
-pushed as `0.6.11` with a matching published GitHub Release and green CI.
+pushed as `0.6.12` with a matching published GitHub Release and green CI.

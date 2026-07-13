@@ -1966,16 +1966,33 @@ private struct MarkdownPreparedSnapshotReuse {
 
 public struct MarkdownPreparedInlineContent: Sendable {
     public var attributed: AttributedString
-    public var prepared: PreparedInlineContent
-    public var measured: MeasuredInlineContent
+    public var prepared: PreparedInlineContent {
+        didSet { refreshCacheFingerprint() }
+    }
+    public var measured: MeasuredInlineContent {
+        didSet { refreshCacheFingerprint() }
+    }
     public var images: [MarkdownPreparedImage]
     /// Reserved-box attachment records for allowed images, keyed by the
     /// stable `MarkdownAttachmentID` prepare assigned to their display run
     /// (Inline Attachments Part 01). Empty on the denied text-atomic path.
     public var attachments: [MarkdownAttachmentID: MarkdownPreparedAttachment]
-    public var fontSize: Double
-    public var lineHeight: Double
-    public var fontProfiles: MarkdownInlineFontProfiles
+    public var fontSize: Double {
+        didSet { refreshCacheFingerprint() }
+    }
+    public var lineHeight: Double {
+        didSet { refreshCacheFingerprint() }
+    }
+    public var fontProfiles: MarkdownInlineFontProfiles {
+        didSet { refreshCacheFingerprint() }
+    }
+    /// Constant-size identity for every prepared/measured/font input used by
+    /// view invalidation, inline layout, and source-backed selection caches.
+    /// This replaces hashing full strings/runs/units/line arrays from SwiftUI
+    /// layout evaluation.
+    public private(set) var cacheFingerprint = MarkdownContentFingerprint(
+        domain: "markdown-prepared-inline-empty"
+    )
     public var layoutCache: MarkdownInlineLayoutCache
     /// When non-nil, this inline content contains typeset math and should be
     /// rendered with native `Text` composition instead of prepared CoreText lines.
@@ -2025,6 +2042,17 @@ public struct MarkdownPreparedInlineContent: Sendable {
         self.mathTextPieces = mathTextPieces
         self.initialLayoutResult = initialLayoutResult
         self.defaultLayoutWidth = defaultLayoutWidth
+        refreshCacheFingerprint()
+    }
+
+    private mutating func refreshCacheFingerprint() {
+        var fingerprint = MarkdownContentFingerprint(domain: "markdown-prepared-inline-v1")
+        fingerprint.combine(prepared.cacheFingerprint)
+        fingerprint.combine(measured.cacheFingerprint)
+        fingerprint.combine(fontSize)
+        fingerprint.combine(lineHeight)
+        fingerprint.combine(fontProfiles.cacheKey)
+        cacheFingerprint = fingerprint
     }
 
     private static func sanitizedPositive(_ value: Double, fallback: Double) -> Double {
@@ -2247,35 +2275,27 @@ public final class MarkdownInlineLayoutCache: @unchecked Sendable {
         rect: CGRect,
         idPrefix: String
     ) -> MarkdownCacheKey {
-        var hasher = Hasher()
-        hasher.combine(blockID)
-        hasher.combine(idPrefix)
-        hasher.combine(prepared.prepared.sourceRange)
-        hasher.combine(prepared.prepared.naturalText)
-        hasher.combine(prepared.prepared.runs)
-        hasher.combine(prepared.fontSize)
-        hasher.combine(prepared.lineHeight)
-        hasher.combine(prepared.fontProfiles)
-        hasher.combine(layout.lines)
-        hasher.combine(layout.naturalWidth)
-        hasher.combine(layout.height)
+        var fingerprint = MarkdownContentFingerprint(domain: "selection-fragment-array-v2")
+        fingerprint.combine(blockID.rawValue)
+        fingerprint.combine(idPrefix)
+        fingerprint.combine(prepared.cacheFingerprint)
+        fingerprint.combine(layout.cacheFingerprint)
         // Round to the nearest half-point so repeated queries during a
         // layout-settle burst (which can differ by sub-point rounding
         // noise across passes) still hit the cache, matching the existing
         // 0.5pt tolerance `sortedForSelection()` already uses for fragment
         // ordering.
-        hasher.combine(Self.roundedForFingerprint(rect.origin.x))
-        hasher.combine(Self.roundedForFingerprint(rect.origin.y))
-        hasher.combine(Self.roundedForFingerprint(rect.width))
-        hasher.combine(Self.roundedForFingerprint(rect.height))
-        let fingerprint = UInt64(bitPattern: Int64(hasher.finalize()))
+        fingerprint.combine(Self.roundedForFingerprint(rect.origin.x))
+        fingerprint.combine(Self.roundedForFingerprint(rect.origin.y))
+        fingerprint.combine(Self.roundedForFingerprint(rect.width))
+        fingerprint.combine(Self.roundedForFingerprint(rect.height))
         let sourceRange = prepared.prepared.sourceRange ?? MarkdownSourceRange(
-            byteRange: 0..<prepared.prepared.naturalText.utf8.count,
+            byteRange: 0..<prepared.prepared.naturalTextUTF8Count,
             lineRange: 0..<0
         )
         return MarkdownCacheKey(
             sourceRange: sourceRange,
-            contentHash: fingerprint,
+            contentFingerprint: fingerprint,
             namespace: "selection-fragment-array"
         )
     }
@@ -2293,26 +2313,18 @@ public final class MarkdownInlineLayoutCache: @unchecked Sendable {
         layout: InlineLayoutResult,
         idPrefix: String
     ) -> MarkdownCacheKey {
-        var hasher = Hasher()
-        hasher.combine(blockID)
-        hasher.combine(idPrefix)
-        hasher.combine(prepared.prepared.sourceRange)
-        hasher.combine(prepared.prepared.naturalText)
-        hasher.combine(prepared.prepared.runs)
-        hasher.combine(prepared.fontSize)
-        hasher.combine(prepared.lineHeight)
-        hasher.combine(prepared.fontProfiles)
-        hasher.combine(layout.lines)
-        hasher.combine(layout.naturalWidth)
-        hasher.combine(layout.height)
-        let fingerprint = UInt64(bitPattern: Int64(hasher.finalize()))
+        var fingerprint = MarkdownContentFingerprint(domain: "selection-line-fragments-v2")
+        fingerprint.combine(blockID.rawValue)
+        fingerprint.combine(idPrefix)
+        fingerprint.combine(prepared.cacheFingerprint)
+        fingerprint.combine(layout.cacheFingerprint)
         let sourceRange = prepared.prepared.sourceRange ?? MarkdownSourceRange(
-            byteRange: 0..<prepared.prepared.naturalText.utf8.count,
+            byteRange: 0..<prepared.prepared.naturalTextUTF8Count,
             lineRange: 0..<0
         )
         return MarkdownCacheKey(
             sourceRange: sourceRange,
-            contentHash: fingerprint,
+            contentFingerprint: fingerprint,
             namespace: "selection-line-fragments"
         )
     }

@@ -618,7 +618,7 @@ struct MarkdownDocumentSelectionFragment: Identifiable, Equatable {
         in inlineLayout: MarkdownPreparedInlineContent,
         diagnosticsRecorder: MarkdownDiagnosticsRecorder? = nil
     ) -> MarkdownSourceRange? {
-        if relativeByteRange == 0..<inlineLayout.prepared.naturalText.utf8.count,
+        if relativeByteRange == 0..<inlineLayout.prepared.naturalTextUTF8Count,
            let sourceRange = inlineLayout.prepared.sourceRange {
             return sourceRange
         }

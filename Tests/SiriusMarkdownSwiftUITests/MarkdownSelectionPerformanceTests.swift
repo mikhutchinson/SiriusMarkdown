@@ -398,6 +398,130 @@ struct MarkdownSelectionPerformanceTests {
 
     @Test
     @MainActor
+    func cachedSelectionResolutionForLargeCodeBlockStaysWithinFrameBudget() throws {
+        // Regression for the Sirius live-stream beachball captured on
+        // 2026-07-13: a ~28 KB mixed-Markdown response included a large code
+        // block, and every selection GeometryReader evaluation recomputed the
+        // full measured-content layout hash plus the full prepared/layout
+        // selection cache fingerprints on the main thread. A cache *hit*
+        // therefore remained O(content size) and could hold one AppKit layout
+        // transaction for seconds. Warm the actual layout + fragment caches,
+        // then require repeated identical queries to fit comfortably inside
+        // one frame regardless of the prepared block's size.
+        let fixture = try largeCodeBlockSelectionFixture(lineCount: 1_300)
+        let width = 480.0
+        let layout = fixture.inlineLayout.layout(
+            containerWidth: width,
+            allowsOverwideFallback: true
+        )
+        let rect = CGRect(
+            x: 0,
+            y: 0,
+            width: width,
+            height: max(layout.height, 1)
+        )
+        let warm = MarkdownDocumentSelectionFragment.inlineLineFragments(
+            blockID: fixture.block.id,
+            prepared: fixture.inlineLayout,
+            layout: layout,
+            rect: rect,
+            idPrefix: "large-code-cache-hit"
+        )
+        #expect(!warm.isEmpty)
+
+        let iterations = 40
+        let clock = ContinuousClock()
+        let start = clock.now
+        for _ in 0..<iterations {
+            let repeatedLayout = fixture.inlineLayout.layout(
+                containerWidth: width,
+                allowsOverwideFallback: true
+            )
+            let fragments = MarkdownDocumentSelectionFragment.inlineLineFragments(
+                blockID: fixture.block.id,
+                prepared: fixture.inlineLayout,
+                layout: repeatedLayout,
+                rect: rect,
+                idPrefix: "large-code-cache-hit"
+            )
+            #expect(fragments.count == warm.count)
+        }
+        let elapsed = clock.now - start
+        let totalMilliseconds = Double(elapsed.components.seconds) * 1_000
+            + Double(elapsed.components.attoseconds) / 1e15
+        print(
+            "[selection-cache-hit] lines=1300 iterations=\(iterations) " +
+            "total=\(String(format: "%.3f", totalMilliseconds))ms"
+        )
+
+        #if !DEBUG
+        #expect(
+            totalMilliseconds < 16,
+            Comment(rawValue: "Warm selection/layout cache hits exceeded one frame: \(totalMilliseconds)ms")
+        )
+        #endif
+    }
+
+    @Test
+    @MainActor
+    func hostedLargeCodeBlockInvalidationStaysWithinFrameBudgetAfterWarmup() throws {
+        // Exercise the full path from a genuine SwiftUI root invalidation to
+        // GeometryReader selection resolution. This catches accidental
+        // regressions in `PreparedInlineLayoutIdentity` that a direct cache
+        // query cannot see.
+        let fixture = try largeCodeBlockSelectionFixture(lineCount: 1_300)
+        let width: CGFloat = 480
+        let height: CGFloat = 36_000
+        let makeRoot: (Int) -> AnyView = { tick in
+            AnyView(
+                SelectionInvalidationHarness(
+                    tick: tick,
+                    width: width,
+                    preparedSnapshot: fixture.preparedSnapshot,
+                    configuration: fixture.configuration
+                )
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(width: width, alignment: .topLeading)
+            )
+        }
+
+        let hostingView = NSHostingView(rootView: makeRoot(0))
+        hostingView.frame = NSRect(origin: .zero, size: NSSize(width: width, height: height))
+        let window = offscreenSelectionPerformanceWindow(hostingView)
+        defer { tearDownSelectionPerformanceWindow(window) }
+        pumpSelectionPerformanceLayout(hostingView, iterations: 10)
+
+        var samples: [Double] = []
+        let clock = ContinuousClock()
+        for tick in 1...12 {
+            let start = clock.now
+            hostingView.rootView = makeRoot(tick)
+            hostingView.needsLayout = true
+            hostingView.layoutSubtreeIfNeeded()
+            hostingView.displayIfNeeded()
+            let elapsed = clock.now - start
+            samples.append(
+                Double(elapsed.components.seconds) * 1_000
+                    + Double(elapsed.components.attoseconds) / 1e15
+            )
+        }
+        let medianMilliseconds = samples.sorted()[samples.count / 2]
+        print(
+            "[selection-host-cache-hit] lines=1300 samples=" +
+            samples.map { String(format: "%.3f", $0) }.joined(separator: ",") +
+            " median=\(String(format: "%.3f", medianMilliseconds))ms"
+        )
+
+        #if !DEBUG
+        #expect(
+            medianMilliseconds < 16,
+            Comment(rawValue: "Warm hosted selection invalidation exceeded one frame: \(medianMilliseconds)ms")
+        )
+        #endif
+    }
+
+    @Test
+    @MainActor
     func repeatedSelectionEndpointAndHighlightQueriesReusePreparedCoreTextLine() throws {
         let fixture = try preparedInlineSelectionFixture()
         let layout = InlineRunsView.lineLayout(for: fixture.inlineLayout, containerWidth: 180)
@@ -579,6 +703,31 @@ private func preparedInlineSelectionFixture() throws -> (
     let block = try #require(snapshot.blocks.first)
     let inlineLayout = try #require(prepared.preparedContentByBlockID[block.id]?.inlineLayout)
     return (block, inlineLayout, recorder)
+}
+
+private func largeCodeBlockSelectionFixture(lineCount: Int) throws -> (
+    block: MarkdownBlock,
+    inlineLayout: MarkdownPreparedInlineContent,
+    preparedSnapshot: MarkdownPreparedSnapshot,
+    configuration: MarkdownRendererConfiguration
+) {
+    let lines = (0..<lineCount).map { index in
+        "let value_\(index) = payload[\(index)] ?? fallback_\(index)"
+    }
+    var configuration = MarkdownRendererConfiguration.document
+    configuration.documentSelection = .enabled
+
+    var stream = MarkdownStream()
+    stream.append("```swift\n" + lines.joined(separator: "\n") + "\n```\n")
+    stream.finish()
+
+    let snapshot = stream.snapshot()
+    let prepared = configuration.prepare(snapshot: snapshot)
+    let block = try #require(snapshot.blocks.first { $0.kind == .codeBlock })
+    let inlineLayout = try #require(
+        prepared.preparedContentByBlockID[block.id]?.selectionInlineLayout
+    )
+    return (block, inlineLayout, prepared, configuration)
 }
 
 private func selectionStormMarkdown(blockCount: Int) -> String {

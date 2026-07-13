@@ -5,30 +5,82 @@ import CoreText
 #endif
 
 public struct PreparedInlineContent: Sendable, Hashable {
-    public var runs: [MarkdownInlineRun]
-    public var segments: [PreparedInlineSegment]
-    public var sourceRange: MarkdownSourceRange?
-    public var naturalText: String
+    public var runs: [MarkdownInlineRun] {
+        didSet { refreshCacheFingerprint() }
+    }
+    public var segments: [PreparedInlineSegment] {
+        didSet { refreshCacheFingerprint() }
+    }
+    public var sourceRange: MarkdownSourceRange? {
+        didSet { refreshCacheFingerprint() }
+    }
+    public var naturalText: String {
+        didSet { refreshCacheFingerprint() }
+    }
+    /// Cached because UTF-8 length is otherwise a linear String traversal at
+    /// nil-source-range cache-key and selection-mapping call sites.
+    public private(set) var naturalTextUTF8Count: Int = 0
+    /// Precomputed identity for cache lookup and view invalidation. Building
+    /// it is intentionally paid when prepared content is created or mutated,
+    /// never from a SwiftUI layout/selection cache hit.
+    public private(set) var cacheFingerprint = MarkdownContentFingerprint(
+        domain: "prepared-inline-empty"
+    )
+    /// Measurement/layout-only identity. Link destinations and caller-owned
+    /// source metadata must still rebind on a measured-cache hit, but they do
+    /// not change glyph widths or line breaks.
+    public private(set) var layoutCacheFingerprint = MarkdownContentFingerprint(
+        domain: "prepared-inline-layout-empty"
+    )
 
     public init(runs: [MarkdownInlineRun], sourceRange: MarkdownSourceRange? = nil) {
         self.runs = runs
         self.segments = PreparedInlineSegment.prepare(from: runs)
         self.sourceRange = sourceRange
         self.naturalText = segments.map(\.text).joined()
+        refreshCacheFingerprint()
+    }
+
+    private mutating func refreshCacheFingerprint() {
+        naturalTextUTF8Count = naturalText.utf8.count
+        cacheFingerprint = preparedInlineContentFingerprint(
+            runs: runs,
+            segments: segments,
+            sourceRange: sourceRange,
+            naturalText: naturalText
+        )
+        layoutCacheFingerprint = preparedInlineLayoutFingerprint(segments: segments)
     }
 }
 
 public struct PreparedInlineSegment: Sendable, Hashable {
-    public var kind: MarkdownInlineKind
-    public var presentation: MarkdownInlinePresentation
-    public var text: String
-    public var byteRange: Range<Int>
-    public var isHardBreak: Bool
-    public var isBreakOpportunity: Bool
+    public var kind: MarkdownInlineKind {
+        didSet { refreshCacheFingerprint() }
+    }
+    public var presentation: MarkdownInlinePresentation {
+        didSet { refreshCacheFingerprint() }
+    }
+    public var text: String {
+        didSet { refreshCacheFingerprint() }
+    }
+    public var byteRange: Range<Int> {
+        didSet { refreshCacheFingerprint() }
+    }
+    public var isHardBreak: Bool {
+        didSet { refreshCacheFingerprint() }
+    }
+    public var isBreakOpportunity: Bool {
+        didSet { refreshCacheFingerprint() }
+    }
     /// Reserved box metrics for an allowed attachment segment (Inline
     /// Attachments Part 01). When non-nil, measurement must use
     /// `attachmentMetrics.pointWidth` instead of measuring `text`.
-    public var attachmentMetrics: MarkdownInlineAttachmentMetrics?
+    public var attachmentMetrics: MarkdownInlineAttachmentMetrics? {
+        didSet { refreshCacheFingerprint() }
+    }
+    public private(set) var cacheFingerprint = MarkdownContentFingerprint(
+        domain: "prepared-inline-segment-empty"
+    )
 
     public init(
         kind: MarkdownInlineKind,
@@ -46,6 +98,19 @@ public struct PreparedInlineSegment: Sendable, Hashable {
         self.isHardBreak = isHardBreak
         self.isBreakOpportunity = isBreakOpportunity
         self.attachmentMetrics = attachmentMetrics
+        refreshCacheFingerprint()
+    }
+
+    private mutating func refreshCacheFingerprint() {
+        cacheFingerprint = preparedInlineSegmentFingerprint(
+            kind: kind,
+            presentation: presentation,
+            text: text,
+            byteRange: byteRange,
+            isHardBreak: isHardBreak,
+            isBreakOpportunity: isBreakOpportunity,
+            attachmentMetrics: attachmentMetrics
+        )
     }
 
     static func prepare(from runs: [MarkdownInlineRun]) -> [PreparedInlineSegment] {
@@ -203,10 +268,22 @@ public struct MeasuredInlineUnit: Sendable, Hashable {
 }
 
 public struct MeasuredInlineContent: Sendable, Hashable {
-    public var prepared: PreparedInlineContent
-    public var segments: [MeasuredInlineSegment]
-    public var naturalWidth: Double
-    public var fontSize: Double
+    public var prepared: PreparedInlineContent {
+        didSet { refreshCacheFingerprint() }
+    }
+    public var segments: [MeasuredInlineSegment] {
+        didSet { refreshCacheFingerprint() }
+    }
+    public var naturalWidth: Double {
+        didSet { refreshCacheFingerprint() }
+    }
+    public var fontSize: Double {
+        didSet { refreshCacheFingerprint() }
+    }
+    /// Precomputed identity of every input that can change line layout.
+    public private(set) var cacheFingerprint = MarkdownContentFingerprint(
+        domain: "measured-inline-empty"
+    )
 
     public init(
         prepared: PreparedInlineContent,
@@ -218,18 +295,47 @@ public struct MeasuredInlineContent: Sendable, Hashable {
         self.segments = segments
         self.naturalWidth = naturalWidth
         self.fontSize = fontSize
+        refreshCacheFingerprint()
+    }
+
+    private mutating func refreshCacheFingerprint() {
+        cacheFingerprint = measuredInlineContentFingerprint(
+            prepared: prepared,
+            segments: segments,
+            naturalWidth: naturalWidth,
+            fontSize: fontSize
+        )
     }
 }
 
 public struct InlineLayoutResult: Sendable, Hashable {
-    public var lines: [InlineLineRange]
-    public var naturalWidth: Double
-    public var height: Double
+    public var lines: [InlineLineRange] {
+        didSet { refreshCacheFingerprint() }
+    }
+    public var naturalWidth: Double {
+        didSet { refreshCacheFingerprint() }
+    }
+    public var height: Double {
+        didSet { refreshCacheFingerprint() }
+    }
+    /// Precomputed line-layout identity used by selection caches.
+    public private(set) var cacheFingerprint = MarkdownContentFingerprint(
+        domain: "inline-layout-result-empty"
+    )
 
     public init(lines: [InlineLineRange], naturalWidth: Double, height: Double) {
         self.lines = lines
         self.naturalWidth = naturalWidth
         self.height = height
+        refreshCacheFingerprint()
+    }
+
+    private mutating func refreshCacheFingerprint() {
+        cacheFingerprint = inlineLayoutResultFingerprint(
+            lines: lines,
+            naturalWidth: naturalWidth,
+            height: height
+        )
     }
 }
 
@@ -242,6 +348,173 @@ public struct InlineLayoutOptions: Sendable, Hashable {
         self.containerWidth = containerWidth
         self.fontSize = fontSize
         self.lineHeight = lineHeight
+    }
+}
+
+private func preparedInlineContentFingerprint(
+    runs: [MarkdownInlineRun],
+    segments: [PreparedInlineSegment],
+    sourceRange: MarkdownSourceRange?,
+    naturalText: String
+) -> MarkdownContentFingerprint {
+    var fingerprint = MarkdownContentFingerprint(domain: "prepared-inline-content-v1")
+    combine(sourceRange, into: &fingerprint)
+    fingerprint.combine(runs.count)
+    for run in runs {
+        combine(run, into: &fingerprint)
+    }
+    fingerprint.combine(segments.count)
+    for segment in segments {
+        fingerprint.combine(segment.cacheFingerprint)
+    }
+    // `naturalText` is derived in package-owned construction, but it remains
+    // publicly mutable for source compatibility. Include it so a caller's
+    // direct mutation cannot leave a stale cache identity.
+    fingerprint.combine(naturalText)
+    return fingerprint
+}
+
+private func preparedInlineSegmentFingerprint(
+    kind: MarkdownInlineKind,
+    presentation: MarkdownInlinePresentation,
+    text: String,
+    byteRange: Range<Int>,
+    isHardBreak: Bool,
+    isBreakOpportunity: Bool,
+    attachmentMetrics: MarkdownInlineAttachmentMetrics?
+) -> MarkdownContentFingerprint {
+    var fingerprint = MarkdownContentFingerprint(domain: "prepared-inline-segment-v1")
+    fingerprint.combine(kind.rawValue)
+    fingerprint.combine(presentation.rawValue)
+    fingerprint.combine(text)
+    combine(byteRange, into: &fingerprint)
+    fingerprint.combine(isHardBreak)
+    fingerprint.combine(isBreakOpportunity)
+    combine(attachmentMetrics, into: &fingerprint)
+    return fingerprint
+}
+
+private func preparedInlineLayoutFingerprint(
+    segments: [PreparedInlineSegment]
+) -> MarkdownContentFingerprint {
+    var fingerprint = MarkdownContentFingerprint(domain: "prepared-inline-layout-v1")
+    fingerprint.combine(segments.count)
+    for segment in segments {
+        fingerprint.combine(segment.cacheFingerprint)
+    }
+    return fingerprint
+}
+
+private func measuredInlineContentFingerprint(
+    prepared: PreparedInlineContent,
+    segments: [MeasuredInlineSegment],
+    naturalWidth: Double,
+    fontSize: Double
+) -> MarkdownContentFingerprint {
+    var fingerprint = MarkdownContentFingerprint(domain: "measured-inline-content-v1")
+    fingerprint.combine(prepared.layoutCacheFingerprint)
+    fingerprint.combine(segments.count)
+    for measuredSegment in segments {
+        fingerprint.combine(measuredSegment.segment.cacheFingerprint)
+        fingerprint.combine(measuredSegment.width)
+        fingerprint.combine(measuredSegment.units.count)
+        for unit in measuredSegment.units {
+            combine(unit.byteRange, into: &fingerprint)
+            fingerprint.combine(unit.width)
+            fingerprint.combine(unit.startsPreferredBreakUnit)
+        }
+    }
+    fingerprint.combine(naturalWidth)
+    fingerprint.combine(fontSize)
+    return fingerprint
+}
+
+private func inlineLayoutResultFingerprint(
+    lines: [InlineLineRange],
+    naturalWidth: Double,
+    height: Double
+) -> MarkdownContentFingerprint {
+    var fingerprint = MarkdownContentFingerprint(domain: "inline-layout-result-v1")
+    fingerprint.combine(lines.count)
+    for line in lines {
+        combine(line.byteRange, into: &fingerprint)
+        combine(line.consumedByteRange, into: &fingerprint)
+        fingerprint.combine(line.width)
+    }
+    fingerprint.combine(naturalWidth)
+    fingerprint.combine(height)
+    return fingerprint
+}
+
+private func combine(
+    _ run: MarkdownInlineRun,
+    into fingerprint: inout MarkdownContentFingerprint
+) {
+    fingerprint.combine(run.kind.rawValue)
+    fingerprint.combine(run.presentation.rawValue)
+    fingerprint.combine(run.text)
+    combine(run.sourceRange, into: &fingerprint)
+    combine(run.destination, into: &fingerprint)
+    combine(run.imageSource, into: &fingerprint)
+    combine(run.attachmentMetrics, into: &fingerprint)
+}
+
+private func combine(
+    _ sourceRange: MarkdownSourceRange?,
+    into fingerprint: inout MarkdownContentFingerprint
+) {
+    guard let sourceRange else {
+        fingerprint.combine(false)
+        return
+    }
+    fingerprint.combine(true)
+    combine(sourceRange.byteRange, into: &fingerprint)
+    combine(sourceRange.lineRange, into: &fingerprint)
+}
+
+private func combine(
+    _ range: Range<Int>,
+    into fingerprint: inout MarkdownContentFingerprint
+) {
+    fingerprint.combine(range.lowerBound)
+    fingerprint.combine(range.upperBound)
+}
+
+private func combine(
+    _ value: String?,
+    into fingerprint: inout MarkdownContentFingerprint
+) {
+    guard let value else {
+        fingerprint.combine(false)
+        return
+    }
+    fingerprint.combine(true)
+    fingerprint.combine(value)
+}
+
+private func combine(
+    _ metrics: MarkdownInlineAttachmentMetrics?,
+    into fingerprint: inout MarkdownContentFingerprint
+) {
+    guard let metrics else {
+        fingerprint.combine(false)
+        return
+    }
+    fingerprint.combine(true)
+    fingerprint.combine(metrics.id.rawValue)
+    fingerprint.combine(metrics.pointWidth)
+    fingerprint.combine(metrics.pointHeight)
+    fingerprint.combine(metrics.ascent)
+    fingerprint.combine(metrics.descent)
+    switch metrics.sizingSource {
+    case .themeDefault:
+        fingerprint.combine(0)
+    case .aspectPlaceholder:
+        fingerprint.combine(1)
+    case .intrinsicHint:
+        fingerprint.combine(2)
+    case .decoded:
+        fingerprint.combine(3)
     }
 }
 
@@ -1033,9 +1306,10 @@ public struct InlineLayoutEngine<Measurer: InlineMeasuring>: Sendable {
         _ measured: MeasuredInlineContent,
         containerWidth: Double
     ) -> MeasuredInlineContent {
-        var updated = measured
-        for index in updated.segments.indices {
-            let measuredSegment = updated.segments[index]
+        var updatedSegments = measured.segments
+        var changed = false
+        for index in updatedSegments.indices {
+            let measuredSegment = updatedSegments[index]
             guard measuredSegment.units.isEmpty,
                   !measuredSegment.segment.isBreakOpportunity,
                   measuredSegment.segment.attachmentMetrics == nil,
@@ -1051,7 +1325,8 @@ public struct InlineLayoutEngine<Measurer: InlineMeasuring>: Sendable {
             )
             if let cached = overwideUnitCache.value(forKey: key) {
                 diagnosticsRecorder.recordCacheHit()
-                updated.segments[index].units = cached
+                updatedSegments[index].units = cached
+                changed = true
                 continue
             }
 
@@ -1063,9 +1338,22 @@ public struct InlineLayoutEngine<Measurer: InlineMeasuring>: Sendable {
                 containerWidth: containerWidth
             )
             overwideUnitCache.insert(units, forKey: key)
-            updated.segments[index].units = units
+            updatedSegments[index].units = units
+            changed = true
         }
-        return updated
+        guard changed else {
+            return measured
+        }
+        // Rebuild the measured fingerprint once after all fallback-unit
+        // changes. Mutating `MeasuredInlineContent.segments[index]` directly
+        // would trigger its source-compatible property observer once per
+        // segment and turn a multi-segment fallback into O(n²) hashing.
+        return MeasuredInlineContent(
+            prepared: measured.prepared,
+            segments: updatedSegments,
+            naturalWidth: measured.naturalWidth,
+            fontSize: measured.fontSize
+        )
     }
 
     private func inlineCacheKey(
@@ -1077,9 +1365,14 @@ public struct InlineLayoutEngine<Measurer: InlineMeasuring>: Sendable {
             $0 + $1.text.utf8.count + ($1.destination?.utf8.count ?? 0) + ($1.imageSource?.utf8.count ?? 0)
         }
         let range = sourceRange ?? MarkdownSourceRange(byteRange: 0..<byteCount, lineRange: 1..<2)
+        var fingerprint = MarkdownContentFingerprint(domain: "prepared-inline-cache-v2")
+        fingerprint.combine(runs.count)
+        for run in runs {
+            combine(run, into: &fingerprint)
+        }
         return MarkdownCacheKey(
             sourceRange: range,
-            contentHash: inlineContentHash(runs),
+            contentFingerprint: fingerprint,
             namespace: namespace
         )
     }
@@ -1088,15 +1381,16 @@ public struct InlineLayoutEngine<Measurer: InlineMeasuring>: Sendable {
         for prepared: PreparedInlineContent,
         fontSize: Double
     ) -> MarkdownCacheKey {
-        MarkdownCacheKey(
+        var fingerprint = MarkdownContentFingerprint(domain: "measured-inline-cache-v1")
+        fingerprint.combine(prepared.layoutCacheFingerprint)
+        fingerprint.combine(fontSize)
+        fingerprint.combine(walker.measurer.measurementCacheKey)
+        return MarkdownCacheKey(
             sourceRange: prepared.sourceRange ?? MarkdownSourceRange(
-                byteRange: 0..<prepared.naturalText.utf8.count,
+                byteRange: 0..<prepared.naturalTextUTF8Count,
                 lineRange: 1..<2
             ),
-            contentHash: preparedContentHash(
-                prepared,
-                salt: "font:\(fontSize)|measurer:\(walker.measurer.measurementCacheKey)"
-            ),
+            contentFingerprint: fingerprint,
             namespace: "measured-inline"
         )
     }
@@ -1106,15 +1400,19 @@ public struct InlineLayoutEngine<Measurer: InlineMeasuring>: Sendable {
         options: InlineLayoutOptions,
         allowsOverwideFallback: Bool
     ) -> MarkdownCacheKey {
-        MarkdownCacheKey(
+        var fingerprint = MarkdownContentFingerprint(domain: "inline-layout-cache-v1")
+        fingerprint.combine(measured.cacheFingerprint)
+        fingerprint.combine(options.fontSize)
+        fingerprint.combine(options.lineHeight)
+        fingerprint.combine(options.containerWidth)
+        fingerprint.combine(allowsOverwideFallback)
+        fingerprint.combine(walker.measurer.measurementCacheKey)
+        return MarkdownCacheKey(
             sourceRange: measured.prepared.sourceRange ?? MarkdownSourceRange(
-                byteRange: 0..<measured.prepared.naturalText.utf8.count,
+                byteRange: 0..<measured.prepared.naturalTextUTF8Count,
                 lineRange: 1..<2
             ),
-            contentHash: measuredContentHash(
-                measured,
-                salt: "font:\(options.fontSize)|line:\(options.lineHeight)|width:\(options.containerWidth)|overwide:\(allowsOverwideFallback)|measurer:\(walker.measurer.measurementCacheKey)"
-            ),
+            contentFingerprint: fingerprint,
             namespace: "inline-layout"
         )
     }
@@ -1124,126 +1422,19 @@ public struct InlineLayoutEngine<Measurer: InlineMeasuring>: Sendable {
         fontSize: Double,
         containerWidth: Double
     ) -> MarkdownCacheKey {
-        MarkdownCacheKey(
+        var fingerprint = MarkdownContentFingerprint(domain: "overwide-inline-units-v1")
+        fingerprint.combine(measuredSegment.segment.cacheFingerprint)
+        fingerprint.combine(fontSize)
+        fingerprint.combine(containerWidth)
+        fingerprint.combine(walker.measurer.measurementCacheKey)
+        return MarkdownCacheKey(
             sourceRange: MarkdownSourceRange(
                 byteRange: measuredSegment.segment.byteRange,
                 lineRange: 1..<2
             ),
-            contentHash: preparedSegmentHash(
-                measuredSegment.segment,
-                salt: "font:\(fontSize)|width:\(containerWidth)|measurer:\(walker.measurer.measurementCacheKey)"
-            ),
+            contentFingerprint: fingerprint,
             namespace: "overwide-inline-units"
         )
-    }
-
-    private func inlineContentHash(_ runs: [MarkdownInlineRun]) -> UInt64 {
-        var hash: UInt64 = 0xcbf29ce484222325
-        for run in runs {
-            hash = appendField("run", value: "start", to: hash)
-            hash = appendField("kind", value: run.kind.rawValue, to: hash)
-            hash = appendField("presentation", value: String(run.presentation.rawValue), to: hash)
-            hash = appendField("text", value: run.text, to: hash)
-            hash = appendOptionalField("destination", value: run.destination, to: hash)
-            hash = appendOptionalField("imageSource", value: run.imageSource, to: hash)
-            hash = appendAttachmentMetrics(run.attachmentMetrics, to: hash)
-            if let sourceRange = run.sourceRange {
-                hash = appendField("source.present", value: "1", to: hash)
-                hash = appendField("source.byte.lower", value: String(sourceRange.byteRange.lowerBound), to: hash)
-                hash = appendField("source.byte.upper", value: String(sourceRange.byteRange.upperBound), to: hash)
-                hash = appendField("source.line.lower", value: String(sourceRange.lineRange.lowerBound), to: hash)
-                hash = appendField("source.line.upper", value: String(sourceRange.lineRange.upperBound), to: hash)
-            } else {
-                hash = appendField("source.present", value: "0", to: hash)
-            }
-        }
-        return hash
-    }
-
-    private func preparedContentHash(_ prepared: PreparedInlineContent, salt: String) -> UInt64 {
-        var hash = append(salt, to: 0xcbf29ce484222325)
-        for segment in prepared.segments {
-            hash = preparedSegmentHash(segment, initialHash: hash)
-        }
-        return hash
-    }
-
-    private func measuredContentHash(_ measured: MeasuredInlineContent, salt: String) -> UInt64 {
-        var hash = append(salt, to: 0xcbf29ce484222325)
-        hash = appendDoubleField("measured.naturalWidth", value: measured.naturalWidth, to: hash)
-        hash = appendDoubleField("measured.fontSize", value: measured.fontSize, to: hash)
-        hash = appendField("measured.segmentCount", value: String(measured.segments.count), to: hash)
-
-        for measuredSegment in measured.segments {
-            hash = preparedSegmentHash(measuredSegment.segment, initialHash: hash)
-            hash = appendDoubleField("measured.segment.width", value: measuredSegment.width, to: hash)
-            hash = appendField("measured.unitCount", value: String(measuredSegment.units.count), to: hash)
-
-            for unit in measuredSegment.units {
-                hash = appendField("measured.unit.byte.lower", value: String(unit.byteRange.lowerBound), to: hash)
-                hash = appendField("measured.unit.byte.upper", value: String(unit.byteRange.upperBound), to: hash)
-                hash = appendDoubleField("measured.unit.width", value: unit.width, to: hash)
-                hash = appendField(
-                    "measured.unit.preferredBreak",
-                    value: unit.startsPreferredBreakUnit ? "1" : "0",
-                    to: hash
-                )
-            }
-        }
-
-        return hash
-    }
-
-    private func preparedSegmentHash(_ segment: PreparedInlineSegment, salt: String) -> UInt64 {
-        preparedSegmentHash(segment, initialHash: append(salt, to: 0xcbf29ce484222325))
-    }
-
-    private func preparedSegmentHash(_ segment: PreparedInlineSegment, initialHash: UInt64) -> UInt64 {
-        var hash = initialHash
-        hash = appendField("segment.kind", value: segment.kind.rawValue, to: hash)
-        hash = appendField("segment.presentation", value: String(segment.presentation.rawValue), to: hash)
-        hash = appendField("segment.text", value: segment.text, to: hash)
-        hash = appendField("segment.byte.lower", value: String(segment.byteRange.lowerBound), to: hash)
-        hash = appendField("segment.byte.upper", value: String(segment.byteRange.upperBound), to: hash)
-        hash = appendField("segment.breakKind", value: segment.isHardBreak ? "hard" : "soft", to: hash)
-        hash = appendField("segment.breakOpportunity", value: segment.isBreakOpportunity ? "break" : "nobreak", to: hash)
-        hash = appendAttachmentMetrics(segment.attachmentMetrics, to: hash)
-        return hash
-    }
-
-    private func appendAttachmentMetrics(
-        _ metrics: MarkdownInlineAttachmentMetrics?,
-        to initialHash: UInt64
-    ) -> UInt64 {
-        var hash = appendField("attachment.present", value: metrics == nil ? "0" : "1", to: initialHash)
-        guard let metrics else {
-            return hash
-        }
-
-        hash = appendField("attachment.id", value: metrics.id.rawValue, to: hash)
-        hash = appendDoubleField("attachment.pointWidth", value: metrics.pointWidth, to: hash)
-        hash = appendDoubleField("attachment.pointHeight", value: metrics.pointHeight, to: hash)
-        hash = appendDoubleField("attachment.ascent", value: metrics.ascent, to: hash)
-        hash = appendDoubleField("attachment.descent", value: metrics.descent, to: hash)
-        hash = appendField("attachment.sizingSource", value: attachmentSizingSourceKey(metrics.sizingSource), to: hash)
-        return hash
-    }
-
-    private func appendDoubleField(_ name: String, value: Double, to initialHash: UInt64) -> UInt64 {
-        appendField(name, value: String(value.bitPattern), to: initialHash)
-    }
-
-    private func attachmentSizingSourceKey(_ sizingSource: MarkdownAttachmentSizingSource) -> String {
-        switch sizingSource {
-        case .themeDefault:
-            return "themeDefault"
-        case .aspectPlaceholder:
-            return "aspectPlaceholder"
-        case .intrinsicHint:
-            return "intrinsicHint"
-        case .decoded:
-            return "decoded"
-        }
     }
 
     private func measuredUnits(
@@ -1380,30 +1571,6 @@ public struct InlineLayoutEngine<Measurer: InlineMeasuring>: Sendable {
         return pieces.isEmpty ? [(segment.text, segment.byteRange)] : pieces
     }
 
-    private func append(_ text: String, to initialHash: UInt64) -> UInt64 {
-        var hash = initialHash
-        for byte in text.utf8 {
-            hash ^= UInt64(byte)
-            hash &*= 0x100000001b3
-        }
-        return hash
-    }
-
-    private func appendOptionalField(_ name: String, value: String?, to initialHash: UInt64) -> UInt64 {
-        var hash = appendField("\(name).present", value: value == nil ? "0" : "1", to: initialHash)
-        if let value {
-            hash = appendField("\(name).value", value: value, to: hash)
-        }
-        return hash
-    }
-
-    private func appendField(_ name: String, value: String, to initialHash: UInt64) -> UInt64 {
-        var hash = append(name, to: initialHash)
-        hash = append("#\(value.utf8.count):", to: hash)
-        hash = append(value, to: hash)
-        hash = append("|", to: hash)
-        return hash
-    }
 }
 
 private final class OverwideUnitCache: @unchecked Sendable {
