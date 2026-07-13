@@ -38,6 +38,26 @@ private struct SwiftMarkdownRenderModelConverter {
     var isSealed: Bool
     var referenceDefinitionsPrefix: String
     var allowParagraphDisplayMathSplitting: Bool = true
+    private let sourceLocationIndex: MarkdownSourceLocationIndex
+
+    init(
+        source: String,
+        baseOffset: Int,
+        lineMap: MarkdownLineMap,
+        idNamespace: String,
+        isSealed: Bool,
+        referenceDefinitionsPrefix: String,
+        allowParagraphDisplayMathSplitting: Bool = true
+    ) {
+        self.source = source
+        self.baseOffset = baseOffset
+        self.lineMap = lineMap
+        self.idNamespace = idNamespace
+        self.isSealed = isSealed
+        self.referenceDefinitionsPrefix = referenceDefinitionsPrefix
+        self.allowParagraphDisplayMathSplitting = allowParagraphDisplayMathSplitting
+        self.sourceLocationIndex = MarkdownSourceLocationIndex(source: source)
+    }
 
     private var sliceByteCount: Int {
         source.utf8.count
@@ -263,7 +283,8 @@ private struct SwiftMarkdownRenderModelConverter {
             source: source,
             baseOffset: baseOffset,
             lineMap: lineMap,
-            fallbackRange: fallbackRange
+            fallbackRange: fallbackRange,
+            sourceLocationIndex: sourceLocationIndex
         )
     }
 
@@ -556,24 +577,7 @@ private struct SwiftMarkdownRenderModelConverter {
     }
 
     private func byteOffset(for location: SourceLocation) -> Int {
-        var lineStart = baseOffset
-        if location.line > 1 {
-            var remainingNewlines = location.line - 1
-            var cursor = source.utf8.startIndex
-
-            while cursor < source.utf8.endIndex, remainingNewlines > 0 {
-                if source.utf8[cursor] == 10 {
-                    remainingNewlines -= 1
-                    if remainingNewlines == 0 {
-                        lineStart = baseOffset + source.utf8.distance(from: source.utf8.startIndex, to: source.utf8.index(after: cursor))
-                        break
-                    }
-                }
-                cursor = source.utf8.index(after: cursor)
-            }
-        }
-
-        return lineStart + max(0, location.column - 1)
+        sourceLocationIndex.byteOffset(for: location, baseOffset: baseOffset)
     }
 
     private func clampedByteRange(lower: Int, upper: Int) -> Range<Int> {
@@ -993,6 +997,7 @@ private struct InlineRunConverter {
     var baseOffset: Int
     var lineMap: MarkdownLineMap
     var fallbackRange: MarkdownSourceRange
+    var sourceLocationIndex: MarkdownSourceLocationIndex
 
     private static let currencyCodeSuffixes = Set(Locale.Currency.isoCurrencies.map(\.identifier))
     private static let bareTexCommands: Set<String> = [
@@ -3463,23 +3468,40 @@ private struct InlineRunConverter {
     }
 
     private func byteOffset(for location: SourceLocation) -> Int {
-        var lineStart = baseOffset
-        if location.line > 1 {
-            var remainingNewlines = location.line - 1
-            var cursor = source.utf8.startIndex
+        sourceLocationIndex.byteOffset(for: location, baseOffset: baseOffset)
+    }
+}
 
-            while cursor < source.utf8.endIndex, remainingNewlines > 0 {
-                if source.utf8[cursor] == 10 {
-                    remainingNewlines -= 1
-                    if remainingNewlines == 0 {
-                        lineStart = baseOffset + source.utf8.distance(from: source.utf8.startIndex, to: source.utf8.index(after: cursor))
-                        break
-                    }
-                }
-                cursor = source.utf8.index(after: cursor)
-            }
+/// `swift-markdown` reports AST ranges as one-based line/UTF-8-column
+/// locations. Converting each location by rescanning `source` from byte zero
+/// makes AST conversion quadratic for large single blocks (tables are the
+/// worst case because every cell and inline has its own range). Build the
+/// line-start table once per parser boundary and share its copy-on-write
+/// storage with every inline converter instead.
+private struct MarkdownSourceLocationIndex: Sendable {
+    private let lineStartByteOffsets: [Int]
+    private let sourceByteCount: Int
+
+    init(source: String) {
+        var lineStarts = [0]
+        lineStarts.reserveCapacity(64)
+        for (offset, byte) in source.utf8.enumerated() where byte == 10 {
+            lineStarts.append(offset + 1)
         }
+        self.lineStartByteOffsets = lineStarts
+        self.sourceByteCount = source.utf8.count
+    }
 
-        return lineStart + max(0, location.column - 1)
+    func byteOffset(for location: SourceLocation, baseOffset: Int) -> Int {
+        let lineIndex = min(
+            max(0, location.line - 1),
+            lineStartByteOffsets.count - 1
+        )
+        let lineStart = lineStartByteOffsets[lineIndex]
+        let localOffset = min(
+            sourceByteCount,
+            lineStart + max(0, location.column - 1)
+        )
+        return baseOffset + localOffset
     }
 }

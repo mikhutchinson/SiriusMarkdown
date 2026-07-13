@@ -111,7 +111,18 @@ public final class MarkdownRenderSession: ObservableObject {
         }
 
         let pipeline = pipeline
-        renderTask = Task(priority: .userInitiated) { [weak self] in
+        // This session is MainActor-isolated because it publishes ObservableObject
+        // state to SwiftUI. A child `Task`, however, inherits that actor. Merely
+        // awaiting the pipeline actor is not a sufficient thread-hop guarantee:
+        // when the pipeline is uncontended, Swift's cooperative executor may run
+        // its parse/prepare job immediately on the calling main thread. Large
+        // documents can then starve AppKit for an entire parse + highlight +
+        // preparation pass even though none of that work requires the MainActor.
+        //
+        // Start the pump detached so every pipeline batch originates on the
+        // global executor. The only MainActor hops are the small operation drain
+        // and prepared-value publication boundaries below.
+        renderTask = Task.detached(priority: .userInitiated) { [weak self] in
             while true {
                 let batch = await MainActor.run { () -> MarkdownRenderSessionBatch? in
                     guard let self else {

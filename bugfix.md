@@ -4,6 +4,21 @@
 
 - None currently tracked.
 
+## Resolved in 0.6.13
+
+- Fixed beachball-class CPU saturation during a live, large mixed-Markdown
+  generation. Sampling showed cooperative executor threads dominated by
+  `SwiftMarkdownRenderModelConverter` / `InlineRunConverter.byteOffset(for:)`,
+  especially table conversion. Both converters found every AST source line by
+  scanning the growing UTF-8 source from the beginning, making one large
+  mutable-tail block quadratic in its line and inline count. A per-parse
+  line-start index now resolves source locations in constant time while
+  preserving byte-accurate Unicode, reference-prefix, and streamed source
+  ranges. Render-session work also originates from a detached task so an
+  uncontended actor hop cannot execute parse/highlight/prepare in the
+  MainActor caller context. Scaling, task-local isolation, thread-recording,
+  and MainActor-heartbeat regressions cover both causes.
+
 ## Resolved in 0.6.12
 
 - Fixed a source-backed document-selection beachball captured in a live host

@@ -155,6 +155,44 @@ func renderSessionCoalescesAppendBurstBeforePreparing() async throws {
 
 @Test
 @MainActor
+func renderSessionPreparationDoesNotBlockTheMainActor() async throws {
+    let highlighter = ThreadRecordingSlowCodeHighlighter(delay: 0.35)
+    let configuration = MarkdownRendererConfiguration(
+        theme: .document,
+        codeHighlighter: highlighter
+    )
+    let session = MarkdownRenderSession(configuration: configuration)
+    let clock = ContinuousClock()
+    let start = clock.now
+
+    RenderSessionCallerContext.$marker.withValue(true) {
+        session.append(
+            """
+            ```swift
+            let backgroundPreparation = true
+            ```
+            """
+        )
+    }
+
+    // A render pump inherited from this @MainActor test cannot resume this
+    // heartbeat until the deliberately slow highlighter returns. The detached
+    // pipeline must leave the actor available while preparation continues.
+    try await Task.sleep(for: .milliseconds(25))
+    let heartbeatDelay = milliseconds(clock.now - start)
+    #expect(
+        heartbeatDelay < 150,
+        "MainActor heartbeat was delayed \(heartbeatDelay) ms by render preparation"
+    )
+
+    await session.waitUntilIdle()
+    #expect(highlighter.invocationCount == 1)
+    #expect(highlighter.didRunOnMainThread == false)
+    #expect(highlighter.didInheritCallerTaskContext == false)
+}
+
+@Test
+@MainActor
 func renderSessionReusesPreparedLongTranscriptBeyondCacheCapacity() async throws {
     let renderRecorder = MarkdownDiagnosticsRecorder()
     let session = MarkdownRenderSession(
@@ -297,4 +335,45 @@ private final class SlowCodeHighlighter: MarkdownCodeHighlighter, @unchecked Sen
         Thread.sleep(forTimeInterval: delay)
         return AttributedString(code)
     }
+}
+
+private final class ThreadRecordingSlowCodeHighlighter: MarkdownCodeHighlighter, @unchecked Sendable {
+    private let lock = NSLock()
+    private let delay: TimeInterval
+    private var invocationThreads: [Bool] = []
+    private var inheritedCallerContexts: [Bool] = []
+
+    init(delay: TimeInterval) {
+        self.delay = delay
+    }
+
+    var invocationCount: Int {
+        lock.withLock { invocationThreads.count }
+    }
+
+    var didRunOnMainThread: Bool {
+        lock.withLock { invocationThreads.contains(true) }
+    }
+
+    var didInheritCallerTaskContext: Bool {
+        lock.withLock { inheritedCallerContexts.contains(true) }
+    }
+
+    func highlightedCode(_ code: String, infoString _: String?) -> AttributedString {
+        lock.withLock {
+            invocationThreads.append(Thread.isMainThread)
+            inheritedCallerContexts.append(RenderSessionCallerContext.marker)
+        }
+        Thread.sleep(forTimeInterval: delay)
+        return AttributedString(code)
+    }
+}
+
+private enum RenderSessionCallerContext {
+    @TaskLocal static var marker = false
+}
+
+private func milliseconds(_ duration: Duration) -> Double {
+    Double(duration.components.seconds) * 1_000.0
+        + Double(duration.components.attoseconds) / 1e15
 }

@@ -18,10 +18,20 @@ The core contract is simple:
 
 ## Current Release
 
-`0.6.12` makes source-backed selection and prepared-line layout cache hits
-constant-time with respect to document size, on top of `0.6.11`'s AppKit leaf
-stability, `0.6.10`'s semantic color fixes, and the native macOS selection
-behavior introduced in `0.6.8`/`0.6.9`:
+`0.6.13` removes two long-generation stalls from the streaming pipeline, on
+top of `0.6.12`'s constant-time selection/layout cache hits and `0.6.11`'s
+AppKit leaf stability:
+
+- **Linear AST source mapping:** each `swift-markdown` parse boundary builds
+  one UTF-8 line-start index. Block, table-cell, and inline source locations
+  resolve through that index instead of rescanning from byte zero per AST
+  node, removing quadratic conversion for large mutable-tail tables.
+- **Preparation stays off MainActor:** `MarkdownRenderSession` starts its
+  parse/highlight/prepare pump from a detached user-initiated task. Only the
+  operation drain and prepared-snapshot publication hop to MainActor.
+- **Measured regression:** 8x more generated table rows now takes 8.02x parse
+  time (25.63 ms for 120 rows; 205.62 ms for 960 rows). The restored pre-fix
+  path did not complete the same gate after 30 seconds.
 
 - **No content scan on a cache hit:** prepared, measured, and laid-out inline
   values carry deterministic two-lane fingerprints computed at their mutation
@@ -73,7 +83,7 @@ competing selection owners. Other platforms retain the source-backed default.
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/mikhutchinson/SiriusMarkdown.git", from: "0.6.12")
+    .package(url: "https://github.com/mikhutchinson/SiriusMarkdown.git", from: "0.6.13")
 ],
 targets: [
     .target(
@@ -316,12 +326,12 @@ git diff --check
 - Release runbook: `runbook.md`
 - Changelog: `changelog.md`
 - Bugfix log: `bugfix.md`
-- Current release notes: `release-notes/0.6.12.md`
+- Current release notes: `release-notes/0.6.13.md`
 - Third-party credits: `NOTICE.md`
 
 ## Release
 
-`0.6.12` is ready only when the docs describe the current public package surface,
+`0.6.13` is ready only when the docs describe the current public package surface,
 `bash Tools/product-check.sh` passes from the repository root, `git diff --check`
 is clean, the public remote is correct, and the release commit is tagged and
-pushed as `0.6.12` with a matching published GitHub Release and green CI.
+pushed as `0.6.13` with a matching published GitHub Release and green CI.

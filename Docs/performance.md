@@ -7,6 +7,10 @@ The renderer contract is architectural: SwiftUI **`body`** must not parse Markdo
 - **Tail**: While streaming and **`sealedUpperBound < source.byteCount`**, each **`snapshot()`** reparses only the **mutable tail** slice (diagnostics **`tailReparseCount`**).
 - **Sealed regions**: Once sealed, blocks are reused from **`MarkdownParserCache`** keyed by **`MarkdownCacheKey`** (source range, content hash, namespace plus reference-definition context when later slices need prior definitions); hits increment sealed-region cache counters.
 - **Boundary scanning**: `MarkdownStream` retains incremental scanner state for the active tail and records `boundaryScannedByteCount` / `boundaryScannedLineCount`; long open fences, math, HTML, reference-link ambiguity, literal unmatched-bracket recovery, and loose-list tails are covered by counter-based linear-scan tests.
+- **AST source locations**: each `swift-markdown` parse boundary builds one
+  UTF-8 line-start index. Block, list, table-cell, and inline source ranges use
+  indexed line starts instead of rescanning the source prefix for every AST
+  node; large single-block mutable tails therefore remain linear in AST size.
 - **Identity**: Blocks expose stable **`MarkdownBlockID`** values derived in the AST converter from structural identity within each parse slice—not from fragile array indices in SwiftUI.
 
 ## Inline prepare / layout (Core)
@@ -45,6 +49,11 @@ Prepared inline layout is the cacheable measurement, resize, diagnostics, and me
 
 **`MarkdownRenderSession`** publishes a **`MarkdownPreparedSnapshotDiff`** alongside the full `MarkdownPreparedSnapshot`. The diff identifies changed, new, and removed item IDs since the last published snapshot. The existing `reusedPreparedItem` logic already identifies unchanged items — the diff is a byproduct of the existing reuse detection. Only changed/new items trigger preparation; sealed blocks hit the reuse path.
 
+The session's parse/highlight/prepare pump originates from a detached
+user-initiated task. Its MainActor isolation exists only for pending-operation
+drain and `ObservableObject` publication; expensive pipeline work must not
+inherit a SwiftUI caller's actor or task-local context.
+
 ### Selection preference caching (INV-P4)
 
 **`MarkdownDocumentSelectionLayer.onPreferenceChange`** skips sorting and storage when fragments are unchanged. `MarkdownDocumentSelectionFragment` conforms to `Equatable`, so the comparison is exact. This prevents redundant `sortedForSelection()` calls and `recordSelectionPreferenceChange()` increments during streaming when no blocks change position.
@@ -60,6 +69,7 @@ Performance benchmarks live in `Tests/SiriusMarkdownSwiftUITests/MarkdownPerform
 | CTLine creation in SwiftUI body | 0 after preparation | All CTLine work in prepare phase |
 | Selection preference publication | 0 new builds after warmup | No work when nothing changed |
 | 1,300-line hosted selection invalidation | <16ms median after warmup | One 60fps frame; release reference is 0.418ms |
+| 8x mutable-tail table growth | <20x parse time | Reject quadratic AST source-location conversion; release reference is 8.02x |
 
 ## Rendering path
 

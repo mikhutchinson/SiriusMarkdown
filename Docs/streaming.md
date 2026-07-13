@@ -79,6 +79,12 @@ Keeping the configuration alive lets the render-preparation cache reuse inline, 
 
 **`MarkdownRenderSession`** publishes both the full `MarkdownPreparedSnapshot` and the `MarkdownPreparedSnapshotDiff` via `@Published`. Views can consume the diff to minimize `ForEach` churn; unchanged sealed blocks do not trigger view re-evaluation during streaming appends.
 
+The render pump starts with `Task.detached(priority: .userInitiated)`. It
+drains queued operations and publishes prepared values through narrow
+MainActor hops, while parsing, AST conversion, highlighting, math/Mermaid
+preparation, and inline preparation execute outside the caller's actor and
+task-local context.
+
 Semantics always come from **`swift-markdown`** on each parsed slice; the scanner only chooses slice boundaries. The scanner's reference-label tracking is a sealing guard, not a Markdown parser.
 
 ## Related docs

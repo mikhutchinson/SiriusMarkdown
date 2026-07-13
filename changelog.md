@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+## 0.6.13 - 2026-07-13
+
+- Fixed AST source-range conversion rescanning the mutable-tail source from
+  byte zero for every block, table cell, and inline `SourceLocation`. Large
+  streamed tables therefore paid quadratic conversion cost even though
+  `swift-markdown` parsing and sealed-region reuse were working correctly.
+  Each parse boundary now builds one UTF-8 line-start index shared by the
+  block and inline converters.
+- Fixed `MarkdownRenderSession` creating its pipeline pump with an inherited
+  `Task`. Because the session is MainActor-isolated, expensive parse,
+  highlighting, and preparation work could inherit the caller's actor/task
+  context. The pump now starts detached on the user-initiated global executor;
+  only pending-operation drain and prepared-value publication use MainActor.
+- Added a mutable-tail table scaling regression: 120 rows parse in 25.63 ms
+  and 960 rows in 205.62 ms (8.02x for 8x data). A controlled replay of the
+  pre-fix converter did not complete the same test after 30 seconds. Added a
+  task-local/highlighter regression that fails under inherited `Task` and
+  proves preparation runs outside the caller context and main thread.
+
 ## 0.6.12 - 2026-07-13
 
 - Fixed source-backed document selection and prepared inline layout cache hits

@@ -1,6 +1,6 @@
 # Runbook
 
-This runbook is the local release authority for `SiriusMarkdown`. For the current public package release, use `0.6.12` as the tag and do not publish unless every release blocker below is clear.
+This runbook is the local release authority for `SiriusMarkdown`. For the current public package release, use `0.6.13` as the tag and do not publish unless every release blocker below is clear.
 
 ## Build
 
@@ -17,7 +17,7 @@ swift test
 ```
 
 Current status: `swift test` must pass with strict Swift-vs-Pretext comparison enabled across the required product fixture groups. Missing groups, duplicate fixture names/groups, absent required layout metadata (`font`, `lineHeight`, `whiteSpace`, `wordBreak`), invalid/nonzero `letterSpacing`, or known-drift allowlists are release blockers.
-The release-gate discovery floor for this slice is `873` Swift tests.
+The release-gate discovery floor for this slice is `875` Swift tests.
 
 Count the Swift test functions reported by the runner and keep the release-gate discovery floor current:
 
@@ -31,6 +31,8 @@ Parser acceptance for the current slice:
 - `MarkdownBlock` IDs must be stable while appending to the active tail and after sealing. Do not include mutable upper bounds or content hashes in the identity. Use `contentHash` for cache keys.
 - The render model must expose parser-owned structure for task states, ordered-list starts, nested list items, table cells, table alignments, code info strings, HTML blocks, math blocks, and inline destinations.
 - Whole-document parse and streamed parse must match for block IDs, kinds, and text across the chunk matrix.
+- AST source-location mapping must use one line-start index per parse boundary;
+  it must not scan from byte zero for every block, table cell, or inline.
 - Boundary scanner changes must preserve conservative handling for code fences, math fences, HTML blocks, reference-link ambiguity, loose-list ambiguity, blank-line stability, and CRLF-vs-LF equivalence.
 - Reference-style links must keep `swift-markdown` as semantic owner. Streaming may track labels to decide when sealing is safe and may pass sealed reference definitions into later slice parses, but it must not classify final link semantics outside the parser. Do not carry raw `[label]: ...` text forward from fenced code, HTML, or other parsed non-definition content.
 - Code-fence close candidates must match CommonMark closer shape: no tabs or more than three leading spaces before the marker, at least the opening marker length, and only whitespace after the marker run. Trailing text or four-space-indented marker content inside a fence must not seal the stream.
@@ -149,6 +151,8 @@ Layout and renderer acceptance for the current slice:
 - CTLine creation must not run in `updateNSView`/`updateUIView`; it must run in `prepare(snapshot:)` (INV-P1). The representable assigns a pre-built `MarkdownCoreTextPaintedLinePlan` when the layout result matches the initial pre-computed layout.
 - `PreparedInlineTextView` must render content on first appearance without waiting for the width preference (INV-P2). The initial layout is pre-computed at a default width during preparation.
 - `MarkdownRenderSession` must publish a `MarkdownPreparedSnapshotDiff` alongside the full snapshot (INV-P3). Only changed/new items trigger preparation; sealed blocks hit the reuse path.
+- `MarkdownRenderSession` must originate parse/highlight/prepare work from a
+  detached task. MainActor work is limited to operation drain and publication.
 - Selection fragment geometry must be cached; repeated same-rect resolution must record zero new builds after warmup (INV-P4). `onPreferenceChange` must skip sorting and storage when fragments are unchanged.
 - Performance benchmarks must pass in release mode with defined frame budgets (INV-P8). See `MarkdownPerformanceBenchmarkTests.swift`.
 - `MarkdownPreparedMathImage` must carry real ascent/descent estimated from the parsed atom tree, not `pointHeight`/`0` (INV-M2). Inline math baseline alignment uses `-descent`, not a heuristic.
@@ -197,7 +201,7 @@ Run this before claiming native-renderer product quality. It wraps the release g
 
 ## Public Release Checklist
 
-Use this checklist for `0.6.12`.
+Use this checklist for `0.6.13`.
 
 1. Confirm public hygiene:
 
@@ -247,28 +251,28 @@ Use this checklist for `0.6.12`.
 
    ```sh
    git add README.md runbook.md NOTICE.md changelog.md bugfix.md release-notes Docs Sources Tests Examples Tools Package.swift Package.resolved
-   git commit -m "Prepare SiriusMarkdown 0.6.12 release"
+   git commit -m "Prepare SiriusMarkdown 0.6.13 release"
    ```
 
 6. Tag and push:
 
    ```sh
-   git tag -a 0.6.12 -m "SiriusMarkdown 0.6.12"
+   git tag -a 0.6.13 -m "SiriusMarkdown 0.6.13"
    git push origin HEAD
-   git push origin 0.6.12
+   git push origin 0.6.13
    ```
 
 7. After pushing, create the public release from the matching `changelog.md`
    section and verify that GitHub marks it as Latest:
 
    ```sh
-   gh release create 0.6.12 \
+   gh release create 0.6.13 \
      --repo mikhutchinson/SiriusMarkdown \
      --verify-tag \
      --latest \
-     --title "SiriusMarkdown 0.6.12" \
-     --notes-file release-notes/0.6.12.md
-   gh release view 0.6.12 \
+     --title "SiriusMarkdown 0.6.13" \
+     --notes-file release-notes/0.6.13.md
+   gh release view 0.6.13 \
      --repo mikhutchinson/SiriusMarkdown \
      --json tagName,name,isDraft,isPrerelease,publishedAt,url
    ```
