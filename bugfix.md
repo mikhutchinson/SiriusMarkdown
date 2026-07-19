@@ -4,6 +4,20 @@
 
 - None currently tracked.
 
+## Resolved in Unreleased
+
+- Fixed live table rendering that remained main-thread-bound after the host's
+  33 ms transcript cadence was corrected. The enclosing table is one mutable
+  GFM block, so each snapshot rebuilt all prepared cells; SwiftUI body then
+  rescanned every historical cell for column maxima, and the ordinary row
+  stack repeatedly measured accumulated history as the tail grew. Table
+  preparation now retains source-stable completed rows/cells, compares and
+  prepares only the mutable suffix, updates column maxima incrementally, and
+  constrains global width changes to bounded streaming buckets. A persistent,
+  bounded row-size cache remeasures only changed rows or genuine width
+  revisions. Partial cells remain visible immediately and final sealed output
+  still comes from `swift-markdown` with exact one-shot-equivalent semantics.
+
 ## Resolved in 0.6.16
 
 - Fixed a host crash in the 0.6.15 incremental Highlight.js path caused by

@@ -17,7 +17,7 @@ swift test
 ```
 
 Current status: `swift test` must pass with strict Swift-vs-Pretext comparison enabled across the required product fixture groups. Missing groups, duplicate fixture names/groups, absent required layout metadata (`font`, `lineHeight`, `whiteSpace`, `wordBreak`), invalid/nonzero `letterSpacing`, or known-drift allowlists are release blockers.
-The release-gate discovery floor for this slice is `883` Swift tests.
+The release-gate discovery floor for this slice is `889` Swift tests.
 
 Count the Swift test functions reported by the runner and keep the release-gate discovery floor current:
 
@@ -146,6 +146,14 @@ Layout and renderer acceptance for the current slice:
   `NSTextView`s and that a hosted list leaf can select and copy through the
   AppKit pasteboard path.
 - Lists, task lists, tables, code blocks, math blocks, and HTML blocks must keep structured render paths. Do not collapse them back to `Text(block.text)` except as an explicit policy-denied or missing-structure fallback.
+- A mutable GFM table must retain completed prepared rows/cells by stable
+  source-derived identity. Partial cells remain visible without waiting for a
+  row newline; only the mutable row suffix is compared/prepared; column maxima
+  inspect changed cells; bounded streaming width revisions and the persistent
+  row-size cache prevent historical-row measurement on every publication.
+  Final sealed preparation must match one-shot table semantics and exact
+  widths. `MarkdownStreamingTableTests` and the 120-row AppKit host regression
+  are release blockers.
 - Renderer tests must assert behavior through render plans, prepared snapshots, lightweight prepared render identities, source-backed selection copy contexts, inline payload helpers, diagnostics counters, and large-transcript prepared item identity. `Tools/RenderProbe` owns the opt-in `MarkdownDocumentView` AppKit pixel check so Swift Testing helper crashes do not excuse dropping document-render coverage.
 - The full Swift suite runs serially in `Tools/release-check.sh` because the renderer tests host real SwiftUI/AppKit views and text views. `Tools/RenderProbe` is opt-in through `SIRIUS_MARKDOWN_RUN_VISUAL_PROBES=1` for pixel-level offscreen AppKit coverage instead of forcing those artifact checks through every default release run.
 - Repeated preparation of the same snapshot should reuse inline/code/math caches and record cache hits without incrementing prepare, highlighting, or math-render counters.

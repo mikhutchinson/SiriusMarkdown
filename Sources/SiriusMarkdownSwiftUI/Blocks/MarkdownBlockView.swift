@@ -477,14 +477,30 @@ public struct MarkdownBlockView: View {
     @ViewBuilder
     private var tableContent: some View {
         if let table = preparedContent.table {
-            let columnWidths = tableColumnWidths(for: table)
-            let grid = VStack(alignment: .leading, spacing: 0) {
+            let columnWidths = table.columnWidths.map { CGFloat($0) }
+            let grid = MarkdownStreamingTableRowStackLayout(
+                diagnosticsRecorder: configuration.diagnosticsRecorder,
+                measurementCache: resolvedTableCellStyle is MarkdownDefaultTableCellStyle
+                    ? configuration.preparationCache
+                    : nil
+            ) {
                 if !table.header.isEmpty {
                     tableRow(
                         cells: table.header,
                         rowIndex: -1,
                         isHeader: true,
                         columnWidths: columnWidths
+                    )
+                    .markdownStreamingTableRowLayoutToken(
+                        MarkdownStreamingTableRowLayoutToken(
+                            id: table.headerID,
+                            contentFingerprint: table.headerContentFingerprint,
+                            columnWidthFingerprint: table.columnWidthFingerprint,
+                            columnWidthRevision: table.columnWidthRevision,
+                            layoutContextIdentity: theme.renderCacheIdentity,
+                            inlineRenderingMode: configuration.inlineRenderingMode,
+                            nativeTextSelection: selectionModeInsideCompositeGrid
+                        )
                     )
                 }
 
@@ -494,6 +510,17 @@ public struct MarkdownBlockView: View {
                         rowIndex: rowIndex,
                         isHeader: false,
                         columnWidths: columnWidths
+                    )
+                    .markdownStreamingTableRowLayoutToken(
+                        MarkdownStreamingTableRowLayoutToken(
+                            id: row.id,
+                            contentFingerprint: row.contentFingerprint,
+                            columnWidthFingerprint: table.columnWidthFingerprint,
+                            columnWidthRevision: table.columnWidthRevision,
+                            layoutContextIdentity: theme.renderCacheIdentity,
+                            inlineRenderingMode: configuration.inlineRenderingMode,
+                            nativeTextSelection: selectionModeInsideCompositeGrid
+                        )
                     )
                 }
             }
@@ -761,38 +788,6 @@ public struct MarkdownBlockView: View {
         }
 
         return rowIndex.isMultiple(of: 2) ? Color.clear : theme.tableAlternateRowBackground
-    }
-
-    private func tableColumnWidths(for table: MarkdownPreparedTableBlock) -> [CGFloat] {
-        let columnCount = max(
-            table.header.count,
-            table.rows.map { $0.cells.count }.max() ?? 0
-        )
-        guard columnCount > 0 else {
-            return []
-        }
-
-        return (0..<columnCount).map { column in
-            let naturalWidth = tableNaturalWidth(table: table, column: column)
-            let paddedWidth = naturalWidth + (theme.renderTableHorizontalCellPadding * 2) + 18
-            let minimum = columnCount > 3 ? CGFloat(112) : CGFloat(132)
-            let maximum = columnCount <= 2 ? CGFloat(520) : CGFloat(360)
-            return min(max(CGFloat(paddedWidth), minimum), maximum)
-        }
-    }
-
-    private func tableNaturalWidth(table: MarkdownPreparedTableBlock, column: Int) -> Double {
-        var cells: [MarkdownPreparedTableCell] = []
-        if let header = table.header[safe: column] {
-            cells.append(header)
-        }
-        cells.append(contentsOf: table.rows.compactMap { $0.cells[safe: column] })
-
-        let measuredWidths = cells.map { cell in
-            cell.inlineLayout?.measured.naturalWidth ??
-                Double(cell.inline?.characters.count ?? 0) * paragraphTextMetrics.fontSize * 0.56
-        }
-        return measuredWidths.max() ?? 0
     }
 
     private var selectionModeInsideLeadingLayout: MarkdownNativeTextSelection {

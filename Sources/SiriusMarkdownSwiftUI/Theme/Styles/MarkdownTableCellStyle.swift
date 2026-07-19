@@ -4,9 +4,9 @@ import SwiftUI
 /// Metadata and prepared content passed to `MarkdownTableCellStyle`.
 ///
 /// `row` is `-1` for the header row, otherwise the zero-based body row
-/// index. `width` is the column's already-measured adaptive width
-/// (`MarkdownBlockView` measures prepared inline natural width; styles
-/// must not remeasure text).
+/// index. `width` is the column's already-prepared adaptive width. Render
+/// preparation maintains natural maxima and bounded streaming width revisions;
+/// styles and `MarkdownBlockView` must not rescan or remeasure cell text.
 public struct MarkdownTableCellStyleConfiguration {
     public var label: MarkdownBlockStyleLabel
     public var theme: MarkdownTheme

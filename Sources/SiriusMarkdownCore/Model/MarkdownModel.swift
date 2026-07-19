@@ -184,6 +184,13 @@ public struct MarkdownTableCell: Sendable, Hashable {
     public var sourceRange: MarkdownSourceRange
     public var text: String
     public var inlines: [MarkdownInlineRun]
+    /// Deterministic hash of the source slice that produced this cell.
+    ///
+    /// Table cell identity is anchored at its stable source start while this
+    /// value tracks append-only content growth. Render preparation can
+    /// therefore distinguish an unchanged historical cell from the one
+    /// mutable streaming cell without hashing its runs again.
+    public var contentHash: UInt64
     public var colspan: UInt
     public var rowspan: UInt
 
@@ -191,12 +198,14 @@ public struct MarkdownTableCell: Sendable, Hashable {
         sourceRange: MarkdownSourceRange,
         text: String,
         inlines: [MarkdownInlineRun] = [],
+        contentHash: UInt64 = 0,
         colspan: UInt = 1,
         rowspan: UInt = 1
     ) {
         self.sourceRange = sourceRange
         self.text = text
         self.inlines = inlines
+        self.contentHash = contentHash
         self.colspan = colspan
         self.rowspan = rowspan
     }

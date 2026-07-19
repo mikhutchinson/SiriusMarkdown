@@ -104,6 +104,27 @@ lexical context. Every block receives a full highlight when it seals. The
 native Swift and custom highlighters continue to receive the full document on
 every publication because no equivalent continuation contract is available.
 
+### Mutable streaming tables
+
+A GFM table remains one mutable parser block until it seals, but its prepared
+renderer state is incremental below that block boundary. Row and cell IDs use
+the stable block/source start plus structural role and column; mutable source
+upper bounds and content hashes are revisions, never renderer identity.
+
+`prepare(snapshot:reusing:)` retains the completed row prefix as persistent
+prepared values, compares/prepares only the prior tail row and newly appended
+rows, and reuses unchanged prepared cell inline measurements. Column natural
+widths are monotonic during streaming and inspect only changed cells. Effective
+widths grow through bounded 64-point buckets, preventing every token in one
+cell from resizing all historical rows; sealing performs one exact-width pass
+so a finished streamed table matches one-shot preparation.
+
+SwiftUI consumes the prepared widths directly. A bounded row-size cache keyed
+by stable row fingerprint and column-width revision survives prepared-root
+publication, so only changed rows or a genuine width revision call into row
+`sizeThatFits`. None of this gates source publication: partial cells, links,
+and URLs remain visible before their row-ending newline.
+
 Semantics always come from **`swift-markdown`** on each parsed slice; the scanner only chooses slice boundaries. The scanner's reference-label tracking is a sealing guard, not a Markdown parser.
 
 ## Related docs

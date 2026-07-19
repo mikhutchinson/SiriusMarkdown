@@ -76,6 +76,23 @@ streams. This avoids depending on private viewport item-phase behavior while
 preserving tables, math, Mermaid, attachments, links, copy, and document
 selection in their native SwiftUI block hierarchy.
 
+### Incremental streaming table layout (INV-P9)
+
+Prepared tables treat every completed body row as an immutable subregion of
+the otherwise mutable table block. Preparation retains that row prefix, reuses
+unchanged tail cells by source hash/range, and records cell comparison,
+preparation, reuse, column-scan, and width-revision counters. Column maxima are
+updated only from changed cells while streaming; 64-point effective-width
+buckets bound the number of global row invalidations, followed by one exact
+sealed pass.
+
+The table row `Layout` never derives widths or measures raw text. Its bounded
+cross-publication size cache is keyed by row content fingerprint and prepared
+column-width revision. The 120x6 AppKit regression publishes two chunks per
+row, including URL splits, without newline gating. It requires fewer than
+1,200 row measurements, keeps late main-thread settle below 16 ms, and rejects
+historical cell comparison/preparation that scales as rows x publications.
+
 ### Mutable-tail cache and highlighting policy (INV-P6)
 
 Unsealed inline, code, math, and Mermaid values bypass stable preparation
@@ -104,6 +121,8 @@ Performance benchmarks live in `Tests/SiriusMarkdownSwiftUITests/MarkdownPerform
 | 1,300-line hosted selection invalidation | <16ms median after warmup | One 60fps frame; release reference is 0.418ms |
 | 8x mutable-tail table growth | <20x parse time | Reject quadratic AST source-location conversion; release reference is 8.02x |
 | 179 KB / 90-publication AppKit stream | <16ms mutable-tail median | Only the final bounded region should remeasure; release reference is 2.71ms |
+| 120x6 live table / 240 partial publications | <16ms late median; <1,200 row measurements | Completed rows reuse persistent preparation and layout; debug host reference is 0.62ms, 586 measurements |
+| 500x6 partial-cell preparation | <5.25x 120-row cell/column operations | Reject rows x publications preparation and width scans |
 
 ## Rendering path
 
@@ -117,6 +136,7 @@ The suite includes headless renderer-performance contract tests:
 - language-aware code highlighting must run only for uncached explicit supported-language fences; plaintext, nohighlight, unlabeled, and unsupported default fences stay plain and do not increment highlight work counters;
 - Highlight.js-backed highlighting of a growing code tail must process only appended bytes between full-context checkpoints, match a full highlight across multiline lexical state, and perform a full highlight on seal; the native Swift and custom paths remain full-context;
 - stable streaming regions must retain their revisions while only the mutable-tail region changes, and AppKit-hosted rapid publication must stay inside the frame budget without constraint recursion;
+- streaming tables must expose partial cells immediately, retain completed row/cell identity, compare and prepare only the mutable suffix, bound column-width revisions, and reuse historical row measurements across prepared-root publications;
 - equivalent CoreText token measurements must hit the shared bounded cache across distinct measurer values;
 - large streaming transcript preparation must create unique prepared item IDs for every block and keep an active tail prepared without forcing a full finish;
 - renderer preparation must not eagerly generate per-character unit measurements for every segment;

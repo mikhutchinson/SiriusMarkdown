@@ -14,7 +14,7 @@ let package = Package(
         )
     ],
     dependencies: [
-        .package(path: "../.."),
+        .package(name: "SiriusMarkdown", path: "../.."),
         .package(path: "../DemoSupport")
     ],
     targets: [

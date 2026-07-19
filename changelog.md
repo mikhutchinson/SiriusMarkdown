@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+- Fixed live GFM tables rebuilding every accumulated cell, rescanning all
+  natural widths from `MarkdownBlockView.body`, and repeatedly remeasuring the
+  full SwiftUI row stack while one tail cell grew. Prepared tables now retain
+  source-stable row/cell IDs, reuse every completed row plus unchanged tail
+  cells, update monotonic column maxima from only changed cells, and use
+  bounded 64-point streaming width buckets before one exact sealed width pass.
+- Added a bounded cross-publication table-row measurement cache owned by the
+  existing render-preparation cache. In the 120-row AppKit host regression,
+  240 visible partial-row publications required 586 fresh row measurements
+  with 88,464 cache hits; late-stream main-thread settle measured 0.62 ms.
+- Added partial-cell visibility, streamed-versus-static equivalence, alignment,
+  link/source-selection, ragged-row, malformed delimiter, finish/reset, stable
+  identity, 120x6, and 500x6 scaling regressions. Completed history is retained
+  without gating visibility on row-ending newlines or weakening host cadence.
+- Made the RenderProbe and clean-consumer release gates resolve the local
+  package by explicit identity, so required checks also run from isolated
+  worktrees whose directory names differ from `SiriusMarkdown`.
+
 ## 0.6.16 - 2026-07-13
 
 - Fixed a JavaScriptCore lifetime violation in the Highlight.js incremental
