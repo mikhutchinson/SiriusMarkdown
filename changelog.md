@@ -34,7 +34,9 @@
   republishes only affected prepared decorations. Hosts can disable decoration,
   disable remote metadata, or supply their own resolver.
 - Hardened favicon discovery with anonymous ephemeral requests, stripped
-  ambient credentials/cookies/referrers, per-hop policy and DNS checks,
+  ambient credentials/cookies/referrers, navigation-scoped in-memory cookies
+  issued only during the same anonymous redirect chain, per-hop policy and DNS
+  checks,
   validation of the actual contacted socket endpoint, IANA special-purpose
   IPv4/IPv6 rejection (including mapped and NAT64 forms), bounded document/icon
   payloads, redirect and candidate limits, square-artwork qualification, native
@@ -56,7 +58,7 @@
 - Added focused semantic, sanitization, source-entity mapping, streamed-versus-
   one-shot, resolver security/cache, decorated-link rendering, and scaling
   regressions, plus a reusable runtime favicon audit executable for large and
-  curated public-domain corpora. The combined release gate now discovers `927` Swift
+  curated public-domain corpora. The combined release gate now discovers `928` Swift
   tests.
 
 ## 0.6.16 - 2026-07-13

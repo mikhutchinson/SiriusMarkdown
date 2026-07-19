@@ -236,6 +236,12 @@ public final class DefaultMarkdownLinkMetadataResolver:
             )
             title = parsed.title
             candidates = parsed.candidates
+            if candidates.isEmpty {
+                failures.append(
+                    "document \(documentPayload.finalURL.absoluteString) contained no usable icon declarations " +
+                    "(\(documentPayload.data.count) bytes, title: \(parsed.title ?? "none"))"
+                )
+            }
             if let finalOrigin = Self.originURL(for: documentPayload.finalURL),
                finalOrigin != origin {
                 fallbackOrigins.insert(finalOrigin, at: 0)
@@ -360,6 +366,25 @@ public final class DefaultMarkdownLinkMetadataResolver:
         var currentURL = initialURL
         var visited: Set<URL> = []
 
+        // A fresh ephemeral jar may retain cookies issued during this one
+        // anonymous navigation (some public sites require that to complete a
+        // same-site redirect), but it can never see host-app ambient cookies
+        // or persist metadata after the fetch finishes.
+        let navigationCookieStorage = URLSessionConfiguration.ephemeral.httpCookieStorage
+        let configuration = sessionConfiguration.copy() as? URLSessionConfiguration ?? .ephemeral
+        configuration.urlCache = nil
+        configuration.httpCookieStorage = nil
+        configuration.httpShouldSetCookies = false
+        configuration.urlCredentialStorage = nil
+        configuration.httpAdditionalHeaders = nil
+        configuration.requestCachePolicy = .reloadIgnoringLocalAndRemoteCacheData
+        configuration.timeoutIntervalForRequest = limits.requestTimeout
+        configuration.timeoutIntervalForResource = limits.maximumResolutionDuration
+        let usesCustomProtocol = configuration.protocolClasses?.isEmpty == false
+        let redirectDelegate = MarkdownNoRedirectURLSessionDelegate()
+        let session = URLSession(configuration: configuration, delegate: redirectDelegate, delegateQueue: nil)
+        defer { session.finishTasksAndInvalidate() }
+
         for redirectCount in 0...limits.maximumRedirects {
             try Task.checkCancellation()
             guard deadline > Date() else {
@@ -402,24 +427,30 @@ public final class DefaultMarkdownLinkMetadataResolver:
             request.setValue(nil, forHTTPHeaderField: "Cookie")
             request.setValue(nil, forHTTPHeaderField: "Proxy-Authorization")
             request.setValue(nil, forHTTPHeaderField: "Referer")
-
-            let configuration = sessionConfiguration.copy() as? URLSessionConfiguration ?? .ephemeral
-            configuration.urlCache = nil
-            configuration.httpCookieStorage = nil
-            configuration.httpShouldSetCookies = false
-            configuration.urlCredentialStorage = nil
-            configuration.httpAdditionalHeaders = nil
-            configuration.requestCachePolicy = .reloadIgnoringLocalAndRemoteCacheData
-            configuration.timeoutIntervalForRequest = requestTimeout
-            configuration.timeoutIntervalForResource = requestTimeout
-            let redirectDelegate = MarkdownNoRedirectURLSessionDelegate()
-            let session = URLSession(configuration: configuration, delegate: redirectDelegate, delegateQueue: nil)
-            defer { session.finishTasksAndInvalidate() }
+            if let navigationCookies = navigationCookieStorage?.cookies(for: currentURL),
+               !navigationCookies.isEmpty {
+                for (field, value) in HTTPCookie.requestHeaderFields(with: navigationCookies) {
+                    request.setValue(value, forHTTPHeaderField: field)
+                }
+            }
 
             let (bytes, response) = try await session.bytes(for: request)
             guard let http = response as? HTTPURLResponse else {
                 throw MarkdownLinkMetadataError.invalidResponse
             }
+            let responseHeaders = http.allHeaderFields.reduce(into: [String: String]()) { fields, entry in
+                guard let name = entry.key as? String else { return }
+                fields[name] = String(describing: entry.value)
+            }
+            let issuedCookies = HTTPCookie.cookies(
+                withResponseHeaderFields: responseHeaders,
+                for: currentURL
+            )
+            navigationCookieStorage?.setCookies(
+                issuedCookies,
+                for: currentURL,
+                mainDocumentURL: initialURL
+            )
             if (300..<400).contains(http.statusCode) {
                 guard redirectCount < limits.maximumRedirects,
                       let location = http.value(forHTTPHeaderField: "Location"),
@@ -471,7 +502,6 @@ public final class DefaultMarkdownLinkMetadataResolver:
             // check closes the DNS-rebinding window between `getaddrinfo` and
             // connection establishment. Custom URLProtocol configurations are
             // test/host interception surfaces and do not expose a real socket.
-            let usesCustomProtocol = configuration.protocolClasses?.isEmpty == false
             let contactedOnlyPublicAddresses = usesCustomProtocol
                 ? true
                 : await redirectDelegate.contactedOnlyPublicAddresses()

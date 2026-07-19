@@ -409,6 +409,41 @@ struct MarkdownLinkMetadataResolverTests {
     }
 
     @Test
+    func retainsOnlyNavigationIssuedCookiesAcrossManualRedirects() async {
+        MarkdownLinkMetadataMockRegistry.shared.install { request in
+            switch request.url?.path {
+            case "/":
+                #expect(request.value(forHTTPHeaderField: "Cookie") == nil)
+                return .redirect(
+                    "https://93.184.216.34/anonymous-session",
+                    headers: ["Set-Cookie": "navigation=issued; Path=/; Secure; HttpOnly"]
+                )
+            case "/anonymous-session":
+                let cookie = request.value(forHTTPHeaderField: "Cookie") ?? ""
+                #expect(cookie.contains("navigation=issued"))
+                #expect(!cookie.contains("ambient=cookie"))
+                return .html("<link rel=icon href=/brand.png>")
+            case "/brand.png":
+                return .png(Self.onePixelPNG)
+            default:
+                return .status(404)
+            }
+        }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [MarkdownLinkMetadataMockURLProtocol.self]
+        configuration.httpAdditionalHeaders = ["Cookie": "ambient=cookie"]
+        let resolver = DefaultMarkdownLinkMetadataResolver(
+            limits: .init(requestTimeout: 2),
+            sessionConfiguration: configuration
+        )
+
+        guard case .metadata = await resolver.resolveMetadata(for: origin) else {
+            Issue.record("Anonymous navigation cookie did not complete metadata discovery")
+            return
+        }
+    }
+
+    @Test
     func addressClassificationRejectsEveryPrivateAndSpecialWebDestination() {
         let denied = [
             "0.0.0.1", "10.0.0.1", "100.64.0.1", "127.0.0.1", "169.254.1.1",
@@ -483,8 +518,12 @@ private struct MarkdownLinkMetadataMockResponse: Sendable {
         )
     }
 
-    static func redirect(_ location: String) -> Self {
-        Self(statusCode: 302, headers: ["Location": location], data: Data())
+    static func redirect(_ location: String, headers: [String: String] = [:]) -> Self {
+        Self(
+            statusCode: 302,
+            headers: headers.merging(["Location": location]) { current, _ in current },
+            data: Data()
+        )
     }
 
     static func status(_ code: Int) -> Self {
