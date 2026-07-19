@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Fixed ordered-list numerals sitting above their first text line by carrying
+  each prepared renderer's real baseline through style erasure and aligning
+  default marker/content rows on that baseline. CoreText and macOS TextKit now
+  share explicit line-box and attachment ascent/descent geometry, and multiline
+  table dividers stretch to the full row height. Default task squares use the
+  paragraph font's cap-height center as their optical guide instead of a fixed
+  top offset. Pixel regressions cover compact, document, and larger type metrics
+  in painted, system-text, and native-selection modes. Marker and fallback-text
+  typography guides are cached with renderer configuration/prepared inline
+  content, keeping CoreText font construction out of list-row `body` evaluation.
 - Fixed live GFM tables rebuilding every accumulated cell, rescanning all
   natural widths from `MarkdownBlockView.body`, and repeatedly remeasuring the
   full SwiftUI row stack while one tail cell grew. Prepared tables now retain
@@ -58,7 +68,7 @@
 - Added focused semantic, sanitization, source-entity mapping, streamed-versus-
   one-shot, resolver security/cache, decorated-link rendering, and scaling
   regressions, plus a reusable runtime favicon audit executable for large and
-  curated public-domain corpora. The combined release gate now discovers `928` Swift
+  curated public-domain corpora. The combined release gate now discovers `935` Swift
   tests.
 
 ## 0.6.16 - 2026-07-13

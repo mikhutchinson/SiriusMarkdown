@@ -1,5 +1,10 @@
 import SwiftUI
 
+enum MarkdownStyleLeadingContentVerticalAlignment: Equatable {
+    case top
+    case firstTextBaseline
+}
+
 /// Shared two-column layout used by default block-quote and list-item
 /// styles: a leading view (accent bar, list marker) followed by flexible
 /// content that receives the remaining width. When `leadingWidth` is `nil`
@@ -14,6 +19,7 @@ struct MarkdownStyleLeadingContentLayout: Layout {
     var leadingWidth: CGFloat?
     var spacing: CGFloat
     var stretchesLeadingToContentHeight: Bool = false
+    var verticalAlignment: MarkdownStyleLeadingContentVerticalAlignment = .top
 
     func sizeThatFits(
         proposal: ProposedViewSize,
@@ -27,14 +33,27 @@ struct MarkdownStyleLeadingContentLayout: Layout {
         let resolvedLeadingWidth = leadingWidth ?? subviews[0].sizeThatFits(.unspecified).width
         let availableWidth = finiteWidth(from: proposal)
         let contentWidth = availableWidth.map { max(0, $0 - resolvedLeadingWidth - spacing) }
-        let leadingSize = subviews[0].sizeThatFits(
-            ProposedViewSize(width: resolvedLeadingWidth, height: proposal.height)
+        let contentDimensions = subviews[1].dimensions(
+            // Text and prepared inline surfaces are intrinsically tall. Passing
+            // the enclosing proposal's height here makes flexible wrappers
+            // vertically center their child and publishes a displaced baseline.
+            in: ProposedViewSize(width: contentWidth, height: nil)
         )
-        let contentSize = subviews[1].sizeThatFits(
-            ProposedViewSize(width: contentWidth, height: proposal.height)
+        let leadingDimensions = subviews[0].dimensions(
+            in: ProposedViewSize(
+                width: resolvedLeadingWidth,
+                height: stretchesLeadingToContentHeight ? contentDimensions.height : nil
+            )
         )
-        let height = max(leadingSize.height, contentSize.height)
-        let width = availableWidth ?? resolvedLeadingWidth + spacing + contentSize.width
+        let offsets = verticalOffsets(
+            leadingDimensions: leadingDimensions,
+            contentDimensions: contentDimensions
+        )
+        let height = max(
+            offsets.leading + leadingDimensions.height,
+            offsets.content + contentDimensions.height
+        )
+        let width = availableWidth ?? resolvedLeadingWidth + spacing + contentDimensions.width
         return CGSize(width: width, height: height)
     }
 
@@ -54,14 +73,56 @@ struct MarkdownStyleLeadingContentLayout: Layout {
 
         let resolvedLeadingWidth = leadingWidth ?? subviews[0].sizeThatFits(.unspecified).width
         let contentWidth = max(0, bounds.width - resolvedLeadingWidth - spacing)
-        let leadingHeight = stretchesLeadingToContentHeight ? bounds.height : nil
+        let contentDimensions = subviews[1].dimensions(
+            in: ProposedViewSize(width: contentWidth, height: nil)
+        )
+        let leadingHeight = stretchesLeadingToContentHeight ? contentDimensions.height : nil
+        let leadingDimensions = subviews[0].dimensions(
+            in: ProposedViewSize(width: resolvedLeadingWidth, height: leadingHeight)
+        )
+        let offsets = verticalOffsets(
+            leadingDimensions: leadingDimensions,
+            contentDimensions: contentDimensions
+        )
         subviews[0].place(
-            at: bounds.origin,
+            at: CGPoint(x: bounds.minX, y: bounds.minY + offsets.leading),
+            anchor: .topLeading,
             proposal: ProposedViewSize(width: resolvedLeadingWidth, height: leadingHeight)
         )
         subviews[1].place(
-            at: CGPoint(x: bounds.minX + resolvedLeadingWidth + spacing, y: bounds.minY),
-            proposal: ProposedViewSize(width: contentWidth, height: bounds.height)
+            at: CGPoint(
+                x: bounds.minX + resolvedLeadingWidth + spacing,
+                y: bounds.minY + offsets.content
+            ),
+            anchor: .topLeading,
+            proposal: ProposedViewSize(width: contentWidth, height: contentDimensions.height)
+        )
+    }
+
+    private func verticalOffsets(
+        leadingDimensions: ViewDimensions,
+        contentDimensions: ViewDimensions
+    ) -> (leading: CGFloat, content: CGFloat) {
+        guard verticalAlignment == .firstTextBaseline,
+              !stretchesLeadingToContentHeight
+        else {
+            return (0, 0)
+        }
+
+        return Self.firstTextBaselineOffsets(
+            leadingBaseline: leadingDimensions[.firstTextBaseline],
+            contentBaseline: contentDimensions[.firstTextBaseline]
+        )
+    }
+
+    static func firstTextBaselineOffsets(
+        leadingBaseline: CGFloat,
+        contentBaseline: CGFloat
+    ) -> (leading: CGFloat, content: CGFloat) {
+        let sharedBaseline = max(leadingBaseline, contentBaseline)
+        return (
+            max(0, sharedBaseline - leadingBaseline),
+            max(0, sharedBaseline - contentBaseline)
         )
     }
 

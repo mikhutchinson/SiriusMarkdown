@@ -355,6 +355,12 @@ private struct MarkdownAppKitSelectableTextView: NSViewRepresentable {
         let paragraphStyle = NSMutableParagraphStyle()
         paragraphStyle.lineSpacing = lineSpacing
         paragraphStyle.lineBreakMode = wraps ? .byWordWrapping : .byClipping
+        // TextKit otherwise draws the font's natural line box at the top of
+        // the larger prepared leaf while CoreText centers the same glyphs in
+        // `fallbackLineHeight`. Keeping one explicit line box makes native
+        // selection and painted lines share the same visual baseline.
+        paragraphStyle.minimumLineHeight = CGFloat(fallbackLineHeight)
+        paragraphStyle.maximumLineHeight = CGFloat(fallbackLineHeight)
         nsAttributed.addAttribute(.paragraphStyle, value: paragraphStyle, range: fullRange)
         let attachments: [MarkdownAppKitNativeAttachmentPlacement]
         if mathTextPieces == nil {
@@ -627,7 +633,18 @@ private struct MarkdownAppKitSelectableTextView: NSViewRepresentable {
             let size = NSSize(width: record.pointWidth, height: record.pointHeight)
             let transparentImage = NSImage(size: size)
             let attachment = NSTextAttachment()
-            attachment.attachmentCell = NSTextAttachmentCell(imageCell: transparentImage)
+            attachment.image = transparentImage
+            attachment.bounds = NSRect(
+                x: 0,
+                y: -CGFloat(record.descent),
+                width: size.width,
+                height: size.height
+            )
+            attachment.attachmentCell = MarkdownAppKitPreparedAttachmentCell(
+                image: transparentImage,
+                size: size,
+                descent: CGFloat(record.descent)
+            )
             attachmentCache[record.id] = (record, attachment)
             return attachment
         }
@@ -991,6 +1008,36 @@ final class MarkdownAppKitNativeSelectableTextView: NSTextView {
 }
 
 final class MarkdownAppKitMathAttachmentCell: NSTextAttachmentCell {
+    private let measuredSize: NSSize
+    private let measuredDescent: CGFloat
+
+    init(image: NSImage, size: NSSize, descent: CGFloat) {
+        self.measuredSize = size
+        self.measuredDescent = min(max(0, descent), size.height)
+        super.init(imageCell: image)
+    }
+
+    required init(coder: NSCoder) {
+        self.measuredSize = .zero
+        self.measuredDescent = 0
+        super.init(coder: coder)
+    }
+
+    override var cellSize: NSSize {
+        get { measuredSize }
+        set {}
+    }
+
+    override func cellBaselineOffset() -> NSPoint {
+        NSPoint(x: 0, y: -measuredDescent)
+    }
+
+    override func wantsToTrackMouse() -> Bool {
+        false
+    }
+}
+
+final class MarkdownAppKitPreparedAttachmentCell: NSTextAttachmentCell {
     private let measuredSize: NSSize
     private let measuredDescent: CGFloat
 

@@ -47,7 +47,9 @@ public struct MarkdownDefaultTableCellStyle: MarkdownTableCellStyle {
             .padding(.horizontal, configuration.theme.renderTableHorizontalCellPadding)
             .padding(.vertical, configuration.theme.renderTableVerticalCellPadding)
             .frame(width: configuration.width, alignment: Self.alignment(for: configuration.alignment))
-            .frame(minHeight: 38)
+            // Accept the table row's tallest-cell proposal so trailing
+            // dividers and cell chrome stay aligned for multiline rows.
+            .frame(minHeight: 38, maxHeight: .infinity, alignment: .top)
             .overlay(alignment: .trailing) {
                 if !configuration.isLastColumn {
                     Rectangle()

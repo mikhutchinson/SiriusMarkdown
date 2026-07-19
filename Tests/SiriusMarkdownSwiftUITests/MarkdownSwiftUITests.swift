@@ -1673,6 +1673,19 @@ func nativeSelectionCoversImageBackedInlineMathWithoutSelectionOverlayOnMacOS() 
 
 @Test
 @MainActor
+func nativePreparedAttachmentCellPreservesDeclaredDescent() {
+    let size = NSSize(width: 18, height: 12)
+    let cell = MarkdownAppKitPreparedAttachmentCell(
+        image: NSImage(size: size),
+        size: size,
+        descent: 3
+    )
+    #expect(cell.cellSize == size)
+    #expect(cell.cellBaselineOffset() == NSPoint(x: 0, y: -3))
+}
+
+@Test
+@MainActor
 func nativeInlineMathAttachmentPreservesLinkAndPrunesItsCacheOnUpdate() throws {
     var configuration = MarkdownRendererConfiguration(mathRenderer: ValidImageMathRenderer())
     configuration.linkPolicy = DefaultMarkdownPolicy()
@@ -3416,6 +3429,42 @@ func linePlanContainsAttachmentGapWithBoxWidth() throws {
 }
 
 @Test
+func linePlanPlacesAttachmentGapFromDeclaredBaseline() throws {
+    let block = try firstBlock("Before ![diagram](https://example.com/diagram.png) after")
+    var theme = MarkdownTheme.compactChat
+    theme.attachmentPlaceholder = MarkdownAttachmentPlaceholderStyle(pointWidth: 40, pointHeight: 90)
+    let configuration = MarkdownRendererConfiguration(
+        theme: theme,
+        imagePolicy: IdentityImagePolicy(identity: "allow", decision: .allow),
+        imageResolver: RecordingImageResolver()
+    )
+    var inline = try #require(configuration.prepare(block: block).inlineLayout)
+    let attachmentIndex = try #require(
+        inline.prepared.runs.firstIndex { $0.attachmentMetrics != nil }
+    )
+    let original = try #require(inline.prepared.runs[attachmentIndex].attachmentMetrics)
+    inline.prepared.runs[attachmentIndex].attachmentMetrics = MarkdownInlineAttachmentMetrics(
+        id: original.id,
+        pointWidth: original.pointWidth,
+        pointHeight: 16,
+        ascent: 4,
+        descent: 12,
+        sizingSource: original.sizingSource
+    )
+
+    #if canImport(CoreText)
+    let layout = inline.layout(containerWidth: 2_000)
+    let plan = MarkdownCoreTextPaintedLinePlan.make(prepared: inline, layout: layout)
+    let gap = try #require(plan.attachmentGaps.first)
+    let line = plan.lines[gap.lineIndex]
+    #expect(abs(gap.rect.minY - (line.baselineFromTop - 4)) < 0.01)
+    #expect(abs(gap.rect.height - 16) < 0.01)
+    #else
+    #expect(CoreTextPaintedInlineLineView.isSupported == false)
+    #endif
+}
+
+@Test
 func atomicAttachmentSelectionStillCoversFullImageSourceRange() throws {
     let block = try firstBlock("Before ![diagram](https://example.com/diagram.png) after")
     let configuration = MarkdownRendererConfiguration(
@@ -3664,6 +3713,19 @@ func hostDisplaysDataImageFromPreparedStateWithoutLoaderCalls() throws {
     let hosts = appKitAttachmentHostViews(in: hostingView)
     #expect(hosts.count == 1)
     #expect(hosts.first?.subviews.contains { $0 is NSImageView } == true)
+    let textView = try #require(
+        appKitTextViews(in: hostingView).first as? MarkdownAppKitNativeSelectableTextView
+    )
+    let textStorage = try #require(textView.textStorage)
+    let attachmentRange = (textStorage.string as NSString).range(of: "\u{FFFC}")
+    _ = try #require(attachmentRange.location != NSNotFound)
+    let attachment = try #require(
+        textStorage.attribute(.attachment, at: attachmentRange.location, effectiveRange: nil)
+            as? NSTextAttachment
+    )
+    #expect(attachment.image?.size.width == 1)
+    #expect(attachment.image?.size.height == 1)
+    #expect(attachment.bounds.origin.y == 0)
 }
 
 @Test
@@ -7104,12 +7166,7 @@ private func coreTextPaintedTestAlphaCoverage(
         context.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
         context.textMatrix = .identity
         for line in plan.lines {
-            let lineStride = plan.lineHeight + plan.lineSpacing
-            let top = CGFloat(line.index) * lineStride
-            let typographicHeight = line.ascent + line.descent + line.leading
-            let verticalInset = max(0, (plan.lineHeight - typographicHeight) / 2)
-            let baselineFromTop = top + verticalInset + line.ascent
-            context.textPosition = CGPoint(x: 0, y: CGFloat(height) - baselineFromTop)
+            context.textPosition = CGPoint(x: 0, y: CGFloat(height) - line.baselineFromTop)
             CTLineDraw(line.ctLine, context)
         }
     }

@@ -10,12 +10,26 @@ import SwiftUI
 /// code, or validate math (INV-BS2, `AGENTS.md`).
 public struct MarkdownBlockStyleLabel: View {
     private let content: AnyView
+    private let firstTextBaselineFromTop: CGFloat?
 
     public init(_ content: some View) {
         self.content = AnyView(content)
+        self.firstTextBaselineFromTop = nil
     }
 
+    init(_ content: some View, firstTextBaselineFromTop: CGFloat?) {
+        self.content = AnyView(content)
+        self.firstTextBaselineFromTop = firstTextBaselineFromTop
+    }
+
+    @ViewBuilder
     public var body: some View {
-        content
+        if let firstTextBaselineFromTop {
+            let baseline = firstTextBaselineFromTop
+            content
+                .alignmentGuide(.firstTextBaseline) { _ in baseline }
+        } else {
+            content
+        }
     }
 }

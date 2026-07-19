@@ -51,6 +51,75 @@ private func tearDownWindow(_ window: NSWindow) {
 }
 
 @MainActor
+private func testBitmap<V: View>(
+    for view: V,
+    width: CGFloat,
+    height: CGFloat
+) throws -> NSBitmapImageRep {
+    let hostingView = NSHostingView(
+        rootView: view
+            .frame(width: width, height: height, alignment: .topLeading)
+            .background(Color.white)
+            .environment(\.colorScheme, .light)
+    )
+    hostingView.frame = NSRect(origin: .zero, size: NSSize(width: width, height: height))
+    let window = offscreenTestWindow(hostingView)
+    defer { tearDownWindow(window) }
+    pumpLayout(hostingView)
+    let bitmap = try #require(hostingView.bitmapImageRepForCachingDisplay(in: hostingView.bounds))
+    hostingView.cacheDisplay(in: hostingView.bounds, to: bitmap)
+    return bitmap
+}
+
+private func darkPixelVerticalBounds(
+    in bitmap: NSBitmapImageRep,
+    xRange: Range<Int>
+) -> ClosedRange<Int>? {
+    var minimumY: Int?
+    var maximumY: Int?
+    let safeRange = max(0, xRange.lowerBound)..<min(bitmap.pixelsWide, xRange.upperBound)
+    for y in 0..<bitmap.pixelsHigh {
+        for x in safeRange {
+            guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB),
+                  color.redComponent < 0.45,
+                  color.greenComponent < 0.45,
+                  color.blueComponent < 0.45,
+                  color.alphaComponent > 0.5
+            else {
+                continue
+            }
+            minimumY = min(minimumY ?? y, y)
+            maximumY = max(maximumY ?? y, y)
+        }
+    }
+    guard let minimumY, let maximumY else { return nil }
+    return minimumY...maximumY
+}
+
+private func hasDarkPixel(
+    in bitmap: NSBitmapImageRep,
+    xRange: Range<Int>,
+    yRange: Range<Int>
+) -> Bool {
+    let safeX = max(0, xRange.lowerBound)..<min(bitmap.pixelsWide, xRange.upperBound)
+    let safeY = max(0, yRange.lowerBound)..<min(bitmap.pixelsHigh, yRange.upperBound)
+    for y in safeY {
+        for x in safeX {
+            guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB) else {
+                continue
+            }
+            if color.redComponent < 0.45,
+               color.greenComponent < 0.45,
+               color.blueComponent < 0.45,
+               color.alphaComponent > 0.5 {
+                return true
+            }
+        }
+    }
+    return false
+}
+
+@MainActor
 private func renderOffscreen<V: View>(
     _ view: V,
     width: CGFloat = 360,
@@ -506,6 +575,16 @@ func defaultListMarkerWidths() {
 }
 
 @Test
+func leadingContentLayoutAlignsExplicitFirstTextBaselines() {
+    let offsets = MarkdownStyleLeadingContentLayout.firstTextBaselineOffsets(
+        leadingBaseline: 12,
+        contentBaseline: 16
+    )
+    #expect(offsets.leading == 4)
+    #expect(offsets.content == 0)
+}
+
+@Test
 @MainActor
 func defaultThematicBreakIsDivider() {
     let configuration = MarkdownThematicBreakStyleConfiguration(
@@ -519,6 +598,244 @@ func defaultThematicBreakIsDivider() {
 
 #if canImport(AppKit)
 // MARK: - End-to-end environment injection (Part 02 §2.2 Channel B)
+
+@Test
+@MainActor
+func preparedListMarkerAndTextShareFirstLineBaselineAcrossMacRenderingModes() throws {
+    let block = try firstBlock("H")
+    var theme = MarkdownTheme.compactChat
+    theme.paragraphFont = .system(size: 16)
+    theme.paragraphFontSize = 16
+    theme.paragraphLineHeight = 24
+    theme.paragraphFontProfiles = .paragraphDefault
+    theme.textColor = .black
+    let modes: [(MarkdownInlineRenderingMode, MarkdownNativeTextSelection)] = [
+        (.coreTextPaintedLines, .disabled),
+        (.systemText, .disabled),
+        (.coreTextPaintedLines, .enabled),
+    ]
+    for (renderingMode, selectionMode) in modes {
+        let configuration = MarkdownRendererConfiguration(
+            theme: theme,
+            inlineRenderingMode: renderingMode,
+            nativeTextSelection: selectionMode
+        )
+        let inline = try #require(configuration.prepare(block: block).inlineLayout)
+        let row = MarkdownStyleLeadingContentLayout(
+            spacing: 8,
+            verticalAlignment: .firstTextBaseline
+        ) {
+            Text("H")
+                .font(theme.paragraphFont)
+                .foregroundStyle(Color.black)
+                .frame(width: 28, alignment: .trailing)
+            InlineRunsView(
+                prepared: inline,
+                theme: theme,
+                baseFont: theme.paragraphFont,
+                inlineRenderingMode: renderingMode,
+                nativeTextSelection: selectionMode
+            )
+        }
+
+        let bitmap = try testBitmap(for: row, width: 160, height: 48)
+        let scale = Double(bitmap.pixelsWide) / 160
+        let marker = try #require(
+            darkPixelVerticalBounds(
+                in: bitmap,
+                xRange: 0..<Int(28 * scale)
+            )
+        )
+        let content = try #require(
+            darkPixelVerticalBounds(
+                in: bitmap,
+                xRange: Int(36 * scale)..<Int(80 * scale)
+            )
+        )
+        let markerMidpoint = Double(marker.lowerBound + marker.upperBound) / 2
+        let contentMidpoint = Double(content.lowerBound + content.upperBound) / 2
+        #expect(
+            abs(markerMidpoint - contentMidpoint) <= max(1, scale),
+            "rendering mode: \(renderingMode), selection mode: \(selectionMode), marker: \(marker), content: \(content)"
+        )
+    }
+}
+
+@Test
+@MainActor
+func defaultOrderedListNumeralSharesProductionContentBaseline() throws {
+    let block = try firstBlock("1. 1")
+    var theme = MarkdownTheme.compactChat
+    theme.paragraphFont = .system(size: 16)
+    theme.codeFont = .system(size: 16)
+    theme.paragraphFontSize = 16
+    theme.paragraphLineHeight = 24
+    theme.codeFontSize = 16
+    theme.paragraphFontProfiles = .paragraphDefault
+    theme.textColor = .black
+    theme.secondaryTextColor = .black
+    let modes: [(MarkdownInlineRenderingMode, MarkdownNativeTextSelection)] = [
+        (.coreTextPaintedLines, .disabled),
+        (.systemText, .disabled),
+        (.coreTextPaintedLines, .enabled),
+    ]
+
+    for (renderingMode, selectionMode) in modes {
+        let configuration = MarkdownRendererConfiguration(
+            theme: theme,
+            inlineRenderingMode: renderingMode,
+            nativeTextSelection: selectionMode
+        )
+        let view = MarkdownBlockView(
+            block: block,
+            configuration: configuration,
+            preparedContent: configuration.prepare(block: block)
+        )
+        let bitmap = try testBitmap(for: view, width: 180, height: 48)
+        let scale = Double(bitmap.pixelsWide) / 180
+        let marker = try #require(
+            darkPixelVerticalBounds(
+                in: bitmap,
+                xRange: 0..<Int(34 * scale)
+            )
+        )
+        let content = try #require(
+            darkPixelVerticalBounds(
+                in: bitmap,
+                xRange: Int(42 * scale)..<Int(82 * scale)
+            )
+        )
+        let markerMidpoint = Double(marker.lowerBound + marker.upperBound) / 2
+        let contentMidpoint = Double(content.lowerBound + content.upperBound) / 2
+        #expect(
+            abs(markerMidpoint - contentMidpoint) <= max(1, scale),
+            "rendering mode: \(renderingMode), selection mode: \(selectionMode), marker: \(marker), content: \(content)"
+        )
+    }
+}
+
+@Test
+@MainActor
+func defaultTaskListSquareSharesFirstLineOpticalCenterAcrossMacRenderingModes() throws {
+    let block = try firstBlock("- [ ] H")
+    let themeMetrics = [
+        (name: "compact", base: MarkdownTheme.compactChat, fontSize: 13.0, lineHeight: 18.0),
+        (name: "document", base: MarkdownTheme.document, fontSize: 16.0, lineHeight: 24.0),
+        (name: "larger type", base: MarkdownTheme.document, fontSize: 21.0, lineHeight: 30.0),
+    ]
+    var mutableConfiguration = MarkdownRendererConfiguration(theme: .compactChat)
+    let compactGuide = mutableConfiguration.listMarkerBaselineMetrics
+        .taskMarkerFirstTextBaselineFromTop
+    var largerTheme = MarkdownTheme.document
+    largerTheme.paragraphFontSize = 21
+    largerTheme.paragraphLineHeight = 30
+    mutableConfiguration.theme = largerTheme
+    #expect(
+        mutableConfiguration.listMarkerBaselineMetrics.taskMarkerFirstTextBaselineFromTop != compactGuide
+    )
+    let modes: [(MarkdownInlineRenderingMode, MarkdownNativeTextSelection)] = [
+        (.coreTextPaintedLines, .disabled),
+        (.systemText, .disabled),
+        (.coreTextPaintedLines, .enabled),
+    ]
+
+    for metric in themeMetrics {
+        var theme = metric.base
+        theme.paragraphFont = .system(size: CGFloat(metric.fontSize))
+        theme.paragraphFontSize = metric.fontSize
+        theme.paragraphLineHeight = metric.lineHeight
+        theme.paragraphFontProfiles = .paragraphDefault
+        theme.textColor = .black
+        theme.secondaryTextColor = .black
+
+        for (renderingMode, selectionMode) in modes {
+            let configuration = MarkdownRendererConfiguration(
+                theme: theme,
+                inlineRenderingMode: renderingMode,
+                nativeTextSelection: selectionMode
+            )
+            let view = MarkdownBlockView(
+                block: block,
+                configuration: configuration,
+                preparedContent: configuration.prepare(block: block)
+            )
+            let bitmap = try testBitmap(for: view, width: 180, height: 56)
+            let scale = Double(bitmap.pixelsWide) / 180
+            let marker = try #require(
+                darkPixelVerticalBounds(
+                    in: bitmap,
+                    xRange: 0..<Int(28 * scale)
+                )
+            )
+            let content = try #require(
+                darkPixelVerticalBounds(
+                    in: bitmap,
+                    xRange: Int(36 * scale)..<Int(80 * scale)
+                )
+            )
+            let markerMidpoint = Double(marker.lowerBound + marker.upperBound) / 2
+            let contentMidpoint = Double(content.lowerBound + content.upperBound) / 2
+            #expect(
+                abs(markerMidpoint - contentMidpoint) <= max(1, scale),
+                "theme: \(metric.name), rendering mode: \(renderingMode), selection mode: \(selectionMode), marker: \(marker), content: \(content)"
+            )
+        }
+    }
+}
+
+@Test
+@MainActor
+func defaultTableCellDividerStretchesToTallestCell() throws {
+    var theme = MarkdownTheme.compactChat
+    theme.tableBorderColor = .black
+    theme.tableHorizontalCellPadding = 0
+    theme.tableVerticalCellPadding = 0
+    let style = MarkdownDefaultTableCellStyle()
+    let first = style.makeBody(
+        configuration: MarkdownTableCellStyleConfiguration(
+            label: MarkdownBlockStyleLabel(Color.clear.frame(height: 12)),
+            theme: theme,
+            blockID: MarkdownBlockID("row"),
+            indentationLevel: 0,
+            row: 0,
+            column: 0,
+            columnCount: 2,
+            isHeader: false,
+            isLastColumn: false,
+            alignment: .left,
+            width: 80
+        )
+    )
+    let second = style.makeBody(
+        configuration: MarkdownTableCellStyleConfiguration(
+            label: MarkdownBlockStyleLabel(Color.clear.frame(height: 88)),
+            theme: theme,
+            blockID: MarkdownBlockID("row"),
+            indentationLevel: 0,
+            row: 0,
+            column: 1,
+            columnCount: 2,
+            isHeader: false,
+            isLastColumn: true,
+            alignment: .left,
+            width: 80
+        )
+    )
+    let row = HStack(alignment: .top, spacing: 0) {
+        first
+        second
+    }
+
+    let bitmap = try testBitmap(for: row, width: 160, height: 96)
+    let scale = Double(bitmap.pixelsWide) / 160
+    #expect(
+        hasDarkPixel(
+            in: bitmap,
+            xRange: Int(78 * scale)..<Int(82 * scale),
+            yRange: Int(70 * scale)..<Int(86 * scale)
+        )
+    )
+}
 
 @Test
 @MainActor

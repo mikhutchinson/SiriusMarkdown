@@ -1196,8 +1196,14 @@ private struct MarkdownListItemRow: View {
         VStack(alignment: .leading, spacing: 4) {
             AnyView(resolvedListItemStyle.makeBody(
                 configuration: MarkdownListItemStyleConfiguration(
-                    marker: MarkdownBlockStyleLabel(markerView),
-                    block: MarkdownBlockStyleLabel(listItemInlineView),
+                    marker: MarkdownBlockStyleLabel(
+                        markerView,
+                        firstTextBaselineFromTop: markerFirstTextBaselineFromTop
+                    ),
+                    block: MarkdownBlockStyleLabel(
+                        listItemInlineView,
+                        firstTextBaselineFromTop: listItemFirstTextBaselineFromTop
+                    ),
                     theme: theme,
                     blockID: blockID,
                     indentationLevel: indentationLevel
@@ -1259,6 +1265,39 @@ private struct MarkdownListItemRow: View {
 
     private var selectionModeInsideLeadingLayout: MarkdownNativeTextSelection {
         configuration.nativeTextSelection
+    }
+
+    private var listItemFirstTextBaselineFromTop: CGFloat {
+        if let inline = item.inlineLayout ?? item.selectionInlineLayout {
+            return inline.firstTextBaselineFromTop(
+                inlineRenderingMode: configuration.inlineRenderingMode,
+                nativeTextSelection: selectionModeInsideLeadingLayout
+            )
+        }
+        return configuration.listMarkerBaselineMetrics
+            .paragraphNaturalFirstTextBaselineFromTop
+    }
+
+    private var markerFirstTextBaselineFromTop: CGFloat? {
+        if item.taskState != nil {
+            guard resolvedTaskListMarkerStyle is MarkdownDefaultTaskListMarkerStyle else {
+                return nil
+            }
+            return configuration.listMarkerBaselineMetrics
+                .taskMarkerFirstTextBaselineFromTop
+        }
+        if kind == .orderedList {
+            guard resolvedOrderedListMarkerStyle is MarkdownDefaultOrderedListMarkerStyle else {
+                return nil
+            }
+        } else if !(resolvedUnorderedListMarkerStyle is MarkdownDefaultUnorderedListMarkerStyle) &&
+            !(resolvedUnorderedListMarkerStyle is MarkdownGitHubUnorderedListMarkerStyle)
+        {
+            return nil
+        }
+
+        return configuration.listMarkerBaselineMetrics
+            .textualMarkerFirstTextBaselineFromTop
     }
 
     @ViewBuilder

@@ -675,7 +675,16 @@ private struct PreparedInlineTextView: View {
 
     @ViewBuilder
     var body: some View {
+        let firstBaselineFromTop = prepared.firstTextBaselineFromTop(
+            inlineRenderingMode: inlineRenderingMode,
+            nativeTextSelection: nativeTextSelection
+        )
         renderSurface
+            // Neither prepared leaf is a SwiftUI `Text`. Publish the baseline
+            // used by its actual engine so parent list layouts never guess.
+            .alignmentGuide(.firstTextBaseline) { _ in
+                firstBaselineFromTop
+            }
             .environment(\.openURL, markdownOpenURLAction(linkAction: linkAction))
             .accessibilityValue(layoutResult.lines.isEmpty ? "" : "\(layoutResult.lines.count) prepared lines")
             .onAppear {
@@ -952,6 +961,7 @@ private struct MarkdownNativeSelectableWidthLayout: Layout {
             proposal: ProposedViewSize(width: bounds.width, height: bounds.height)
         )
     }
+
 }
 
 private struct PreparedInlineWidthPreferenceKey: PreferenceKey {

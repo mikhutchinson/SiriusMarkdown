@@ -41,7 +41,10 @@ public struct MarkdownDefaultListItemStyle: MarkdownListItemStyle {
     public init() {}
 
     public func makeBody(configuration: Configuration) -> some View {
-        MarkdownStyleLeadingContentLayout(spacing: Self.spacing) {
+        MarkdownStyleLeadingContentLayout(
+            spacing: Self.spacing,
+            verticalAlignment: .firstTextBaseline
+        ) {
             configuration.marker
             configuration.block
                 .frame(maxWidth: .infinity, alignment: .leading)

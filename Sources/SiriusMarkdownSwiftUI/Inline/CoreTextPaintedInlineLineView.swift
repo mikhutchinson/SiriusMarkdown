@@ -14,7 +14,7 @@ struct CoreTextPaintedInlineLineView: View {
     var linkAction: MarkdownLinkAction?
     var dragSelectionHandler: ((CGPoint, CGPoint) -> Void)?
 
-    static var isSupported: Bool {
+    nonisolated static var isSupported: Bool {
         #if canImport(CoreText) && (os(macOS) || (canImport(UIKit) && !os(watchOS)))
         return true
         #else
@@ -274,6 +274,9 @@ struct MarkdownCoreTextPaintedLinePlan: @unchecked Sendable {
             CTLineGetTypographicBounds(ctLine, &ascent, &descent, &leading)
         )
         let top = CGFloat(index) * (lineHeight + lineSpacing)
+        let typographicHeight = ascent + descent + leading
+        let verticalInset = max(0, (lineHeight - typographicHeight) / 2)
+        let baselineFromTop = top + verticalInset + ascent
         let rawLinkFragments = linkCandidates.compactMap { candidate -> MarkdownCoreTextPaintedLinkFragment? in
             let start = CGFloat(CTLineGetOffsetForStringIndex(ctLine, candidate.nsRange.location, nil))
             let endIndex = candidate.nsRange.location + candidate.nsRange.length
@@ -328,15 +331,21 @@ struct MarkdownCoreTextPaintedLinePlan: @unchecked Sendable {
                 return nil
             }
             let boxWidth = max(width, CGFloat(candidate.metrics.pointWidth))
+            let boxAscent = CGFloat(candidate.metrics.ascent)
             let boxHeight = CGFloat(candidate.metrics.ascent + candidate.metrics.descent)
-            let verticalInset = max(0, (lineHeight - boxHeight) / 2)
+            let lineBottom = top + lineHeight
+            let baselineAlignedY = baselineFromTop - boxAscent
+            let gapY = min(
+                max(top, baselineAlignedY),
+                max(top, lineBottom - boxHeight)
+            )
             return MarkdownCoreTextPaintedAttachmentGap(
                 attachmentID: candidate.metrics.id,
                 lineIndex: index,
                 sourceByteRange: candidate.byteRange,
                 rect: CGRect(
                     x: start,
-                    y: top + verticalInset,
+                    y: gapY,
                     width: max(1, boxWidth),
                     height: max(1, boxHeight)
                 )
@@ -353,6 +362,7 @@ struct MarkdownCoreTextPaintedLinePlan: @unchecked Sendable {
             ascent: ascent,
             descent: descent,
             leading: leading,
+            baselineFromTop: baselineFromTop,
             linkFragments: linkFragments,
             attachmentGaps: attachmentGaps
         )
@@ -451,6 +461,9 @@ struct MarkdownCoreTextPaintedLine: @unchecked Sendable {
     var ascent: CGFloat
     var descent: CGFloat
     var leading: CGFloat
+    /// Baseline used by CoreText drawing and by every attachment host on this
+    /// line, measured downward from the prepared surface's top edge.
+    var baselineFromTop: CGFloat
     var linkFragments: [MarkdownCoreTextPaintedLinkFragment]
     var attachmentGaps: [MarkdownCoreTextPaintedAttachmentGap] = []
 }
@@ -685,6 +698,57 @@ enum MarkdownCoreTextFontBridge {
         }
     }
 }
+
+extension MarkdownPreparedInlineContent {
+    func firstTextBaselineFromTop(
+        inlineRenderingMode: MarkdownInlineRenderingMode,
+        nativeTextSelection: MarkdownNativeTextSelection
+    ) -> CGFloat {
+        #if os(macOS)
+        if nativeTextSelection == .enabled {
+            return nativeSelectableFirstTextBaselineFromTop
+        }
+        #endif
+
+        if nativeTextSelection == .disabled,
+           inlineRenderingMode == .coreTextPaintedLines,
+           CoreTextPaintedInlineLineView.isSupported
+        {
+            return firstTextBaselineFromTop
+        }
+        return naturalTextFirstBaselineFromTop
+    }
+
+    var firstTextBaselineFromTop: CGFloat {
+        if let baseline = coreTextLinePlan?.lines.first?.baselineFromTop,
+           baseline.isFinite,
+           baseline >= 0
+        {
+            return baseline
+        }
+
+        let font = MarkdownCoreTextFontBridge.font(
+            profile: fontProfiles.body,
+            kind: .text,
+            presentation: [],
+            size: fontSize
+        )
+        let ascent = CTFontGetAscent(font)
+        let descent = CTFontGetDescent(font)
+        let leading = CTFontGetLeading(font)
+        let typographicHeight = ascent + descent + leading
+        let safeLineHeight = CGFloat(lineHeight)
+        return max(0, (safeLineHeight - typographicHeight) / 2) + ascent
+    }
+
+    var nativeSelectableFirstTextBaselineFromTop: CGFloat {
+        typographyMetrics.nativeSelectableFirstTextBaselineFromTop
+    }
+
+    var naturalTextFirstBaselineFromTop: CGFloat {
+        typographyMetrics.naturalTextFirstBaselineFromTop
+    }
+}
 #endif
 
 #if os(macOS) && canImport(CoreText)
@@ -793,14 +857,14 @@ final class MarkdownCoreTextPaintedNSView: NSView {
 
         context.setFillColor(textColor)
         for line in plan.lines {
-            let baselineY = bounds.height - baselineFromTop(for: line)
+            let baselineY = bounds.height - line.baselineFromTop
             context.textPosition = CGPoint(x: 0, y: baselineY)
             CTLineDraw(line.ctLine, context)
         }
 
         context.setFillColor(linkColor)
         for line in plan.lines where !line.linkFragments.isEmpty {
-            let baselineY = bounds.height - baselineFromTop(for: line)
+            let baselineY = bounds.height - line.baselineFromTop
             for fragment in line.linkFragments {
                 context.saveGState()
                 context.clip(to: CGRect(
@@ -866,13 +930,6 @@ final class MarkdownCoreTextPaintedNSView: NSView {
         }
     }
 
-    private func baselineFromTop(for line: MarkdownCoreTextPaintedLine) -> CGFloat {
-        let lineStride = plan.lineHeight + plan.lineSpacing
-        let top = CGFloat(line.index) * lineStride
-        let typographicHeight = line.ascent + line.descent + line.leading
-        let verticalInset = max(0, (plan.lineHeight - typographicHeight) / 2)
-        return top + verticalInset + line.ascent
-    }
 }
 #endif
 
@@ -974,14 +1031,14 @@ final class MarkdownCoreTextPaintedUIView: UIView {
 
         context.setFillColor(textColor)
         for line in plan.lines {
-            let baselineY = bounds.height - baselineFromTop(for: line)
+            let baselineY = bounds.height - line.baselineFromTop
             context.textPosition = CGPoint(x: 0, y: baselineY)
             CTLineDraw(line.ctLine, context)
         }
 
         context.setFillColor(linkColor)
         for line in plan.lines where !line.linkFragments.isEmpty {
-            let baselineY = bounds.height - baselineFromTop(for: line)
+            let baselineY = bounds.height - line.baselineFromTop
             for fragment in line.linkFragments {
                 context.saveGState()
                 context.clip(to: CGRect(
@@ -1046,12 +1103,5 @@ final class MarkdownCoreTextPaintedUIView: UIView {
         }
     }
 
-    private func baselineFromTop(for line: MarkdownCoreTextPaintedLine) -> CGFloat {
-        let lineStride = plan.lineHeight + plan.lineSpacing
-        let top = CGFloat(line.index) * lineStride
-        let typographicHeight = line.ascent + line.descent + line.leading
-        let verticalInset = max(0, (plan.lineHeight - typographicHeight) / 2)
-        return top + verticalInset + line.ascent
-    }
 }
 #endif

@@ -6,6 +6,15 @@
 
 ## Resolved in Unreleased
 
+- Fixed default list markers using top-edge alignment against prepared inline
+  leaves whose actual baseline depends on the active SwiftUI, CoreText, or
+  TextKit renderer. Marker/content styles now preserve and align explicit first
+  baselines; task squares align their optical center to the paragraph font's
+  cap-height center across compact, document, and larger type metrics; CoreText
+  and AppKit attachment hosts use prepared ascent/descent; and unequal-height
+  table cells retain full-height dividers. All marker and fallback-text guides
+  are cached during configuration or preparation instead of rebuilding fonts
+  while SwiftUI evaluates each list-row `body`.
 - Fixed live table rendering that remained main-thread-bound after the host's
   33 ms transcript cadence was corrected. The enclosing table is one mutable
   GFM block, so each snapshot rebuilt all prepared cells; SwiftUI body then

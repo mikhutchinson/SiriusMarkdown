@@ -2,6 +2,9 @@ import SiriusMarkdownCore
 import Foundation
 import SwiftUI
 
+#if canImport(CoreText)
+import CoreText
+#endif
 #if canImport(ImageIO)
 import ImageIO
 #endif
@@ -196,6 +199,69 @@ public struct DefaultMarkdownImageResolver: MarkdownImageResolver, MarkdownImage
     }
 }
 
+struct MarkdownPreparedTypographyMetrics: Sendable, Hashable {
+    var naturalTextFirstBaselineFromTop: CGFloat
+    var nativeSelectableFirstTextBaselineFromTop: CGFloat
+    var taskMarkerFirstTextBaselineFromTop: CGFloat
+
+    init(
+        profile: MarkdownFontProfile,
+        fontSize: Double,
+        lineHeight: Double
+    ) {
+        let safeFontSize = fontSize.isFinite && fontSize > 0 ? fontSize : 14
+        let safeLineHeight = lineHeight.isFinite && lineHeight > 0
+            ? CGFloat(lineHeight)
+            : CGFloat(safeFontSize)
+
+        #if canImport(CoreText)
+        let font = MarkdownCoreTextFontBridge.font(
+            profile: profile,
+            kind: .text,
+            presentation: [],
+            size: safeFontSize
+        )
+        naturalTextFirstBaselineFromTop =
+            CTFontGetAscent(font) + max(0, CTFontGetLeading(font) / 2)
+        nativeSelectableFirstTextBaselineFromTop =
+            max(0, safeLineHeight - CTFontGetDescent(font))
+        taskMarkerFirstTextBaselineFromTop =
+            max(0, (safeLineHeight + CTFontGetCapHeight(font)) / 2)
+        #else
+        let approximateAscent = CGFloat(safeFontSize * 0.8)
+        let approximateDescent = CGFloat(safeFontSize * 0.2)
+        let approximateCapHeight = CGFloat(safeFontSize * 0.7)
+        naturalTextFirstBaselineFromTop = approximateAscent
+        nativeSelectableFirstTextBaselineFromTop =
+            max(0, safeLineHeight - approximateDescent)
+        taskMarkerFirstTextBaselineFromTop =
+            max(0, (safeLineHeight + approximateCapHeight) / 2)
+        #endif
+    }
+}
+
+struct MarkdownListMarkerBaselineMetrics: Sendable, Hashable {
+    var paragraphNaturalFirstTextBaselineFromTop: CGFloat
+    var textualMarkerFirstTextBaselineFromTop: CGFloat
+    var taskMarkerFirstTextBaselineFromTop: CGFloat
+
+    init(theme: MarkdownTheme) {
+        let paragraph = MarkdownPreparedTypographyMetrics(
+            profile: theme.paragraphFontProfiles.body,
+            fontSize: theme.paragraphFontSize,
+            lineHeight: theme.paragraphLineHeight
+        )
+        let code = MarkdownPreparedTypographyMetrics(
+            profile: theme.codeFontProfiles.body,
+            fontSize: theme.codeFontSize,
+            lineHeight: theme.codeLineHeight
+        )
+        paragraphNaturalFirstTextBaselineFromTop = paragraph.naturalTextFirstBaselineFromTop
+        textualMarkerFirstTextBaselineFromTop = code.naturalTextFirstBaselineFromTop
+        taskMarkerFirstTextBaselineFromTop = paragraph.taskMarkerFirstTextBaselineFromTop
+    }
+}
+
 public struct MarkdownRendererConfiguration: Sendable {
     public enum DocumentSelection: Sendable, Hashable {
         /// Install SiriusMarkdown's source-backed document selection layer.
@@ -217,7 +283,12 @@ public struct MarkdownRendererConfiguration: Sendable {
         }
     }
 
-    public var theme: MarkdownTheme
+    public var theme: MarkdownTheme {
+        didSet {
+            listMarkerBaselineMetrics = MarkdownListMarkerBaselineMetrics(theme: theme)
+        }
+    }
+    var listMarkerBaselineMetrics: MarkdownListMarkerBaselineMetrics
     public var inlineRenderingMode: MarkdownInlineRenderingMode
     /// Native text leaf selection policy.
     ///
@@ -306,6 +377,7 @@ public struct MarkdownRendererConfiguration: Sendable {
         diagnosticsRecorder: MarkdownDiagnosticsRecorder = MarkdownDiagnosticsRecorder()
     ) {
         self.theme = theme
+        self.listMarkerBaselineMetrics = MarkdownListMarkerBaselineMetrics(theme: theme)
         self.inlineRenderingMode = inlineRenderingMode
         self.nativeTextSelection = nativeTextSelection
         self.documentSelection = documentSelection
@@ -352,6 +424,7 @@ public struct MarkdownRendererConfiguration: Sendable {
         diagnosticsRecorder: MarkdownDiagnosticsRecorder = MarkdownDiagnosticsRecorder()
     ) {
         self.theme = theme
+        self.listMarkerBaselineMetrics = MarkdownListMarkerBaselineMetrics(theme: theme)
         self.inlineRenderingMode = .coreTextPaintedLines
         self.nativeTextSelection = .platformDefault
         self.documentSelection = .platformDefault
@@ -2658,14 +2731,19 @@ public struct MarkdownPreparedInlineContent: Sendable {
     /// (Inline Attachments Part 01). Empty on the denied text-atomic path.
     public var attachments: [MarkdownAttachmentID: MarkdownPreparedAttachment]
     public var fontSize: Double {
-        didSet { refreshCacheFingerprint() }
+        didSet { refreshTypographyMetricsAndCacheFingerprint() }
     }
     public var lineHeight: Double {
-        didSet { refreshCacheFingerprint() }
+        didSet { refreshTypographyMetricsAndCacheFingerprint() }
     }
     public var fontProfiles: MarkdownInlineFontProfiles {
-        didSet { refreshCacheFingerprint() }
+        didSet { refreshTypographyMetricsAndCacheFingerprint() }
     }
+    var typographyMetrics = MarkdownPreparedTypographyMetrics(
+        profile: .system(),
+        fontSize: 14,
+        lineHeight: 14
+    )
     /// Constant-size identity for every prepared/measured/font input used by
     /// view invalidation, inline layout, and source-backed selection caches.
     /// This replaces hashing full strings/runs/units/line arrays from SwiftUI
@@ -2722,7 +2800,21 @@ public struct MarkdownPreparedInlineContent: Sendable {
         self.mathTextPieces = mathTextPieces
         self.initialLayoutResult = initialLayoutResult
         self.defaultLayoutWidth = defaultLayoutWidth
+        refreshTypographyMetrics()
         refreshCacheFingerprint()
+    }
+
+    private mutating func refreshTypographyMetricsAndCacheFingerprint() {
+        refreshTypographyMetrics()
+        refreshCacheFingerprint()
+    }
+
+    private mutating func refreshTypographyMetrics() {
+        typographyMetrics = MarkdownPreparedTypographyMetrics(
+            profile: fontProfiles.body,
+            fontSize: fontSize,
+            lineHeight: lineHeight
+        )
     }
 
     private mutating func refreshCacheFingerprint() {
