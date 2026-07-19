@@ -7,7 +7,9 @@ The app is a native macOS workbench for the public `SiriusMarkdown` renderer. It
 Demonstrated cases:
 
 - Overview document with task lists, quotes, code, Mermaid diagrams, and a contract table.
-- Dedicated native rich-HTML document with HTML5 recovery, sanitization, structured headings/prose/quotes/lists/tables/code, decorated HTML anchors, and inert unsafe content.
+- Native rich-HTML overview with HTML5 recovery, source-mapped structure, and decorated HTML anchors.
+- Exhaustive HTML element gallery covering h1-h6, every documented inline semantic, containers, quotes, lists, tables, preformatted code, thematic breaks, and both allowed and denied image-policy outcomes.
+- HTML safety and media boundary showing dropped scripts, styles, embeds, video, audio, canvas, SVG, and controls alongside inert URL/image fallbacks and sanitizer diagnostics.
 - Inline policy matrix for safe links, unsafe links, reference-style links, remote images, emphasis, strikethrough, and inline code.
 - Table stress cases for dense rows, alignment, long cells, multilingual values, and horizontal containment.
 - Wide blocks with long code and wide table values.

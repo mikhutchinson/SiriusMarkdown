@@ -1281,7 +1281,7 @@ func defaultJavaScriptResourceLoadingUsesNonTrappingLookup() throws {
 @Test
 func releaseAndProductChecksKeepRenderProbeVisualsOptIn() throws {
     let root = packageRootURL()
-    let currentReleaseVersion = "0.6.16"
+    let currentReleaseVersion = "0.6.17"
     let releaseCheck = try String(
         contentsOf: root.appending(path: "Tools/release-check.sh"),
         encoding: .utf8
@@ -3876,6 +3876,67 @@ func preparedNativeLineRendererUsesSingleAttributedTextPayload() throws {
     #expect(renderedText.contains("\n"))
     #expect(renderedText.replacingOccurrences(of: "\n", with: "") == inlineLayout.prepared.naturalText)
 }
+
+#if canImport(AppKit)
+@Test
+@MainActor
+func preparedNativeHTMLScriptsReachAppKitWithScaledFontsAndBaselineOffsets() throws {
+    var stream = MarkdownStream()
+    stream.append(
+        "<p>Prepared native line wrapping keeps this mapping stable. " +
+            "Subscript H<sub>2</sub>O and superscript x<sup>2</sup>.</p>"
+    )
+    stream.finish()
+
+    let configuration = MarkdownRendererConfiguration(
+        theme: .document,
+        inlineRenderingMode: .preparedNativeLines
+    )
+    let prepared = configuration.prepare(snapshot: stream.snapshot())
+    let hostingView = NSHostingView(
+        rootView: StreamingMarkdownView(
+            preparedSnapshot: prepared,
+            configuration: configuration
+        )
+        .frame(width: 260, height: 220, alignment: .topLeading)
+    )
+    hostingView.frame = NSRect(origin: .zero, size: NSSize(width: 260, height: 220))
+    let window = offscreenTestWindow(hostingView)
+    defer { tearDownWindow(window) }
+    pumpLayout(hostingView)
+
+    let textView = try #require(
+        appKitTextViews(in: hostingView).first { $0.string.contains("Subscript") }
+    )
+    let storage = try #require(textView.textStorage)
+    let source = storage.string as NSString
+    let waterRange = source.range(of: "H2O")
+    let powerRange = source.range(of: "x2")
+    #expect(waterRange.location != NSNotFound)
+    #expect(powerRange.location != NSNotFound)
+
+    let bodyFont = try #require(
+        storage.attribute(.font, at: waterRange.location, effectiveRange: nil) as? NSFont
+    )
+    let subscriptFont = try #require(
+        storage.attribute(.font, at: waterRange.location + 1, effectiveRange: nil) as? NSFont
+    )
+    let superscriptFont = try #require(
+        storage.attribute(.font, at: powerRange.location + 1, effectiveRange: nil) as? NSFont
+    )
+    #expect(subscriptFont.pointSize < bodyFont.pointSize)
+    #expect(superscriptFont.pointSize < bodyFont.pointSize)
+    let subscriptOffset = try #require(
+        storage.attribute(.baselineOffset, at: waterRange.location + 1, effectiveRange: nil) as? NSNumber
+    )
+    let superscriptOffset = try #require(
+        storage.attribute(.baselineOffset, at: powerRange.location + 1, effectiveRange: nil) as? NSNumber
+    )
+
+    #expect(subscriptOffset.doubleValue < 0)
+    #expect(superscriptOffset.doubleValue > 0)
+}
+#endif
 
 @Test
 func preparedNativeLinesPreserveUTF8BoundariesAcrossLineSlices() throws {

@@ -30,7 +30,7 @@ TEST_LIST_FILE="$(mktemp)"
 trap 'rm -f "$TEST_LIST_FILE"; rm -rf "${CONSUMER_DIR:-}"' EXIT
 swift test list > "$TEST_LIST_FILE"
 TEST_COUNT="$(grep -Ec '^[A-Za-z0-9_]+Tests\.' "$TEST_LIST_FILE")"
-MINIMUM_TEST_COUNT=936
+MINIMUM_TEST_COUNT=937
 if (( TEST_COUNT < MINIMUM_TEST_COUNT )); then
   echo "error: swift test list discovered $TEST_COUNT tests; expected at least $MINIMUM_TEST_COUNT" >&2
   exit 1
@@ -47,6 +47,7 @@ for required_test in \
   "SiriusMarkdownSwiftUITests.preparedListMarkerAndTextShareFirstLineBaselineAcrossMacRenderingModes()" \
   "SiriusMarkdownSwiftUITests.defaultTaskListSquareSharesFirstLineOpticalCenterAcrossMacRenderingModes()" \
   "SiriusMarkdownSwiftUITests.faviconDecorationSharesTheLinkLabelsOpticalCenterInNativeText()" \
+  "SiriusMarkdownSwiftUITests.preparedNativeHTMLScriptsReachAppKitWithScaledFontsAndBaselineOffsets()" \
   "SiriusMarkdownSwiftUITests.defaultTableCellDividerStretchesToTallestCell()" \
   "SiriusMarkdownSwiftUITests.linePlanPlacesAttachmentGapFromDeclaredBaseline()" \
   "SiriusMarkdownSwiftUITests.MarkdownNativeTextSelectionAppKitTests/nativePreparedAttachmentCellPreservesDeclaredDescent()" \
@@ -404,11 +405,16 @@ EOF
 swift package --package-path "$CONSUMER_DIR" resolve
 swift build --package-path "$CONSUMER_DIR"
 DEMO_SOURCE="Examples/MarkdownDemoApp/Sources/MarkdownDemoApp/MarkdownDemoApp.swift"
-if ! grep -Fq 'id: "native-rich-html"' "$DEMO_SOURCE" \
-  || ! grep -Fq 'title: "Native Rich HTML"' "$DEMO_SOURCE"; then
-  echo "error: MarkdownDemoApp must keep its dedicated Native Rich HTML showcase" >&2
-  exit 1
-fi
+for marker in \
+  'id: "native-rich-html"' \
+  'id: "native-html-elements"' \
+  'id: "native-html-safety"'
+do
+  if ! grep -Fq "$marker" "$DEMO_SOURCE"; then
+    echo "error: MarkdownDemoApp is missing required native HTML showcase marker: $marker" >&2
+    exit 1
+  fi
+done
 bash Examples/scripts/bundle-macos-demos.sh
 npm --prefix Tools/math-corpus ci
 npm --prefix Tools/math-corpus test
@@ -425,5 +431,5 @@ xcrun docc convert Docs/SiriusMarkdown.docc \
   --additional-symbol-graph-dir "$SYMBOL_GRAPH_DIR" \
   --fallback-display-name SiriusMarkdown \
   --fallback-bundle-identifier com.sirius.markdown \
-  --fallback-bundle-version 0.6.16 \
+  --fallback-bundle-version 0.6.17 \
   --output-path /tmp/SiriusMarkdown.doccarchive

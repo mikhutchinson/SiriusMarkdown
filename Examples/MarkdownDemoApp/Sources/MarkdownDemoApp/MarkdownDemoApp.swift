@@ -1,4 +1,5 @@
 import DemoSupport
+import Foundation
 import SiriusMarkdown
 import SiriusMarkdownMath
 import SwiftUI
@@ -86,6 +87,10 @@ private struct MarkdownDemoSidebar: View {
                 DemoMetricRow(title: "Headings", value: model.selectedExample.sectionCount.formatted())
                 DemoMetricRow(title: "Tables", value: model.selectedExample.tableCount.formatted())
                 DemoMetricRow(title: "Code blocks", value: model.selectedExample.codeBlockCount.formatted())
+                if model.selectedExample.richHTMLBlockCount > 0 {
+                    DemoMetricRow(title: "HTML nodes", value: model.selectedExample.htmlParsedNodeCount.formatted())
+                    DemoMetricRow(title: "HTML dropped", value: model.selectedExample.htmlDroppedNodeCount.formatted())
+                }
             }
 
             Section("Renderer Counters") {
@@ -262,6 +267,20 @@ private struct DocumentInspectorPanel: View {
                 )
             }
 
+            if example.richHTMLBlockCount > 0 {
+                DemoInspectorSection(title: "Native HTML") {
+                    DemoMetricGrid(
+                        metrics: [
+                            ("HTML blocks", example.richHTMLBlockCount.formatted()),
+                            ("Nodes", example.htmlParsedNodeCount.formatted()),
+                            ("Dropped", example.htmlDroppedNodeCount.formatted()),
+                            ("Unwrapped", example.htmlUnwrappedNodeCount.formatted()),
+                            ("Map fallback", example.htmlSourceMappingFallbackCount.formatted())
+                        ]
+                    )
+                }
+            }
+
             DemoInspectorSection(title: "Sections") {
                 VStack(alignment: .leading, spacing: 8) {
                     ForEach(example.sections) { section in
@@ -309,6 +328,11 @@ private struct PreparedMarkdownExample: Identifiable {
     let listBlockCount: Int
     let quoteBlockCount: Int
     let mathBlockCount: Int
+    let richHTMLBlockCount: Int
+    let htmlParsedNodeCount: Int
+    let htmlDroppedNodeCount: Int
+    let htmlUnwrappedNodeCount: Int
+    let htmlSourceMappingFallbackCount: Int
 
     var cacheHitCount: Int {
         warmCacheHitCount + layoutCacheHitCount
@@ -330,11 +354,14 @@ private struct PreparedMarkdownExample: Identifiable {
             theme: .document,
             inlineRenderingMode: .preparedNativeLines,
             copyProvider: copyProvider,
+            imagePolicy: DemoNativeHTMLImagePolicy(),
+            imageResolver: DemoNativeHTMLImageResolver(),
             mathRenderer: NativeMarkdownMathRenderer(),
             diagnosticsRecorder: renderRecorder
         )
         let snapshot = stream.snapshot()
         let renderedBlocks = snapshot.blocks.flatMap(\.demoRenderedBlocks)
+        let richHTML = snapshot.blocks.compactMap(\.richContent)
 
         self.example = example
         self.configuration = configuration
@@ -362,6 +389,11 @@ private struct PreparedMarkdownExample: Identifiable {
         self.listBlockCount = renderedBlocks.filter { $0.kind == .unorderedList || $0.kind == .orderedList || $0.kind == .taskList }.count
         self.quoteBlockCount = renderedBlocks.filter { $0.kind == .blockQuote }.count
         self.mathBlockCount = renderedBlocks.filter { $0.kind == .mathBlock }.count
+        self.richHTMLBlockCount = richHTML.count
+        self.htmlParsedNodeCount = richHTML.reduce(0) { $0 + $1.diagnostics.parsedNodeCount }
+        self.htmlDroppedNodeCount = richHTML.reduce(0) { $0 + $1.diagnostics.droppedNodeCount }
+        self.htmlUnwrappedNodeCount = richHTML.reduce(0) { $0 + $1.diagnostics.unwrappedNodeCount }
+        self.htmlSourceMappingFallbackCount = richHTML.reduce(0) { $0 + $1.diagnostics.sourceMappingFallbackCount }
     }
 
     private static func exerciseLayoutCache(in preparedSnapshot: MarkdownPreparedSnapshot) {
@@ -470,6 +502,53 @@ private extension MarkdownBlock {
     }
 }
 
+private struct DemoNativeHTMLImagePolicy:
+    MarkdownImagePolicy,
+    MarkdownImagePolicyCacheIdentifying
+{
+    static let approvedSource = "sirius-demo://native-html/approved-swatch"
+
+    var imagePolicyCacheIdentity: String {
+        "markdown-demo.native-html-image-policy.v1"
+    }
+
+    func evaluateImage(source: String, altText: String?) -> MarkdownPolicyDecision {
+        if source == Self.approvedSource {
+            return .allow
+        }
+        return DefaultMarkdownPolicy().evaluateImage(source: source, altText: altText)
+    }
+}
+
+private struct DemoNativeHTMLImageResolver:
+    MarkdownImageResolver,
+    MarkdownImageResolverCacheIdentifying
+{
+    private static let nativeHTMLBadgePNG = Data(
+        base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAADAAAAAwCAYAAABXAvmHAAAAAXNSR0IArs4c6QAAADhlWElmTU0AKgAAAAgAAYdpAAQAAAABAAAAGgAAAAAAAqACAAQAAAABAAAAMKADAAQAAAABAAAAMAAAAAD4/042AAAE/klEQVRoBe1aa2wUVRT+ZvZZKzUu8cG2EmsRpDXRYH0B4qskCsHUtol/8I+Y8sfEP5TQ/iLRRBGjSY1GiYlRI5LQIBokGDHUqliSShBF02qzpNhiIkRait3HPDx3Zu7OzHam05bZZSfhJts7c+89537fueece7t3gYAXwRV/+0CkesmyZhVCM1Q0AkJSEHCt63gfO1QVk4A6BgEDAtT9o38O7seuxpzTFI4EFr0y8bQYCu0kgTonoSvQNqzIcsfZzqrPCucO2Rq2bxeTTx7YIYpiN7UnbH1X9iUhiOIzC5q6Ki+ujn6D3l6VwxH5A6uTFVteFQShw9pWTs8MG8NoxZR3IcNt9lk7y/WZ3KmFu5O+AhSwhs+XK2YbLg0rYWaNGgGWbei5XALWBtblpc7ArBPQUqXLyHJt5ph1F9LyfLlCdcFlYDaykJB0GVbGzTpmjUCpdlg/rcExGyvgp+rS6rpKoLT2nj5beHqT/y2isd/TKZMOtv6WohOoSwj4dlOFhnoio6Khe8pXEkWPgdYG00bHxxRfwTOrFJ1Ay3LzxN5zSvLXfy6XQJSw3VftboMHakTUXKf3T2ZVHPpDzhOopKPYikXusvmBHg/z0sBisrU+hL5NcXzcFnOdou1O032+HJSRtizAysUhfLExjo9aY1h+Q/5U76rLrcOcwW1EQfujtSI610RRf6PO/RJZ1qnESfP6pab77P3Vgt4i8NhtITxSG8e+32Ts/D6H0QlnfRYR2+OsCdx9s4iuhyNglptNWVsXwoKYbtkz4wr6/1JcxUQ6F7RRsG9YFsKHJyR0/5jDhbTrcFuHpwvVXi/gvaeiOPBs3AZeoaR+cEjCxp6MTSF/sWYfZt3C0ndaxtavMhg6ZxKLhQW0N0ZwtL0CL9wfBltFr+I55N0NMTTcZPK8SLn8018kfHBcwplx5+VeeA3ILUyZHgf3yRCn3Sdl7bPmVhHP3xMBc0/6vxdVtHLbyE2zNGbXgLPrcWKeBPhAXu/4LodPfpaQMw3Hu/J18x1hhI3t96cxGakLzkS5QN9pBYP/ZPFSUwTrls4Nkmkmrq2gHjpvR/pyUxTHNlfgxQfDSOgbbIEEZSjL5tVzarr7WAXuoth6a30U/ZvjNvAZScWIywpb5bUoq37t0owmWrVYRMfqCBqr7QGcpklYdun82vzS7PaFAo48pzNjIFa8M4VxhzBhsfXGE1HcW2PXmZVV7DlJgdwv4e/JGWFhdGul4LkCjO0PIwqad2coYNM4cda0aJyCrqXevuStlvfDw7IjeKZzSUK0gZcUleJBwkPvp9F1OOcJnulgxT673ub6tzeloDeVQROlyI5VEVtwc6EW2uB48XIfNk4m4CxLvXk0NyuX4bp5PScCXIhZln3W0Ub1OG1EvKy8RUSySl/U8/+pOJIyV4uP4fUI7Q17KJu9fSyH1L8zuwqXcarnRYArOjgk015ggrQG7+e/S5Ds8c/FtHrwnIoth7K2tvm8XBaBwgnZ2X88rVtzr0f2KZSd77uvBFigl7rMKguVGtRc5rtKYC7WKsZYbQX0O6liqC+eTo7ZcCG6UAtc0THrBOg2MHD4DcwaAXaVGTQCHLNGQLuHBYYDRGLYwGx8L0SXyOweNigENKzGxbcRxAC79VNVlV1ul3VhGPkNJQOaJ8BexqZe31bOJBg2hpFh5cXxG6Ug/dTAkYDGLiA/9uArEdj6f4R+o6WYnuwsAAAAAElFTkSuQmCC"
+    )!
+
+    var imageResolverCacheIdentity: String {
+        "markdown-demo.native-html-image-resolver.v1"
+    }
+
+    func preparedImage(
+        source: String,
+        altText: String?,
+        sourceRange: MarkdownSourceRange?,
+        policyDecision: MarkdownPolicyDecision
+    ) -> MarkdownPreparedImage {
+        precondition(source == DemoNativeHTMLImagePolicy.approvedSource)
+        precondition(policyDecision == .allow)
+        return MarkdownPreparedImage(
+            source: source,
+            altText: altText,
+            sourceRange: sourceRange,
+            preparedSource: .data(Self.nativeHTMLBadgePNG, mimeType: "image/png")
+        )
+    }
+}
+
 private struct MarkdownExample: Identifiable, Hashable {
     var id: String
     var title: String
@@ -563,6 +642,78 @@ private struct MarkdownExample: Identifiable, Hashable {
                 "HTML anchors share Markdown's policy, activation, accessibility, glyph, and runtime favicon pipeline.",
                 "Script content, event-capable behavior, unsafe links, and implicit remote images stay inert.",
                 "Parsing, sanitization, resource resolution, and measurement remain outside SwiftUI body evaluation."
+            ]
+        ),
+        MarkdownExample(
+            id: "native-html-elements",
+            title: "HTML Element Gallery",
+            summary: "Every supported native HTML element and alias in one scrollable reference page.",
+            detail: "This exhaustive gallery renders the complete documented subset, including a policy-approved in-memory image attachment and a denied remote image.",
+            systemImage: "textformat.alt",
+            badge: "All Elements",
+            markdown: """
+            <div>
+              <h1>Heading level 1</h1>
+              <h2>Heading level 2</h2>
+              <h3>Heading level 3</h3>
+              <h4>Heading level 4</h4>
+              <h5>Heading level 5</h5>
+              <h6>Heading level 6</h6>
+              <p><span>A neutral span stays native text.</span> Paragraph and div containers establish document structure without browser layout.</p>
+              <p><strong>strong</strong> and <b>b</b> are bold; <em>em</em> and <i>i</i> are italic; <s>s</s> and <del>del</del> are struck; <code>code</code> is monospaced.</p>
+              <p>Subscript H<sub>2</sub>O and superscript x<sup>2</sup> preserve baseline semantics.<br>A br element creates this explicit second line.</p>
+              <p>HTML anchors share decorated-link preparation: <a href="https://developer.apple.com/">Apple Developer</a> and <a href="https://www.w3.org/">W3C</a>.</p>
+              <blockquote><p>Blockquote content uses the package's native quote style, source mapping, selection, and copy behavior.</p></blockquote>
+              <ul><li>Unordered list item</li><li>Nested structure<ul><li>Nested unordered child</li></ul></li></ul>
+              <ol start="7"><li>Ordered list begins at seven</li><li>Second ordered item</li></ol>
+              <table><thead><tr><th align="left">Left</th><th align="center">Center</th><th align="right">Right</th></tr></thead><tbody><tr><td>thead/th</td><td>tbody/tr</td><td>td</td></tr><tr><td>Native</td><td>Contained</td><td>Aligned</td></tr></tbody></table>
+              <pre><code class="language-swift">let html = sanitize(source)
+            let nativeBlocks = prepare(html)</code></pre>
+              <hr>
+              <p>Policy-approved in-memory img → <img src="sirius-demo://native-html/approved-swatch" alt="approved native badge"> ← native atomic attachment.</p>
+              <p>Default remote-image denial remains textual and performs no fetch: <img src="https://example.com/remote-image.png" alt="remote image denied by default"></p>
+            </div>
+            """,
+            assertions: [
+                "h1 through h6 render as native heading levels.",
+                "Every documented inline semantic and alias uses prepared native text.",
+                "Paragraphs, containers, quotes, both list types, tables, code, and hr use structured block renderers.",
+                "The demo-only allowlist supplies one local data image; ordinary remote images remain denied without a network request."
+            ]
+        ),
+        MarkdownExample(
+            id: "native-html-safety",
+            title: "HTML Safety And Media",
+            summary: "Active content and unsupported media are dropped while safe descendants and policy fallbacks remain.",
+            detail: "The source deliberately contains scripts, styles, embeds, browser media, controls, executable attributes, unsafe URLs, and a remote image so their inert outcomes are visible and counted.",
+            systemImage: "shield.lefthalf.filled",
+            badge: "Sanitized",
+            markdown: """
+            <div>
+              <h2>Sanitizer and media boundary</h2>
+              <p>Native rich HTML means document semantics, not an embedded browser. The source of this example contains every active family listed below.</p>
+              <table><thead><tr><th align="left">Authored input</th><th align="left">Native outcome</th></tr></thead><tbody><tr><td><code>script / style</code></td><td>Entire subtree dropped</td></tr><tr><td><code>iframe / object / embed</code></td><td>Entire subtree dropped</td></tr><tr><td><code>video / audio / canvas / svg</code></td><td>No player, canvas, or vector DOM</td></tr><tr><td><code>form / input / button</code></td><td>Controls removed; safe descendants may remain</td></tr><tr><td><code>style / onclick / onerror</code></td><td>Attributes ignored</td></tr><tr><td><code>javascript: / remote img</code></td><td>Normal URL and image policies still apply</td></tr></tbody></table>
+              <p style="color:red" onclick="SCRIPT_ATTRIBUTE_SENTINEL">Style and event-handler attributes are ignored while this safe text survives.</p>
+              <form action="https://example.com/submit"><input name="secret" value="FORM_INPUT_SENTINEL"><button>FORM_BUTTON_SENTINEL</button><p>Safe form descendant text survives without controls or submission behavior.</p></form>
+              <script>SCRIPT_SUBTREE_SENTINEL</script>
+              <style>STYLE_SUBTREE_SENTINEL</style>
+              <iframe src="https://example.com/">IFRAME_SUBTREE_SENTINEL</iframe>
+              <object data="https://example.com/object">OBJECT_SUBTREE_SENTINEL</object>
+              <embed src="https://example.com/embed">
+              <video controls><source src="https://example.com/movie.mp4">VIDEO_SUBTREE_SENTINEL</video>
+              <audio controls><source src="https://example.com/audio.mp3">AUDIO_SUBTREE_SENTINEL</audio>
+              <canvas>CANVAS_SUBTREE_SENTINEL</canvas>
+              <svg><text>SVG_SUBTREE_SENTINEL</text></svg>
+              <p><a href="javascript:alert('blocked')">Unsafe JavaScript destination is visible but inert</a>.</p>
+              <p><img src="https://example.com/tracker.png" alt="remote image denied by default" onerror="IMAGE_EVENT_SENTINEL"> No implicit image request is made.</p>
+              <blockquote><p>If this closing quote is visible without any payload sentinel, native sanitization succeeded.</p></blockquote>
+            </div>
+            """,
+            assertions: [
+                "Scripts, styles, embedded browsing, plugins, browser media, canvas, SVG, and their descendant payloads never reach native render models.",
+                "Form controls disappear and no submission surface exists; only explicitly safe descendant prose remains.",
+                "Executable and style attributes are ignored rather than interpreted.",
+                "Unsafe links are non-interactive and remote images use denied alt-text fallback without fetching."
             ]
         ),
         MarkdownExample(

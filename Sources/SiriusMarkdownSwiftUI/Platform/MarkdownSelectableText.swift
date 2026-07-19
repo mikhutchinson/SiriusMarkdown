@@ -352,6 +352,8 @@ private struct MarkdownAppKitSelectableTextView: NSViewRepresentable {
             nsAttributed.addAttribute(.foregroundColor, value: resolvedTextColor, range: range)
         }
 
+        applyPreparedScriptTypography(to: nsAttributed)
+
         let paragraphStyle = NSMutableParagraphStyle()
         paragraphStyle.lineSpacing = lineSpacing
         paragraphStyle.lineBreakMode = wraps ? .byWordWrapping : .byClipping
@@ -378,6 +380,57 @@ private struct MarkdownAppKitSelectableTextView: NSViewRepresentable {
             source.mathAttachmentKeys,
             plainText
         )
+    }
+
+    /// `AttributedString`'s SwiftUI font and baseline-offset attributes do
+    /// not survive conversion through the AppKit attribute scope. Reapply
+    /// script typography from the final attributed payload after fallback
+    /// fonts are present. Reading ranges from that payload, rather than from
+    /// the source runs, keeps offsets correct when prepared native lines have
+    /// inserted visual-line separators.
+    private func applyPreparedScriptTypography(to attributedString: NSMutableAttributedString) {
+        guard let preparedInlineContent,
+              preparedInlineContent.hasScriptTypography
+        else {
+            return
+        }
+
+        var utf16Offset = 0
+        let scriptPointSize = CGFloat(preparedInlineContent.fontSize * 0.76)
+        for run in attributed.runs {
+            let text = String(attributed[run.range].characters)
+            let length = (text as NSString).length
+            defer { utf16Offset += length }
+            guard length > 0,
+                  let baselineOffset = run.baselineOffset,
+                  utf16Offset >= 0,
+                  utf16Offset + length <= attributedString.length
+            else {
+                continue
+            }
+
+            let range = NSRange(location: utf16Offset, length: length)
+            var fonts: [(NSRange, NSFont)] = []
+            attributedString.enumerateAttribute(.font, in: range) { value, effectiveRange, _ in
+                let baseFont = (value as? NSFont) ?? fallbackFont
+                let scaled = NSFont(
+                    descriptor: baseFont.fontDescriptor,
+                    size: scriptPointSize
+                ) ?? MarkdownAppKitTextFont.font(
+                    profile: preparedInlineContent.fontProfiles.body,
+                    size: Double(scriptPointSize)
+                )
+                fonts.append((effectiveRange, scaled))
+            }
+            for (fontRange, font) in fonts {
+                attributedString.addAttribute(.font, value: font, range: fontRange)
+            }
+            attributedString.addAttribute(
+                .baselineOffset,
+                value: NSNumber(value: Double(baselineOffset)),
+                range: range
+            )
+        }
     }
 
     private func appKitAttributedSource(

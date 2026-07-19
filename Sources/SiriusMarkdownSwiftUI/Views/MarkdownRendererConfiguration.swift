@@ -2798,7 +2798,10 @@ private struct MarkdownPreparedSnapshotReuse {
 public struct MarkdownPreparedInlineContent: Sendable {
     public var attributed: AttributedString
     public var prepared: PreparedInlineContent {
-        didSet { refreshCacheFingerprint() }
+        didSet {
+            hasScriptTypography = Self.containsScriptTypography(prepared)
+            refreshCacheFingerprint()
+        }
     }
     public var measured: MeasuredInlineContent {
         didSet { refreshCacheFingerprint() }
@@ -2822,6 +2825,9 @@ public struct MarkdownPreparedInlineContent: Sendable {
         fontSize: 14,
         lineHeight: 14
     )
+    /// Prepared once with the inline model so the common AppKit text-leaf
+    /// path can skip script-range inspection entirely.
+    var hasScriptTypography: Bool
     /// Constant-size identity for every prepared/measured/font input used by
     /// view invalidation, inline layout, and source-backed selection caches.
     /// This replaces hashing full strings/runs/units/line arrays from SwiftUI
@@ -2868,6 +2874,7 @@ public struct MarkdownPreparedInlineContent: Sendable {
         let safeLineHeight = Self.sanitizedPositive(lineHeight, fallback: safeFontSize)
         self.attributed = attributed
         self.prepared = prepared
+        self.hasScriptTypography = Self.containsScriptTypography(prepared)
         self.measured = Self.sanitizedMeasured(measured, fontSize: safeFontSize)
         self.images = images
         self.attachments = attachments
@@ -2907,6 +2914,13 @@ public struct MarkdownPreparedInlineContent: Sendable {
 
     private static func sanitizedPositive(_ value: Double, fallback: Double) -> Double {
         value.isFinite && value > 0 ? value : fallback
+    }
+
+    private static func containsScriptTypography(_ prepared: PreparedInlineContent) -> Bool {
+        prepared.runs.contains { run in
+            run.presentation.contains(.subscriptText) ||
+                run.presentation.contains(.superscriptText)
+        }
     }
 
     private static func sanitizedNonNegative(_ value: Double) -> Double {

@@ -4,8 +4,14 @@
 
 - None currently tracked.
 
-## Resolved in Unreleased
+## Resolved in 0.6.17
 
+- Fixed `<sub>` and `<sup>` appearing as ordinary baseline text in the default
+  macOS native-selection renderer. SwiftUI font and baseline attributes are not
+  retained by AppKit-scoped `AttributedString` conversion, so the TextKit bridge
+  now restores a scaled font and the prepared signed baseline offset for script
+  ranges. The prepared model records whether scripts exist so ordinary leaves
+  pay no run-scan cost.
 - Fixed resolved favicon attachments hanging below the line while generic link
   glyphs remained centered. Prepared link-decoration metrics now use the
   configured fallback glyph's CoreText image bounds, and the macOS TextKit host

@@ -18,91 +18,39 @@ The core contract is simple:
 
 ## Current Release
 
-`0.6.16` fixes a JavaScriptCore lifetime violation that could crash a host
-during long streamed code fences without reducing the renderer's feature surface.
-Markdown semantics, tables, highlighting, math, Mermaid, links, attachments,
-copy, and source-backed document selection remain enabled:
+`0.6.17` adds sanitized native rich HTML and package-owned decorated website
+links without introducing WebKit or view-time network work:
 
-- **GC-safe JavaScript bridges:** retained functions, heap-stored arguments,
-  and call results stay rooted for their complete native lifetime in both the
-  Highlight.js and Mermaid runtimes. Deterministic tests force collection at
-  each bridge boundary.
-- **Bounded streaming regions:** the SwiftUI streaming surface groups stable
-  prepared items into bounded regions, caches each sealed region's size for a
-  proposal width and revision, and invalidates only the mutable tail region.
-  It does not rely on `LazyVStack`'s private item-phase cache and does not
-  eagerly remeasure every prior block after an append.
-- **Mutable work stays mutable:** active tail blocks bypass caches intended for
-  sealed values, so successive generations cannot evict stable prepared
-  content or accumulate historical tail values.
-- **Context-correct incremental highlighting:** plain and Highlight.js-backed
-  languages process appended suffixes while a code block is active. The pinned
-  Highlight.js parser continuation preserves open comment/string state; a
-  full-context checkpoint runs every 16 KiB and every block is fully
-  highlighted on seal. The native Swift and custom highlighters retain
-  full-document semantics where no proven continuation is available.
-- **Shared bounded CoreText measurements:** unchanged inline tokens reuse
-  width measurements across preparation values with keys that include the
-  complete font and presentation profile.
-- **Measured regression:** a 179 KB document across 90 AppKit-hosted
-  publications keeps mutable-tail layout at a 2.71 ms median, and the full
-  release suite discovers 936 tests.
+- **Native rich HTML:** authorized headings, paragraphs, containers, quotes,
+  lists, tables, preformatted code, inline emphasis/code, links, breaks,
+  subscript, superscript, and policy-approved images are normalized through
+  SwiftSoup into the same prepared, source-mapped native renderer families as
+  Markdown. Scripts, embedded browsing/plugin content, active controls, and
+  unsafe resources remain inert.
+- **Decorated links:** Markdown links and HTML anchors share one activation,
+  accessibility, policy, and preparation pipeline. A native glyph is available
+  immediately; the replaceable default resolver can asynchronously upgrade it
+  to a validated site icon and invalidates only the affected decoration state.
+- **Bounded favicon discovery:** anonymous ephemeral requests, public-origin
+  and contacted-endpoint checks, strict redirect/payload/image limits,
+  in-flight coalescing, and bounded positive/negative caches keep discovery off
+  the rendering path. The package ships no per-site favicon table or proxy.
+- **Native semantics preserved:** selection, copy, source ranges, semantic
+  fonts, link hit testing, focus, pointer, and accessibility survive HTML
+  normalization and decorated-link attachments. Fully decorated leaves may
+  omit redundant underlines while mixed leaves retain them.
+- **Renderer fixes:** ordered-list markers, task squares, table dividers,
+  favicon attachments, and AppKit subscript/superscript now share correct
+  baseline geometry. Mutable GFM tables reuse completed rows and unchanged
+  cells instead of rebuilding accumulated history.
+- **Demonstrated and measured:** the bundled app includes a native HTML
+  overview, exhaustive supported-element gallery, and safety/media boundary.
+  The serial release suite discovers 937 tests, including performance,
+  sanitizer, resolver-security, source-mapping, and native-render regressions.
 
-The release builds on `0.6.14`'s strict-concurrency-clean detached render pump,
-`0.6.13`'s linear source mapping, `0.6.12`'s constant-time
-selection/layout cache hits, and `0.6.11`'s AppKit leaf stability:
-
-- **Linear AST source mapping:** each `swift-markdown` parse boundary builds
-  one UTF-8 line-start index. Block, table-cell, and inline source locations
-  resolve through that index instead of rescanning from byte zero per AST
-  node, removing quadratic conversion for large mutable-tail tables.
-- **Preparation stays off MainActor:** `MarkdownRenderSession` starts its
-  parse/highlight/prepare pump from a detached user-initiated task. Only the
-  operation drain and prepared-snapshot publication hop to MainActor.
-- **Measured regression:** 8x more generated table rows now takes 8.02x parse
-  time (25.63 ms for 120 rows; 205.62 ms for 960 rows). The restored pre-fix
-  path did not complete the same gate after 30 seconds.
-
-- **No content scan on a cache hit:** prepared, measured, and laid-out inline
-  values carry deterministic two-lane fingerprints computed at their mutation
-  boundary. SwiftUI view identity and layout/selection caches combine those
-  fixed-size values instead of rehashing full text, runs, units, and line
-  arrays during layout.
-- **Frame-budget regression:** a release-mode AppKit-hosted 1,300-line code
-  block settles at a 0.418 ms median invalidation, with a hard 16 ms gate.
-
-- **No rebuild per layout proposal:** AppKit leaves apply their attributed
-  source once per content/environment change and cache measured sizes per
-  proposed width, so long list/quote documents no longer compound SwiftUI
-  size negotiation into multi-second main-thread stalls.
-- **Constraint-safe attachment hosts:** attachment host subviews mutate only
-  in `layout()`, never inside `sizeThatFits`, avoiding AppKit's re-entrant
-  `updateConstraints` crash guard.
-- **Correct CoreText color contract:** Prepared `CTLine` objects opt into the
-  CGContext foreground, so source-backed document-selection mode paints
-  readable semantic text in both light and dark appearances.
-- **Appearance-aware native bridges:** AppKit/UIKit CoreText, AppKit selectable
-  text and math fallbacks, and attachment placeholder layers resolve semantic
-  colors under the active SwiftUI scheme.
-- **Native selection preserved:** Bounded noneditable `NSTextView` leaves
-  remain the default macOS selection, wrapping, copy, keyboard, and contextual
-  menu path.
-- **Cached-plan stability:** Appearance changes update native colors in place
-  without reparsing, repreparing, or rebuilding cached CoreText line plans,
-  including long streaming transcripts.
-
-The release retains the measured streaming path from `0.6.0`: CTLine creation
-runs during prepare, append-only sessions reuse sealed prepared content, the
-opt-in source-backed selector spans every structured block type, and focused
-performance tests enforce the long-transcript budgets.
-
-On macOS, bounded noneditable `NSTextView` leaves now own selection, wrapping,
-copy, keyboard behavior, and the standard AppKit contextual menu by default.
-They copy continuous prose without synthetic newlines at visual wraps. The
-source-backed cross-block selector remains available by setting
-`documentSelection = .enabled`, which disables native leaf selection to avoid
-competing selection owners. Other platforms retain the source-backed default.
-`preparedNativeLines` and `systemText` remain explicit rendering fallbacks.
+The release retains the bounded streaming, detached preparation, native
+selection, syntax highlighting, math, Mermaid, table, attachment, and
+Pretext-backed layout contracts from earlier releases.
 
 ## Requirements
 
@@ -113,7 +61,7 @@ competing selection owners. Other platforms retain the source-backed default.
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/mikhutchinson/SiriusMarkdown.git", from: "0.6.16")
+    .package(url: "https://github.com/mikhutchinson/SiriusMarkdown.git", from: "0.6.17")
 ],
 targets: [
     .target(
@@ -372,12 +320,12 @@ git diff --check
 - Release runbook: `runbook.md`
 - Changelog: `changelog.md`
 - Bugfix log: `bugfix.md`
-- Current release notes: `release-notes/0.6.16.md`
+- Current release notes: `release-notes/0.6.17.md`
 - Third-party credits: `NOTICE.md`
 
 ## Release
 
-`0.6.16` is ready only when the docs describe the current public package surface,
+`0.6.17` is ready only when the docs describe the current public package surface,
 `bash Tools/product-check.sh` passes from the repository root, `git diff --check`
 is clean, the public remote is correct, and the release commit is tagged and
-pushed as `0.6.16` with a matching published GitHub Release and green CI.
+pushed as `0.6.17` with a matching published GitHub Release and green CI.
