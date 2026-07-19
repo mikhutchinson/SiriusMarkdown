@@ -14,7 +14,9 @@ let package = Package(
         )
     ],
     dependencies: [
-        .package(path: "../..")
+        // Keep the dependency identity stable in isolated worktrees whose
+        // directory basename is not literally `SiriusMarkdown`.
+        .package(name: "SiriusMarkdown", path: "../..")
     ],
     targets: [
         .executableTarget(

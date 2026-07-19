@@ -532,6 +532,7 @@ private struct SwiftMarkdownRenderModelConverter {
             sourceRange: range,
             text: inlines.map(\.text).joined(),
             inlines: inlines,
+            contentHash: stableContentHash(sourceText(for: range.byteRange)),
             colspan: cell.colspan,
             rowspan: cell.rowspan
         )

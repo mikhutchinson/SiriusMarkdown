@@ -274,6 +274,59 @@ struct MarkdownStreamingScalingTests {
         #expect(harness.hostingView.frame.width == 480)
         #expect(harness.session.preparedSnapshot.snapshot.sourceLength > 0)
     }
+
+    @Test
+    @MainActor
+    func live120RowTableRemeasuresOnlyChangedRowsAndStaysFrameBounded() async throws {
+        let harness = StreamingScalingHarness(documentSelection: .enabled)
+        defer { harness.tearDown() }
+
+        _ = await harness.appendAndSettle(streamingTablePrefix)
+        var earlySamples: [Double] = []
+        var lateSamples: [Double] = []
+        for rowIndex in 0..<120 {
+            let chunks = streamingTableRowChunks(index: rowIndex)
+            for chunk in chunks {
+                let elapsed = await harness.appendAndSettle(chunk)
+                if rowIndex < 10 {
+                    earlySamples.append(elapsed)
+                }
+                if rowIndex >= 110 {
+                    lateSamples.append(elapsed)
+                }
+            }
+        }
+
+        harness.session.finish()
+        await harness.session.waitUntilIdle()
+        harness.hostingView.needsLayout = true
+        harness.hostingView.layoutSubtreeIfNeeded()
+        harness.hostingView.displayIfNeeded()
+
+        let earlyMedian = median(earlySamples)
+        let lateMedian = median(lateSamples)
+        let counters = harness.session.renderCounters
+        let table = try #require(
+            harness.session.preparedSnapshot.snapshot.blocks
+                .first(where: { $0.kind == .table })?.table
+        )
+        print(
+            "[streaming-table-host] rows=\(table.rows.count) " +
+            "early=\(String(format: "%.2f", earlyMedian))ms " +
+            "late=\(String(format: "%.2f", lateMedian))ms " +
+            "rowMeasures=\(counters.tableRowLayoutMeasurementCount) " +
+            "rowCacheHits=\(counters.tableRowLayoutCacheHitCount) " +
+            "cellPrepare=\(counters.tableCellPreparationCount) " +
+            "cellCompare=\(counters.tableCellIncrementalComparisonCount)"
+        )
+
+        #expect(table.rows.count == 120)
+        #expect(counters.tableRowLayoutCacheHitCount > counters.tableRowLayoutMeasurementCount)
+        #expect(counters.tableRowLayoutMeasurementCount < 1_200)
+        #expect(counters.tableCellIncrementalComparisonCount < 4_000)
+        #expect(lateMedian <= max(4 * earlyMedian, earlyMedian + 12))
+        #expect(lateMedian < 16)
+    }
 }
 
 private func rapidScalingChunk(index: Int) -> String {
@@ -288,6 +341,22 @@ private func rapidScalingChunk(index: Int) -> String {
 
         """
     }.joined()
+}
+
+private let streamingTablePrefix = """
+| Item | Decimal | Sentence | Link | Detail | Tail |
+| :--- | ---: | :---: | --- | --- | --- |
+
+"""
+
+private func streamingTableRowChunks(index: Int) -> [String] {
+    let row = "| Item \(index) varied text | \(index).25 | Sentence \(index), punctuation. " +
+        "| [reference \(index)](https://example.com/items/\(index)) " +
+        "| detail \(index) | tail \(index) |\n"
+    let marker = "https://example"
+    guard let range = row.range(of: marker) else { return [row] }
+    let split = row.index(range.lowerBound, offsetBy: marker.count)
+    return [String(row[..<split]), String(row[split...])]
 }
 
 private func median(_ values: [Double]) -> Double {

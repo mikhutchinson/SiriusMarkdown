@@ -18,6 +18,21 @@ public struct MarkdownDiagnosticsCounters: Sendable, Hashable {
     public var mathRenderCount: Int
     public var mathFallbackCount: Int
     public var widthRelayoutCount: Int
+    /// Table cells whose attributed/prepared inline payload was rebuilt.
+    public var tableCellPreparationCount: Int
+    /// Historical table cells copied from the preceding prepared snapshot.
+    public var tableCellReuseCount: Int
+    /// Cells visited by incremental table comparison. Historical prefix rows
+    /// retained as prepared values do not increment this counter.
+    public var tableCellIncrementalComparisonCount: Int
+    /// Prepared cell widths inspected while updating incremental column maxima.
+    public var tableColumnWidthScanCount: Int
+    /// Publications that changed the bounded effective table column widths.
+    public var tableColumnWidthChangeCount: Int
+    /// Table rows whose SwiftUI subtree was asked for a fresh natural size.
+    public var tableRowLayoutMeasurementCount: Int
+    /// Table row natural sizes reused across SwiftUI layout passes/publications.
+    public var tableRowLayoutCacheHitCount: Int
     public var boundaryScanCount: Int
     public var boundaryScannedByteCount: Int
     public var boundaryScannedLineCount: Int
@@ -77,6 +92,13 @@ public struct MarkdownDiagnosticsCounters: Sendable, Hashable {
         mathRenderCount: Int = 0,
         mathFallbackCount: Int = 0,
         widthRelayoutCount: Int = 0,
+        tableCellPreparationCount: Int = 0,
+        tableCellReuseCount: Int = 0,
+        tableCellIncrementalComparisonCount: Int = 0,
+        tableColumnWidthScanCount: Int = 0,
+        tableColumnWidthChangeCount: Int = 0,
+        tableRowLayoutMeasurementCount: Int = 0,
+        tableRowLayoutCacheHitCount: Int = 0,
         boundaryScanCount: Int = 0,
         boundaryScannedByteCount: Int = 0,
         boundaryScannedLineCount: Int = 0,
@@ -115,6 +137,13 @@ public struct MarkdownDiagnosticsCounters: Sendable, Hashable {
         self.mathRenderCount = mathRenderCount
         self.mathFallbackCount = mathFallbackCount
         self.widthRelayoutCount = widthRelayoutCount
+        self.tableCellPreparationCount = tableCellPreparationCount
+        self.tableCellReuseCount = tableCellReuseCount
+        self.tableCellIncrementalComparisonCount = tableCellIncrementalComparisonCount
+        self.tableColumnWidthScanCount = tableColumnWidthScanCount
+        self.tableColumnWidthChangeCount = tableColumnWidthChangeCount
+        self.tableRowLayoutMeasurementCount = tableRowLayoutMeasurementCount
+        self.tableRowLayoutCacheHitCount = tableRowLayoutCacheHitCount
         self.boundaryScanCount = boundaryScanCount
         self.boundaryScannedByteCount = boundaryScannedByteCount
         self.boundaryScannedLineCount = boundaryScannedLineCount
@@ -227,6 +256,50 @@ public final class MarkdownDiagnosticsRecorder: @unchecked Sendable {
     public func recordWidthRelayout() {
         withLock {
             counters.widthRelayoutCount += 1
+        }
+    }
+
+    public func recordTableCellPreparation() {
+        withLock {
+            counters.tableCellPreparationCount += 1
+        }
+    }
+
+    public func recordTableCellReuse(count: Int = 1) {
+        guard count > 0 else { return }
+        withLock {
+            counters.tableCellReuseCount += count
+        }
+    }
+
+    public func recordTableCellIncrementalComparison() {
+        withLock {
+            counters.tableCellIncrementalComparisonCount += 1
+        }
+    }
+
+    public func recordTableColumnWidthScan(count: Int = 1) {
+        guard count > 0 else { return }
+        withLock {
+            counters.tableColumnWidthScanCount += count
+        }
+    }
+
+    public func recordTableColumnWidthChange() {
+        withLock {
+            counters.tableColumnWidthChangeCount += 1
+        }
+    }
+
+    public func recordTableRowLayoutMeasurement() {
+        withLock {
+            counters.tableRowLayoutMeasurementCount += 1
+        }
+    }
+
+    public func recordTableRowLayoutCacheHit() {
+        withLock {
+            counters.tableRowLayoutCacheHitCount += 1
         }
     }
 
