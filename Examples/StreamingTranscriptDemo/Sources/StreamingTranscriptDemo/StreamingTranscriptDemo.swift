@@ -622,7 +622,7 @@ private struct StreamingCase: Identifiable, Hashable {
                 .append("$$\n"),
                 .append("layout(width) = preparedSegments \\rightarrow lines\n"),
                 .append("$$\n\n"),
-                .append("<aside>Raw HTML remains inert by default.</aside>\n\n"),
+                .append("<aside><h3>Sanitized native HTML</h3><p>This <strong>rich block</strong> and its <a href=\"https://www.sec.gov/\">decorated link</a> use the prepared native path.</p></aside>\n\n"),
                 .append("```mermaid\ngraph LR\n    A[Source] --> B[Stream]\n    B --> C[Render]\n```\n"),
                 .finish
             ]

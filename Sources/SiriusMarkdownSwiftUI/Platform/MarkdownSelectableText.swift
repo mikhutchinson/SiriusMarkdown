@@ -206,6 +206,7 @@ private struct MarkdownAppKitSelectableTextView: NSViewRepresentable {
             wraps: wraps,
             mathTextPieces: mathTextPieces,
             attachments: preparedInlineContent?.attachments,
+            underlinesLinks: preparedInlineContent?.allSemanticLinksHaveDecorations != true,
             colorScheme: colorScheme
         )
     }
@@ -243,6 +244,10 @@ private struct MarkdownAppKitSelectableTextView: NSViewRepresentable {
         textView.colorScheme = colorScheme
         textView.textColor = resolvedTextColor
         textView.font = fallbackFont
+        textView.linkTextAttributes = [
+            .foregroundColor: NSColor.linkColor,
+            .underlineStyle: key.underlinesLinks ? NSUnderlineStyle.single.rawValue : 0,
+        ]
 
         let next = attributedStringWithFallbackAttributes(
             coordinator: coordinator,
@@ -357,11 +362,15 @@ private struct MarkdownAppKitSelectableTextView: NSViewRepresentable {
         } else {
             attachments = source.attachments
         }
+        let plainText = MarkdownAppKitNativeSelectableTextView.plainTextRepresentation(
+            in: NSRange(location: 0, length: nsAttributed.length),
+            textStorage: nsAttributed
+        )
         return (
             nsAttributed,
             attachments,
             source.mathAttachmentKeys,
-            source.plainText
+            plainText
         )
     }
 
@@ -376,6 +385,7 @@ private struct MarkdownAppKitSelectableTextView: NSViewRepresentable {
     ) {
         let fallback = (try? NSMutableAttributedString(attributed, including: \.appKit)) ??
             NSMutableAttributedString(string: String(attributed.characters))
+        markLinkDecorationsAsNonSemantic(in: fallback)
         guard let mathTextPieces, !mathTextPieces.isEmpty else {
             return (fallback, [], [], fallback.string)
         }
@@ -385,7 +395,8 @@ private struct MarkdownAppKitSelectableTextView: NSViewRepresentable {
         let orderedAttachments = preparedInlineContent?.prepared.runs.compactMap { run -> (
             offset: Int,
             length: Int,
-            record: MarkdownPreparedAttachment
+            record: MarkdownPreparedAttachment,
+            isLinkDecoration: Bool
         )? in
             let runLength = (run.text as NSString).length
             defer { preparedOffset += runLength }
@@ -394,7 +405,12 @@ private struct MarkdownAppKitSelectableTextView: NSViewRepresentable {
             else {
                 return nil
             }
-            return (preparedOffset, runLength, record)
+            return (
+                preparedOffset,
+                runLength,
+                record,
+                run.presentation.contains(.linkDecoration)
+            )
         } ?? []
         var nextAttachmentIndex = 0
         var sourceOffset = 0
@@ -446,7 +462,9 @@ private struct MarkdownAppKitSelectableTextView: NSViewRepresentable {
                     segment.addAttributes(
                         [
                             .attachment: attachment,
-                            .markdownNativePlainText: record.image.altText ?? record.image.source,
+                            .markdownNativePlainText: preparedAttachment.isLinkDecoration
+                                ? ""
+                                : (record.image.altText ?? record.image.source),
                         ],
                         range: attachmentRange
                     )
@@ -533,7 +551,9 @@ private struct MarkdownAppKitSelectableTextView: NSViewRepresentable {
             attributed.addAttributes(
                 [
                     .attachment: attachment,
-                    .markdownNativePlainText: record.image.altText ?? record.image.source,
+                    .markdownNativePlainText: run.presentation.contains(.linkDecoration)
+                        ? ""
+                        : (record.image.altText ?? record.image.source),
                 ],
                 range: attachmentRange
             )
@@ -547,6 +567,29 @@ private struct MarkdownAppKitSelectableTextView: NSViewRepresentable {
             utf16Offset += 1 - runLength
         }
         return placements
+    }
+
+    private func markLinkDecorationsAsNonSemantic(
+        in attributed: NSMutableAttributedString
+    ) {
+        guard let preparedInlineContent else { return }
+        var utf16Offset = 0
+        for run in preparedInlineContent.prepared.runs {
+            let length = (run.text as NSString).length
+            defer { utf16Offset += length }
+            guard run.presentation.contains(.linkDecoration),
+                  length > 0,
+                  utf16Offset >= 0,
+                  utf16Offset + length <= attributed.length
+            else {
+                continue
+            }
+            attributed.addAttribute(
+                .markdownNativePlainText,
+                value: "",
+                range: NSRange(location: utf16Offset, length: length)
+            )
+        }
     }
 
     private var fallbackFont: NSFont {
@@ -693,6 +736,7 @@ struct MarkdownAppKitLeafConfigurationKey: Equatable {
     var wraps: Bool
     var mathTextPieces: [MarkdownInlineMathPiece]?
     var attachments: [MarkdownAttachmentID: MarkdownPreparedAttachment]?
+    var underlinesLinks: Bool
     var colorScheme: ColorScheme
 }
 

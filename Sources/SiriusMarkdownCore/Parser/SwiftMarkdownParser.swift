@@ -91,6 +91,17 @@ private struct SwiftMarkdownRenderModelConverter {
         let inlines = inlineRuns(for: markup, fallbackRange: range)
         let contentHash = stableContentHash(rawText)
         let id = stableBlockID(kind: kind, range: range, sequence: sequence)
+        let richContent: MarkdownRichContent? = if let htmlBlock = markup as? HTMLBlock {
+            MarkdownHTMLSemanticAdapter.richContent(
+                from: htmlBlock.rawHTML,
+                sourceRange: range,
+                lineMap: lineMap,
+                parentID: id,
+                isSealed: isSealed
+            )
+        } else {
+            nil
+        }
 
         return MarkdownBlock(
             id: id,
@@ -104,7 +115,8 @@ private struct SwiftMarkdownRenderModelConverter {
             orderedListStart: (markup as? OrderedList)?.startIndex,
             headingLevel: (markup as? Heading)?.level,
             infoString: (markup as? CodeBlock)?.language,
-            isSealed: isSealed
+            isSealed: isSealed,
+            richContent: richContent
         )
     }
 
@@ -1044,17 +1056,9 @@ private struct InlineRunConverter {
     }
 
     func runs(in children: MarkupChildren) -> [MarkdownInlineRun] {
-        runs(in: children, presentation: [], destination: nil)
-    }
-
-    private func runs(
-        in children: MarkupChildren,
-        presentation: MarkdownInlinePresentation,
-        destination: String?
-    ) -> [MarkdownInlineRun] {
-        let converted = children.flatMap {
-            runs(in: $0, presentation: presentation, destination: destination)
-        }
+        let converted = MarkdownHTMLSemanticAdapter.normalizeInlineRuns(
+            rawRuns(in: children, presentation: [], destination: nil)
+        )
         return coalescedStandaloneDisplayMathRuns(
             coalescedBareTexEnvironmentRuns(
                 resolvedLineBreakSourceRanges(in: converted)
@@ -1062,7 +1066,17 @@ private struct InlineRunConverter {
         )
     }
 
-    private func runs(
+    private func rawRuns(
+        in children: MarkupChildren,
+        presentation: MarkdownInlinePresentation,
+        destination: String?
+    ) -> [MarkdownInlineRun] {
+        children.flatMap {
+            rawRuns(in: $0, presentation: presentation, destination: destination)
+        }
+    }
+
+    private func rawRuns(
         in markup: Markup,
         presentation: MarkdownInlinePresentation,
         destination: String?
@@ -1101,25 +1115,25 @@ private struct InlineRunConverter {
                 )
             ]
         case let emphasis as Emphasis:
-            return runs(
+            return rawRuns(
                 in: emphasis.children,
                 presentation: presentation.union(.emphasis),
                 destination: destination
             )
         case let strong as Strong:
-            return runs(
+            return rawRuns(
                 in: strong.children,
                 presentation: presentation.union(.strong),
                 destination: destination
             )
         case let strikethrough as Strikethrough:
-            return runs(
+            return rawRuns(
                 in: strikethrough.children,
                 presentation: presentation.union(.strikethrough),
                 destination: destination
             )
         case let link as Link:
-            return runs(
+            return rawRuns(
                 in: link.children,
                 presentation: presentation,
                 destination: link.destination
@@ -1147,7 +1161,7 @@ private struct InlineRunConverter {
                 )
             ]
         default:
-            return runs(in: markup.children, presentation: presentation, destination: destination)
+            return rawRuns(in: markup.children, presentation: presentation, destination: destination)
         }
     }
 

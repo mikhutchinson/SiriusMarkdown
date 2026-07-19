@@ -745,6 +745,7 @@ struct MarkdownDocumentSelectionTextGeometry: Equatable, Sendable {
 
         var sourceRuns: [MarkdownDocumentSelectionSourceRun] = []
         var fontRuns: [MarkdownDocumentSelectionFontRun] = []
+        var measurementFontRuns: [MarkdownDocumentSelectionFontRun] = []
         var cursor = 0
         for run in prepared.prepared.runs {
             let upper = cursor + run.text.utf8.count
@@ -752,7 +753,12 @@ struct MarkdownDocumentSelectionTextGeometry: Equatable, Sendable {
             let overlapLower = max(line.byteRange.lowerBound, visibleRange.lowerBound)
             let overlapUpper = min(line.byteRange.upperBound, visibleRange.upperBound)
             if overlapLower < overlapUpper {
-                if let sourceRange = run.sourceRange {
+                // Link decorations are visual affordances, not source text.
+                // Keeping their zero-length source range in this map makes a
+                // source offset at the start of a link resolve to the icon's
+                // leading edge instead of the first source-backed glyph.
+                if !run.presentation.contains(.linkDecoration),
+                   let sourceRange = run.sourceRange {
                     sourceRuns.append(
                         MarkdownDocumentSelectionSourceRun(
                             visibleByteRange: visibleRange,
@@ -761,14 +767,20 @@ struct MarkdownDocumentSelectionTextGeometry: Equatable, Sendable {
                         )
                     )
                 }
-                fontRuns.append(
-                    MarkdownDocumentSelectionFontRun(
-                        visibleByteRange: overlapLower..<overlapUpper,
-                        kind: run.kind,
-                        presentation: run.presentation,
-                        attachmentMetrics: run.attachmentMetrics
-                    )
+                let fontRun = MarkdownDocumentSelectionFontRun(
+                    visibleByteRange: overlapLower..<overlapUpper,
+                    kind: run.kind,
+                    presentation: run.presentation,
+                    attachmentMetrics: run.attachmentMetrics
                 )
+                // The measurement line still needs decoration font/attachment
+                // metrics so its x coordinates match the painted CTLine. The
+                // semantic font-run surface deliberately omits them because
+                // selection and copy must describe only source-backed text.
+                measurementFontRuns.append(fontRun)
+                if !run.presentation.contains(.linkDecoration) {
+                    fontRuns.append(fontRun)
+                }
             }
             cursor = upper
         }
@@ -789,7 +801,7 @@ struct MarkdownDocumentSelectionTextGeometry: Equatable, Sendable {
         self.coreTextMetrics = Self.makeCoreTextMetrics(
             lineText: lineText,
             visibleByteRange: visibleByteRange,
-            fontRuns: fontRuns,
+            fontRuns: measurementFontRuns,
             fontProfiles: fontProfiles,
             fontSize: fontSize,
             lineWidth: lineWidth,
@@ -981,7 +993,10 @@ struct MarkdownDocumentSelectionTextGeometry: Equatable, Sendable {
                         profile: fontProfiles.profile(for: run.presentation, kind: run.kind),
                         kind: run.kind,
                         presentation: run.presentation,
-                        size: fontSize
+                        size: selectionFontSize(
+                            fontSize,
+                            presentation: run.presentation
+                        )
                     ),
                     range: range
                 )
@@ -994,6 +1009,16 @@ struct MarkdownDocumentSelectionTextGeometry: Equatable, Sendable {
             return nil
         }
         return MarkdownDocumentSelectionCoreTextMetrics(line: line, scale: lineWidth / measuredWidth)
+    }
+
+    private static func selectionFontSize(
+        _ fontSize: Double,
+        presentation: MarkdownInlinePresentation
+    ) -> Double {
+        if presentation.contains(.subscriptText) || presentation.contains(.superscriptText) {
+            return fontSize * 0.76
+        }
+        return fontSize
     }
 
     private static func nsRange(

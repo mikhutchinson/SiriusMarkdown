@@ -181,7 +181,9 @@ small surfaces. Production paths should pass `MarkdownPreparedSnapshot`.
 
 - Native structured renderers for paragraphs, headings, block quotes, thematic
   breaks, nested lists, task lists, fenced code blocks, tables, links, images,
-  math, and policy-denied HTML.
+  math, and sanitized native rich HTML. Supported HTML is converted through an
+  HTML5 tree into the same source-mapped block and inline models as Markdown;
+  active content is removed rather than executed or displayed as raw tags.
 - Streaming append behavior that reparses only the mutable tail while sealed
   regions remain immutable and cacheable.
 - Platform-native bounded text selection on macOS, including image-backed inline
@@ -190,18 +192,32 @@ small surfaces. Production paths should pass `MarkdownPreparedSnapshot`.
   `MarkdownSelectionController` and `MarkdownCopyProvider`. Other platforms keep
   source-backed document selection as their default.
 - Bounded parser, prepared-inline, measured-layout, highlighted-code, Mermaid,
-  and math caches.
+  math, and origin-scoped link-metadata/icon caches.
 - Safe default policies: links are scheme-gated, network images are not fetched
-  by default, raw HTML is inert unless a host opts in, and math/code renderers
-  are pluggable.
+  by default, the documented native HTML subset is sanitized, active HTML and
+  unsafe destinations are removed or denied, and math/code renderers are
+  pluggable.
+- Decorated website links work without a host-owned favicon bundle. Every
+  allowed HTTP(S) link receives an immediate atomic globe glyph; the
+  package-owned resolver then
+  discovers the destination's declared public HTTPS icon, bounded square social
+  artwork, or conventional favicon/touch-icon paths, validates it, and
+  refreshes only that prepared decoration. Requests are
+  anonymous and ephemeral, private/special network endpoints and unsafe
+  redirects are rejected, concurrent origins, payloads, and decoded dimensions
+  are capped, and positive/negative results are bounded and coalesced per
+  origin. Set
+  `linkMetadataResolver` to `nil`, use `.disabled` link decoration, or inject a
+  custom `MarkdownLinkMetadataResolver` to change this behavior.
 - Allowed images flow as atomic inline attachments — reserved box metrics
   (theme default or a cheap header probe of already-available bytes) on the
   CoreText line plan, with one SwiftUI/AppKit/UIKit host per attachment
   drawing the reserved box or resolved pixels. Denied images (the default)
   keep today's alt/`[image: reason]` text. Hosts can supply bytes
   synchronously through `MarkdownImageResolver`; SiriusMarkdown performs no
-  network fetch, ImageIO probe beyond a cheap header read, or decode inside
-  SwiftUI `body`. Remote fetch and multi-frame animation are separate,
+  content-image network fetch, ImageIO probe beyond a cheap header read, or
+  decode inside SwiftUI `body`. Remote content-image fetch and multi-frame
+  animation are separate,
   independently opt-in capabilities layered on top of these attachment
   slots — this package alone does not claim either.
 - Language-aware default code highlighting where the backend is available, with

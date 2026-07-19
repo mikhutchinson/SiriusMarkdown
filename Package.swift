@@ -35,7 +35,8 @@ let package = Package(
         )
     ],
     dependencies: [
-        .package(url: "https://github.com/swiftlang/swift-markdown.git", from: "0.7.3")
+        .package(url: "https://github.com/swiftlang/swift-markdown.git", from: "0.7.3"),
+        .package(url: "https://github.com/scinfu/SwiftSoup.git", from: "2.13.6")
     ],
     targets: [
         .target(
@@ -48,7 +49,8 @@ let package = Package(
         .target(
             name: "SiriusMarkdownCore",
             dependencies: [
-                .product(name: "Markdown", package: "swift-markdown")
+                .product(name: "Markdown", package: "swift-markdown"),
+                .product(name: "SwiftSoup", package: "SwiftSoup")
             ]
         ),
         .target(
@@ -64,6 +66,12 @@ let package = Package(
             resources: [
                 .process("Fixtures")
             ]
+        ),
+        .executableTarget(
+            name: "SiriusMarkdownFaviconAudit",
+            dependencies: ["SiriusMarkdownCore"],
+            path: "Tools/favicon-audit",
+            exclude: ["README.md", "curated-popular-domains.txt"]
         ),
         // Vendored SwiftMath (MIT; see `Sources/SwiftMath/LICENSE` and
         // `NOTICE.md`). Inlined as a target rather than a `.package(path:)`

@@ -699,14 +699,7 @@ public struct MarkdownBlockView: View {
             AnyView(resolvedHTMLBlockStyle.makeBody(
                 configuration: MarkdownHTMLBlockStyleConfiguration(
                     label: MarkdownBlockStyleLabel(
-                        selectableText(
-                            AttributedString(block.text),
-                            font: theme.codeFont,
-                            textColor: theme.secondaryTextColor,
-                            selectionMode: configuration.nativeTextSelection,
-                            metrics: codeTextMetrics,
-                            selectionInlineLayout: preparedContent.selectionInlineLayout
-                        )
+                        nativeRichHTMLContent
                     ),
                     theme: theme,
                     blockID: block.id,
@@ -717,6 +710,80 @@ public struct MarkdownBlockView: View {
             policyDeniedView(reason: reason)
         } else {
             EmptyView()
+        }
+    }
+
+    @ViewBuilder
+    private var nativeRichHTMLContent: some View {
+        if let richContent = preparedContent.richContent {
+            VStack(alignment: .leading, spacing: theme.blockSpacing) {
+                ForEach(richContent.blocks) { richBlock in
+                    MarkdownBlockView(
+                        block: richBlock.block,
+                        configuration: configuration,
+                        preparedContent: richBlock.preparedContent
+                    )
+                    // Rich HTML children are presentation-only native blocks
+                    // nested inside one source HTML block. Prevent them from
+                    // publishing child identities, then emit source-precise
+                    // fragments from each child's actual on-screen bounds
+                    // using the enclosing block identity.
+                    .environment(\.markdownDocumentSelectionContext, nil)
+                    .background(
+                        richHTMLSelectionFragmentPreference(
+                            block: richBlock.block,
+                            preparedContent: richBlock.preparedContent
+                        )
+                    )
+                }
+            }
+        } else {
+            // Manually-constructed legacy HTML blocks may not carry a parsed
+            // rich model. Keep that source inert and visibly escaped.
+            selectableText(
+                AttributedString(block.text),
+                font: theme.codeFont,
+                textColor: theme.secondaryTextColor,
+                selectionMode: configuration.nativeTextSelection,
+                metrics: codeTextMetrics,
+                selectionInlineLayout: preparedContent.selectionInlineLayout
+            )
+        }
+    }
+
+    private func richHTMLSelectionFragmentPreference(
+        block richBlock: MarkdownBlock,
+        preparedContent richPreparedContent: MarkdownPreparedBlockContent
+    ) -> some View {
+        GeometryReader { proxy in
+            let rect = proxy.frame(in: .named(markdownDocumentSelectionCoordinateSpaceName))
+            Color.clear.preference(
+                key: MarkdownDocumentSelectionFragmentsKey.self,
+                value: richHTMLSelectionFragments(
+                    block: richBlock,
+                    preparedContent: richPreparedContent,
+                    rect: rect
+                )
+            )
+        }
+        .allowsHitTesting(false)
+    }
+
+    private func richHTMLSelectionFragments(
+        block richBlock: MarkdownBlock,
+        preparedContent richPreparedContent: MarkdownPreparedBlockContent,
+        rect: CGRect
+    ) -> [MarkdownDocumentSelectionFragment] {
+        guard let documentSelectionContext else { return [] }
+        return MarkdownDocumentSelectionFragment.fragments(
+            for: richBlock,
+            preparedContent: richPreparedContent,
+            rect: rect
+        ).map { fragment in
+            var fragment = fragment
+            fragment.id = "rich-html:\(documentSelectionContext.blockID.rawValue):\(fragment.id)"
+            fragment.blockID = documentSelectionContext.blockID
+            return fragment
         }
     }
 
@@ -971,7 +1038,11 @@ public struct MarkdownBlockView: View {
         case .mathBlock:
             return "Math: \(MarkdownRendererConfiguration.mathText(for: block))"
         case .htmlBlock:
-            return "HTML block"
+            let visibleText = block.richContent?.blocks
+                .map(\.text)
+                .filter { !$0.isEmpty }
+                .joined(separator: " ")
+            return visibleText?.isEmpty == false ? visibleText! : "HTML block"
         case .thematicBreak:
             return "Thematic break"
         case .blank:

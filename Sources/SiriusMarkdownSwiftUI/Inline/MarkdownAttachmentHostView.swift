@@ -131,7 +131,16 @@ final class MarkdownAttachmentHostNSView: NSView {
 
     private func updateContent() {
         let display = MarkdownAttachmentHostDisplay(record: record)
-        setAccessibilityLabel(MarkdownAttachmentHostDisplay.accessibilityLabel(altText: record?.image.altText, display: display))
+        let isDecorative = record?.isDecorative == true
+        setAccessibilityElement(!isDecorative)
+        setAccessibilityLabel(
+            isDecorative
+                ? nil
+                : MarkdownAttachmentHostDisplay.accessibilityLabel(
+                    altText: record?.image.altText,
+                    display: display
+                )
+        )
 
         switch display {
         case let .data(data):
@@ -258,7 +267,14 @@ final class MarkdownAttachmentHostUIView: UIView {
 
     private func updateContent() {
         let display = MarkdownAttachmentHostDisplay(record: record)
-        accessibilityLabel = MarkdownAttachmentHostDisplay.accessibilityLabel(altText: record?.image.altText, display: display)
+        let isDecorative = record?.isDecorative == true
+        isAccessibilityElement = !isDecorative
+        accessibilityLabel = isDecorative
+            ? nil
+            : MarkdownAttachmentHostDisplay.accessibilityLabel(
+                altText: record?.image.altText,
+                display: display
+            )
 
         switch display {
         case let .data(data):

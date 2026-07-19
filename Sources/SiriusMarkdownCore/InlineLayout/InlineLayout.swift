@@ -777,7 +777,10 @@ public struct CoreTextInlineMeasurer: InlineMeasuring {
 
         return width(
             of: segment.text,
-            fontSize: fontSize,
+            fontSize: Self.inlineScriptFontSize(
+                fontSize,
+                presentation: segment.presentation
+            ),
             profile: profiles.profile(for: segment.presentation, kind: segment.kind),
             kind: segment.kind,
             presentation: segment.presentation
@@ -849,6 +852,16 @@ public struct CoreTextInlineMeasurer: InlineMeasuring {
         #else
         return Double(text.count) * fontSize * 0.5
         #endif
+    }
+
+    private static func inlineScriptFontSize(
+        _ fontSize: Double,
+        presentation: MarkdownInlinePresentation
+    ) -> Double {
+        if presentation.contains(.subscriptText) || presentation.contains(.superscriptText) {
+            return fontSize * 0.76
+        }
+        return fontSize
     }
 
     #if canImport(CoreText)

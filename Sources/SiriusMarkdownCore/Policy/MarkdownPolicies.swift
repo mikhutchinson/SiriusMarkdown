@@ -76,7 +76,7 @@ public struct DefaultMarkdownPolicy:
     }
 
     public var htmlPolicyCacheIdentity: String {
-        "siriusmarkdown.default-html-policy.v1"
+        "siriusmarkdown.default-native-html-policy.v2"
     }
 
     public var codePolicyCacheIdentity: String {
@@ -124,7 +124,11 @@ public struct DefaultMarkdownPolicy:
     }
 
     public func evaluateHTML(_ html: String) -> MarkdownPolicyDecision {
-        .deny(reason: "Raw HTML is disabled by default.")
+        // HTML is never executed or rendered as a browser document. The core
+        // parser converts the supported subset into inert native semantic
+        // models, drops active content, and sends links/images through their
+        // normal policies. Allowing this path is therefore safe by default.
+        .allow
     }
 
     public func evaluateCodeBlock(infoString: String?, code: String) -> MarkdownPolicyDecision {

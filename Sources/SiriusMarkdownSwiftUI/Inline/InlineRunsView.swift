@@ -447,12 +447,18 @@ public struct InlineRunsView: View {
 
         let lower = characters.index(characters.startIndex, offsetBy: lowerOffset)
         let upper = characters.index(characters.startIndex, offsetBy: upperOffset)
+        let scriptScale = presentation.contains(.subscriptText) || presentation.contains(.superscriptText) ? 0.76 : 1
         attributed[lower..<upper].font = swiftUIFont(
             for: prepared.fontProfiles.profile(for: presentation, kind: kind),
             kind: kind,
             presentation: presentation,
-            size: prepared.fontSize
+            size: prepared.fontSize * scriptScale
         )
+        if presentation.contains(.superscriptText) {
+            attributed[lower..<upper].baselineOffset = prepared.fontSize * 0.34
+        } else if presentation.contains(.subscriptText) {
+            attributed[lower..<upper].baselineOffset = -(prepared.fontSize * 0.18)
+        }
     }
 
     private nonisolated static func defaultFontAttributedString(
@@ -535,6 +541,19 @@ public struct InlineRunsView: View {
         case .monospaced:
             return .monospaced
         }
+    }
+}
+
+extension MarkdownPreparedInlineContent {
+    /// Visible semantic text for accessibility. Atomic link decorations are
+    /// deliberately omitted: the destination label already names the link,
+    /// and assistive technology should not announce a globe or "website icon"
+    /// as authored document content.
+    var semanticAccessibilityText: String {
+        prepared.runs.lazy
+            .filter { !$0.presentation.contains(.linkDecoration) }
+            .map(\.text)
+            .joined()
     }
 }
 

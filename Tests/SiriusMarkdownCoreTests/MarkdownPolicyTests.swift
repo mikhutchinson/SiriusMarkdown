@@ -186,6 +186,14 @@ func defaultPolicyBlocksImageLoading() {
     #expect(policy.evaluateImage(source: "/local/image.png", altText: nil) == .deny(reason: "Image loading is disabled by default."))
 }
 
+@Test
+func defaultPolicyAllowsOnlyTheSanitizedNativeHTMLPath() {
+    let policy = DefaultMarkdownPolicy()
+    #expect(policy.evaluateHTML("<script>alert(1)</script>") == .allow)
+    // Authorization here is not execution authorization: parser tests prove
+    // active subtrees are dropped and links/images retain their own policies.
+}
+
 private func parsedLinkDestination(_ markdown: String) throws -> String {
     var stream = MarkdownStream()
     stream.append(markdown)

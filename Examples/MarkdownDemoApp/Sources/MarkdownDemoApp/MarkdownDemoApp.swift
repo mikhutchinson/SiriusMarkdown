@@ -15,18 +15,34 @@ struct MarkdownDemoApp: App {
 
 @MainActor
 private final class MarkdownDemoModel: ObservableObject {
-    @Published var selectedExampleID: MarkdownExample.ID
+    @Published var selectedExampleID: MarkdownExample.ID {
+        didSet {
+            guard selectedExampleID != oldValue else { return }
+            renderSelectedExample()
+        }
+    }
 
     let examples: [PreparedMarkdownExample]
+    let renderSession: MarkdownRenderSession
 
     init() {
         let examples = MarkdownExample.allCases.map(PreparedMarkdownExample.init(example:))
+        let firstExample = examples[0]
         self.examples = examples
-        self.selectedExampleID = examples[0].id
+        self.renderSession = MarkdownRenderSession(configuration: firstExample.configuration)
+        self.selectedExampleID = firstExample.id
+        renderSession.append(firstExample.example.markdown)
+        renderSession.finish()
     }
 
     var selectedExample: PreparedMarkdownExample {
         examples.first { $0.id == selectedExampleID } ?? examples[0]
+    }
+
+    private func renderSelectedExample() {
+        renderSession.reset()
+        renderSession.append(selectedExample.example.markdown)
+        renderSession.finish()
     }
 }
 
@@ -37,7 +53,10 @@ private struct MarkdownDemoView: View {
         NavigationSplitView {
             MarkdownDemoSidebar(model: model)
         } detail: {
-            MarkdownExampleDetail(example: model.selectedExample)
+            MarkdownExampleDetail(
+                example: model.selectedExample,
+                renderSession: model.renderSession
+            )
                 .navigationTitle(model.selectedExample.title)
         }
     }
@@ -84,6 +103,7 @@ private struct MarkdownDemoSidebar: View {
 
 private struct MarkdownExampleDetail: View {
     var example: PreparedMarkdownExample
+    @ObservedObject var renderSession: MarkdownRenderSession
     @State private var showsInspector = false
 
     var body: some View {
@@ -113,7 +133,7 @@ private struct MarkdownExampleDetail: View {
             VStack(alignment: .leading, spacing: 16) {
                 DemoAssertionStrip(assertions: example.assertions)
                 HStack(alignment: .top, spacing: 24) {
-                    DocumentSurface(example: example)
+                    DocumentSurface(example: example, renderSession: renderSession)
                         .frame(maxWidth: .infinity, alignment: .topLeading)
 
                     if showsInspector {
@@ -126,7 +146,7 @@ private struct MarkdownExampleDetail: View {
         } else {
             VStack(alignment: .leading, spacing: 18) {
                 DemoAssertionStrip(assertions: example.assertions)
-                DocumentSurface(example: example)
+                DocumentSurface(example: example, renderSession: renderSession)
                 if showsInspector {
                     DocumentInspectorPanel(example: example)
                 }
@@ -193,14 +213,15 @@ private struct DetailStat: View {
 
 private struct DocumentSurface: View {
     var example: PreparedMarkdownExample
+    @ObservedObject var renderSession: MarkdownRenderSession
 
     var body: some View {
         MarkdownDocumentSurface(
             title: "Rendered Document",
-            subtitle: "\(example.blockCount.formatted()) blocks prepared through the public document renderer.",
+            subtitle: "\(example.blockCount.formatted()) blocks prepared through the public render session.",
             suggestedFilename: "\(example.id).md",
-            preparedSnapshot: example.preparedSnapshot,
-            configuration: example.configuration
+            preparedSnapshot: renderSession.preparedSnapshot,
+            configuration: renderSession.configuration
         )
         .id(example.id)
         .frame(maxWidth: 920, alignment: .leading)
@@ -683,9 +704,9 @@ private struct MarkdownExample: Identifiable, Hashable {
         ),
         MarkdownExample(
             id: "math-html",
-            title: "Math And HTML Policy",
-            summary: "Math hooks and inert raw HTML in the default public package.",
-            detail: "This sample shows math flowing through renderer hooks while raw HTML remains governed by the default policy.",
+            title: "Math And Native HTML",
+            summary: "Math hooks and sanitized native rich HTML in one prepared renderer.",
+            detail: "This sample shows math flowing through renderer hooks while authorized HTML becomes source-mapped native content.",
             systemImage: "function",
             badge: "Hooks",
             markdown: """
@@ -701,12 +722,18 @@ private struct MarkdownExample: Identifiable, Hashable {
             parseCount(document) = sealedRegions + activeTail
             $$
 
-            <aside>Raw HTML remains inert by default.</aside>
+            <aside>
+              <h3>Native rich-content result</h3>
+              <p>The filing presents the figures in its
+              <a href="https://www.sec.gov/">SEC filing</a>, while company identity
+              is available from <a href="https://find-and-update.company-information.service.gov.uk/">Companies House</a>.</p>
+              <ul><li><strong>HTML5 recovery</strong> normalizes the tree.</li><li>Active content is removed.</li></ul>
+            </aside>
 
             | Surface | Default |
             | :--- | :--- |
             | Math block | rendered by configured math renderer |
-            | Raw HTML | denied or inert unless policy allows it |
+            | Authorized HTML | sanitized into native prepared blocks and inline runs |
             | Code | explicit supported fences use the language-aware default; unknown and plaintext fences stay plain |
 
             ```mermaid
@@ -718,7 +745,8 @@ private struct MarkdownExample: Identifiable, Hashable {
             """,
             assertions: [
                 "Math rendering is pluggable.",
-                "Raw HTML stays controlled by MarkdownHTMLPolicy.",
+                "Authorized HTML stays controlled by MarkdownHTMLPolicy and normal link/image policies.",
+                "Markdown links and HTML anchors use the same package-owned glyph/favicon pipeline.",
                 "Code highlighting remains pluggable, and plain rendering is still available through PlainMarkdownCodeHighlighter.",
                 "Mermaid fences are rendered through a bundled JavaScript runtime during preparation."
             ]
@@ -745,7 +773,7 @@ private struct MarkdownExample: Identifiable, Hashable {
             - Keep policies explicit
               - links
               - images
-              - raw HTML
+              - sanitized native HTML
               - math and code hooks
 
             > The static app is a product surface for the package. It should look like a serious renderer demo, not a throwaway smoke test.

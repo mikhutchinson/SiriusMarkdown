@@ -568,7 +568,12 @@ private enum DemoDocument {
     sourceCopy(block) = markdown[sourceRange]
     $$
 
-    <aside>Raw HTML remains inert in the default public-reader policy.</aside>
+    <aside>
+      <h3>Native HTML note</h3>
+      <p>Authorized HTML is sanitized into native blocks. Its <strong>semantics</strong>,
+      source selection, and <a href="https://www.sec.gov/">decorated links</a>
+      use the same prepared renderer as Markdown.</p>
+    </aside>
 
     ## Diagram Notes
 

@@ -68,6 +68,7 @@ struct MarkdownCoreTextPaintedLinePlan: @unchecked Sendable {
     var accessibilityLabel: String
     var lineHeight: CGFloat
     var lineSpacing: CGFloat
+    var underlinesLinks: Bool
     /// Attachment records keyed by ID, carried alongside the plan so the
     /// host-reconciling view (Part 03) can look up display state for each
     /// gap without threading the full `MarkdownPreparedInlineContent`
@@ -79,6 +80,7 @@ struct MarkdownCoreTextPaintedLinePlan: @unchecked Sendable {
         accessibilityLabel: "",
         lineHeight: 0,
         lineSpacing: 0,
+        underlinesLinks: true,
         attachments: [:]
     )
 
@@ -101,6 +103,7 @@ struct MarkdownCoreTextPaintedLinePlan: @unchecked Sendable {
         let runRanges = byteRanges(for: prepared.prepared.runs)
         let lineHeight = CGFloat(prepared.lineHeight)
         let lineSpacing = InlineRunsView.nativeLineSpacing(for: prepared)
+        let underlinesLinks = !prepared.allSemanticLinksHaveDecorations
 
         let lines = layout.lines.enumerated().map { lineIndex, line in
             makeLine(
@@ -110,15 +113,17 @@ struct MarkdownCoreTextPaintedLinePlan: @unchecked Sendable {
                 runRanges: runRanges,
                 prepared: prepared,
                 lineHeight: lineHeight,
-                lineSpacing: lineSpacing
+                lineSpacing: lineSpacing,
+                underlinesLinks: underlinesLinks
             )
         }
 
         return MarkdownCoreTextPaintedLinePlan(
             lines: lines,
-            accessibilityLabel: String(prepared.attributed.characters),
+            accessibilityLabel: prepared.semanticAccessibilityText,
             lineHeight: lineHeight,
             lineSpacing: lineSpacing,
+            underlinesLinks: underlinesLinks,
             attachments: prepared.attachments
         )
     }
@@ -130,7 +135,8 @@ struct MarkdownCoreTextPaintedLinePlan: @unchecked Sendable {
         runRanges: [(run: MarkdownInlineRun, byteRange: Range<Int>)],
         prepared: MarkdownPreparedInlineContent,
         lineHeight: CGFloat,
-        lineSpacing: CGFloat
+        lineSpacing: CGFloat,
+        underlinesLinks: Bool
     ) -> MarkdownCoreTextPaintedLine {
         let lineText = InlineRunsView.textSlice(text: naturalText, byteRange: line.byteRange)
         let drawableText = lineText.isEmpty ? " " : lineText
@@ -220,21 +226,36 @@ struct MarkdownCoreTextPaintedLinePlan: @unchecked Sendable {
                     ),
                     kind: runRange.run.kind,
                     presentation: runRange.run.presentation,
-                    size: prepared.fontSize
+                    size: inlineScriptFontSize(
+                        prepared.fontSize,
+                        presentation: runRange.run.presentation
+                    )
                 ),
                 range: nsRange
             )
+            if let baselineOffset = inlineScriptBaselineOffset(
+                fontSize: prepared.fontSize,
+                presentation: runRange.run.presentation
+            ) {
+                attributed.addAttribute(
+                    NSAttributedString.Key(kCTBaselineOffsetAttributeName as String),
+                    value: baselineOffset,
+                    range: nsRange
+                )
+            }
 
             if let destination = allowedLinkDestination(
                 for: runRange.byteRange,
                 in: prepared,
                 naturalText: naturalText
             ) {
-                attributed.addAttribute(
-                    NSAttributedString.Key(kCTUnderlineStyleAttributeName as String),
-                    value: CTUnderlineStyle.single.rawValue,
-                    range: nsRange
-                )
+                if underlinesLinks {
+                    attributed.addAttribute(
+                        NSAttributedString.Key(kCTUnderlineStyleAttributeName as String),
+                        value: CTUnderlineStyle.single.rawValue,
+                        range: nsRange
+                    )
+                }
                 linkCandidates.append(
                     MarkdownCoreTextPaintedLinkCandidate(
                         destination: destination,
@@ -253,7 +274,7 @@ struct MarkdownCoreTextPaintedLinePlan: @unchecked Sendable {
             CTLineGetTypographicBounds(ctLine, &ascent, &descent, &leading)
         )
         let top = CGFloat(index) * (lineHeight + lineSpacing)
-        let linkFragments = linkCandidates.compactMap { candidate -> MarkdownCoreTextPaintedLinkFragment? in
+        let rawLinkFragments = linkCandidates.compactMap { candidate -> MarkdownCoreTextPaintedLinkFragment? in
             let start = CGFloat(CTLineGetOffsetForStringIndex(ctLine, candidate.nsRange.location, nil))
             let endIndex = candidate.nsRange.location + candidate.nsRange.length
             let end = CGFloat(CTLineGetOffsetForStringIndex(ctLine, endIndex, nil))
@@ -271,6 +292,31 @@ struct MarkdownCoreTextPaintedLinePlan: @unchecked Sendable {
                     width: max(1, width),
                     height: max(1, lineHeight)
                 )
+            )
+        }
+        // A decoration and the source-backed label are separate prepared
+        // runs, but together they are one clickable link on a given painted
+        // line. Coalesce touching fragments so hit testing remains bounded to
+        // one rectangle per destination per line.
+        let linkFragments = rawLinkFragments.reduce(
+            into: [MarkdownCoreTextPaintedLinkFragment]()
+        ) { fragments, fragment in
+            guard let previous = fragments.last,
+                  previous.lineIndex == fragment.lineIndex,
+                  previous.destination == fragment.destination,
+                  fragment.rect.minX <= previous.rect.maxX + 1
+            else {
+                fragments.append(fragment)
+                return
+            }
+            fragments[fragments.count - 1] = MarkdownCoreTextPaintedLinkFragment(
+                lineIndex: previous.lineIndex,
+                destination: previous.destination,
+                byteRange: min(previous.byteRange.lowerBound, fragment.byteRange.lowerBound)..<max(
+                    previous.byteRange.upperBound,
+                    fragment.byteRange.upperBound
+                ),
+                rect: previous.rect.union(fragment.rect)
             )
         }
         let attachmentGaps = attachmentCandidates.compactMap { candidate -> MarkdownCoreTextPaintedAttachmentGap? in
@@ -310,6 +356,29 @@ struct MarkdownCoreTextPaintedLinePlan: @unchecked Sendable {
             linkFragments: linkFragments,
             attachmentGaps: attachmentGaps
         )
+    }
+
+    private static func inlineScriptFontSize(
+        _ fontSize: Double,
+        presentation: MarkdownInlinePresentation
+    ) -> Double {
+        if presentation.contains(.subscriptText) || presentation.contains(.superscriptText) {
+            return fontSize * 0.76
+        }
+        return fontSize
+    }
+
+    private static func inlineScriptBaselineOffset(
+        fontSize: Double,
+        presentation: MarkdownInlinePresentation
+    ) -> CGFloat? {
+        if presentation.contains(.superscriptText) {
+            return CGFloat(fontSize * 0.34)
+        }
+        if presentation.contains(.subscriptText) {
+            return CGFloat(-(fontSize * 0.18))
+        }
+        return nil
     }
 
     private static func allowedLinkDestination(
@@ -672,13 +741,17 @@ private struct CoreTextPaintedInlineLineSurface: NSViewRepresentable {
             textColor,
             colorScheme: colorScheme
         )
+        view.linkColor = MarkdownPlatformColorResolver.appKitCGColor(
+            Color.accentColor,
+            colorScheme: colorScheme
+        )
         view.colorScheme = colorScheme
         view.linkAction = linkAction
         view.dragSelectionHandler = dragSelectionHandler
         view.frame.size.width = containerWidth
         view.needsDisplay = true
         view.resetCursorRects()
-        view.setAccessibilityLabel(String(fallbackAttributed.characters))
+        view.setAccessibilityLabel(prepared.semanticAccessibilityText)
         view.reconcileAttachmentHosts()
     }
 
@@ -687,6 +760,7 @@ private struct CoreTextPaintedInlineLineSurface: NSViewRepresentable {
 final class MarkdownCoreTextPaintedNSView: NSView {
     var plan = MarkdownCoreTextPaintedLinePlan.empty
     var textColor: CGColor = NSColor.labelColor.cgColor
+    var linkColor: CGColor = NSColor.linkColor.cgColor
     var colorScheme: ColorScheme = .light
     var linkAction: MarkdownLinkAction?
     var dragSelectionHandler: ((CGPoint, CGPoint) -> Void)?
@@ -717,10 +791,28 @@ final class MarkdownCoreTextPaintedNSView: NSView {
         context.translateBy(x: 0, y: bounds.height)
         context.scaleBy(x: 1, y: -1)
 
+        context.setFillColor(textColor)
         for line in plan.lines {
             let baselineY = bounds.height - baselineFromTop(for: line)
             context.textPosition = CGPoint(x: 0, y: baselineY)
             CTLineDraw(line.ctLine, context)
+        }
+
+        context.setFillColor(linkColor)
+        for line in plan.lines where !line.linkFragments.isEmpty {
+            let baselineY = bounds.height - baselineFromTop(for: line)
+            for fragment in line.linkFragments {
+                context.saveGState()
+                context.clip(to: CGRect(
+                    x: fragment.rect.minX,
+                    y: bounds.height - fragment.rect.maxY,
+                    width: fragment.rect.width,
+                    height: fragment.rect.height
+                ))
+                context.textPosition = CGPoint(x: 0, y: baselineY)
+                CTLineDraw(line.ctLine, context)
+                context.restoreGState()
+            }
         }
 
         context.restoreGState()
@@ -836,11 +928,15 @@ private struct CoreTextPaintedInlineLineSurface: UIViewRepresentable {
             textColor,
             colorScheme: colorScheme
         )
+        view.linkColor = MarkdownPlatformColorResolver.uiKitCGColor(
+            Color.accentColor,
+            colorScheme: colorScheme
+        )
         view.colorScheme = colorScheme
         view.linkAction = linkAction
         view.dragSelectionHandler = dragSelectionHandler
         view.frame.size.width = containerWidth
-        view.accessibilityLabel = String(fallbackAttributed.characters)
+        view.accessibilityLabel = prepared.semanticAccessibilityText
         view.setNeedsDisplay()
         view.reconcileAttachmentHosts()
     }
@@ -850,6 +946,7 @@ private struct CoreTextPaintedInlineLineSurface: UIViewRepresentable {
 final class MarkdownCoreTextPaintedUIView: UIView {
     var plan = MarkdownCoreTextPaintedLinePlan.empty
     var textColor: CGColor = UIColor.label.cgColor
+    var linkColor: CGColor = UIColor.link.cgColor
     var colorScheme: ColorScheme = .light
     var linkAction: MarkdownLinkAction?
     var dragSelectionHandler: ((CGPoint, CGPoint) -> Void)?
@@ -875,10 +972,28 @@ final class MarkdownCoreTextPaintedUIView: UIView {
         context.translateBy(x: 0, y: bounds.height)
         context.scaleBy(x: 1, y: -1)
 
+        context.setFillColor(textColor)
         for line in plan.lines {
             let baselineY = bounds.height - baselineFromTop(for: line)
             context.textPosition = CGPoint(x: 0, y: baselineY)
             CTLineDraw(line.ctLine, context)
+        }
+
+        context.setFillColor(linkColor)
+        for line in plan.lines where !line.linkFragments.isEmpty {
+            let baselineY = bounds.height - baselineFromTop(for: line)
+            for fragment in line.linkFragments {
+                context.saveGState()
+                context.clip(to: CGRect(
+                    x: fragment.rect.minX,
+                    y: bounds.height - fragment.rect.maxY,
+                    width: fragment.rect.width,
+                    height: fragment.rect.height
+                ))
+                context.textPosition = CGPoint(x: 0, y: baselineY)
+                CTLineDraw(line.ctLine, context)
+                context.restoreGState()
+            }
         }
 
         context.restoreGState()

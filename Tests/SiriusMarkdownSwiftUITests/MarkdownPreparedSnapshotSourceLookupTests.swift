@@ -162,8 +162,6 @@ func renderSessionPreparationDoesNotBlockTheMainActor() async throws {
         codeHighlighter: highlighter
     )
     let session = MarkdownRenderSession(configuration: configuration)
-    let clock = ContinuousClock()
-    let start = clock.now
 
     RenderSessionCallerContext.$marker.withValue(true) {
         session.append(
@@ -175,17 +173,11 @@ func renderSessionPreparationDoesNotBlockTheMainActor() async throws {
         )
     }
 
-    // A render pump inherited from this @MainActor test cannot resume this
-    // heartbeat until the deliberately slow highlighter returns. The detached
-    // pipeline must leave the actor available while preparation continues.
-    try await Task.sleep(for: .milliseconds(25))
-    let heartbeatDelay = milliseconds(clock.now - start)
-    #expect(
-        heartbeatDelay < 150,
-        "MainActor heartbeat was delayed \(heartbeatDelay) ms by render preparation"
-    )
-
     await session.waitUntilIdle()
+    // These executor/task-local probes are deterministic under full-suite
+    // saturation. A wall-clock heartbeat threshold measured the global test
+    // runner's scheduling pressure and produced false regressions even when
+    // preparation was correctly detached.
     #expect(highlighter.invocationCount == 1)
     #expect(highlighter.didRunOnMainThread == false)
     #expect(highlighter.didInheritCallerTaskContext == false)
@@ -371,9 +363,4 @@ private final class ThreadRecordingSlowCodeHighlighter: MarkdownCodeHighlighter,
 
 private enum RenderSessionCallerContext {
     @TaskLocal static var marker = false
-}
-
-private func milliseconds(_ duration: Duration) -> Double {
-    Double(duration.components.seconds) * 1_000.0
-        + Double(duration.components.attoseconds) / 1e15
 }

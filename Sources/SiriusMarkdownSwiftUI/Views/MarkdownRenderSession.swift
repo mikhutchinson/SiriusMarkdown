@@ -18,6 +18,9 @@ public final class MarkdownRenderSession: ObservableObject {
     private var renderTask: Task<Void, Never>?
     private var pendingOperations: [MarkdownRenderSessionOperation] = []
     private var presentationRevision: Int = 0
+    private var linkMetadataTasks: [URL: Task<Void, Never>] = [:]
+    private var scheduledLinkMetadataOrigins: Set<URL> = []
+    private var linkMetadataRefreshTask: Task<Void, Never>?
 
     public init(
         configuration: MarkdownRendererConfiguration = .compactChat,
@@ -94,12 +97,35 @@ public final class MarkdownRenderSession: ObservableObject {
     public func reset() {
         sourceCopyStore.removeAll()
         configuration.preparationCache.removeAll()
+        cancelLinkMetadataResolution()
         schedule(.reset)
     }
 
     public func waitUntilIdle() async {
         let task = renderTask
         await task?.value
+    }
+
+    /// Waits for package-owned favicon discovery and the resulting prepared
+    /// snapshot refresh. Ordinary `waitUntilIdle()` intentionally remains a
+    /// source/render-pipeline barrier and does not wait on the network.
+    public func waitUntilLinkMetadataIdle() async {
+        while true {
+            let tasks = Array(linkMetadataTasks.values)
+            let refreshTask = linkMetadataRefreshTask
+            if tasks.isEmpty, refreshTask == nil {
+                await waitUntilIdle()
+                if linkMetadataTasks.isEmpty, linkMetadataRefreshTask == nil, renderTask == nil {
+                    return
+                }
+                continue
+            }
+            for task in tasks {
+                await task.value
+            }
+            await refreshTask?.value
+            await waitUntilIdle()
+        }
     }
 
     private func schedule(_ operation: MarkdownRenderSessionOperation) {
@@ -159,6 +185,114 @@ public final class MarkdownRenderSession: ObservableObject {
         snapshot = state.snapshot
         preparedSnapshot = state.preparedSnapshot
         snapshotDiff = state.preparedSnapshot.diff
+        scheduleLinkMetadataResolution(in: state.snapshot)
+    }
+
+    private func scheduleLinkMetadataResolution(in snapshot: MarkdownSnapshot) {
+        guard let resolver = configuration.linkMetadataResolver,
+              configuration.linkDecoration.isEnabled
+        else {
+            return
+        }
+
+        for destination in Self.externalHTTPSLinkDestinations(in: snapshot, policy: configuration.linkPolicy) {
+            let origin = Self.linkOrigin(for: destination) ?? destination
+            guard !scheduledLinkMetadataOrigins.contains(origin) else { continue }
+            scheduledLinkMetadataOrigins.insert(origin)
+            if resolver.cachedResolution(for: destination) == .unavailable {
+                continue
+            }
+
+            // Even a positive cache hit crosses an asynchronous boundary once.
+            // The cache may have filled after the just-published preparation
+            // read it; resolving (immediately) and scheduling one debounced
+            // refresh closes that race without network work.
+            linkMetadataTasks[origin] = Task { [weak self, resolver] in
+                let resolution = await resolver.resolveMetadata(for: destination)
+                guard !Task.isCancelled else { return }
+                self?.linkMetadataResolutionFinished(resolution, origin: origin)
+            }
+        }
+    }
+
+    private func linkMetadataResolutionFinished(
+        _ resolution: MarkdownLinkMetadataResolution,
+        origin: URL
+    ) {
+        linkMetadataTasks.removeValue(forKey: origin)
+        guard case .metadata = resolution else { return }
+
+        // A page of citations often completes several favicon requests in
+        // one network burst. Debounce them into one preparation publication.
+        linkMetadataRefreshTask?.cancel()
+        linkMetadataRefreshTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(100))
+            guard !Task.isCancelled else { return }
+            self?.linkMetadataRefreshTask = nil
+            self?.schedule(.refreshLinkMetadata)
+        }
+    }
+
+    private func cancelLinkMetadataResolution() {
+        linkMetadataTasks.values.forEach { $0.cancel() }
+        linkMetadataTasks.removeAll()
+        scheduledLinkMetadataOrigins.removeAll()
+        linkMetadataRefreshTask?.cancel()
+        linkMetadataRefreshTask = nil
+    }
+
+    private nonisolated static func externalHTTPSLinkDestinations(
+        in snapshot: MarkdownSnapshot,
+        policy: any MarkdownLinkPolicy
+    ) -> Set<URL> {
+        var destinations: Set<URL> = []
+
+        func add(_ runs: [MarkdownInlineRun]) {
+            for run in runs {
+                guard let destination = run.destination,
+                      let url = markdownLinkURL(for: destination, policy: policy),
+                      url.scheme?.lowercased() == "https",
+                      url.host != nil
+                else {
+                    continue
+                }
+                destinations.insert(url)
+            }
+        }
+
+        func addListItems(_ items: [MarkdownListItem]) {
+            for item in items {
+                add(item.inlines)
+                addListItems(item.childItems)
+            }
+        }
+
+        func addBlocks(_ blocks: [MarkdownBlock]) {
+            for block in blocks {
+                add(block.inlines)
+                addListItems(block.listItems)
+                if let table = block.table {
+                    table.header.forEach { add($0.inlines) }
+                    table.rows.flatMap { $0 }.forEach { add($0.inlines) }
+                }
+                if let richContent = block.richContent {
+                    addBlocks(richContent.blocks)
+                }
+            }
+        }
+
+        addBlocks(snapshot.blocks)
+        return destinations
+    }
+
+    private nonisolated static func linkOrigin(for destination: URL) -> URL? {
+        guard let host = destination.host else { return nil }
+        var components = URLComponents()
+        components.scheme = "https"
+        components.host = host.lowercased()
+        components.port = destination.port == 443 ? nil : destination.port
+        components.path = "/"
+        return components.url
     }
 
     private func drainPendingOperations() -> [MarkdownRenderSessionOperation] {
@@ -197,7 +331,7 @@ public final class MarkdownRenderSession: ObservableObject {
             switch operation {
             case let .append(markdown):
                 pendingAppendChunks.append(markdown)
-            case .appendHostBoundary, .finish, .reset:
+            case .appendHostBoundary, .finish, .reset, .refreshLinkMetadata:
                 flushPendingAppend()
                 coalesced.append(operation)
             }
@@ -229,6 +363,7 @@ private enum MarkdownRenderSessionOperation: Sendable {
     case appendHostBoundary(MarkdownHostBoundaryID?)
     case finish
     case reset
+    case refreshLinkMetadata
 }
 
 private struct MarkdownRenderSessionState: Sendable {
@@ -278,6 +413,9 @@ private actor MarkdownRenderSessionPipeline {
                     diagnosticsRecorder: diagnosticsRecorder
                 )
                 configuration.preparationCache.removeAll()
+                preparedSnapshot = nil
+            case .refreshLinkMetadata:
+                // Metadata changes presentation, not source semantics.
                 preparedSnapshot = nil
             }
         }

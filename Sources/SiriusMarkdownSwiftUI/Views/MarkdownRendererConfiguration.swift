@@ -68,6 +68,7 @@ public struct MarkdownPreparedAttachment: Sendable, Hashable {
     public var sizingSource: MarkdownAttachmentSizingSource
     public var policyDecision: MarkdownPolicyDecision
     public var placeholderStyle: MarkdownAttachmentPlaceholderStyle
+    public var isDecorative: Bool
 
     public init(
         id: MarkdownAttachmentID,
@@ -78,7 +79,8 @@ public struct MarkdownPreparedAttachment: Sendable, Hashable {
         descent: Double,
         sizingSource: MarkdownAttachmentSizingSource,
         policyDecision: MarkdownPolicyDecision,
-        placeholderStyle: MarkdownAttachmentPlaceholderStyle = .default
+        placeholderStyle: MarkdownAttachmentPlaceholderStyle = .default,
+        isDecorative: Bool = false
     ) {
         self.id = id
         self.image = image
@@ -89,6 +91,7 @@ public struct MarkdownPreparedAttachment: Sendable, Hashable {
         self.sizingSource = sizingSource
         self.policyDecision = policyDecision
         self.placeholderStyle = placeholderStyle
+        self.isDecorative = isDecorative
     }
 
     var metrics: MarkdownInlineAttachmentMetrics {
@@ -101,6 +104,25 @@ public struct MarkdownPreparedAttachment: Sendable, Hashable {
             sizingSource: sizingSource
         )
     }
+}
+
+public struct MarkdownLinkDecorationConfiguration: Sendable, Hashable {
+    public var isEnabled: Bool
+    public var fallbackGlyph: String
+    public var iconPointSize: Double
+
+    public init(
+        isEnabled: Bool = true,
+        fallbackGlyph: String = "🌐",
+        iconPointSize: Double = 18
+    ) {
+        self.isEnabled = isEnabled
+        self.fallbackGlyph = fallbackGlyph
+        self.iconPointSize = iconPointSize.isFinite && iconPointSize > 0 ? iconPointSize : 18
+    }
+
+    public static let automatic = MarkdownLinkDecorationConfiguration()
+    public static let disabled = MarkdownLinkDecorationConfiguration(isEnabled: false)
 }
 
 public protocol MarkdownImageResolver: Sendable {
@@ -226,6 +248,8 @@ public struct MarkdownRendererConfiguration: Sendable {
     public var linkAction: MarkdownLinkAction?
     public var copyProvider: MarkdownCopyProvider?
     public var linkPolicy: any MarkdownLinkPolicy
+    public var linkMetadataResolver: (any MarkdownLinkMetadataResolver)?
+    public var linkDecoration: MarkdownLinkDecorationConfiguration
     public var imagePolicy: any MarkdownImagePolicy
     public var imageResolver: any MarkdownImageResolver
     public var htmlPolicy: any MarkdownHTMLPolicy
@@ -266,6 +290,8 @@ public struct MarkdownRendererConfiguration: Sendable {
         linkAction: MarkdownLinkAction? = nil,
         copyProvider: MarkdownCopyProvider? = nil,
         linkPolicy: any MarkdownLinkPolicy = DefaultMarkdownPolicy(),
+        linkMetadataResolver: (any MarkdownLinkMetadataResolver)? = DefaultMarkdownLinkMetadataResolver.shared,
+        linkDecoration: MarkdownLinkDecorationConfiguration = .automatic,
         imagePolicy: any MarkdownImagePolicy = DefaultMarkdownPolicy(),
         imageResolver: any MarkdownImageResolver = DefaultMarkdownImageResolver(),
         htmlPolicy: any MarkdownHTMLPolicy = DefaultMarkdownPolicy(),
@@ -289,6 +315,8 @@ public struct MarkdownRendererConfiguration: Sendable {
         self.linkAction = linkAction
         self.copyProvider = copyProvider
         self.linkPolicy = linkPolicy
+        self.linkMetadataResolver = linkMetadataResolver
+        self.linkDecoration = linkDecoration
         self.imagePolicy = imagePolicy
         self.imageResolver = imageResolver
         self.htmlPolicy = htmlPolicy
@@ -308,6 +336,8 @@ public struct MarkdownRendererConfiguration: Sendable {
         linkAction: MarkdownLinkAction? = nil,
         copyProvider: MarkdownCopyProvider? = nil,
         linkPolicy: any MarkdownLinkPolicy = DefaultMarkdownPolicy(),
+        linkMetadataResolver: (any MarkdownLinkMetadataResolver)? = DefaultMarkdownLinkMetadataResolver.shared,
+        linkDecoration: MarkdownLinkDecorationConfiguration = .automatic,
         imagePolicy: any MarkdownImagePolicy = DefaultMarkdownPolicy(),
         imageResolver: any MarkdownImageResolver = DefaultMarkdownImageResolver(),
         htmlPolicy: any MarkdownHTMLPolicy = DefaultMarkdownPolicy(),
@@ -328,6 +358,8 @@ public struct MarkdownRendererConfiguration: Sendable {
         self.linkAction = linkAction
         self.copyProvider = copyProvider
         self.linkPolicy = linkPolicy
+        self.linkMetadataResolver = linkMetadataResolver
+        self.linkDecoration = linkDecoration
         self.imagePolicy = imagePolicy
         self.imageResolver = imageResolver
         self.htmlPolicy = htmlPolicy
@@ -349,6 +381,8 @@ public struct MarkdownRendererConfiguration: Sendable {
         linkAction: MarkdownLinkAction? = nil,
         copyProvider: MarkdownCopyProvider? = nil,
         linkPolicy: any MarkdownLinkPolicy = DefaultMarkdownPolicy(),
+        linkMetadataResolver: (any MarkdownLinkMetadataResolver)? = DefaultMarkdownLinkMetadataResolver.shared,
+        linkDecoration: MarkdownLinkDecorationConfiguration = .automatic,
         imagePolicy: any MarkdownImagePolicy = DefaultMarkdownPolicy(),
         imageResolver: any MarkdownImageResolver = DefaultMarkdownImageResolver(),
         htmlPolicy: any MarkdownHTMLPolicy = DefaultMarkdownPolicy(),
@@ -370,6 +404,8 @@ public struct MarkdownRendererConfiguration: Sendable {
             linkAction: linkAction,
             copyProvider: copyProvider,
             linkPolicy: linkPolicy,
+            linkMetadataResolver: linkMetadataResolver,
+            linkDecoration: linkDecoration,
             imagePolicy: imagePolicy,
             imageResolver: imageResolver,
             htmlPolicy: htmlPolicy,
@@ -483,6 +519,16 @@ public struct MarkdownRendererConfiguration: Sendable {
         case .htmlBlock:
             switch htmlPolicy.evaluateHTML(block.text) {
             case .allow:
+                let richContent = block.richContent.map { richContent in
+                    MarkdownPreparedRichContent(
+                        blocks: richContent.blocks.map { richBlock in
+                            MarkdownPreparedRichBlock(
+                                block: richBlock,
+                                preparedContent: prepare(block: richBlock)
+                            )
+                        }
+                    )
+                }
                 let selectionInline = htmlSelectionText(for: block).flatMap { text in
                     preparedVisibleTextSelectionInline(
                         text: text,
@@ -493,7 +539,8 @@ public struct MarkdownRendererConfiguration: Sendable {
                 return MarkdownPreparedBlockContent(
                     blockID: block.id,
                     selectionInlineLayout: selectionInline,
-                    htmlAllowed: true
+                    htmlAllowed: true,
+                    richContent: richContent
                 )
             case let .deny(reason):
                 return MarkdownPreparedBlockContent(
@@ -695,7 +742,21 @@ public struct MarkdownRendererConfiguration: Sendable {
         case .htmlBlock:
             switch htmlPolicy.evaluateHTML(block.text) {
             case .allow:
-                return MarkdownPreparedBlockContent(blockID: block.id, htmlAllowed: true)
+                let richContent = block.richContent.map { richContent in
+                    MarkdownPreparedRichContent(
+                        blocks: richContent.blocks.map { richBlock in
+                            MarkdownPreparedRichBlock(
+                                block: richBlock,
+                                preparedContent: unpreparedContent(for: richBlock)
+                            )
+                        }
+                    )
+                }
+                return MarkdownPreparedBlockContent(
+                    blockID: block.id,
+                    htmlAllowed: true,
+                    richContent: richContent
+                )
             case let .deny(reason):
                 return MarkdownPreparedBlockContent(
                     blockID: block.id,
@@ -1159,18 +1220,23 @@ public struct MarkdownRendererConfiguration: Sendable {
             return nil
         }
 
+        let decorated = preparedLinkDecorations(in: runs)
+        let displaySourceRuns = decorated.runs
         let metrics = inlineMetrics(for: block)
-        let imageDecisions = preparedImageDecisions(for: runs)
-        let mathDecisions = preparedMathDecisions(for: runs)
+        let imageDecisions = preparedImageDecisions(
+            for: displaySourceRuns,
+            preparedOverrides: decorated.preparedImagesBySource
+        )
+        let mathDecisions = preparedMathDecisions(for: displaySourceRuns)
         let cacheKey = block?.isSealed == false ? nil : inlineCacheNamespace(
-            for: runs,
+            for: displaySourceRuns,
             metrics: metrics,
             imageDecisions: imageDecisions,
             mathDecisions: mathDecisions
         ).map { namespace in
             MarkdownCacheKey(
                 sourceRange: sourceRange,
-                contentHash: Self.inlineHash(runs),
+                contentHash: Self.inlineHash(displaySourceRuns),
                 namespace: namespace
             )
         }
@@ -1186,7 +1252,7 @@ public struct MarkdownRendererConfiguration: Sendable {
         let images = preparedImages(from: imageDecisions)
         let attachments = preparedAttachments(from: imageDecisions, images: images)
         let inlinePayload = preparedInlinePayload(
-            for: runs,
+            for: displaySourceRuns,
             images: images,
             attachments: attachments,
             mathDecisions: mathDecisions,
@@ -1497,7 +1563,118 @@ public struct MarkdownRendererConfiguration: Sendable {
         return Self.cacheNamespace(components)
     }
 
+    private func preparedLinkDecorations(in runs: [MarkdownInlineRun]) -> MarkdownDecoratedLinkRuns {
+        guard linkDecoration.isEnabled else {
+            return MarkdownDecoratedLinkRuns(runs: runs, preparedImagesBySource: [:])
+        }
+
+        var decoratedRuns: [MarkdownInlineRun] = []
+        decoratedRuns.reserveCapacity(runs.count + runs.count / 3)
+        var preparedImagesBySource: [String: MarkdownPreparedImage] = [:]
+        var previousDestination: String?
+
+        for run in runs {
+            guard run.isLinkPresentation,
+                  run.kind != .softBreak,
+                  run.kind != .hardBreak,
+                  let destination = run.destination,
+                  let destinationURL = markdownLinkURL(for: destination, policy: linkPolicy),
+                  destinationURL.scheme?.lowercased() == "http" || destinationURL.scheme?.lowercased() == "https"
+            else {
+                decoratedRuns.append(run)
+                previousDestination = nil
+                continue
+            }
+
+            if previousDestination != destination {
+                let resolvedDecoration: MarkdownLinkDecoration
+                if let resolution = linkMetadataResolver?.cachedResolution(for: destinationURL),
+                   case let .metadata(metadata) = resolution {
+                    resolvedDecoration = metadata.decoration
+                } else {
+                    resolvedDecoration = .glyph(linkDecoration.fallbackGlyph)
+                }
+
+                switch resolvedDecoration {
+                case let .glyph(glyph):
+                    if !glyph.isEmpty {
+                        decoratedRuns.append(
+                            MarkdownInlineRun(
+                                kind: .link,
+                                text: glyph + "\u{00A0}",
+                                sourceRange: Self.zeroLengthSourceRange(atStartOf: run.sourceRange),
+                                destination: destination,
+                                presentation: .linkDecoration
+                            )
+                        )
+                    }
+                case let .favicon(icon):
+                    let token = Self.linkIconSourceToken(icon)
+                    decoratedRuns.append(
+                        MarkdownInlineRun(
+                            kind: .link,
+                            text: "Website icon",
+                            sourceRange: nil,
+                            destination: destination,
+                            imageSource: token,
+                            presentation: MarkdownInlinePresentation.image.union(.linkDecoration)
+                        )
+                    )
+                    decoratedRuns.append(
+                        MarkdownInlineRun(
+                            kind: .link,
+                            text: "\u{00A0}",
+                            sourceRange: Self.zeroLengthSourceRange(atStartOf: run.sourceRange),
+                            destination: destination,
+                            presentation: .linkDecoration
+                        )
+                    )
+                    preparedImagesBySource[token] = MarkdownPreparedImage(
+                        source: token,
+                        altText: "Website icon for \(destinationURL.host ?? destination)",
+                        sourceRange: run.sourceRange,
+                        preparedSource: .data(icon.data, mimeType: icon.mimeType)
+                    )
+                }
+            }
+
+            decoratedRuns.append(run)
+            previousDestination = destination
+        }
+
+        return MarkdownDecoratedLinkRuns(
+            runs: decoratedRuns,
+            preparedImagesBySource: preparedImagesBySource
+        )
+    }
+
+    private nonisolated static func zeroLengthSourceRange(
+        atStartOf sourceRange: MarkdownSourceRange?
+    ) -> MarkdownSourceRange? {
+        guard let sourceRange else { return nil }
+        return MarkdownSourceRange(
+            byteRange: sourceRange.byteRange.lowerBound..<sourceRange.byteRange.lowerBound,
+            lineRange: sourceRange.lineRange.lowerBound..<sourceRange.lineRange.lowerBound
+        )
+    }
+
+    private nonisolated static func linkIconSourceToken(_ icon: MarkdownLinkIcon) -> String {
+        var hash: UInt64 = 0xcbf29ce484222325
+        for byte in icon.data {
+            hash ^= UInt64(byte)
+            hash &*= 0x100000001b3
+        }
+        return "sirius-link-icon:\(String(hash, radix: 16)):\(icon.sourceURL.absoluteString)"
+    }
+
     private func preparedImageDecisions(for runs: [MarkdownInlineRun]) -> [MarkdownPreparedImageDecision] {
+        preparedImageDecisions(for: runs, preparedOverrides: [:])
+    }
+
+    private func preparedImageDecisions(
+        for runs: [MarkdownInlineRun],
+        preparedOverrides: [String: MarkdownPreparedImage]
+    ) -> [MarkdownPreparedImageDecision] {
         runs.compactMap { run in
             guard run.isImagePresentation,
                   let source = run.resolvedImageSource
@@ -1508,7 +1685,10 @@ public struct MarkdownRendererConfiguration: Sendable {
             return MarkdownPreparedImageDecision(
                 run: run,
                 source: source,
-                policyDecision: imagePolicy.evaluateImage(source: source, altText: run.text)
+                policyDecision: preparedOverrides[source] == nil
+                    ? imagePolicy.evaluateImage(source: source, altText: run.text)
+                    : .allow,
+                preparedOverride: preparedOverrides[source]
             )
         }
     }
@@ -1771,6 +1951,9 @@ public struct MarkdownRendererConfiguration: Sendable {
 
     private func preparedImages(from decisions: [MarkdownPreparedImageDecision]) -> [MarkdownPreparedImage] {
         decisions.map { imageDecision in
+            if let preparedOverride = imageDecision.preparedOverride {
+                return preparedOverride
+            }
             switch imageDecision.policyDecision {
             case .allow:
                 return imageResolver.preparedImage(
@@ -1807,7 +1990,29 @@ public struct MarkdownRendererConfiguration: Sendable {
             }
 
             let id = Self.attachmentID(for: decision.run, ordinal: ordinal)
-            let metrics = attachmentBoxMetrics(for: image.preparedSource)
+            let isLinkDecoration = decision.run.presentation.contains(.linkDecoration)
+            let metrics: (
+                pointWidth: Double,
+                pointHeight: Double,
+                ascent: Double,
+                descent: Double,
+                sizingSource: MarkdownAttachmentSizingSource
+            )
+            let placeholderStyle: MarkdownAttachmentPlaceholderStyle
+            if isLinkDecoration {
+                let pointSize = linkDecoration.iconPointSize
+                metrics = (pointSize, pointSize, pointSize * 0.84, pointSize * 0.16, .intrinsicHint)
+                placeholderStyle = MarkdownAttachmentPlaceholderStyle(
+                    pointWidth: pointSize,
+                    pointHeight: pointSize,
+                    cornerRadius: min(4, pointSize / 4),
+                    backgroundColor: Color.clear,
+                    borderColor: Color.clear
+                )
+            } else {
+                metrics = attachmentBoxMetrics(for: image.preparedSource)
+                placeholderStyle = theme.attachmentPlaceholder
+            }
             return MarkdownPreparedAttachment(
                 id: id,
                 image: image,
@@ -1817,7 +2022,8 @@ public struct MarkdownRendererConfiguration: Sendable {
                 descent: metrics.descent,
                 sizingSource: metrics.sizingSource,
                 policyDecision: decision.policyDecision,
-                placeholderStyle: theme.attachmentPlaceholder
+                placeholderStyle: placeholderStyle,
+                isDecorative: isLinkDecoration
             )
         }
     }
@@ -2387,10 +2593,16 @@ public struct MarkdownRendererConfiguration: Sendable {
     }
 }
 
+private struct MarkdownDecoratedLinkRuns {
+    var runs: [MarkdownInlineRun]
+    var preparedImagesBySource: [String: MarkdownPreparedImage]
+}
+
 private struct MarkdownPreparedImageDecision {
     var run: MarkdownInlineRun
     var source: String
     var policyDecision: MarkdownPolicyDecision
+    var preparedOverride: MarkdownPreparedImage?
 }
 
 private struct MarkdownPreparedMathDecision {
@@ -2579,6 +2791,30 @@ public struct MarkdownPreparedInlineContent: Sendable {
             options: options,
             allowsOverwideFallback: allowsOverwideFallback
         )
+    }
+}
+
+extension MarkdownPreparedInlineContent {
+    /// A prepared leaf can omit the conventional underline only when every
+    /// semantic link in that leaf has a package-owned non-color decoration.
+    /// Mixed leaves (for example, one decorated HTTPS link plus an undecorated
+    /// `mailto:` link) keep underlines rather than making that destination
+    /// color-only.
+    var allSemanticLinksHaveDecorations: Bool {
+        var semanticDestinations: Set<String> = []
+        var decoratedDestinations: Set<String> = []
+
+        for run in prepared.runs {
+            guard let destination = run.destination else { continue }
+            if run.presentation.contains(.linkDecoration) {
+                decoratedDestinations.insert(destination)
+            } else if run.kind == .link {
+                semanticDestinations.insert(destination)
+            }
+        }
+
+        return !semanticDestinations.isEmpty &&
+            semanticDestinations.isSubset(of: decoratedDestinations)
     }
 }
 
@@ -3130,6 +3366,33 @@ public struct MarkdownPreparedSnapshotDiff: Sendable, Hashable {
     }
 }
 
+public struct MarkdownPreparedRichBlock: Identifiable, Sendable {
+    public var block: MarkdownBlock
+    public var preparedContent: MarkdownPreparedBlockContent
+
+    public var id: MarkdownBlockID { block.id }
+
+    public init(
+        block: MarkdownBlock,
+        preparedContent: MarkdownPreparedBlockContent
+    ) {
+        precondition(
+            block.id == preparedContent.blockID,
+            "Rich HTML block and prepared content must share stable identity."
+        )
+        self.block = block
+        self.preparedContent = preparedContent
+    }
+}
+
+public struct MarkdownPreparedRichContent: Sendable {
+    public var blocks: [MarkdownPreparedRichBlock]
+
+    public init(blocks: [MarkdownPreparedRichBlock]) {
+        self.blocks = blocks
+    }
+}
+
 public struct MarkdownPreparedBlockContent: Sendable {
     public var blockID: MarkdownBlockID
     public var inline: AttributedString?
@@ -3143,6 +3406,7 @@ public struct MarkdownPreparedBlockContent: Sendable {
     public var mathRender: MarkdownPreparedMath?
     public var htmlAllowed: Bool?
     public var policyDenialReason: String?
+    public var richContent: MarkdownPreparedRichContent?
 
     public init(
         blockID: MarkdownBlockID,
@@ -3156,7 +3420,8 @@ public struct MarkdownPreparedBlockContent: Sendable {
         math: AttributedString? = nil,
         mathRender: MarkdownPreparedMath? = nil,
         htmlAllowed: Bool? = nil,
-        policyDenialReason: String? = nil
+        policyDenialReason: String? = nil,
+        richContent: MarkdownPreparedRichContent? = nil
     ) {
         self.blockID = blockID
         self.inline = inline
@@ -3170,6 +3435,7 @@ public struct MarkdownPreparedBlockContent: Sendable {
         self.mathRender = mathRender
         self.htmlAllowed = htmlAllowed
         self.policyDenialReason = policyDenialReason
+        self.richContent = richContent
     }
 }
 

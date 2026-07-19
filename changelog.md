@@ -19,6 +19,45 @@
 - Made the RenderProbe and clean-consumer release gates resolve the local
   package by explicit identity, so required checks also run from isolated
   worktrees whose directory names differ from `SiriusMarkdown`.
+- Added standards-aware, sanitized native rendering for authorized inline and
+  block HTML through SwiftSoup. Supported headings, paragraphs, quotes, lists,
+  preformatted code, tables, inline emphasis/code/subscript/superscript,
+  anchors, breaks, and policy-governed images now convert into SiriusMarkdown's
+  source-mapped native models; scripts, embedded browsing/plugin content,
+  active controls, and unsafe resource behavior are dropped or governed by the
+  existing policies. Static and streamed conversion share the same path.
+- Added package-owned decorated links for Markdown links and HTML anchors. An
+  atomic globe glyph is available at first paint, while the default replaceable
+  resolver asynchronously discovers declared HTTPS site icons, conventional
+  favicon/touch-icon resources, and bounded square social artwork as a final
+  declared fallback, validates native image bytes and dimensions, and
+  republishes only affected prepared decorations. Hosts can disable decoration,
+  disable remote metadata, or supply their own resolver.
+- Hardened favicon discovery with anonymous ephemeral requests, stripped
+  ambient credentials/cookies/referrers, per-hop policy and DNS checks,
+  validation of the actual contacted socket endpoint, IANA special-purpose
+  IPv4/IPv6 rejection (including mapped and NAT64 forms), bounded document/icon
+  payloads, redirect and candidate limits, square-artwork qualification, native
+  image validation, in-flight coalescing, LRU positive/negative caching, and
+  generation-safe cache clears. Anonymous top-level navigation metadata,
+  bounded public 4xx HTML declarations, and standard Apple touch-icon paths
+  cover sites that do not expose a root favicon without weakening endpoint or
+  payload validation.
+- Preserved source-backed selection, plain copy, accessibility text, link hit
+  regions, and semantic font runs by treating link decorations as measured but
+  non-source, non-copying attachments within the link's single activation
+  range. Rich-HTML child blocks publish precise selection geometry using the
+  owning Markdown block identity.
+- Wired the bundled Markdown demo through `MarkdownRenderSession` so its live
+  SEC and Companies House examples visibly replace the first-paint globe with
+  the resolved site icon. Fully decorated link leaves use the icon as their
+  non-color cue and omit redundant label underlines; mixed leaves containing
+  any undecorated destination retain conventional underlines.
+- Added focused semantic, sanitization, source-entity mapping, streamed-versus-
+  one-shot, resolver security/cache, decorated-link rendering, and scaling
+  regressions, plus a reusable runtime favicon audit executable for large and
+  curated public-domain corpora. The combined release gate now discovers `927` Swift
+  tests.
 
 ## 0.6.16 - 2026-07-13
 

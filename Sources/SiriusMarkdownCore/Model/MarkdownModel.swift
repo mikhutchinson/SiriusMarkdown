@@ -86,6 +86,9 @@ public struct MarkdownInlinePresentation: OptionSet, Sendable, Hashable {
     public static let math = MarkdownInlinePresentation(rawValue: 1 << 4)
     public static let image = MarkdownInlinePresentation(rawValue: 1 << 5)
     public static let html = MarkdownInlinePresentation(rawValue: 1 << 6)
+    public static let subscriptText = MarkdownInlinePresentation(rawValue: 1 << 7)
+    public static let superscriptText = MarkdownInlinePresentation(rawValue: 1 << 8)
+    public static let linkDecoration = MarkdownInlinePresentation(rawValue: 1 << 9)
 
     public static func defaultPresentation(for kind: MarkdownInlineKind) -> MarkdownInlinePresentation {
         switch kind {
@@ -240,6 +243,10 @@ public struct MarkdownBlock: Identifiable, Sendable, Hashable {
     public var headingLevel: Int?
     public var infoString: String?
     public var isSealed: Bool
+    /// Sanitized native semantic content converted from an authorized HTML
+    /// block. The outer `.htmlBlock` retains the exact Markdown source range
+    /// and stable identity; child blocks reuse the normal renderer pipeline.
+    public var richContent: MarkdownRichContent?
 
     public init(
         id: MarkdownBlockID,
@@ -253,7 +260,8 @@ public struct MarkdownBlock: Identifiable, Sendable, Hashable {
         orderedListStart: UInt? = nil,
         headingLevel: Int? = nil,
         infoString: String? = nil,
-        isSealed: Bool
+        isSealed: Bool,
+        richContent: MarkdownRichContent? = nil
     ) {
         self.id = id
         self.kind = kind
@@ -267,6 +275,7 @@ public struct MarkdownBlock: Identifiable, Sendable, Hashable {
         self.headingLevel = headingLevel
         self.infoString = infoString
         self.isSealed = isSealed
+        self.richContent = richContent
     }
 
     public init(
@@ -277,7 +286,8 @@ public struct MarkdownBlock: Identifiable, Sendable, Hashable {
         inlines: [MarkdownInlineRun] = [],
         headingLevel: Int? = nil,
         infoString: String? = nil,
-        isSealed: Bool
+        isSealed: Bool,
+        richContent: MarkdownRichContent? = nil
     ) {
         self.init(
             id: id,
@@ -291,8 +301,43 @@ public struct MarkdownBlock: Identifiable, Sendable, Hashable {
             orderedListStart: nil,
             headingLevel: headingLevel,
             infoString: infoString,
-            isSealed: isSealed
+            isSealed: isSealed,
+            richContent: richContent
         )
+    }
+}
+
+public struct MarkdownRichContentDiagnostics: Sendable, Hashable {
+    public var parsedNodeCount: Int
+    public var droppedNodeCount: Int
+    public var unwrappedNodeCount: Int
+    public var sourceMappingFallbackCount: Int
+
+    public init(
+        parsedNodeCount: Int = 0,
+        droppedNodeCount: Int = 0,
+        unwrappedNodeCount: Int = 0,
+        sourceMappingFallbackCount: Int = 0
+    ) {
+        self.parsedNodeCount = parsedNodeCount
+        self.droppedNodeCount = droppedNodeCount
+        self.unwrappedNodeCount = unwrappedNodeCount
+        self.sourceMappingFallbackCount = sourceMappingFallbackCount
+    }
+}
+
+/// Sanitized HTML represented entirely through the package's normal native
+/// Markdown block/run models. SwiftSoup nodes never cross this value boundary.
+public struct MarkdownRichContent: Sendable, Hashable {
+    public var blocks: [MarkdownBlock]
+    public var diagnostics: MarkdownRichContentDiagnostics
+
+    public init(
+        blocks: [MarkdownBlock],
+        diagnostics: MarkdownRichContentDiagnostics = MarkdownRichContentDiagnostics()
+    ) {
+        self.blocks = blocks
+        self.diagnostics = diagnostics
     }
 }
 

@@ -993,7 +993,7 @@ func coreTextPaintedLinePlanCoversStructuredBlockContexts() throws {
         let plan = MarkdownCoreTextPaintedLinePlan.make(prepared: inlineLayout, layout: layout)
 
         #expect(plan.lines.isEmpty == false)
-        #expect(plan.accessibilityLabel == String(inlineLayout.attributed.characters))
+        #expect(plan.accessibilityLabel == inlineLayout.semanticAccessibilityText)
         #expect(plan.lines.allSatisfy { $0.typographicWidth.isFinite && $0.typographicWidth > 0 })
     }
     #else
@@ -1719,7 +1719,10 @@ func nativeInlineMathAttachmentPreservesLinkAndPrunesItsCacheOnUpdate() throws {
 
     let updated = try #require(appKitTextViews(in: hostingView).first { $0.string == "Value without math" })
     #expect(updated === original)
-    #expect(updated.selectedRange() == selectedRange)
+    // The linked source begins with a visual-only glyph decoration, while the
+    // replacement has no link. Its storage offset therefore changes, but the
+    // semantic selection must remain on the same source text.
+    #expect((updated.string as NSString).substring(with: updated.selectedRange()) == "Value")
     #expect(original.nativeMathAttachmentCacheCount == 0)
 }
 
@@ -2817,7 +2820,10 @@ func defaultDocumentSelectionEmitsPreciseAllowedHTMLBlockFragmentsOnMacOS() thro
     defer { tearDownWindow(window) }
     pumpLayout(hostingView)
 
-    let selectedHTMLRange = try utf8Range(of: "alpha", in: markdown)
+    // Select an interior visible word. Native rich HTML intentionally omits
+    // the inert opening tags from painted geometry, so the first visible
+    // word now begins at the fragment's leading edge.
+    let selectedHTMLRange = try utf8Range(of: "beta", in: markdown)
     let fragment = try #require(recorder.fragments.sortedForTestSelection().first {
         $0.textGeometry != nil &&
             $0.sourceRange.byteRange.lowerBound <= selectedHTMLRange.lowerBound &&
@@ -5749,7 +5755,7 @@ func blockRenderPlanUsesProtocolPoliciesForCodeMathAndHTML() throws {
 
     let html = try firstBlock("<div>raw</div>")
     let defaultHTML = MarkdownBlockView.renderPlan(for: html)
-    #expect(defaultHTML.htmlAllowed == false)
+    #expect(defaultHTML.htmlAllowed == true)
 
     let allowedHTML = MarkdownBlockView.renderPlan(
         for: html,

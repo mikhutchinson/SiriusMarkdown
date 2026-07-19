@@ -32,7 +32,7 @@ struct NativeInlineLineTextView: View {
             .frame(width: width, height: height, alignment: .topLeading)
             .clipped()
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel(String(fallbackAttributed.characters))
+            .accessibilityLabel(prepared.semanticAccessibilityText)
         } else {
             let renderedAttributed = InlineRunsView.renderingAttributedString(for: prepared)
             let renderedLines = InlineRunsView.nativeLineAttributedString(
@@ -70,7 +70,7 @@ struct NativeInlineLineTextView: View {
                     .frame(width: width, height: height, alignment: .topLeading)
                     .clipped()
                     .accessibilityElement(children: .combine)
-                    .accessibilityLabel(String(fallbackAttributed.characters))
+                    .accessibilityLabel(prepared.semanticAccessibilityText)
             }
         }
     }
