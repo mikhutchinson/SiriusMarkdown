@@ -96,6 +96,29 @@ private func darkPixelVerticalBounds(
     return minimumY...maximumY
 }
 
+private func nonWhitePixelVerticalBounds(
+    in bitmap: NSBitmapImageRep,
+    xRange: Range<Int>
+) -> ClosedRange<Int>? {
+    var minimumY: Int?
+    var maximumY: Int?
+    let safeRange = max(0, xRange.lowerBound)..<min(bitmap.pixelsWide, xRange.upperBound)
+    for y in 0..<bitmap.pixelsHigh {
+        for x in safeRange {
+            guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB),
+                  min(color.redComponent, color.greenComponent, color.blueComponent) < 0.8,
+                  color.alphaComponent > 0.5
+            else {
+                continue
+            }
+            minimumY = min(minimumY ?? y, y)
+            maximumY = max(maximumY ?? y, y)
+        }
+    }
+    guard let minimumY, let maximumY else { return nil }
+    return minimumY...maximumY
+}
+
 private func hasDarkPixel(
     in bitmap: NSBitmapImageRep,
     xRange: Range<Int>,
@@ -780,6 +803,96 @@ func defaultTaskListSquareSharesFirstLineOpticalCenterAcrossMacRenderingModes() 
                 "theme: \(metric.name), rendering mode: \(renderingMode), selection mode: \(selectionMode), marker: \(marker), content: \(content)"
             )
         }
+    }
+}
+
+@Test
+@MainActor
+func faviconDecorationSharesTheLinkLabelsOpticalCenterInNativeText() throws {
+    let destination = URL(string: "https://example.com")!
+    let icon = MarkdownLinkIcon(
+        sourceURL: URL(string: "https://example.com/favicon.png")!,
+        data: Data(
+            base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+        )!,
+        mimeType: "image/png",
+        pixelWidth: 1,
+        pixelHeight: 1
+    )
+    let block = try firstBlock("[Example](https://example.com)")
+    let modes: [(MarkdownInlineRenderingMode, MarkdownNativeTextSelection)] = [
+        (.preparedNativeLines, .disabled),
+        (.coreTextPaintedLines, .disabled),
+        (.preparedNativeLines, .enabled),
+        (.coreTextPaintedLines, .enabled),
+    ]
+
+    for (renderingMode, selectionMode) in modes {
+        let configuration = MarkdownRendererConfiguration(
+            theme: .document,
+            inlineRenderingMode: renderingMode,
+            nativeTextSelection: selectionMode,
+            linkMetadataResolver: BlockStyleTestLinkMetadataResolver(
+                resolution: .metadata(
+                    MarkdownLinkMetadata(destination: destination, decoration: .favicon(icon))
+                )
+            )
+        )
+        let fallbackConfiguration = MarkdownRendererConfiguration(
+            theme: .document,
+            inlineRenderingMode: renderingMode,
+            nativeTextSelection: selectionMode,
+            linkMetadataResolver: nil
+        )
+        let preparedContent = configuration.prepare(block: block)
+        let fallbackBitmap = try testBitmap(
+            for: MarkdownBlockView(
+                block: block,
+                configuration: fallbackConfiguration,
+                preparedContent: fallbackConfiguration.prepare(block: block)
+            ),
+            width: 180,
+            height: 56
+        )
+        let bitmap = try testBitmap(
+            for: MarkdownBlockView(
+                block: block,
+                configuration: configuration,
+                preparedContent: preparedContent
+            ),
+            width: 180,
+            height: 56
+        )
+        let scale = Double(bitmap.pixelsWide) / 180
+        let iconBounds = try #require(
+            nonWhitePixelVerticalBounds(in: bitmap, xRange: 0..<Int(20 * scale))
+        )
+        let fallbackBounds = try #require(
+            nonWhitePixelVerticalBounds(in: fallbackBitmap, xRange: 0..<Int(20 * scale))
+        )
+        let labelBounds = try #require(
+            nonWhitePixelVerticalBounds(in: bitmap, xRange: Int(24 * scale)..<Int(100 * scale))
+        )
+        let iconMidpoint = Double(iconBounds.lowerBound + iconBounds.upperBound) / 2
+        let fallbackMidpoint = Double(fallbackBounds.lowerBound + fallbackBounds.upperBound) / 2
+        let labelMidpoint = Double(labelBounds.lowerBound + labelBounds.upperBound) / 2
+
+        #expect(
+            abs(iconMidpoint - fallbackMidpoint) <= max(1, scale),
+            "rendering mode: \(renderingMode), selection mode: \(selectionMode), icon: \(iconBounds), fallback: \(fallbackBounds), label: \(labelBounds), label delta: \(abs(iconMidpoint - labelMidpoint))"
+        )
+    }
+}
+
+private struct BlockStyleTestLinkMetadataResolver: MarkdownLinkMetadataResolver {
+    var resolution: MarkdownLinkMetadataResolution
+
+    func cachedResolution(for destination: URL) -> MarkdownLinkMetadataResolution? {
+        resolution
+    }
+
+    func resolveMetadata(for destination: URL) async -> MarkdownLinkMetadataResolution {
+        resolution
     }
 }
 

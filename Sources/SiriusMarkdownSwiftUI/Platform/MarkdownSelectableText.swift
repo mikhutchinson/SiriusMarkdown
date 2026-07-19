@@ -982,7 +982,29 @@ final class MarkdownAppKitNativeSelectableTextView: NSTextView {
             )
             var rect = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
             rect.origin.x += textContainerInset.width
-            rect.origin.y += textContainerInset.height
+            let lineFragment = layoutManager.lineFragmentRect(
+                forGlyphAt: glyphRange.location,
+                effectiveRange: nil
+            )
+            let glyphLocation = layoutManager.location(forGlyphAt: glyphRange.location)
+            let baselineY = lineFragment.minY
+                + glyphLocation.y
+                - CGFloat(placement.record.descent)
+                + textContainerInset.height
+            let preparedTop = baselineY - CGFloat(placement.record.ascent)
+            if preparedTop.isFinite {
+                // TextKit's attachment bounding rect starts at the line
+                // fragment top even when the attachment cell publishes a
+                // nonzero descent, and its glyph location reports the box's
+                // bottom rather than the text baseline. The transparent
+                // attachment reserves the correct ascent/descent, but the
+                // real image lives in this sibling host, so reconstruct its
+                // baseline from the prepared descent and then subtract the
+                // same prepared ascent used by CoreText.
+                rect.origin.y = preparedTop
+            } else {
+                rect.origin.y += textContainerInset.height
+            }
             rect.size.width = CGFloat(placement.record.pointWidth)
             rect.size.height = CGFloat(placement.record.pointHeight)
 

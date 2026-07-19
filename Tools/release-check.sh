@@ -30,7 +30,7 @@ TEST_LIST_FILE="$(mktemp)"
 trap 'rm -f "$TEST_LIST_FILE"; rm -rf "${CONSUMER_DIR:-}"' EXIT
 swift test list > "$TEST_LIST_FILE"
 TEST_COUNT="$(grep -Ec '^[A-Za-z0-9_]+Tests\.' "$TEST_LIST_FILE")"
-MINIMUM_TEST_COUNT=935
+MINIMUM_TEST_COUNT=936
 if (( TEST_COUNT < MINIMUM_TEST_COUNT )); then
   echo "error: swift test list discovered $TEST_COUNT tests; expected at least $MINIMUM_TEST_COUNT" >&2
   exit 1
@@ -46,6 +46,7 @@ for required_test in \
   "SiriusMarkdownSwiftUITests.defaultOrderedListNumeralSharesProductionContentBaseline()" \
   "SiriusMarkdownSwiftUITests.preparedListMarkerAndTextShareFirstLineBaselineAcrossMacRenderingModes()" \
   "SiriusMarkdownSwiftUITests.defaultTaskListSquareSharesFirstLineOpticalCenterAcrossMacRenderingModes()" \
+  "SiriusMarkdownSwiftUITests.faviconDecorationSharesTheLinkLabelsOpticalCenterInNativeText()" \
   "SiriusMarkdownSwiftUITests.defaultTableCellDividerStretchesToTallestCell()" \
   "SiriusMarkdownSwiftUITests.linePlanPlacesAttachmentGapFromDeclaredBaseline()" \
   "SiriusMarkdownSwiftUITests.MarkdownNativeTextSelectionAppKitTests/nativePreparedAttachmentCellPreservesDeclaredDescent()" \
@@ -402,6 +403,12 @@ precondition(prepared.snapshot.blocks.count == 2)
 EOF
 swift package --package-path "$CONSUMER_DIR" resolve
 swift build --package-path "$CONSUMER_DIR"
+DEMO_SOURCE="Examples/MarkdownDemoApp/Sources/MarkdownDemoApp/MarkdownDemoApp.swift"
+if ! grep -Fq 'id: "native-rich-html"' "$DEMO_SOURCE" \
+  || ! grep -Fq 'title: "Native Rich HTML"' "$DEMO_SOURCE"; then
+  echo "error: MarkdownDemoApp must keep its dedicated Native Rich HTML showcase" >&2
+  exit 1
+fi
 bash Examples/scripts/bundle-macos-demos.sh
 npm --prefix Tools/math-corpus ci
 npm --prefix Tools/math-corpus test

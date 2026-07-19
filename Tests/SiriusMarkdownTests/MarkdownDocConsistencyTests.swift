@@ -259,9 +259,14 @@ func bugfixLogHistoricalEntriesPreserved() throws {
 @Test
 func releaseCheckTestFloorMatchesCurrentCount() throws {
     let releaseCheck = try readFile("Tools/release-check.sh")
+    let readme = try readFile("README.md")
     #expect(
-        releaseCheck.contains("MINIMUM_TEST_COUNT=935"),
-        "release-check.sh test floor should be 935"
+        releaseCheck.contains("MINIMUM_TEST_COUNT=936"),
+        "release-check.sh test floor should be 936"
+    )
+    #expect(
+        readme.contains("release suite discovers 936 tests"),
+        "README test count should match the 936-test release floor"
     )
 }
 

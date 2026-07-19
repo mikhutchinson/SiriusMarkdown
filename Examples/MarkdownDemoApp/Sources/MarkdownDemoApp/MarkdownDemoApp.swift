@@ -334,6 +334,7 @@ private struct PreparedMarkdownExample: Identifiable {
             diagnosticsRecorder: renderRecorder
         )
         let snapshot = stream.snapshot()
+        let renderedBlocks = snapshot.blocks.flatMap(\.demoRenderedBlocks)
 
         self.example = example
         self.configuration = configuration
@@ -354,13 +355,13 @@ private struct PreparedMarkdownExample: Identifiable {
         self.layoutCacheMissCount = max(0, layoutRenderCounters.cacheMissCount - warmRenderCounters.cacheMissCount)
         self.sections = DocumentSection.sections(in: snapshot)
         self.sourceByteCount = stream.sourceLength
-        self.blockCount = snapshot.blocks.count
+        self.blockCount = renderedBlocks.count
         self.sectionCount = sections.count
-        self.tableCount = snapshot.blocks.filter { $0.kind == .table }.count
-        self.codeBlockCount = snapshot.blocks.filter { $0.kind == .codeBlock }.count
-        self.listBlockCount = snapshot.blocks.filter { $0.kind == .unorderedList || $0.kind == .orderedList || $0.kind == .taskList }.count
-        self.quoteBlockCount = snapshot.blocks.filter { $0.kind == .blockQuote }.count
-        self.mathBlockCount = snapshot.blocks.filter { $0.kind == .mathBlock }.count
+        self.tableCount = renderedBlocks.filter { $0.kind == .table }.count
+        self.codeBlockCount = renderedBlocks.filter { $0.kind == .codeBlock }.count
+        self.listBlockCount = renderedBlocks.filter { $0.kind == .unorderedList || $0.kind == .orderedList || $0.kind == .taskList }.count
+        self.quoteBlockCount = renderedBlocks.filter { $0.kind == .blockQuote }.count
+        self.mathBlockCount = renderedBlocks.filter { $0.kind == .mathBlock }.count
     }
 
     private static func exerciseLayoutCache(in preparedSnapshot: MarkdownPreparedSnapshot) {
@@ -427,7 +428,7 @@ private struct DocumentSection: Identifiable, Hashable {
     var systemImage: String
 
     static func sections(in snapshot: MarkdownSnapshot) -> [DocumentSection] {
-        snapshot.blocks.compactMap { block in
+        snapshot.blocks.flatMap(\.demoRenderedBlocks).compactMap { block in
             guard block.kind == .heading else {
                 return nil
             }
@@ -457,6 +458,15 @@ private struct DocumentSection: Identifiable, Hashable {
         default:
             return "text.justify.leading"
         }
+    }
+}
+
+private extension MarkdownBlock {
+    var demoRenderedBlocks: [MarkdownBlock] {
+        guard let richContent else {
+            return [self]
+        }
+        return richContent.blocks.flatMap(\.demoRenderedBlocks)
     }
 }
 
@@ -523,6 +533,36 @@ private struct MarkdownExample: Identifiable, Hashable {
                 "The demo goes through MarkdownStream and MarkdownDocumentView.",
                 "Code and tables use shared renderer blocks.",
                 "Task list markers come from parsed Markdown semantics."
+            ]
+        ),
+        MarkdownExample(
+            id: "native-rich-html",
+            title: "Native Rich HTML",
+            summary: "Sanitized HTML5 rendered as native headings, prose, lists, tables, code, and decorated links.",
+            detail: "A dedicated HTML document proves that authorized markup becomes source-mapped native renderer models—not a WebView, raw tags, or a code block.",
+            systemImage: "chevron.left.forwardslash.chevron.right",
+            badge: "Native HTML",
+            markdown: """
+            <div>
+              <h2>Quarterly filing snapshot</h2>
+              <p><strong>Revenue reached $3,233 million</strong>, including <em>$724 million</em> from related parties. The filing presents the figures through the same native inline pipeline used by Markdown.</p>
+              <p>Source trail: <a href="https://www.sec.gov/">SEC filing</a>, <a href="https://find-and-update.company-information.service.gov.uk/">Companies House</a>, <a href="https://github.com/">GitHub</a>, <a href="https://www.wikipedia.org/">Wikipedia</a>, and <a href="https://openai.com/">OpenAI</a>.</p>
+              <blockquote><p>These anchors keep one activation and accessibility range while their prepared glyphs can upgrade asynchronously to site icons.</p></blockquote>
+              <h3>Native inline semantics</h3>
+              <p><b>Bold</b>, <i>italic</i>, <s>superseded</s>, <code>inline code</code>, H<sub>2</sub>O, x<sup>2</sup>, and an explicit<br>line break all remain semantic.</p>
+              <ol start="3"><li>HTML5 recovery normalizes authored structure.</li><li>Sanitization removes active content before preparation.</li><li>SwiftUI receives prepared native models only.</li></ol>
+              <table><thead><tr><th align="left">Input</th><th align="left">Native result</th></tr></thead><tbody><tr><td>Heading and paragraph tags</td><td>Structured document blocks</td></tr><tr><td>Anchor tags</td><td>Policy-checked decorated links</td></tr><tr><td>Table tags</td><td>Contained native table layout</td></tr></tbody></table>
+              <pre><code class="language-swift">let prepared = configuration.prepare(snapshot: stream.snapshot())</code></pre>
+              <hr>
+              <p><a href="javascript:alert('blocked')">Unsafe JavaScript link</a> and <img src="https://example.com/remote.png" alt="remote image denied by default"> remain governed by normal link and image policies.</p>
+              <script>document.body.innerHTML = "This must never execute or appear"</script>
+            </div>
+            """,
+            assertions: [
+                "Supported HTML renders as native structured content; source tags never become the successful presentation.",
+                "HTML anchors share Markdown's policy, activation, accessibility, glyph, and runtime favicon pipeline.",
+                "Script content, event-capable behavior, unsafe links, and implicit remote images stay inert.",
+                "Parsing, sanitization, resource resolution, and measurement remain outside SwiftUI body evaluation."
             ]
         ),
         MarkdownExample(
@@ -700,55 +740,6 @@ private struct MarkdownExample: Identifiable, Hashable {
                 "Inline math (\\( \\), $) flows with the surrounding text.",
                 "LaTeX environments such as bmatrix typeset through the same engine.",
                 "Copying a math block yields the original LaTeX source."
-            ]
-        ),
-        MarkdownExample(
-            id: "math-html",
-            title: "Math And Native HTML",
-            summary: "Math hooks and sanitized native rich HTML in one prepared renderer.",
-            detail: "This sample shows math flowing through renderer hooks while authorized HTML becomes source-mapped native content.",
-            systemImage: "function",
-            badge: "Hooks",
-            markdown: """
-            Math blocks are renderer hooks, not hardcoded app-private UI:
-
-            $$
-            widthChange \\rightarrow layout(preparedSegments, width)
-            $$
-
-            Inline math-like text can remain ordinary Markdown when no math policy claims it: `f(x) = x^2 + 1`.
-
-            $$
-            parseCount(document) = sealedRegions + activeTail
-            $$
-
-            <aside>
-              <h3>Native rich-content result</h3>
-              <p>The filing presents the figures in its
-              <a href="https://www.sec.gov/">SEC filing</a>, while company identity
-              is available from <a href="https://find-and-update.company-information.service.gov.uk/">Companies House</a>.</p>
-              <ul><li><strong>HTML5 recovery</strong> normalizes the tree.</li><li>Active content is removed.</li></ul>
-            </aside>
-
-            | Surface | Default |
-            | :--- | :--- |
-            | Math block | rendered by configured math renderer |
-            | Authorized HTML | sanitized into native prepared blocks and inline runs |
-            | Code | explicit supported fences use the language-aware default; unknown and plaintext fences stay plain |
-
-            ```mermaid
-            graph TD
-                Parse --> Prepare
-                Prepare --> Render
-                Render --> Cache
-            ```
-            """,
-            assertions: [
-                "Math rendering is pluggable.",
-                "Authorized HTML stays controlled by MarkdownHTMLPolicy and normal link/image policies.",
-                "Markdown links and HTML anchors use the same package-owned glyph/favicon pipeline.",
-                "Code highlighting remains pluggable, and plain rendering is still available through PlainMarkdownCodeHighlighter.",
-                "Mermaid fences are rendered through a bundled JavaScript runtime during preparation."
             ]
         ),
         MarkdownExample(

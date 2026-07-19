@@ -1323,7 +1323,12 @@ public struct MarkdownRendererConfiguration: Sendable {
             diagnosticsRecorder.recordCacheMiss()
         }
         let images = preparedImages(from: imageDecisions)
-        let attachments = preparedAttachments(from: imageDecisions, images: images)
+        let attachments = preparedAttachments(
+            from: imageDecisions,
+            images: images,
+            fontSize: metrics.fontSize,
+            fontProfiles: metrics.fontProfiles
+        )
         let inlinePayload = preparedInlinePayload(
             for: displaySourceRuns,
             images: images,
@@ -1588,6 +1593,12 @@ public struct MarkdownRendererConfiguration: Sendable {
                 return nil
             }
             components.append(("linkPolicy", linkPolicyIdentity))
+        }
+
+        if runs.contains(where: { $0.presentation.contains(.linkDecoration) }) {
+            components.append(("linkDecorationMetricsVersion", "2"))
+            components.append(("linkDecorationFallbackGlyph", linkDecoration.fallbackGlyph))
+            components.append(("linkDecorationIconPointSize", String(linkDecoration.iconPointSize)))
         }
 
         if !imageDecisions.isEmpty {
@@ -2054,7 +2065,9 @@ public struct MarkdownRendererConfiguration: Sendable {
     /// `preparedImages`).
     private func preparedAttachments(
         from decisions: [MarkdownPreparedImageDecision],
-        images: [MarkdownPreparedImage]
+        images: [MarkdownPreparedImage],
+        fontSize: Double,
+        fontProfiles: MarkdownInlineFontProfiles
     ) -> [MarkdownPreparedAttachment?] {
         zip(decisions, images).enumerated().map { ordinal, pair in
             let (decision, image) = pair
@@ -2074,7 +2087,11 @@ public struct MarkdownRendererConfiguration: Sendable {
             let placeholderStyle: MarkdownAttachmentPlaceholderStyle
             if isLinkDecoration {
                 let pointSize = linkDecoration.iconPointSize
-                metrics = (pointSize, pointSize, pointSize * 0.84, pointSize * 0.16, .intrinsicHint)
+                metrics = linkDecorationAttachmentMetrics(
+                    pointSize: pointSize,
+                    fontSize: fontSize,
+                    fontProfiles: fontProfiles
+                )
                 placeholderStyle = MarkdownAttachmentPlaceholderStyle(
                     pointWidth: pointSize,
                     pointHeight: pointSize,
@@ -2099,6 +2116,67 @@ public struct MarkdownRendererConfiguration: Sendable {
                 isDecorative: isLinkDecoration
             )
         }
+    }
+
+    /// Centers a bitmap favicon on the visual center of the configured
+    /// fallback glyph. The fallback is what appears before metadata resolves,
+    /// so matching its CoreText image bounds prevents a vertical jump when
+    /// a branded image replaces it. These prepared metrics are shared by the
+    /// CoreText, UIKit, and AppKit render paths.
+    private func linkDecorationAttachmentMetrics(
+        pointSize: Double,
+        fontSize: Double,
+        fontProfiles: MarkdownInlineFontProfiles
+    ) -> (
+        pointWidth: Double,
+        pointHeight: Double,
+        ascent: Double,
+        descent: Double,
+        sizingSource: MarkdownAttachmentSizingSource
+    ) {
+        let safePointSize = pointSize.isFinite && pointSize > 0 ? pointSize : 18
+        let fallbackCenter = Self.linkDecorationFallbackCenterFromBaseline(
+            glyph: linkDecoration.fallbackGlyph,
+            fontSize: fontSize,
+            fontProfile: fontProfiles.profile(for: .linkDecoration, kind: .link)
+        ) ?? safePointSize * 0.34
+        let boundedCenter = min(max(-safePointSize / 2, fallbackCenter), safePointSize / 2)
+        let ascent = safePointSize / 2 + boundedCenter
+        let descent = safePointSize - ascent
+        return (safePointSize, safePointSize, ascent, descent, .intrinsicHint)
+    }
+
+    private nonisolated static func linkDecorationFallbackCenterFromBaseline(
+        glyph: String,
+        fontSize: Double,
+        fontProfile: MarkdownFontProfile
+    ) -> Double? {
+        #if canImport(CoreText)
+        guard !glyph.isEmpty else { return nil }
+        let font = MarkdownCoreTextFontBridge.font(
+            profile: fontProfile,
+            kind: .link,
+            presentation: .linkDecoration,
+            size: fontSize
+        )
+        let attributed = NSAttributedString(
+            string: glyph,
+            attributes: [
+                NSAttributedString.Key(kCTFontAttributeName as String): font,
+            ]
+        )
+        let line = CTLineCreateWithAttributedString(attributed)
+        let imageBounds = CTLineGetImageBounds(line, nil)
+        let centerFromBaseline = imageBounds.midY
+        guard centerFromBaseline.isFinite,
+              imageBounds.height > 0
+        else {
+            return nil
+        }
+        return Double(centerFromBaseline)
+        #else
+        return nil
+        #endif
     }
 
     private nonisolated static func attachmentID(for run: MarkdownInlineRun, ordinal: Int) -> MarkdownAttachmentID {

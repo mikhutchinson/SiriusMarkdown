@@ -65,21 +65,46 @@ func cachedFaviconsBecomeBoundedClickableNativeAttachments() throws {
             MarkdownLinkMetadata(destination: destination, decoration: .favicon(icon))
         )
     )
-    let configuration = MarkdownRendererConfiguration(linkMetadataResolver: resolver)
+    let cache = MarkdownRenderPreparationCache()
+    let recorder = MarkdownDiagnosticsRecorder()
+    let configuration = MarkdownRendererConfiguration(
+        linkMetadataResolver: resolver,
+        preparationCache: cache,
+        diagnosticsRecorder: recorder
+    )
     let block = try firstLinkDecorationBlock("[Example](https://example.com)")
     let prepared = try #require(configuration.prepare(block: block).inlineLayout)
+    let afterFirst = recorder.snapshot()
+    _ = configuration.prepare(block: block)
+    let afterCached = recorder.snapshot()
     let attachment = try #require(prepared.attachments.values.first)
     let decorationRun = try #require(prepared.prepared.runs.first(where: {
         $0.presentation.contains(MarkdownInlinePresentation.linkDecoration) && $0.attachmentMetrics != nil
     }))
+    let largerConfiguration = MarkdownRendererConfiguration(
+        linkMetadataResolver: resolver,
+        linkDecoration: MarkdownLinkDecorationConfiguration(iconPointSize: 22),
+        preparationCache: cache,
+        diagnosticsRecorder: recorder
+    )
+    let largerPrepared = try #require(largerConfiguration.prepare(block: block).inlineLayout)
+    let largerAttachment = try #require(largerPrepared.attachments.values.first)
+    let afterSizeChange = recorder.snapshot()
 
     #expect(prepared.attachments.count == 1)
     #expect(attachment.pointWidth == 18)
     #expect(attachment.pointHeight == 18)
+    #expect(attachment.ascent + attachment.descent == 18)
     #expect(attachment.isDecorative)
     #expect(attachment.image.preparedSource == .data(onePixelLinkDecorationPNG, mimeType: "image/png"))
     #expect(decorationRun.destination == "https://example.com")
     #expect(decorationRun.attachmentMetrics?.id == attachment.id)
+    #expect(afterCached.prepareCount == afterFirst.prepareCount)
+    #expect(afterCached.cacheHitCount == afterFirst.cacheHitCount + 1)
+    #expect(largerAttachment.pointWidth == 22)
+    #expect(largerAttachment.pointHeight == 22)
+    #expect(largerAttachment.ascent + largerAttachment.descent == 22)
+    #expect(afterSizeChange.prepareCount == afterFirst.prepareCount + 1)
 }
 
 @Test

@@ -6,6 +6,12 @@
 
 ## Resolved in Unreleased
 
+- Fixed resolved favicon attachments hanging below the line while generic link
+  glyphs remained centered. Prepared link-decoration metrics now use the
+  configured fallback glyph's CoreText image bounds, and the macOS TextKit host
+  converts its attachment box-bottom location back to the shared prepared
+  baseline before positioning the real image. Pixel regressions cover both
+  prepared-native and CoreText-painted paths with selection on and off.
 - Fixed default list markers using top-edge alignment against prepared inline
   leaves whose actual baseline depends on the active SwiftUI, CoreText, or
   TextKit renderer. Marker/content styles now preserve and align explicit first

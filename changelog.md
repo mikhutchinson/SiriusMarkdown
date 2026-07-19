@@ -12,6 +12,14 @@
   in painted, system-text, and native-selection modes. Marker and fallback-text
   typography guides are cached with renderer configuration/prepared inline
   content, keeping CoreText font construction out of list-row `body` evaluation.
+- Fixed resolved favicon bitmaps hanging below the link text even though their
+  generic fallback glyphs were centered. Decoration preparation now derives the
+  bitmap ascent/descent from the configured fallback glyph's CoreText image
+  bounds, and the AppKit selectable-text host reconstructs the true baseline
+  from TextKit's box-bottom location plus the prepared descent. Pixel coverage
+  checks prepared-native and CoreText-painted rendering with native selection
+  both enabled and disabled; the demo's real SEC, Companies House, GitHub,
+  Wikipedia, and OpenAI icons were also inspected in the bundled app.
 - Fixed live GFM tables rebuilding every accumulated cell, rescanning all
   natural widths from `MarkdownBlockView.body`, and repeatedly remeasuring the
   full SwiftUI row stack while one tail cell grew. Prepared tables now retain
@@ -68,7 +76,7 @@
 - Added focused semantic, sanitization, source-entity mapping, streamed-versus-
   one-shot, resolver security/cache, decorated-link rendering, and scaling
   regressions, plus a reusable runtime favicon audit executable for large and
-  curated public-domain corpora. The combined release gate now discovers `935` Swift
+  curated public-domain corpora. The combined release gate now discovers `936` Swift
   tests.
 
 ## 0.6.16 - 2026-07-13

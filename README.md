@@ -46,7 +46,7 @@ copy, and source-backed document selection remain enabled:
   complete font and presentation profile.
 - **Measured regression:** a 179 KB document across 90 AppKit-hosted
   publications keeps mutable-tail layout at a 2.71 ms median, and the full
-  release suite discovers 883 tests.
+  release suite discovers 936 tests.
 
 The release builds on `0.6.14`'s strict-concurrency-clean detached render pump,
 `0.6.13`'s linear source mapping, `0.6.12`'s constant-time

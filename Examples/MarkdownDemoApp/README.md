@@ -7,11 +7,12 @@ The app is a native macOS workbench for the public `SiriusMarkdown` renderer. It
 Demonstrated cases:
 
 - Overview document with task lists, quotes, code, Mermaid diagrams, and a contract table.
+- Dedicated native rich-HTML document with HTML5 recovery, sanitization, structured headings/prose/quotes/lists/tables/code, decorated HTML anchors, and inert unsafe content.
 - Inline policy matrix for safe links, unsafe links, reference-style links, remote images, emphasis, strikethrough, and inline code.
 - Table stress cases for dense rows, alignment, long cells, multilingual values, and horizontal containment.
 - Wide blocks with long code and wide table values.
 - Multilingual layout with CJK, RTL, emoji, hard breaks, and inline code.
-- Math and raw-HTML policy behavior.
+- Native LaTeX math rendered through the package math hook.
 - Long-form document rhythm with nested structure and cache evidence.
 
 For a **macOS `.app`** (Finder / Dock, not tied to the terminal process):
