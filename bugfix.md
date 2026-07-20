@@ -4,6 +4,14 @@
 
 - None currently tracked.
 
+## Resolved in 0.6.18
+
+- Fixed the default task-list square missing the capital-text optical center by
+  1.5 pixels in the document/system-text configuration on 1x macOS runners.
+  The prepared baseline now includes the SF Symbol's half-point optical
+  correction, and the regression renders every supported mode at explicit 1x
+  and 2x scales so Retina-only success cannot hide the standard-scale result.
+
 ## Resolved in 0.6.17
 
 - Fixed `<sub>` and `<sup>` appearing as ordinary baseline text in the default

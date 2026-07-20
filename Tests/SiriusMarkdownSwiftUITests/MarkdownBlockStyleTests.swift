@@ -54,7 +54,8 @@ private func tearDownWindow(_ window: NSWindow) {
 private func testBitmap<V: View>(
     for view: V,
     width: CGFloat,
-    height: CGFloat
+    height: CGFloat,
+    backingScale: CGFloat? = nil
 ) throws -> NSBitmapImageRep {
     let hostingView = NSHostingView(
         rootView: view
@@ -66,7 +67,24 @@ private func testBitmap<V: View>(
     let window = offscreenTestWindow(hostingView)
     defer { tearDownWindow(window) }
     pumpLayout(hostingView)
-    let bitmap = try #require(hostingView.bitmapImageRepForCachingDisplay(in: hostingView.bounds))
+    let bitmap: NSBitmapImageRep
+    if let backingScale {
+        bitmap = try #require(NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: Int((width * backingScale).rounded()),
+            pixelsHigh: Int((height * backingScale).rounded()),
+            bitsPerSample: 8,
+            samplesPerPixel: 4,
+            hasAlpha: true,
+            isPlanar: false,
+            colorSpaceName: .deviceRGB,
+            bytesPerRow: 0,
+            bitsPerPixel: 0
+        ))
+        bitmap.size = NSSize(width: width, height: height)
+    } else {
+        bitmap = try #require(hostingView.bitmapImageRepForCachingDisplay(in: hostingView.bounds))
+    }
     hostingView.cacheDisplay(in: hostingView.bounds, to: bitmap)
     return bitmap
 }
@@ -771,37 +789,44 @@ func defaultTaskListSquareSharesFirstLineOpticalCenterAcrossMacRenderingModes() 
         theme.textColor = .black
         theme.secondaryTextColor = .black
 
-        for (renderingMode, selectionMode) in modes {
-            let configuration = MarkdownRendererConfiguration(
-                theme: theme,
-                inlineRenderingMode: renderingMode,
-                nativeTextSelection: selectionMode
-            )
-            let view = MarkdownBlockView(
-                block: block,
-                configuration: configuration,
-                preparedContent: configuration.prepare(block: block)
-            )
-            let bitmap = try testBitmap(for: view, width: 180, height: 56)
-            let scale = Double(bitmap.pixelsWide) / 180
-            let marker = try #require(
-                darkPixelVerticalBounds(
-                    in: bitmap,
-                    xRange: 0..<Int(28 * scale)
+        for requestedScale in [1.0, 2.0] {
+            for (renderingMode, selectionMode) in modes {
+                let configuration = MarkdownRendererConfiguration(
+                    theme: theme,
+                    inlineRenderingMode: renderingMode,
+                    nativeTextSelection: selectionMode
                 )
-            )
-            let content = try #require(
-                darkPixelVerticalBounds(
-                    in: bitmap,
-                    xRange: Int(36 * scale)..<Int(80 * scale)
+                let view = MarkdownBlockView(
+                    block: block,
+                    configuration: configuration,
+                    preparedContent: configuration.prepare(block: block)
                 )
-            )
-            let markerMidpoint = Double(marker.lowerBound + marker.upperBound) / 2
-            let contentMidpoint = Double(content.lowerBound + content.upperBound) / 2
-            #expect(
-                abs(markerMidpoint - contentMidpoint) <= max(1, scale),
-                "theme: \(metric.name), rendering mode: \(renderingMode), selection mode: \(selectionMode), marker: \(marker), content: \(content)"
-            )
+                let bitmap = try testBitmap(
+                    for: view,
+                    width: 180,
+                    height: 56,
+                    backingScale: requestedScale
+                )
+                let scale = Double(bitmap.pixelsWide) / 180
+                let marker = try #require(
+                    darkPixelVerticalBounds(
+                        in: bitmap,
+                        xRange: 0..<Int(28 * scale)
+                    )
+                )
+                let content = try #require(
+                    darkPixelVerticalBounds(
+                        in: bitmap,
+                        xRange: Int(36 * scale)..<Int(80 * scale)
+                    )
+                )
+                let markerMidpoint = Double(marker.lowerBound + marker.upperBound) / 2
+                let contentMidpoint = Double(content.lowerBound + content.upperBound) / 2
+                #expect(
+                    abs(markerMidpoint - contentMidpoint) <= max(1, scale),
+                    "theme: \(metric.name), rendering mode: \(renderingMode), selection mode: \(selectionMode), backing scale: \(requestedScale), marker: \(marker), content: \(content)"
+                )
+            }
         }
     }
 }

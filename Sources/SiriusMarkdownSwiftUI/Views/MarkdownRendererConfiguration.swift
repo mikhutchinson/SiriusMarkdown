@@ -213,6 +213,11 @@ struct MarkdownPreparedTypographyMetrics: Sendable, Hashable {
         let safeLineHeight = lineHeight.isFinite && lineHeight > 0
             ? CGFloat(lineHeight)
             : CGFloat(safeFontSize)
+        // The SF Symbol checkbox's raster center lands half a point above the
+        // capital-text center on both 1x and 2x macOS renderers. Incorporate
+        // that optical correction in the prepared guide so alignment remains
+        // stable without view-time font measurement.
+        let taskMarkerOpticalBaselineCorrection: CGFloat = 0.5
 
         #if canImport(CoreText)
         let font = MarkdownCoreTextFontBridge.font(
@@ -225,8 +230,10 @@ struct MarkdownPreparedTypographyMetrics: Sendable, Hashable {
             CTFontGetAscent(font) + max(0, CTFontGetLeading(font) / 2)
         nativeSelectableFirstTextBaselineFromTop =
             max(0, safeLineHeight - CTFontGetDescent(font))
-        taskMarkerFirstTextBaselineFromTop =
-            max(0, (safeLineHeight + CTFontGetCapHeight(font)) / 2)
+        taskMarkerFirstTextBaselineFromTop = max(
+            0,
+            (safeLineHeight + CTFontGetCapHeight(font)) / 2 + taskMarkerOpticalBaselineCorrection
+        )
         #else
         let approximateAscent = CGFloat(safeFontSize * 0.8)
         let approximateDescent = CGFloat(safeFontSize * 0.2)
@@ -234,8 +241,10 @@ struct MarkdownPreparedTypographyMetrics: Sendable, Hashable {
         naturalTextFirstBaselineFromTop = approximateAscent
         nativeSelectableFirstTextBaselineFromTop =
             max(0, safeLineHeight - approximateDescent)
-        taskMarkerFirstTextBaselineFromTop =
-            max(0, (safeLineHeight + approximateCapHeight) / 2)
+        taskMarkerFirstTextBaselineFromTop = max(
+            0,
+            (safeLineHeight + approximateCapHeight) / 2 + taskMarkerOpticalBaselineCorrection
+        )
         #endif
     }
 }

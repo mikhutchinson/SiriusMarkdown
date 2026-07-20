@@ -18,7 +18,7 @@ The core contract is simple:
 
 ## Current Release
 
-`0.6.17` adds sanitized native rich HTML and package-owned decorated website
+`0.6.18` ships sanitized native rich HTML and package-owned decorated website
 links without introducing WebKit or view-time network work:
 
 - **Native rich HTML:** authorized headings, paragraphs, containers, quotes,
@@ -42,7 +42,8 @@ links without introducing WebKit or view-time network work:
 - **Renderer fixes:** ordered-list markers, task squares, table dividers,
   favicon attachments, and AppKit subscript/superscript now share correct
   baseline geometry. Mutable GFM tables reuse completed rows and unchanged
-  cells instead of rebuilding accumulated history.
+  cells instead of rebuilding accumulated history. Task-square optical
+  alignment is explicitly verified at both 1x and 2x backing scales.
 - **Demonstrated and measured:** the bundled app includes a native HTML
   overview, exhaustive supported-element gallery, and safety/media boundary.
   The serial release suite discovers 937 tests, including performance,
@@ -61,7 +62,7 @@ Pretext-backed layout contracts from earlier releases.
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/mikhutchinson/SiriusMarkdown.git", from: "0.6.17")
+    .package(url: "https://github.com/mikhutchinson/SiriusMarkdown.git", from: "0.6.18")
 ],
 targets: [
     .target(
@@ -320,12 +321,12 @@ git diff --check
 - Release runbook: `runbook.md`
 - Changelog: `changelog.md`
 - Bugfix log: `bugfix.md`
-- Current release notes: `release-notes/0.6.17.md`
+- Current release notes: `release-notes/0.6.18.md`
 - Third-party credits: `NOTICE.md`
 
 ## Release
 
-`0.6.17` is ready only when the docs describe the current public package surface,
+`0.6.18` is ready only when the docs describe the current public package surface,
 `bash Tools/product-check.sh` passes from the repository root, `git diff --check`
 is clean, the public remote is correct, and the release commit is tagged and
-pushed as `0.6.17` with a matching published GitHub Release and green CI.
+pushed as `0.6.18` with a matching published GitHub Release and green CI.

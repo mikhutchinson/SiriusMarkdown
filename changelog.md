@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## 0.6.18 - 2026-07-19
+
+- Corrected the default task-list square's prepared optical baseline by half a
+  point so it remains centered on capital text on both 1x GitHub runners and
+  2x Retina displays. The pixel regression now renders compact, document, and
+  larger type across CoreText-painted, SwiftUI system-text, and native AppKit
+  selection modes at both backing scales instead of inheriting the host
+  display's scale.
+
 ## 0.6.17 - 2026-07-19
 
 - Fixed ordered-list numerals sitting above their first text line by carrying
