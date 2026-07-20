@@ -160,6 +160,64 @@ private func hasDarkPixel(
     return false
 }
 
+private func yellowPixelVerticalBounds(
+    in bitmap: NSBitmapImageRep,
+    xRange: Range<Int>
+) -> ClosedRange<Int>? {
+    var minimumY: Int?
+    var maximumY: Int?
+    let safeRange = max(0, xRange.lowerBound)..<min(bitmap.pixelsWide, xRange.upperBound)
+    for y in 0..<bitmap.pixelsHigh {
+        for x in safeRange {
+            guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB),
+                  color.redComponent > 0.85,
+                  color.greenComponent > 0.70,
+                  color.blueComponent < 0.45,
+                  color.alphaComponent > 0.8
+            else {
+                continue
+            }
+            minimumY = min(minimumY ?? y, y)
+            maximumY = max(maximumY ?? y, y)
+        }
+    }
+    guard let minimumY, let maximumY else { return nil }
+    return minimumY...maximumY
+}
+
+private func darkPixelHorizontalBands(
+    in bitmap: NSBitmapImageRep,
+    xRange: Range<Int>
+) -> [ClosedRange<Int>] {
+    let safeX = max(0, xRange.lowerBound)..<min(bitmap.pixelsWide, xRange.upperBound)
+    let occupiedRows = (0..<bitmap.pixelsHigh).filter { y in
+        safeX.contains { x in
+            guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB) else {
+                return false
+            }
+            return color.redComponent < 0.45 &&
+                color.greenComponent < 0.45 &&
+                color.blueComponent < 0.45 &&
+                color.alphaComponent > 0.5
+        }
+    }
+    guard let first = occupiedRows.first else { return [] }
+    var bands: [ClosedRange<Int>] = []
+    var lower = first
+    var upper = first
+    for row in occupiedRows.dropFirst() {
+        if row <= upper + 2 {
+            upper = row
+        } else {
+            bands.append(lower...upper)
+            lower = row
+            upper = row
+        }
+    }
+    bands.append(lower...upper)
+    return bands
+}
+
 @MainActor
 private func renderOffscreen<V: View>(
     _ view: V,
@@ -973,6 +1031,82 @@ func defaultTableCellDividerStretchesToTallestCell() throws {
             yRange: Int(70 * scale)..<Int(86 * scale)
         )
     )
+}
+
+@Test
+@MainActor
+func defaultTableRowContainsPreparedTextAfterNarrowCellRelayout() throws {
+    let block = try firstBlock(
+        """
+        | Very long evidence column | Feature | Expected | Status |
+        | --- | --- | --- | ---: |
+        | A deliberately long table value that must stay within the finite user bubble instead of widening the transcript | Code | Horizontal containment | 1 |
+        |  |  |  |  |
+        """
+    )
+    var theme = MarkdownTheme.compactChat
+    theme.textColor = .black
+    theme.tableBackground = .white
+    theme.tableHeaderBackground = .white
+    theme.tableAlternateRowBackground = Color(red: 1, green: 0.82, blue: 0.1)
+    theme.tableBorderColor = .red
+    theme.tableAccentColor = .red
+    theme.tableCornerRadius = 0
+
+    let modes: [(MarkdownInlineRenderingMode, MarkdownNativeTextSelection)] = [
+        (.coreTextPaintedLines, .disabled),
+        (.preparedNativeLines, .disabled),
+        (.systemText, .disabled),
+        (.coreTextPaintedLines, .enabled),
+    ]
+
+    for (renderingMode, selectionMode) in modes {
+        let configuration = MarkdownRendererConfiguration(
+            theme: theme,
+            inlineRenderingMode: renderingMode,
+            nativeTextSelection: selectionMode
+        )
+        let preparedContent = configuration.prepare(block: block)
+        let table = try #require(preparedContent.table)
+        let evidence = try #require(table.rows.first?.cells[0].inlineLayout)
+        let innerWidth = table.columnWidths[0] - Double(theme.tableHorizontalCellPadding * 2)
+        let expectedEvidenceLineCount = evidence.layout(containerWidth: innerWidth).lines.count
+        let evidenceLowerX = Int(Double(theme.tableHorizontalCellPadding) + 2)
+        let evidenceUpperX = Int(
+            table.columnWidths[0] - Double(theme.tableHorizontalCellPadding) - 2
+        )
+        let evidenceXRange = evidenceLowerX..<evidenceUpperX
+        let bitmap = try testBitmap(
+            for: MarkdownBlockView(
+                block: block,
+                configuration: configuration,
+                preparedContent: preparedContent
+            ),
+            width: 380,
+            height: 260,
+            backingScale: 1
+        )
+        let blankRowYRange = try #require(
+            yellowPixelVerticalBounds(in: bitmap, xRange: evidenceXRange)
+        )
+        let insetBlankRowYRange = (blankRowYRange.lowerBound + 2)..<blankRowYRange.upperBound
+        let paintedLineBands = darkPixelHorizontalBands(in: bitmap, xRange: evidenceXRange)
+
+        if renderingMode.usesPreparedLineSurface, selectionMode != .enabled {
+            #expect(
+                paintedLineBands.count >= expectedEvidenceLineCount + 1,
+                "rendering mode: \(renderingMode), selection mode: \(selectionMode), painted bands: \(paintedLineBands), expected evidence lines: \(expectedEvidenceLineCount)"
+            )
+        }
+        #expect(
+            !hasDarkPixel(
+                in: bitmap,
+                xRange: evidenceXRange,
+                yRange: insetBlankRowYRange
+            ),
+            "rendering mode: \(renderingMode), selection mode: \(selectionMode), blank row: \(blankRowYRange)"
+        )
+    }
 }
 
 @Test

@@ -13,6 +13,7 @@ struct MarkdownStreamingTableRowLayoutToken: Hashable {
     let layoutContextIdentity: String
     let inlineRenderingMode: MarkdownInlineRenderingMode
     let nativeTextSelection: MarkdownNativeTextSelection
+    let preparedLayoutHeight: Double?
 }
 
 private struct MarkdownStreamingTableRowLayoutTokenKey: LayoutValueKey {
@@ -109,7 +110,7 @@ struct MarkdownStreamingTableRowStackLayout: Layout {
         for index in subviews.indices {
             let subview = subviews[index]
             let token = subview[MarkdownStreamingTableRowLayoutTokenKey.self]
-            let size: CGSize
+            var size: CGSize
             if let measurementCache,
                let token,
                let cached = cache.sizesByToken[token] ?? measurementCache.tableRowSize(for: token)
@@ -120,6 +121,12 @@ struct MarkdownStreamingTableRowStackLayout: Layout {
             } else {
                 size = sanitized(subview.sizeThatFits(childProposal))
                 diagnosticsRecorder.recordTableRowLayoutMeasurement()
+                if let preparedHeight = token?.preparedLayoutHeight,
+                   preparedHeight.isFinite,
+                   preparedHeight > 0
+                {
+                    size.height = max(size.height, CGFloat(preparedHeight))
+                }
                 if let measurementCache, let token {
                     cache.sizesByToken[token] = size
                     measurementCache.storeTableRowSize(size, for: token)

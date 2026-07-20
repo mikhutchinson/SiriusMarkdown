@@ -2303,12 +2303,11 @@ public struct MarkdownRendererConfiguration: Sendable {
         var changedCells: [(column: Int, cell: MarkdownPreparedTableCell)] = []
         let headerID = Self.tableRowID(parentID: parentID, role: "header", cells: table.header)
         let canReuseStructuralPrefix = previousTable?.columnAlignments == table.columnAlignments
+        let reusesHeader = canReuseStructuralPrefix &&
+            previousTable?.headerID == headerID &&
+            previousTable?.header.count == table.header.count
         let header: [MarkdownPreparedTableCell]
-        if canReuseStructuralPrefix,
-           let previousTable,
-           previousTable.headerID == headerID,
-           previousTable.header.count == table.header.count
-        {
+        if reusesHeader, let previousTable {
             header = previousTable.header
             diagnosticsRecorder.recordTableCellReuse(count: header.count)
         } else {
@@ -2409,7 +2408,48 @@ public struct MarkdownRendererConfiguration: Sendable {
             ? (previousTable?.columnWidthRevision ?? 0) &+ 1
             : (previousTable?.columnWidthRevision ?? 0)
 
-        return MarkdownPreparedTableBlock(
+        // A table cell's prepared inline leaf is initially seeded with the
+        // session-wide container width. The actual cell width is narrower and
+        // known here. Resolve a minimum row height from that width before
+        // SwiftUI measures or caches the row, otherwise a late width
+        // preference can add a line after the shorter row height is already
+        // cached and the text will paint into (or be covered by) the next row.
+        let canReusePreparedHeights = previousTable?.hasPreparedLayoutHeights == true &&
+            !widthsChanged
+        let headerPreparedLayoutHeight: Double
+        if canReusePreparedHeights,
+           reusesHeader,
+           let previousHeight = previousTable?.headerPreparedLayoutHeight
+        {
+            headerPreparedLayoutHeight = previousHeight
+        } else {
+            headerPreparedLayoutHeight = preparedTableRowLayoutHeight(
+                cells: header,
+                columnWidths: columnWidths
+            )
+        }
+
+        let heightResolutionStart = canReusePreparedHeights ? reusablePrefixCount : 0
+        if heightResolutionStart < rows.count {
+            for rowIndex in heightResolutionStart..<rows.count {
+                if canReusePreparedHeights,
+                   let previousRows = previousTable?.rows,
+                   previousRows.indices.contains(rowIndex),
+                   previousRows[rowIndex].id == rows[rowIndex].id,
+                   previousRows[rowIndex].contentFingerprint == rows[rowIndex].contentFingerprint,
+                   let previousHeight = previousRows[rowIndex].preparedLayoutHeight
+                {
+                    rows[rowIndex].preparedLayoutHeight = previousHeight
+                } else {
+                    rows[rowIndex].preparedLayoutHeight = preparedTableRowLayoutHeight(
+                        cells: rows[rowIndex].cells,
+                        columnWidths: columnWidths
+                    )
+                }
+            }
+        }
+
+        var preparedTable = MarkdownPreparedTableBlock(
             columnAlignments: table.columnAlignments,
             header: header,
             rows: rows,
@@ -2418,6 +2458,44 @@ public struct MarkdownRendererConfiguration: Sendable {
             columnWidths: columnWidths,
             columnWidthRevision: widthRevision
         )
+        preparedTable.headerPreparedLayoutHeight = headerPreparedLayoutHeight
+        preparedTable.hasPreparedLayoutHeights = true
+        return preparedTable
+    }
+
+    private func preparedTableRowLayoutHeight(
+        cells: [MarkdownPreparedTableCell],
+        columnWidths: [Double]
+    ) -> Double {
+        let horizontalPadding = Double(theme.renderTableHorizontalCellPadding)
+        let verticalPadding = Double(theme.renderTableVerticalCellPadding)
+        var tallestContent = 0.0
+
+        for column in columnWidths.indices {
+            guard cells.indices.contains(column),
+                  let inline = cells[column].inlineLayout ?? cells[column].selectionInlineLayout
+            else {
+                continue
+            }
+            let contentWidth = max(1, columnWidths[column] - horizontalPadding * 2)
+            let layoutWidth = InlineRunsView.nativeLineLayoutWidth(
+                for: inline,
+                containerWidth: contentWidth
+            )
+            let lineCount = max(
+                1,
+                inline.layout(
+                    containerWidth: layoutWidth,
+                    allowsOverwideFallback: true
+                ).lines.count
+            )
+            let lineSpacing = Double(InlineRunsView.nativeLineSpacing(for: inline))
+            let contentHeight = Double(lineCount) * inline.lineHeight +
+                Double(max(0, lineCount - 1)) * lineSpacing
+            tallestContent = max(tallestContent, contentHeight)
+        }
+
+        return max(38, tallestContent + verticalPadding * 2)
     }
 
     private func preparedTableCells(
@@ -3726,6 +3804,10 @@ public struct MarkdownPreparedTableRow: Identifiable, Sendable {
     public var id: String
     public var cells: [MarkdownPreparedTableCell]
     public var contentFingerprint: MarkdownContentFingerprint
+    /// Width-resolved minimum row height produced during render preparation.
+    /// `nil` is reserved for deliberately unprepared fallback content, whose
+    /// SwiftUI subtree must be measured without cross-publication reuse.
+    var preparedLayoutHeight: Double?
 
     public init(
         id: String,
@@ -3734,6 +3816,7 @@ public struct MarkdownPreparedTableRow: Identifiable, Sendable {
     ) {
         self.id = id
         self.cells = cells
+        self.preparedLayoutHeight = nil
         if let contentFingerprint {
             self.contentFingerprint = contentFingerprint
         } else {
@@ -3754,6 +3837,12 @@ public struct MarkdownPreparedTableBlock: Sendable {
     public var rows: [MarkdownPreparedTableRow]
     public var headerID: String
     public var headerContentFingerprint: MarkdownContentFingerprint
+    /// Width-resolved minimum header height produced during preparation.
+    var headerPreparedLayoutHeight: Double?
+    /// True only when every row height was resolved from prepared inline data.
+    /// The renderer uses this constant-time flag to decide whether stable row
+    /// measurement reuse is safe.
+    var hasPreparedLayoutHeights: Bool
     /// Monotonic natural-width maxima while streaming; exact maxima on seal.
     public var columnNaturalWidths: [Double]
     /// Prepared effective widths. SwiftUI consumes these directly without an
@@ -3779,6 +3868,8 @@ public struct MarkdownPreparedTableBlock: Sendable {
         self.header = header
         self.rows = rows
         self.headerID = headerID
+        self.headerPreparedLayoutHeight = nil
+        self.hasPreparedLayoutHeights = false
         if let headerContentFingerprint {
             self.headerContentFingerprint = headerContentFingerprint
         } else {

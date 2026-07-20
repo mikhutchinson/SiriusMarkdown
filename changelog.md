@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+## 0.6.19 - 2026-07-20
+
+- Fixed prepared table text gaining additional wrapped lines after a shorter
+  row height had already entered the cross-publication measurement cache.
+  Table preparation now resolves a minimum header/body-row height from the
+  final cell widths, theme padding, prepared line metrics, and atomic inline
+  layout before SwiftUI measures the row. Stable history reuses those heights
+  incrementally, while unprepared/custom-style rows stay on uncached natural
+  measurement. Pixel coverage exercises painted, prepared-native, system-text,
+  and AppKit-selection modes, and the exact user-bubble stress table is now a
+  prepared-height regression and a manually inspectable demo case.
+
 ## 0.6.18 - 2026-07-19
 
 - Corrected the default task-list square's prepared optical baseline by half a

@@ -772,6 +772,16 @@ private struct MarkdownExample: Identifiable, Hashable {
             | Long explanation | a wide final column with technical prose | horizontal containment instead of window growth | measured natural widths |
             | Multilingual values | 日本語, 한국어, العربية, emoji 😀 | CoreText-backed measurement remains stable | prepared inline layout |
 
+            ## Narrow Cell Containment Regression
+
+            This is the user-bubble stress table that caught a cached two-line row painting a third line into the following row. Resize the window and scroll horizontally: every divider must remain below all of its row's text.
+
+            | Feature | Expected | Very long evidence column | Status |
+            | --- | --- | --- | ---: |
+            | Code | Horizontal containment | A deliberately long table value that must stay within the finite user bubble instead of widening the transcript | 1 |
+            | HTML | Native rendering | Sanitized rich blocks and decorated links | 2 |
+            | Math | Native rendering | x^2 + alpha and a display equation | 3 |
+
             | Metric | Current Contract | Failure Avoided |
             | :--- | :--- | :--- |
             | Parse count | one finished document parse | full reparse from SwiftUI body |
@@ -783,7 +793,8 @@ private struct MarkdownExample: Identifiable, Hashable {
             assertions: [
                 "Tables use native MarkdownBlockView rendering.",
                 "Header accent and row separators come from MarkdownTheme tokens.",
-                "Wide cells remain inside horizontal table containment."
+                "Wide cells remain inside horizontal table containment.",
+                "Prepared row heights contain every wrapped line before stable row measurements are cached."
             ]
         ),
         MarkdownExample(

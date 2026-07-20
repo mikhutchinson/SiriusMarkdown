@@ -4,6 +4,17 @@
 
 - None currently tracked.
 
+## Resolved in 0.6.19
+
+- Fixed a narrow prepared table cell wrapping from two lines to three only
+  after the table row's shorter natural height had been cached. The late line
+  could paint across the next divider or be covered by the following row.
+  Prepared tables now resolve and incrementally retain width-specific minimum
+  row heights before cache admission; deliberately unprepared and custom-style
+  rows remain naturally measured without cross-publication reuse. The supplied
+  user-bubble table is covered by line-height and pixel-containment regressions
+  and is included in the Table Stress demo for manual narrow-window inspection.
+
 ## Resolved in 0.6.18
 
 - Fixed the default task-list square missing the capital-text optical center by

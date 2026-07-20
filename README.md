@@ -18,40 +18,32 @@ The core contract is simple:
 
 ## Current Release
 
-`0.6.18` ships sanitized native rich HTML and package-owned decorated website
-links without introducing WebKit or view-time network work:
+`0.6.19` fixes prepared table rows that could cache a height before a narrow
+cell completed its width-specific relayout:
 
-- **Native rich HTML:** authorized headings, paragraphs, containers, quotes,
-  lists, tables, preformatted code, inline emphasis/code, links, breaks,
-  subscript, superscript, and policy-approved images are normalized through
-  SwiftSoup into the same prepared, source-mapped native renderer families as
-  Markdown. Scripts, embedded browsing/plugin content, active controls, and
-  unsafe resources remain inert.
-- **Decorated links:** Markdown links and HTML anchors share one activation,
-  accessibility, policy, and preparation pipeline. A native glyph is available
-  immediately; the replaceable default resolver can asynchronously upgrade it
-  to a validated site icon and invalidates only the affected decoration state.
-- **Bounded favicon discovery:** anonymous ephemeral requests, public-origin
-  and contacted-endpoint checks, strict redirect/payload/image limits,
-  in-flight coalescing, and bounded positive/negative caches keep discovery off
-  the rendering path. The package ships no per-site favicon table or proxy.
-- **Native semantics preserved:** selection, copy, source ranges, semantic
-  fonts, link hit testing, focus, pointer, and accessibility survive HTML
-  normalization and decorated-link attachments. Fully decorated leaves may
-  omit redundant underlines while mixed leaves retain them.
-- **Renderer fixes:** ordered-list markers, task squares, table dividers,
-  favicon attachments, and AppKit subscript/superscript now share correct
-  baseline geometry. Mutable GFM tables reuse completed rows and unchanged
-  cells instead of rebuilding accumulated history. Task-square optical
-  alignment is explicitly verified at both 1x and 2x backing scales.
-- **Demonstrated and measured:** the bundled app includes a native HTML
-  overview, exhaustive supported-element gallery, and safety/media boundary.
-  The serial release suite discovers 937 tests, including performance,
-  sanitizer, resolver-security, source-mapping, and native-render regressions.
+- **No cross-row text leakage:** prepared header and body-row minimum heights
+  are resolved from final column widths, theme padding, and prepared line
+  metrics before SwiftUI can admit a row measurement to the stable cache.
+- **Streaming reuse preserved:** unchanged completed rows retain their prepared
+  heights incrementally. A column-width revision cheaply relayouts affected
+  prepared cells without reparsing, re-highlighting, or remeasuring raw text.
+- **Safe compatibility paths:** deliberately unprepared tables and custom table
+  cell styles use uncached natural measurement instead of reusing geometry that
+  was prepared for the package's default cell style.
+- **Regression coverage:** the original finite user-bubble table is covered by
+  exact prepared-height checks and pixel containment across CoreText-painted,
+  prepared-native, system-text, and AppKit-selection paths. It is also included
+  in the Table Stress demo for narrow, horizontally scrolled, and wide-window
+  inspection.
+- **Release validation:** the serial release suite discovers 939 tests, and the
+  full gate also builds a clean external consumer, bundles all three demos,
+  compares every Pretext fixture, checks the math corpus, builds DocC, and runs
+  the opt-in AppKit renderer probes.
 
-The release retains the bounded streaming, detached preparation, native
-selection, syntax highlighting, math, Mermaid, table, attachment, and
-Pretext-backed layout contracts from earlier releases.
+The release retains the sanitized native rich HTML, bounded decorated-link
+resolver, baseline corrections, bounded streaming, native selection, syntax
+highlighting, math, Mermaid, attachment, and Pretext-backed layout contracts
+from `0.6.18`.
 
 ## Requirements
 
@@ -62,7 +54,7 @@ Pretext-backed layout contracts from earlier releases.
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/mikhutchinson/SiriusMarkdown.git", from: "0.6.18")
+    .package(url: "https://github.com/mikhutchinson/SiriusMarkdown.git", from: "0.6.19")
 ],
 targets: [
     .target(
@@ -321,12 +313,12 @@ git diff --check
 - Release runbook: `runbook.md`
 - Changelog: `changelog.md`
 - Bugfix log: `bugfix.md`
-- Current release notes: `release-notes/0.6.18.md`
+- Current release notes: `release-notes/0.6.19.md`
 - Third-party credits: `NOTICE.md`
 
 ## Release
 
-`0.6.18` is ready only when the docs describe the current public package surface,
+`0.6.19` is ready only when the docs describe the current public package surface,
 `bash Tools/product-check.sh` passes from the repository root, `git diff --check`
 is clean, the public remote is correct, and the release commit is tagged and
-pushed as `0.6.18` with a matching published GitHub Release and green CI.
+pushed as `0.6.19` with a matching published GitHub Release and green CI.

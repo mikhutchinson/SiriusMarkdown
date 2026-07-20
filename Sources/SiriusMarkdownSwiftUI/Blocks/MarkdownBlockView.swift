@@ -478,9 +478,11 @@ public struct MarkdownBlockView: View {
     private var tableContent: some View {
         if let table = preparedContent.table {
             let columnWidths = table.columnWidths.map { CGFloat($0) }
+            let usesPreparedLayoutHeights = resolvedTableCellStyle is MarkdownDefaultTableCellStyle &&
+                table.hasPreparedLayoutHeights
             let grid = MarkdownStreamingTableRowStackLayout(
                 diagnosticsRecorder: configuration.diagnosticsRecorder,
-                measurementCache: resolvedTableCellStyle is MarkdownDefaultTableCellStyle
+                measurementCache: usesPreparedLayoutHeights
                     ? configuration.preparationCache
                     : nil
             ) {
@@ -489,7 +491,10 @@ public struct MarkdownBlockView: View {
                         cells: table.header,
                         rowIndex: -1,
                         isHeader: true,
-                        columnWidths: columnWidths
+                        columnWidths: columnWidths,
+                        preparedLayoutHeight: usesPreparedLayoutHeights
+                            ? table.headerPreparedLayoutHeight
+                            : nil
                     )
                     .markdownStreamingTableRowLayoutToken(
                         MarkdownStreamingTableRowLayoutToken(
@@ -499,7 +504,10 @@ public struct MarkdownBlockView: View {
                             columnWidthRevision: table.columnWidthRevision,
                             layoutContextIdentity: theme.renderCacheIdentity,
                             inlineRenderingMode: configuration.inlineRenderingMode,
-                            nativeTextSelection: selectionModeInsideCompositeGrid
+                            nativeTextSelection: selectionModeInsideCompositeGrid,
+                            preparedLayoutHeight: usesPreparedLayoutHeights
+                                ? table.headerPreparedLayoutHeight
+                                : nil
                         )
                     )
                 }
@@ -509,7 +517,10 @@ public struct MarkdownBlockView: View {
                         cells: row.cells,
                         rowIndex: rowIndex,
                         isHeader: false,
-                        columnWidths: columnWidths
+                        columnWidths: columnWidths,
+                        preparedLayoutHeight: usesPreparedLayoutHeights
+                            ? row.preparedLayoutHeight
+                            : nil
                     )
                     .markdownStreamingTableRowLayoutToken(
                         MarkdownStreamingTableRowLayoutToken(
@@ -519,7 +530,10 @@ public struct MarkdownBlockView: View {
                             columnWidthRevision: table.columnWidthRevision,
                             layoutContextIdentity: theme.renderCacheIdentity,
                             inlineRenderingMode: configuration.inlineRenderingMode,
-                            nativeTextSelection: selectionModeInsideCompositeGrid
+                            nativeTextSelection: selectionModeInsideCompositeGrid,
+                            preparedLayoutHeight: usesPreparedLayoutHeights
+                                ? row.preparedLayoutHeight
+                                : nil
                         )
                     )
                 }
@@ -542,7 +556,8 @@ public struct MarkdownBlockView: View {
         cells: [MarkdownPreparedTableCell],
         rowIndex: Int,
         isHeader: Bool,
-        columnWidths: [CGFloat]
+        columnWidths: [CGFloat],
+        preparedLayoutHeight: Double?
     ) -> some View {
         HStack(alignment: .top, spacing: 0) {
             ForEach(columnWidths.indices, id: \.self) { column in
@@ -557,6 +572,10 @@ public struct MarkdownBlockView: View {
                 )
             }
         }
+        .frame(
+            minHeight: preparedLayoutHeight.map { CGFloat($0) },
+            alignment: .top
+        )
         .background(tableRowBackground(rowIndex: rowIndex, isHeader: isHeader))
         .overlay(alignment: .top) {
             if isHeader {

@@ -36,6 +36,7 @@ struct MarkdownStreamingTableTests {
         let completedRow = try #require(firstTable.rows.first)
         let completedCellIDs = completedRow.cells.map(\.id)
         let completedCellFingerprints = completedRow.cells.map(\.contentFingerprint)
+        let completedPreparedLayoutHeight = completedRow.preparedLayoutHeight
 
         stream.append("| Item 1 partial")
         prepared = configuration.prepare(snapshot: stream.snapshot(), reusing: prepared)
@@ -52,6 +53,7 @@ struct MarkdownStreamingTableTests {
         #expect(reusedCompletedRow.id == completedRow.id)
         #expect(reusedCompletedRow.cells.map(\.id) == completedCellIDs)
         #expect(reusedCompletedRow.cells.map(\.contentFingerprint) == completedCellFingerprints)
+        #expect(reusedCompletedRow.preparedLayoutHeight == completedPreparedLayoutHeight)
         #expect(grownTailID == initialTailID)
         #expect(counters.tableCellReuseCount >= completedCellIDs.count * 2)
         #expect(counters.tableCellPreparationCount <= counters.tableCellReuseCount)
@@ -82,6 +84,12 @@ struct MarkdownStreamingTableTests {
                 oneShotTable.rows.flatMap(\.cells).map(\.contentHash)
         )
         #expect(streamedTable.columnAlignments == [.left, .right, .center, nil, nil, nil])
+        #expect(streamedTable.headerPreparedLayoutHeight == oneShotTable.headerPreparedLayoutHeight)
+        #expect(
+            streamedTable.rows.map(\.preparedLayoutHeight) ==
+                oneShotTable.rows.map(\.preparedLayoutHeight)
+        )
+        #expect(streamedTable.hasPreparedLayoutHeights)
 
         let linkedCell = try #require(
             streaming.prepared.snapshot.blocks
@@ -94,6 +102,38 @@ struct MarkdownStreamingTableTests {
         let preparedLinkedCell = try #require(streamedTable.rows.first?.cells[safe: 3])
         #expect(preparedLinkedCell.inlineLayout?.prepared.sourceRange == linkedCell.sourceRange)
         #expect(preparedLinkedCell.sourceRange.byteRange.lowerBound < preparedLinkedCell.sourceRange.byteRange.upperBound)
+    }
+
+    @Test
+    func suppliedUserBubbleStressTablePreparesEnoughHeightForEveryWrappedLine() throws {
+        var stream = MarkdownStream()
+        stream.append(userBubbleStressTable)
+        stream.finish()
+
+        var theme = MarkdownTheme.compactChat
+        theme.tableHorizontalCellPadding = 12
+        theme.tableVerticalCellPadding = 9
+        let configuration = MarkdownRendererConfiguration(theme: theme)
+        let table = try preparedTable(
+            in: configuration.prepare(snapshot: stream.snapshot())
+        )
+        let firstRow = try #require(table.rows.first)
+        let evidence = try #require(firstRow.cells[safe: 2]?.inlineLayout)
+        let evidenceWidth = table.columnWidths[2] - Double(theme.tableHorizontalCellPadding * 2)
+        let layoutWidth = InlineRunsView.nativeLineLayoutWidth(
+            for: evidence,
+            containerWidth: evidenceWidth
+        )
+        let lineCount = evidence.layout(containerWidth: layoutWidth).lines.count
+        let lineSpacing = Double(InlineRunsView.nativeLineSpacing(for: evidence))
+        let requiredHeight = Double(lineCount) * evidence.lineHeight +
+            Double(max(0, lineCount - 1)) * lineSpacing +
+            Double(theme.tableVerticalCellPadding * 2)
+
+        #expect(table.hasPreparedLayoutHeights)
+        #expect(lineCount >= 3)
+        #expect((firstRow.preparedLayoutHeight ?? 0) >= requiredHeight)
+        #expect(table.rows.dropFirst().allSatisfy { ($0.preparedLayoutHeight ?? 0) >= 38 })
     }
 
     @Test
@@ -185,6 +225,15 @@ private struct StreamingTableRun {
 private let tablePrefix = """
 | Item | Decimal | Sentence | Link | Detail | Tail |
 | :--- | ---: | :---: | --- | --- | --- |
+
+"""
+
+private let userBubbleStressTable = """
+| Feature | Expected | Very long evidence column | Status |
+| --- | --- | --- | ---: |
+| Code | Horizontal containment | A deliberately long table value that must stay within the finite user bubble instead of widening the transcript | 1 |
+| HTML | Native rendering | Sanitized rich blocks and decorated links | 2 |
+| Math | Native rendering | x^2 + alpha and a display equation | 3 |
 
 """
 
