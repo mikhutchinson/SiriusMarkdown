@@ -1,6 +1,37 @@
 import SiriusMarkdownCore
 import SwiftUI
 
+/// A bounded group keeps the active streaming suffix small while letting
+/// SwiftUI treat completed groups as one stable graph child. Rendering every
+/// accumulated row as a direct child makes AttributeGraph revisit a triangular
+/// number of row subtrees even when all row equality tokens are unchanged.
+private struct MarkdownPreparedTableRowRenderGroup: Identifiable {
+    static let capacity = 8
+
+    let startIndex: Int
+    let rows: [MarkdownPreparedTableRow]
+    let id: String
+    let contentFingerprint: MarkdownContentFingerprint
+    let preparedLayoutHeight: Double?
+
+    init(startIndex: Int, rows: [MarkdownPreparedTableRow]) {
+        self.startIndex = startIndex
+        self.rows = rows
+        self.id = rows.first?.id ?? "table-row-group:\(startIndex)"
+        var fingerprint = MarkdownContentFingerprint(domain: "markdown-prepared-table-row-group")
+        fingerprint.combine(startIndex)
+        fingerprint.combine(rows.count)
+        for row in rows {
+            fingerprint.combine(row.contentFingerprint)
+        }
+        self.contentFingerprint = fingerprint
+        let heights = rows.compactMap(\.preparedLayoutHeight)
+        self.preparedLayoutHeight = heights.count == rows.count
+            ? heights.reduce(0, +)
+            : nil
+    }
+}
+
 public struct MarkdownBlockView: View {
     private var block: MarkdownBlock
     private var configuration: MarkdownRendererConfiguration
@@ -487,57 +518,73 @@ public struct MarkdownBlockView: View {
                     : nil
             ) {
                 if !table.header.isEmpty {
-                    tableRow(
-                        cells: table.header,
-                        rowIndex: -1,
-                        isHeader: true,
-                        columnWidths: columnWidths,
+                    let layoutToken = MarkdownStreamingTableRowLayoutToken(
+                        id: table.headerID,
+                        contentFingerprint: table.headerContentFingerprint,
+                        columnWidthFingerprint: table.columnWidthFingerprint,
+                        columnWidthRevision: table.columnWidthRevision,
+                        layoutContextIdentity: theme.renderCacheIdentity,
+                        inlineRenderingMode: configuration.inlineRenderingMode,
+                        nativeTextSelection: selectionModeInsideCompositeGrid,
                         preparedLayoutHeight: usesPreparedLayoutHeights
                             ? table.headerPreparedLayoutHeight
                             : nil
                     )
-                    .markdownStreamingTableRowLayoutToken(
-                        MarkdownStreamingTableRowLayoutToken(
-                            id: table.headerID,
-                            contentFingerprint: table.headerContentFingerprint,
-                            columnWidthFingerprint: table.columnWidthFingerprint,
-                            columnWidthRevision: table.columnWidthRevision,
-                            layoutContextIdentity: theme.renderCacheIdentity,
-                            inlineRenderingMode: configuration.inlineRenderingMode,
-                            nativeTextSelection: selectionModeInsideCompositeGrid,
+                    tableRowsWithStableRenderBoundary(
+                        layoutToken: layoutToken,
+                        columnAlignments: table.columnAlignments,
+                        usesStableRenderBoundary: usesPreparedLayoutHeights
+                    ) {
+                        tableRow(
+                            cells: table.header,
+                            rowIndex: -1,
+                            isHeader: true,
+                            columnWidths: columnWidths,
                             preparedLayoutHeight: usesPreparedLayoutHeights
                                 ? table.headerPreparedLayoutHeight
                                 : nil
                         )
-                    )
+                    }
                 }
 
-                ForEach(Array(table.rows.enumerated()), id: \.element.id) { rowIndex, row in
-                    tableRow(
-                        cells: row.cells,
-                        rowIndex: rowIndex,
-                        isHeader: false,
-                        columnWidths: columnWidths,
+                ForEach(tableRowRenderGroups(table.rows)) { group in
+                    let layoutToken = MarkdownStreamingTableRowLayoutToken(
+                        id: group.id,
+                        contentFingerprint: group.contentFingerprint,
+                        columnWidthFingerprint: table.columnWidthFingerprint,
+                        columnWidthRevision: table.columnWidthRevision,
+                        layoutContextIdentity: theme.renderCacheIdentity,
+                        inlineRenderingMode: configuration.inlineRenderingMode,
+                        nativeTextSelection: selectionModeInsideCompositeGrid,
                         preparedLayoutHeight: usesPreparedLayoutHeights
-                            ? row.preparedLayoutHeight
+                            ? group.preparedLayoutHeight
                             : nil
                     )
-                    .markdownStreamingTableRowLayoutToken(
-                        MarkdownStreamingTableRowLayoutToken(
-                            id: row.id,
-                            contentFingerprint: row.contentFingerprint,
-                            columnWidthFingerprint: table.columnWidthFingerprint,
-                            columnWidthRevision: table.columnWidthRevision,
-                            layoutContextIdentity: theme.renderCacheIdentity,
-                            inlineRenderingMode: configuration.inlineRenderingMode,
-                            nativeTextSelection: selectionModeInsideCompositeGrid,
-                            preparedLayoutHeight: usesPreparedLayoutHeights
-                                ? row.preparedLayoutHeight
-                                : nil
-                        )
-                    )
+                    tableRowsWithStableRenderBoundary(
+                        layoutToken: layoutToken,
+                        columnAlignments: table.columnAlignments,
+                        usesStableRenderBoundary: usesPreparedLayoutHeights
+                    ) {
+                        VStack(spacing: 0) {
+                            ForEach(Array(group.rows.enumerated()), id: \.element.id) { offset, row in
+                                tableRow(
+                                    cells: row.cells,
+                                    rowIndex: group.startIndex + offset,
+                                    isHeader: false,
+                                    columnWidths: columnWidths,
+                                    preparedLayoutHeight: usesPreparedLayoutHeights
+                                        ? row.preparedLayoutHeight
+                                        : nil
+                                )
+                            }
+                        }
+                    }
                 }
             }
+            .background(tableSelectionFragmentPreference(
+                table: table,
+                enabled: usesPreparedLayoutHeights
+            ))
 
             AnyView(resolvedTableStyle.makeBody(
                 configuration: MarkdownTableBlockStyleConfiguration(
@@ -549,6 +596,44 @@ public struct MarkdownBlockView: View {
             ))
         } else {
             inlineContent(baseFont: theme.codeFont, fallbackText: block.text)
+        }
+    }
+
+    @ViewBuilder
+    private func tableRowsWithStableRenderBoundary<Content: View>(
+        layoutToken: MarkdownStreamingTableRowLayoutToken,
+        columnAlignments: [MarkdownTableColumnAlignment?],
+        usesStableRenderBoundary: Bool,
+        @ViewBuilder content: @escaping () -> Content
+    ) -> some View {
+        if usesStableRenderBoundary {
+            MarkdownStreamingTableRowRenderBoundary(
+                token: MarkdownStreamingTableRowRenderToken(
+                    layoutToken: layoutToken,
+                    columnAlignments: columnAlignments,
+                    linkActionIdentity: configuration.linkAction?.renderIdentity
+                ),
+                diagnosticsRecorder: configuration.diagnosticsRecorder
+            ) {
+                content()
+            }
+            .equatable()
+            .markdownStreamingTableRowLayoutToken(layoutToken)
+        } else {
+            content()
+            .markdownStreamingTableRowLayoutToken(layoutToken)
+        }
+    }
+
+    private func tableRowRenderGroups(
+        _ rows: [MarkdownPreparedTableRow]
+    ) -> [MarkdownPreparedTableRowRenderGroup] {
+        stride(from: 0, to: rows.count, by: MarkdownPreparedTableRowRenderGroup.capacity).map { start in
+            let end = min(rows.count, start + MarkdownPreparedTableRowRenderGroup.capacity)
+            return MarkdownPreparedTableRowRenderGroup(
+                startIndex: start,
+                rows: Array(rows[start..<end])
+            )
         }
     }
 
@@ -589,6 +674,85 @@ public struct MarkdownBlockView: View {
                 .fill(theme.tableBorderColor)
                 .frame(height: 1)
         }
+    }
+
+    @ViewBuilder
+    private func tableSelectionFragmentPreference(
+        table: MarkdownPreparedTableBlock,
+        enabled: Bool
+    ) -> some View {
+        if enabled {
+            GeometryReader { proxy in
+                Color.clear.preference(
+                    key: MarkdownDocumentSelectionFragmentsKey.self,
+                    value: tableSelectionFragments(
+                        table: table,
+                        rect: proxy.frame(in: .named(markdownDocumentSelectionCoordinateSpaceName))
+                    )
+                )
+            }
+            .allowsHitTesting(false)
+        }
+    }
+
+    private func tableSelectionFragments(
+        table: MarkdownPreparedTableBlock,
+        rect: CGRect
+    ) -> [MarkdownDocumentSelectionFragment] {
+        guard let documentSelectionContext,
+              rect.width.isFinite,
+              rect.height.isFinite,
+              rect.width > 0,
+              rect.height > 0
+        else {
+            return []
+        }
+
+        let horizontalPadding = theme.renderTableHorizontalCellPadding
+        let verticalPadding = theme.renderTableVerticalCellPadding
+        var fragments: [MarkdownDocumentSelectionFragment] = []
+        var rowOriginY = rect.minY
+
+        func appendCells(
+            _ cells: [MarkdownPreparedTableCell],
+            rowID: String,
+            rowHeight: CGFloat
+        ) {
+            var columnOriginX = rect.minX
+            for column in table.columnWidths.indices {
+                let columnWidth = CGFloat(table.columnWidths[column])
+                defer { columnOriginX += columnWidth }
+                guard cells.indices.contains(column),
+                      let prepared = cells[column].inlineLayout ?? cells[column].selectionInlineLayout,
+                      let layout = prepared.initialLayoutResult
+                else {
+                    continue
+                }
+                let contentRect = CGRect(
+                    x: columnOriginX + horizontalPadding,
+                    y: rowOriginY + verticalPadding,
+                    width: max(1, columnWidth - horizontalPadding * 2),
+                    height: max(1, rowHeight - verticalPadding * 2)
+                )
+                fragments.append(contentsOf: MarkdownDocumentSelectionFragment.inlineLineFragments(
+                    blockID: documentSelectionContext.blockID,
+                    prepared: prepared,
+                    layout: layout,
+                    rect: contentRect,
+                    idPrefix: "table:\(rowID):\(column)"
+                ))
+            }
+        }
+
+        let headerHeight = CGFloat(table.headerPreparedLayoutHeight ?? 38)
+        appendCells(table.header, rowID: table.headerID, rowHeight: headerHeight)
+        rowOriginY += headerHeight
+        for row in table.rows {
+            let rowHeight = CGFloat(row.preparedLayoutHeight ?? 38)
+            appendCells(row.cells, rowID: row.id, rowHeight: rowHeight)
+            rowOriginY += rowHeight
+        }
+        return fragments
     }
 
     @ViewBuilder
@@ -816,9 +980,18 @@ public struct MarkdownBlockView: View {
         isLastColumn: Bool,
         width: CGFloat
     ) -> some View {
+        let fixedPreparedContainerWidth: Double? = if resolvedTableCellStyle is MarkdownDefaultTableCellStyle {
+            Double(max(1, width - theme.renderTableHorizontalCellPadding * 2))
+        } else {
+            nil
+        }
         AnyView(resolvedTableCellStyle.makeBody(
             configuration: MarkdownTableCellStyleConfiguration(
-                label: MarkdownBlockStyleLabel(tableCellLabel(cell, isHeader: isHeader)),
+                label: MarkdownBlockStyleLabel(tableCellLabel(
+                    cell,
+                    isHeader: isHeader,
+                    fixedPreparedContainerWidth: fixedPreparedContainerWidth
+                )),
                 theme: theme,
                 blockID: block.id,
                 indentationLevel: 0,
@@ -834,7 +1007,11 @@ public struct MarkdownBlockView: View {
     }
 
     @ViewBuilder
-    private func tableCellLabel(_ cell: MarkdownPreparedTableCell?, isHeader: Bool) -> some View {
+    private func tableCellLabel(
+        _ cell: MarkdownPreparedTableCell?,
+        isHeader: Bool,
+        fixedPreparedContainerWidth: Double?
+    ) -> some View {
         if let inlineLayout = cell?.inlineLayout {
             InlineRunsView(
                 prepared: inlineLayout,
@@ -844,6 +1021,7 @@ public struct MarkdownBlockView: View {
                 inlineRenderingMode: configuration.inlineRenderingMode,
                 nativeTextSelection: selectionModeInsideCompositeGrid
             )
+            .preparedContainerWidth(fixedPreparedContainerWidth)
         } else if let selectionInlineLayout = cell?.selectionInlineLayout {
             InlineRunsView(
                 prepared: selectionInlineLayout,
@@ -853,6 +1031,7 @@ public struct MarkdownBlockView: View {
                 inlineRenderingMode: configuration.inlineRenderingMode,
                 nativeTextSelection: selectionModeInsideCompositeGrid
             )
+            .preparedContainerWidth(fixedPreparedContainerWidth)
         } else {
             InlineRunsView(
                 attributed: cell?.inline ?? AttributedString(""),
@@ -865,6 +1044,7 @@ public struct MarkdownBlockView: View {
                 lineHeight: paragraphTextMetrics.lineHeight,
                 fontProfile: paragraphTextMetrics.fontProfile
             )
+            .preparedContainerWidth(fixedPreparedContainerWidth)
         }
     }
 

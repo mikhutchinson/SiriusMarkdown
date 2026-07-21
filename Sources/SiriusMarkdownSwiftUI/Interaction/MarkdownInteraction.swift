@@ -39,9 +39,11 @@ public struct MarkdownCopyPayload: Sendable, Hashable {
 
 public struct MarkdownLinkAction: Sendable {
     public var open: @Sendable (String) -> Void
+    let renderIdentity: UUID
 
     public init(open: @escaping @Sendable (String) -> Void) {
         self.open = open
+        self.renderIdentity = UUID()
     }
 }
 

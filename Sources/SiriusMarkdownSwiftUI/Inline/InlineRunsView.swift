@@ -30,6 +30,10 @@ public struct InlineRunsView: View {
     private var linkAction: MarkdownLinkAction?
     private var inlineRenderingMode: MarkdownInlineRenderingMode
     private var nativeTextSelection: MarkdownNativeTextSelection
+    /// Exact content width already resolved by an enclosing prepared layout,
+    /// currently the default table-cell pipeline. When present, the inline
+    /// leaf must not mount a GeometryReader/preference feedback loop.
+    private var fixedPreparedContainerWidth: Double?
 
     public init(
         runs: [MarkdownInlineRun],
@@ -60,6 +64,7 @@ public struct InlineRunsView: View {
         self.linkAction = linkAction
         self.inlineRenderingMode = inlineRenderingMode
         self.nativeTextSelection = nativeTextSelection
+        self.fixedPreparedContainerWidth = nil
     }
 
     public init(
@@ -85,6 +90,7 @@ public struct InlineRunsView: View {
         self.linkAction = linkAction
         self.inlineRenderingMode = inlineRenderingMode
         self.nativeTextSelection = nativeTextSelection
+        self.fixedPreparedContainerWidth = nil
     }
 
     public init(
@@ -107,6 +113,13 @@ public struct InlineRunsView: View {
         self.linkAction = linkAction
         self.inlineRenderingMode = inlineRenderingMode
         self.nativeTextSelection = nativeTextSelection
+        self.fixedPreparedContainerWidth = nil
+    }
+
+    func preparedContainerWidth(_ width: Double?) -> Self {
+        var copy = self
+        copy.fixedPreparedContainerWidth = width
+        return copy
     }
 
     var fallbackTextMetrics: MarkdownInlineFallbackMetrics {
@@ -167,7 +180,8 @@ public struct InlineRunsView: View {
             baseFont: baseFont,
             linkAction: linkAction,
             inlineRenderingMode: inlineRenderingMode,
-            nativeTextSelection: nativeTextSelection
+            nativeTextSelection: nativeTextSelection,
+            fixedPreparedContainerWidth: fixedPreparedContainerWidth
         )
     }
 
@@ -625,6 +639,7 @@ private extension MarkdownInlineRun {
 
 struct PreparedInlineLayoutIdentity: Hashable {
     var cacheFingerprint: MarkdownContentFingerprint
+    var fixedPreparedContainerWidth: Double?
 }
 
 private struct PreparedInlineTextView: View {
@@ -635,6 +650,7 @@ private struct PreparedInlineTextView: View {
     var linkAction: MarkdownLinkAction?
     var inlineRenderingMode: MarkdownInlineRenderingMode
     var nativeTextSelection: MarkdownNativeTextSelection
+    var fixedPreparedContainerWidth: Double?
 
     @Environment(\.markdownDocumentSelectionContext) private var documentSelectionContext
     @Environment(\.markdownSelectionController) private var selectionController
@@ -651,7 +667,8 @@ private struct PreparedInlineTextView: View {
         baseFont: Font,
         linkAction: MarkdownLinkAction?,
         inlineRenderingMode: MarkdownInlineRenderingMode,
-        nativeTextSelection: MarkdownNativeTextSelection
+        nativeTextSelection: MarkdownNativeTextSelection,
+        fixedPreparedContainerWidth: Double?
     ) {
         self.prepared = prepared
         self.fallbackAttributed = fallbackAttributed
@@ -660,26 +677,72 @@ private struct PreparedInlineTextView: View {
         self.linkAction = linkAction
         self.inlineRenderingMode = inlineRenderingMode
         self.nativeTextSelection = nativeTextSelection
+        self.fixedPreparedContainerWidth = fixedPreparedContainerWidth
         let initial = prepared.initialLayoutResult ?? InlineLayoutResult(lines: [], naturalWidth: 0, height: 0)
         _layoutResult = State(initialValue: initial)
         if let initial = prepared.initialLayoutResult, !initial.lines.isEmpty {
-            _containerWidth = State(initialValue: CGFloat(prepared.defaultLayoutWidth))
+            _containerWidth = State(initialValue: CGFloat(
+                fixedPreparedContainerWidth ?? prepared.defaultLayoutWidth
+            ))
         }
     }
 
     private var layoutIdentity: PreparedInlineLayoutIdentity {
         PreparedInlineLayoutIdentity(
-            cacheFingerprint: prepared.cacheFingerprint
+            cacheFingerprint: prepared.cacheFingerprint,
+            fixedPreparedContainerWidth: fixedPreparedContainerWidth
         )
     }
 
     @ViewBuilder
     var body: some View {
+        if fixedPreparedContainerWidth != nil,
+           nativeTextSelection != .enabled,
+           canRenderNativeLines
+        {
+            fixedPreparedNativeLineSurface
+                // A content or prepared-width revision replaces the leaf.
+                .id(layoutIdentity)
+        } else if fixedPreparedContainerWidth != nil {
+            decoratedRenderSurface
+                // A content or prepared-width revision replaces the stateful
+                // leaf. Retained rows keep an identical identity and never
+                // mount per-cell width feedback machinery.
+                .id(layoutIdentity)
+        } else {
+            dynamicallySizedRenderSurface
+        }
+    }
+
+    private var fixedPreparedNativeLineSurface: some View {
         let firstBaselineFromTop = prepared.firstTextBaselineFromTop(
             inlineRenderingMode: inlineRenderingMode,
             nativeTextSelection: nativeTextSelection
         )
-        renderSurface
+        let width = CGFloat(fixedPreparedContainerWidth ?? prepared.defaultLayoutWidth)
+        return NativeInlineLineTextView(
+            prepared: prepared,
+            layoutResult: layoutResult,
+            fallbackAttributed: fallbackAttributed,
+            baseFont: baseFont,
+            theme: theme,
+            containerWidth: width,
+            linkAction: linkAction,
+            inlineRenderingMode: inlineRenderingMode,
+            nativeTextSelection: nativeTextSelection,
+            dragSelectionHandler: makeDragSelectionHandler()
+        )
+        .alignmentGuide(.firstTextBaseline) { _ in firstBaselineFromTop }
+        .environment(\.openURL, markdownOpenURLAction(linkAction: linkAction))
+        .accessibilityValue(layoutResult.lines.isEmpty ? "" : "\(layoutResult.lines.count) prepared lines")
+    }
+
+    private var decoratedRenderSurface: some View {
+        let firstBaselineFromTop = prepared.firstTextBaselineFromTop(
+            inlineRenderingMode: inlineRenderingMode,
+            nativeTextSelection: nativeTextSelection
+        )
+        return renderSurface
             // Neither prepared leaf is a SwiftUI `Text`. Publish the baseline
             // used by its actual engine so parent list layouts never guess.
             .alignmentGuide(.firstTextBaseline) { _ in
@@ -687,6 +750,10 @@ private struct PreparedInlineTextView: View {
             }
             .environment(\.openURL, markdownOpenURLAction(linkAction: linkAction))
             .accessibilityValue(layoutResult.lines.isEmpty ? "" : "\(layoutResult.lines.count) prepared lines")
+    }
+
+    private var dynamicallySizedRenderSurface: some View {
+        decoratedRenderSurface
             .onAppear {
                 refreshLayoutIfPossible()
             }
@@ -741,12 +808,12 @@ private struct PreparedInlineTextView: View {
                 )
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(widthReader)
+            .background(widthReaderIfNeeded)
         } else if canRenderNativeLines {
             Color.clear
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .frame(height: nativeLineSurfaceHeight, alignment: .topLeading)
-                .background(widthReader)
+                .background(widthReaderIfNeeded)
                 .overlay(alignment: .topLeading) {
                     NativeInlineLineTextView(
                         prepared: prepared,
@@ -761,7 +828,7 @@ private struct PreparedInlineTextView: View {
                         dragSelectionHandler: makeDragSelectionHandler()
                     )
                 }
-                .background(nativeLineSelectionFragmentsPreference)
+                .background(nativeLineSelectionFragmentsPreferenceIfNeeded)
         } else {
             MarkdownSelectableText(
                 attributed: fallbackAttributed,
@@ -775,8 +842,8 @@ private struct PreparedInlineTextView: View {
             )
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .clipped()
-                .background(widthReader)
-                .background(fallbackSelectionFragmentPreference)
+                .background(widthReaderIfNeeded)
+                .background(fallbackSelectionFragmentPreferenceIfNeeded)
         }
     }
 
@@ -806,6 +873,13 @@ private struct PreparedInlineTextView: View {
         .allowsHitTesting(false)
     }
 
+    @ViewBuilder
+    private var widthReaderIfNeeded: some View {
+        if fixedPreparedContainerWidth == nil {
+            widthReader
+        }
+    }
+
     private var nativeLineSelectionFragmentsPreference: some View {
         GeometryReader { proxy in
             let rect = selectionPreferenceRect(from: proxy)
@@ -816,6 +890,13 @@ private struct PreparedInlineTextView: View {
             )
         }
         .allowsHitTesting(false)
+    }
+
+    @ViewBuilder
+    private var nativeLineSelectionFragmentsPreferenceIfNeeded: some View {
+        if fixedPreparedContainerWidth == nil {
+            nativeLineSelectionFragmentsPreference
+        }
     }
 
     private var fallbackSelectionFragmentPreference: some View {
@@ -829,6 +910,13 @@ private struct PreparedInlineTextView: View {
             )
         }
         .allowsHitTesting(false)
+    }
+
+    @ViewBuilder
+    private var fallbackSelectionFragmentPreferenceIfNeeded: some View {
+        if fixedPreparedContainerWidth == nil {
+            fallbackSelectionFragmentPreference
+        }
     }
 
     private func selectionPreferenceRect(from proxy: GeometryProxy) -> CGRect {

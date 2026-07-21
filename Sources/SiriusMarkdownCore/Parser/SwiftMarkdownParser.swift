@@ -2,7 +2,21 @@ import Foundation
 import Markdown
 
 public struct SwiftMarkdownParser: Sendable {
-    public init() {}
+    private let tableCellConversionCache: MarkdownTableCellConversionCache
+
+    public init() {
+        self.tableCellConversionCache = MarkdownTableCellConversionCache(capacity: 4_096)
+    }
+
+    init(tableCellConversionCacheCapacity: Int) {
+        self.tableCellConversionCache = MarkdownTableCellConversionCache(
+            capacity: tableCellConversionCacheCapacity
+        )
+    }
+
+    var cachedTableCellConversionCount: Int {
+        tableCellConversionCache.count
+    }
 
     public func parse(
         _ slice: MarkdownSourceSlice,
@@ -10,6 +24,24 @@ public struct SwiftMarkdownParser: Sendable {
         idNamespace: String,
         isSealed: Bool,
         referenceDefinitionsPrefix: String = ""
+    ) -> [MarkdownBlock] {
+        parse(
+            slice,
+            lineMap: lineMap,
+            idNamespace: idNamespace,
+            isSealed: isSealed,
+            referenceDefinitionsPrefix: referenceDefinitionsPrefix,
+            diagnosticsRecorder: nil
+        )
+    }
+
+    func parse(
+        _ slice: MarkdownSourceSlice,
+        lineMap: MarkdownLineMap,
+        idNamespace: String,
+        isSealed: Bool,
+        referenceDefinitionsPrefix: String = "",
+        diagnosticsRecorder: MarkdownDiagnosticsRecorder?
     ) -> [MarkdownBlock] {
         let sliceText = slice.text
         let source = referenceDefinitionsPrefix + sliceText
@@ -25,7 +57,9 @@ public struct SwiftMarkdownParser: Sendable {
             lineMap: lineMap,
             idNamespace: idNamespace,
             isSealed: isSealed,
-            referenceDefinitionsPrefix: referenceDefinitionsPrefix
+            referenceDefinitionsPrefix: referenceDefinitionsPrefix,
+            tableCellConversionCache: tableCellConversionCache,
+            diagnosticsRecorder: diagnosticsRecorder
         ).convert(document)
     }
 }
@@ -39,6 +73,8 @@ private struct SwiftMarkdownRenderModelConverter {
     var referenceDefinitionsPrefix: String
     var allowParagraphDisplayMathSplitting: Bool = true
     private let sourceLocationIndex: MarkdownSourceLocationIndex
+    private let tableCellConversionCache: MarkdownTableCellConversionCache
+    private let diagnosticsRecorder: MarkdownDiagnosticsRecorder?
 
     init(
         source: String,
@@ -47,6 +83,8 @@ private struct SwiftMarkdownRenderModelConverter {
         idNamespace: String,
         isSealed: Bool,
         referenceDefinitionsPrefix: String,
+        tableCellConversionCache: MarkdownTableCellConversionCache,
+        diagnosticsRecorder: MarkdownDiagnosticsRecorder?,
         allowParagraphDisplayMathSplitting: Bool = true
     ) {
         self.source = source
@@ -57,6 +95,8 @@ private struct SwiftMarkdownRenderModelConverter {
         self.referenceDefinitionsPrefix = referenceDefinitionsPrefix
         self.allowParagraphDisplayMathSplitting = allowParagraphDisplayMathSplitting
         self.sourceLocationIndex = MarkdownSourceLocationIndex(source: source)
+        self.tableCellConversionCache = tableCellConversionCache
+        self.diagnosticsRecorder = diagnosticsRecorder
     }
 
     private var sliceByteCount: Int {
@@ -88,7 +128,8 @@ private struct SwiftMarkdownRenderModelConverter {
         let range = markdownSourceRange(for: markup)
         let rawText = sourceText(for: range.byteRange)
         let kind = blockKind(for: markup, rawText: rawText)
-        let inlines = inlineRuns(for: markup, fallbackRange: range)
+        let table = tableBlock(for: markup)
+        let inlines = inlineRuns(for: markup, fallbackRange: range, table: table)
         let contentHash = stableContentHash(rawText)
         let id = stableBlockID(kind: kind, range: range, sequence: sequence)
         let richContent: MarkdownRichContent? = if let htmlBlock = markup as? HTMLBlock {
@@ -110,7 +151,7 @@ private struct SwiftMarkdownRenderModelConverter {
             text: displayText(for: markup, rawText: rawText),
             inlines: inlines,
             listItems: listItems(for: markup),
-            table: tableBlock(for: markup),
+            table: table,
             contentHash: contentHash,
             orderedListStart: (markup as? OrderedList)?.startIndex,
             headingLevel: (markup as? Heading)?.level,
@@ -160,7 +201,11 @@ private struct SwiftMarkdownRenderModelConverter {
         }
     }
 
-    private func inlineRuns(for markup: Markup, fallbackRange: MarkdownSourceRange) -> [MarkdownInlineRun] {
+    private func inlineRuns(
+        for markup: Markup,
+        fallbackRange: MarkdownSourceRange,
+        table: MarkdownTableBlock?
+    ) -> [MarkdownInlineRun] {
         switch markup {
         case let heading as Heading:
             return inlineRunConverter(fallbackRange: fallbackRange).runs(in: heading.children)
@@ -183,8 +228,11 @@ private struct SwiftMarkdownRenderModelConverter {
             return inlineRunConverter(fallbackRange: fallbackRange).runs(in: list.children)
         case let list as OrderedList:
             return inlineRunConverter(fallbackRange: fallbackRange).runs(in: list.children)
-        case let table as Table:
-            return inlineRunConverter(fallbackRange: fallbackRange).runs(in: table.children)
+        case is Table:
+            guard let table else {
+                return []
+            }
+            return (table.header + table.rows.flatMap { $0 }).flatMap(\.inlines)
         case let codeBlock as CodeBlock:
             return [
                 MarkdownInlineRun(
@@ -234,6 +282,8 @@ private struct SwiftMarkdownRenderModelConverter {
                 idNamespace: idNamespace,
                 isSealed: isSealed,
                 referenceDefinitionsPrefix: referenceDefinitionsPrefix,
+                tableCellConversionCache: tableCellConversionCache,
+                diagnosticsRecorder: diagnosticsRecorder,
                 allowParagraphDisplayMathSplitting: false
             ).convert(document)
 
@@ -539,15 +589,62 @@ private struct SwiftMarkdownRenderModelConverter {
 
     private func markdownTableCell(_ cell: Table.Cell) -> MarkdownTableCell {
         let range = markdownSourceRange(for: cell)
+        let rawText = sourceText(for: range.byteRange)
+        let key = tableCellConversionCacheKey(for: cell, range: range, rawText: rawText)
+        if let cached = tableCellConversionCache.cell(forKey: key) {
+            diagnosticsRecorder?.recordTableCellModelCacheHit()
+            return cached
+        }
+
         let inlines = inlineRunConverter(fallbackRange: range).runs(in: cell.children)
-        return MarkdownTableCell(
+        let converted = MarkdownTableCell(
             sourceRange: range,
             text: inlines.map(\.text).joined(),
             inlines: inlines,
-            contentHash: stableContentHash(sourceText(for: range.byteRange)),
+            contentHash: stableContentHash(rawText),
             colspan: cell.colspan,
             rowspan: cell.rowspan
         )
+        tableCellConversionCache.insert(converted, forKey: key)
+        diagnosticsRecorder?.recordTableCellModelConversion()
+        return converted
+    }
+
+    private func tableCellConversionCacheKey(
+        for cell: Table.Cell,
+        range: MarkdownSourceRange,
+        rawText: String
+    ) -> MarkdownCacheKey {
+        var fingerprint = MarkdownContentFingerprint(domain: "table-cell-render-model-v1")
+        fingerprint.combine(rawText)
+        fingerprint.combine(cell.colspan)
+        fingerprint.combine(cell.rowspan)
+        combineResolvedResourceSemantics(in: cell, into: &fingerprint)
+        return MarkdownCacheKey(
+            sourceRange: range,
+            contentFingerprint: fingerprint,
+            namespace: "swift-markdown-table-cell"
+        )
+    }
+
+    private func combineResolvedResourceSemantics(
+        in markup: Markup,
+        into fingerprint: inout MarkdownContentFingerprint
+    ) {
+        switch markup {
+        case let link as Link:
+            fingerprint.combine("link")
+            fingerprint.combine(link.destination ?? "")
+        case let image as Markdown.Image:
+            fingerprint.combine("image")
+            fingerprint.combine(image.source ?? "")
+        default:
+            break
+        }
+
+        for child in markup.children {
+            combineResolvedResourceSemantics(in: child, into: &fingerprint)
+        }
     }
 
     private func tableColumnAlignment(_ alignment: Table.ColumnAlignment?) -> MarkdownTableColumnAlignment? {

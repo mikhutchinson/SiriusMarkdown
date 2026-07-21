@@ -2,6 +2,29 @@
 
 ## Unreleased
 
+## 0.6.20 - 2026-07-21
+
+- Reused unchanged table-cell render models across mutable-tail reparses from a
+  bounded cache, with conversion and cache-hit diagnostics. Table block inline
+  compatibility data now comes from the converted semantic cells instead of a
+  second full AST walk, while resource-resolution changes still invalidate the
+  affected cache entry.
+- Prepared default table cells at their exact content widths before SwiftUI
+  evaluation, including line ranges, CoreText paint plans, and row heights.
+  Bounded stable row groups, explicit render tokens, aggregate selection
+  geometry, and retained row-size measurements prevent completed history from
+  causing triangular view-graph and layout work as a live table grows.
+- Materialized transparent attachment placeholders and tinted math attachments
+  as bounded bitmap-backed `NSImage` values. TextKit can now normalize and copy
+  attributed content without emitting ImageIO serialization failures from
+  custom drawing representations.
+- Replaced construction-only, unconditional-success, and layout-only tests with
+  mounted AppKit render and pixel checks, exact system-pasteboard assertions,
+  live controlled-surface state transitions, and honest end-to-end streaming
+  timing. Table preparation scaling now compares realistic 120-row and 500-row
+  publications, and visual probes remain explicitly opt-in at the release-gate
+  boundary.
+
 ## 0.6.19 - 2026-07-20
 
 - Fixed prepared table text gaining additional wrapped lines after a shorter

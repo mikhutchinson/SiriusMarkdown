@@ -10,29 +10,62 @@ import AppKit
 import CoreText
 #endif
 
+#if canImport(AppKit)
 @Test
 @MainActor
-func documentViewCanBeConstructedFromSnapshot() {
-    let block = MarkdownBlock(
-        id: MarkdownBlockID("block-1"),
-        kind: .paragraph,
-        sourceRange: MarkdownSourceRange(byteRange: 0..<5, lineRange: 1..<2),
-        text: "Hello",
-        isSealed: true
-    )
-    let snapshot = MarkdownSnapshot(blocks: [block], sourceLength: 5, generation: 1, isFinished: true)
-    let documentConfiguration = MarkdownRendererConfiguration.document
-    let chatConfiguration = MarkdownRendererConfiguration.compactChat
+func documentAndStreamingViewsPaintPreparedSnapshot() throws {
+    var stream = MarkdownStream()
+    stream.append("Hello **renderer**.")
+    stream.finish()
+    let snapshot = stream.snapshot()
 
-    _ = MarkdownDocumentView(
-        preparedSnapshot: documentConfiguration.prepare(snapshot: snapshot),
-        configuration: documentConfiguration
-    )
-    _ = StreamingMarkdownView(
-        preparedSnapshot: chatConfiguration.prepare(snapshot: snapshot),
-        configuration: chatConfiguration
-    )
+    var documentConfiguration = MarkdownRendererConfiguration.document
+    documentConfiguration.linkMetadataResolver = nil
+    var chatConfiguration = MarkdownRendererConfiguration.compactChat
+    chatConfiguration.linkMetadataResolver = nil
+    let roots: [(name: String, view: AnyView)] = [
+        (
+            "document",
+            AnyView(MarkdownDocumentView(
+                preparedSnapshot: documentConfiguration.prepare(snapshot: snapshot),
+                configuration: documentConfiguration
+            ))
+        ),
+        (
+            "streaming",
+            AnyView(StreamingMarkdownView(
+                preparedSnapshot: chatConfiguration.prepare(snapshot: snapshot),
+                configuration: chatConfiguration
+            ))
+        ),
+    ]
+
+    for root in roots {
+        let rendered = root.view
+            .frame(width: 320, height: 120, alignment: .topLeading)
+            .background(Color.white)
+            .environment(\.colorScheme, .light)
+        let hostingView = NSHostingView(rootView: AnyView(rendered))
+        hostingView.frame = NSRect(x: 0, y: 0, width: 320, height: 120)
+        let window = offscreenTestWindow(hostingView)
+        defer { tearDownWindow(window) }
+        pumpLayout(hostingView)
+
+        let bitmap = try #require(
+            hostingView.bitmapImageRepForCachingDisplay(in: hostingView.bounds),
+            "\(root.name) renderer did not produce a bitmap surface"
+        )
+        hostingView.cacheDisplay(in: hostingView.bounds, to: bitmap)
+
+        #expect(hostingView.fittingSize.width > 0)
+        #expect(hostingView.fittingSize.height > 0)
+        #expect(
+            darkRightmostX(in: bitmap) > 4,
+            Comment(rawValue: "\(root.name) renderer mounted but did not paint its prepared text")
+        )
+    }
 }
+#endif
 
 @available(*, deprecated, message: "Exercises deprecated snapshot compatibility initializers.")
 @Test
@@ -537,21 +570,42 @@ func preparedTableCurrencyAmountsRemainText() throws {
 
 @Test
 @MainActor
-func tableRendererAcceptsCustomThemeTokens() throws {
+func tableRendererPaintsWithCustomThemeTokens() throws {
     let table = try firstBlock("| Region | Text | Evidence |\n| - | - | - |\n| CJK | 日本語 | measured |")
     let theme = MarkdownTheme(
         tableCornerRadius: 5,
         tableHorizontalCellPadding: 14,
         tableVerticalCellPadding: 7
     )
-    let configuration = MarkdownRendererConfiguration(theme: theme)
-    let prepared = configuration.prepare(block: table)
-
-    _ = MarkdownBlockView(
-        block: table,
-        configuration: configuration,
-        preparedContent: prepared
+    let configuration = MarkdownRendererConfiguration(
+        theme: theme,
+        nativeTextSelection: .enabled,
+        documentSelection: .disabled,
+        linkMetadataResolver: nil
     )
+    let prepared = configuration.prepare(block: table)
+    #if canImport(AppKit)
+    let rendered = MarkdownBlockView(
+            block: table,
+            configuration: configuration,
+            preparedContent: prepared
+        )
+        .frame(width: 520, height: 180, alignment: .topLeading)
+        .background(Color.white)
+        .environment(\.colorScheme, .light)
+    let hostingView = NSHostingView(rootView: rendered)
+    hostingView.frame = NSRect(x: 0, y: 0, width: 520, height: 180)
+    let window = offscreenTestWindow(hostingView)
+    defer { tearDownWindow(window) }
+    pumpLayout(hostingView)
+
+    let renderedStrings = appKitTextViews(in: hostingView).map(\.string)
+    let bitmap = try #require(hostingView.bitmapImageRepForCachingDisplay(in: hostingView.bounds))
+    hostingView.cacheDisplay(in: hostingView.bounds, to: bitmap)
+    #expect(renderedStrings.contains("Region"))
+    #expect(renderedStrings.contains("日本語"))
+    #expect(darkRightmostX(in: bitmap) > 20)
+    #endif
 
     #expect(configuration.theme.tableCornerRadius == 5)
     #expect(configuration.theme.tableHorizontalCellPadding == 14)
@@ -561,7 +615,7 @@ func tableRendererAcceptsCustomThemeTokens() throws {
 
 @Test
 @MainActor
-func tableRendererAcceptsRaggedPreparedRows() {
+func tableRendererPaintsRaggedPreparedRowsWithoutIndexingPastCells() throws {
     let sourceRange = MarkdownSourceRange(byteRange: 0..<1, lineRange: 1..<2)
     let block = MarkdownBlock(
         id: MarkdownBlockID("table"),
@@ -590,11 +644,36 @@ func tableRendererAcceptsRaggedPreparedRows() {
         )
     )
 
-    _ = MarkdownBlockView(
-        block: block,
-        configuration: MarkdownRendererConfiguration(),
-        preparedContent: prepared
+    let configuration = MarkdownRendererConfiguration(
+        nativeTextSelection: .enabled,
+        documentSelection: .disabled,
+        linkMetadataResolver: nil
     )
+    #if canImport(AppKit)
+    let rendered = MarkdownBlockView(
+            block: block,
+            configuration: configuration,
+            preparedContent: prepared
+        )
+        .frame(width: 480, height: 140, alignment: .topLeading)
+        .background(Color.white)
+        .environment(\.colorScheme, .light)
+    let hostingView = NSHostingView(rootView: rendered)
+    hostingView.frame = NSRect(x: 0, y: 0, width: 480, height: 140)
+    let window = offscreenTestWindow(hostingView)
+    defer { tearDownWindow(window) }
+    pumpLayout(hostingView)
+
+    let renderedStrings = appKitTextViews(in: hostingView).map(\.string)
+    let bitmap = try #require(hostingView.bitmapImageRepForCachingDisplay(in: hostingView.bounds))
+    hostingView.cacheDisplay(in: hostingView.bounds, to: bitmap)
+    #expect(renderedStrings.contains("A"))
+    #expect(renderedStrings.contains("B"))
+    #expect(renderedStrings.contains("C"))
+    #expect(renderedStrings.contains("Only one cell"))
+    #expect(renderedStrings.filter(\.isEmpty).count >= 2)
+    #expect(darkRightmostX(in: bitmap) > 20)
+    #endif
 
     #expect(prepared.table?.header.count == 3)
     #expect(prepared.table?.rows.first?.cells.count == 1)
@@ -1281,7 +1360,7 @@ func defaultJavaScriptResourceLoadingUsesNonTrappingLookup() throws {
 @Test
 func releaseAndProductChecksKeepRenderProbeVisualsOptIn() throws {
     let root = packageRootURL()
-    let currentReleaseVersion = "0.6.19"
+    let currentReleaseVersion = "0.6.20"
     let releaseCheck = try String(
         contentsOf: root.appending(path: "Tools/release-check.sh"),
         encoding: .utf8
@@ -1649,6 +1728,15 @@ func nativeSelectionCoversImageBackedInlineMathWithoutSelectionOverlayOnMacOS() 
     #expect(textView.isSelectable)
     #expect(attachmentRange.location != NSNotFound)
     #expect(attachment.image?.size == NSSize(width: 18, height: 12))
+    let attachmentImage = try #require(attachment.image)
+    let bitmapRepresentation = try #require(
+        attachmentImage.representations.compactMap { $0 as? NSBitmapImageRep }.first
+    )
+    #expect(!attachmentImage.representations.contains { $0 is NSCustomImageRep })
+    #expect(bitmapRepresentation.pixelsWide == 18)
+    #expect(bitmapRepresentation.pixelsHigh == 12)
+    #expect((bitmapRepresentation.colorAt(x: 9, y: 6)?.alphaComponent ?? 0) > 0.5)
+    #expect(bitmapRepresentation.representation(using: .png, properties: [:])?.isEmpty == false)
     #expect(attachment.bounds == NSRect(x: 0, y: -3, width: 18, height: 12))
     if let cell = attachment.attachmentCell as? MarkdownAppKitMathAttachmentCell {
         #expect(cell.cellSize == NSSize(width: 18, height: 12))
@@ -1887,9 +1975,24 @@ func nativeSelectionCopiesImageOnlyAttachmentsAsSemanticPlainText() throws {
             as? MarkdownAppKitNativeSelectableTextView
     )
     let storage = try #require(textView.textStorage)
+    let attachmentRange = (storage.string as NSString).range(of: "\u{FFFC}")
+    try #require(attachmentRange.location != NSNotFound)
+    let attachment = try #require(
+        storage.attribute(.attachment, at: attachmentRange.location, effectiveRange: nil)
+            as? NSTextAttachment
+    )
+    let placeholderImage = try #require(attachment.image)
+    let placeholderBitmap = try #require(
+        placeholderImage.representations.compactMap { $0 as? NSBitmapImageRep }.first
+    )
     #expect(textView.string == "Before \u{FFFC} after")
     #expect(textView.nativeAttachmentCacheCount == 1)
     #expect(appKitAttachmentHostViews(in: hostingView).count == 1)
+    #expect(!placeholderImage.representations.contains { $0 is NSCustomImageRep })
+    #expect(placeholderBitmap.pixelsWide == 1)
+    #expect(placeholderBitmap.pixelsHigh == 1)
+    #expect((placeholderBitmap.colorAt(x: 0, y: 0)?.alphaComponent ?? 1) == 0)
+    #expect(placeholderBitmap.representation(using: .png, properties: [:])?.isEmpty == false)
 
     textView.setSelectedRange(NSRange(location: 0, length: storage.length))
     NSPasteboard.general.clearContents()
@@ -5813,36 +5916,51 @@ func documentSurfaceCollapsedPlanPreservesPreparedIdentityWithoutRepreparing() t
 
 @Test
 @MainActor
-func documentSurfaceSupportsControlledCollapseBinding() throws {
+func controlledDocumentSurfaceMountFollowsExternalBindingWithoutRepreparing() throws {
     let markdown = "# Controlled\n\nBody.\n"
     var stream = MarkdownStream()
     stream.append(markdown)
     stream.finish()
 
+    let recorder = MarkdownDiagnosticsRecorder()
     var configuration = MarkdownRendererConfiguration.document
     configuration.copyProvider = MarkdownCopyProvider(markdownSource: markdown)
+    configuration.linkMetadataResolver = nil
+    configuration.diagnosticsRecorder = recorder
     let prepared = configuration.prepare(snapshot: stream.snapshot())
+    let afterPrepare = recorder.snapshot()
 
-    var collapsed = true
-    let binding = Binding(
-        get: { collapsed },
-        set: { collapsed = $0 }
-    )
-    _ = MarkdownDocumentSurface(
-        title: "Controlled",
-        suggestedFilename: "controlled.md",
+    #if canImport(AppKit)
+    let model = ControlledDocumentSurfaceModel(isCollapsed: true)
+    let view = ControlledDocumentSurfaceHarness(
+        model: model,
         preparedSnapshot: prepared,
-        configuration: configuration,
-        isCollapsed: binding,
-        onCollapseChanged: { collapsed = $0 }
+        configuration: configuration
     )
+    .frame(width: 460, alignment: .leading)
+    let hostingView = NSHostingView(rootView: view)
+    hostingView.frame = NSRect(x: 0, y: 0, width: 460, height: 400)
+    let window = offscreenTestWindow(hostingView)
+    defer { tearDownWindow(window) }
+    pumpLayout(hostingView)
 
-    let plan = MarkdownDocumentSurfaceRenderPlan(
-        preparedSnapshot: prepared,
-        configuration: configuration,
-        isCollapsed: binding.wrappedValue
-    )
-    #expect(plan.isCollapsed)
+    let collapsedHeight = hostingView.fittingSize.height
+    #expect(model.contentAppearances == 0)
+
+    model.isCollapsed = false
+    pumpLayout(hostingView)
+
+    let expandedHeight = hostingView.fittingSize.height
+    #expect(model.contentAppearances > 0)
+    #expect(expandedHeight > collapsedHeight + 4)
+    #expect(model.collapseChanges.isEmpty)
+    #endif
+
+    let afterToggle = recorder.snapshot()
+    #expect(afterToggle.renderPreparationCount == afterPrepare.renderPreparationCount)
+    #expect(afterToggle.prepareCount == afterPrepare.prepareCount)
+    #expect(afterToggle.codeHighlightCount == afterPrepare.codeHighlightCount)
+    #expect(afterToggle.mathRenderCount == afterPrepare.mathRenderCount)
 }
 
 @Test
@@ -5972,7 +6090,11 @@ func preparedBlockContentMovesCodeAndMathRenderingOutOfBlockBody() throws {
     _ = MarkdownBlockView.renderPlan(for: code, configuration: codeConfiguration)
     #expect(highlighter.count == 0)
 
-    _ = MarkdownBlockView(block: code, configuration: codeConfiguration, preparedContent: nil)
+    #if canImport(AppKit)
+    pumpMountedView(
+        MarkdownBlockView(block: code, configuration: codeConfiguration, preparedContent: nil)
+    )
+    #endif
     #expect(highlighter.count == 0)
 
     let preparedCode = codeConfiguration.prepare(block: code)
@@ -5980,26 +6102,40 @@ func preparedBlockContentMovesCodeAndMathRenderingOutOfBlockBody() throws {
     _ = codeConfiguration.prepare(block: code)
     #expect(highlighter.count == 1)
 
-    _ = MarkdownBlockView(
-        block: code,
-        configuration: codeConfiguration,
-        preparedContent: preparedCode
+    #if canImport(AppKit)
+    pumpMountedView(
+        MarkdownBlockView(
+            block: code,
+            configuration: codeConfiguration,
+            preparedContent: preparedCode
+        )
     )
+    #endif
     #expect(highlighter.count == 1)
 
     let math = try firstBlock("$$\nx^2\n$$")
     let mathRenderer = CountingMathRenderer()
     let mathConfiguration = MarkdownRendererConfiguration(mathRenderer: mathRenderer)
+    #if canImport(AppKit)
+    pumpMountedView(
+        MarkdownBlockView(block: math, configuration: mathConfiguration, preparedContent: nil)
+    )
+    #endif
+    #expect(mathRenderer.count == 0)
     let preparedMath = mathConfiguration.prepare(block: math)
     #expect(mathRenderer.count == 1)
     _ = mathConfiguration.prepare(block: math)
     #expect(mathRenderer.count == 1)
 
-    _ = MarkdownBlockView(
-        block: math,
-        configuration: mathConfiguration,
-        preparedContent: preparedMath
+    #if canImport(AppKit)
+    pumpMountedView(
+        MarkdownBlockView(
+            block: math,
+            configuration: mathConfiguration,
+            preparedContent: preparedMath
+        )
     )
+    #endif
     #expect(mathRenderer.count == 1)
 }
 
@@ -6012,17 +6148,27 @@ func preparedBlockContentMovesMermaidRenderingOutOfBlockBody() throws {
 
     _ = MarkdownBlockView.renderPlan(for: mermaidBlock, configuration: configuration)
     #expect(renderer.count == 0)
+    #if canImport(AppKit)
+    pumpMountedView(
+        MarkdownBlockView(block: mermaidBlock, configuration: configuration, preparedContent: nil)
+    )
+    #endif
+    #expect(renderer.count == 0)
 
     let preparedMermaid = configuration.prepare(block: mermaidBlock)
     #expect(renderer.count == 1)
     _ = configuration.prepare(block: mermaidBlock)
     #expect(renderer.count == 1)
 
-    _ = MarkdownBlockView(
-        block: mermaidBlock,
-        configuration: configuration,
-        preparedContent: preparedMermaid
+    #if canImport(AppKit)
+    pumpMountedView(
+        MarkdownBlockView(
+            block: mermaidBlock,
+            configuration: configuration,
+            preparedContent: preparedMermaid
+        )
     )
+    #endif
     #expect(renderer.count == 1)
     #expect(preparedMermaid.mermaid?.ascii == "A -> B")
 }
@@ -6276,6 +6422,39 @@ private func mirroredConfiguration(from view: MarkdownBlockView) -> MarkdownRend
 
 #if canImport(AppKit)
 @MainActor
+private final class ControlledDocumentSurfaceModel: ObservableObject {
+    @Published var isCollapsed: Bool
+    var collapseChanges: [Bool] = []
+    var contentAppearances = 0
+
+    init(isCollapsed: Bool) {
+        self.isCollapsed = isCollapsed
+    }
+}
+
+private struct ControlledDocumentSurfaceHarness: View {
+    @ObservedObject var model: ControlledDocumentSurfaceModel
+    var preparedSnapshot: MarkdownPreparedSnapshot
+    var configuration: MarkdownRendererConfiguration
+
+    var body: some View {
+        MarkdownDocumentSurface(
+            title: "Controlled",
+            suggestedFilename: "controlled.md",
+            preparedSnapshot: preparedSnapshot,
+            configuration: configuration,
+            isCollapsed: $model.isCollapsed,
+            onCollapseChanged: { model.collapseChanges.append($0) }
+        ) {
+            Color.blue
+                .frame(height: 160)
+                .accessibilityLabel("Controlled document content")
+                .onAppear { model.contentAppearances += 1 }
+        }
+    }
+}
+
+@MainActor
 private final class TestPreparedNativeResizeProbeModel: ObservableObject {
     @Published var columnWidth: CGFloat
 
@@ -6323,6 +6502,25 @@ private func offscreenTestWindow<V: View>(_ hostingView: NSHostingView<V>) -> NS
     window.isReleasedWhenClosed = false
     window.contentView = hostingView
     return window
+}
+
+/// Forces SwiftUI to evaluate and lay out a block body in a real AppKit host.
+/// Construction alone does not execute `View.body`, so it cannot prove that
+/// parsers, highlighters, or renderers stay out of the presentation path.
+@MainActor
+private func pumpMountedView(
+    _ view: some View,
+    width: CGFloat = 640,
+    height: CGFloat = 240
+) {
+    let root = AnyView(
+        view.frame(width: width, height: height, alignment: .topLeading)
+    )
+    let hostingView = NSHostingView(rootView: root)
+    hostingView.frame = NSRect(x: 0, y: 0, width: width, height: height)
+    let window = offscreenTestWindow(hostingView)
+    defer { tearDownWindow(window) }
+    pumpLayout(hostingView)
 }
 
 @MainActor

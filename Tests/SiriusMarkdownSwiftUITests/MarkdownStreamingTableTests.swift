@@ -6,6 +6,47 @@ import Testing
 @Suite("Streaming tables", .serialized)
 struct MarkdownStreamingTableTests {
     @Test
+    func stableRowRenderTokenTracksPresentationInputsWithoutClosureIdentity() {
+        let content = MarkdownContentFingerprint(domain: "row-content")
+        let widths = MarkdownContentFingerprint(domain: "row-widths")
+        let layout = MarkdownStreamingTableRowLayoutToken(
+            id: "row-1",
+            contentFingerprint: content,
+            columnWidthFingerprint: widths,
+            columnWidthRevision: 3,
+            layoutContextIdentity: "theme-1",
+            inlineRenderingMode: .coreTextPaintedLines,
+            nativeTextSelection: .disabled,
+            preparedLayoutHeight: 38
+        )
+        let action = MarkdownLinkAction { _ in }
+        let copiedAction = action
+        let token = MarkdownStreamingTableRowRenderToken(
+            layoutToken: layout,
+            columnAlignments: [.left, .right],
+            linkActionIdentity: action.renderIdentity
+        )
+        let copiedToken = MarkdownStreamingTableRowRenderToken(
+            layoutToken: layout,
+            columnAlignments: [.left, .right],
+            linkActionIdentity: copiedAction.renderIdentity
+        )
+        let replacementToken = MarkdownStreamingTableRowRenderToken(
+            layoutToken: layout,
+            columnAlignments: [.left, .right],
+            linkActionIdentity: MarkdownLinkAction { _ in }.renderIdentity
+        )
+
+        #expect(token == copiedToken)
+        #expect(token != replacementToken)
+        #expect(token != MarkdownStreamingTableRowRenderToken(
+            layoutToken: layout,
+            columnAlignments: [.center, .right],
+            linkActionIdentity: action.renderIdentity
+        ))
+    }
+
+    @Test
     func partialCellTextIsVisibleBeforeItsRowTerminator() throws {
         var stream = MarkdownStream()
         stream.append(tablePrefix)
@@ -124,13 +165,19 @@ struct MarkdownStreamingTableTests {
             for: evidence,
             containerWidth: evidenceWidth
         )
-        let lineCount = evidence.layout(containerWidth: layoutWidth).lines.count
+        let expectedLayout = evidence.layout(containerWidth: layoutWidth)
+        let lineCount = expectedLayout.lines.count
         let lineSpacing = Double(InlineRunsView.nativeLineSpacing(for: evidence))
         let requiredHeight = Double(lineCount) * evidence.lineHeight +
             Double(max(0, lineCount - 1)) * lineSpacing +
             Double(theme.tableVerticalCellPadding * 2)
 
         #expect(table.hasPreparedLayoutHeights)
+        #expect(evidence.defaultLayoutWidth == evidenceWidth)
+        #expect(evidence.initialLayoutResult == expectedLayout)
+        #if canImport(CoreText)
+        #expect(evidence.coreTextLinePlan != nil)
+        #endif
         #expect(lineCount >= 3)
         #expect((firstRow.preparedLayoutHeight ?? 0) >= requiredHeight)
         #expect(table.rows.dropFirst().allSatisfy { ($0.preparedLayoutHeight ?? 0) >= 38 })
@@ -178,38 +225,54 @@ struct MarkdownStreamingTableTests {
 
     @Test
     func tablePreparationWorkIsNearLinearFor120And500Rows() throws {
-        let small = try runGeneratedStreamingTable(rowCount: 120)
-        let large = try runGeneratedStreamingTable(rowCount: 500)
+        // Parse one real GFM table to source the semantic rows, then publish
+        // growing snapshots directly. Timing `MarkdownStream.snapshot()` here
+        // used to make this purported preparation benchmark spend about 95%
+        // of its runtime reparsing the one mutable table tail. Parser/streaming
+        // equivalence is covered above; this gate now measures what it names.
+        let corpus = try parsedTablePreparationCorpus(rowCount: 500)
+        let small = try runTablePreparationPublications(corpus: corpus, rowCount: 120)
+        let large = try runTablePreparationPublications(corpus: corpus, rowCount: 500)
 
         assertBoundedTableWork(small)
         assertBoundedTableWork(large)
 
+        let expectedRowScale = Double(large.rowCount) / Double(small.rowCount)
         let preparationScale = Double(large.counters.tableCellPreparationCount) /
             Double(max(1, small.counters.tableCellPreparationCount))
+        let comparisonScale = Double(large.counters.tableCellIncrementalComparisonCount) /
+            Double(max(1, small.counters.tableCellIncrementalComparisonCount))
         let scanScale = Double(large.counters.tableColumnWidthScanCount) /
             Double(max(1, small.counters.tableColumnWidthScanCount))
+        let wallScale = large.preparationMilliseconds /
+            max(0.001, small.preparationMilliseconds)
         print(
             "[streaming-table] 120 rows: publications=\(small.publicationCount) " +
             "cellPrepare=\(small.counters.tableCellPreparationCount) " +
             "cellCompare=\(small.counters.tableCellIncrementalComparisonCount) " +
-            "cellReuse=\(small.counters.tableCellReuseCount) " +
+            "retainedCells=\(small.counters.tableCellReuseCount) " +
             "columnScans=\(small.counters.tableColumnWidthScanCount) " +
             "widthChanges=\(small.counters.tableColumnWidthChangeCount) " +
-            "wall=\(formatted(small.wallMilliseconds))ms"
+            "prepareWall=\(formatted(small.preparationMilliseconds))ms"
         )
         print(
             "[streaming-table] 500 rows: publications=\(large.publicationCount) " +
             "cellPrepare=\(large.counters.tableCellPreparationCount) " +
             "cellCompare=\(large.counters.tableCellIncrementalComparisonCount) " +
-            "cellReuse=\(large.counters.tableCellReuseCount) " +
+            "retainedCells=\(large.counters.tableCellReuseCount) " +
             "columnScans=\(large.counters.tableColumnWidthScanCount) " +
             "widthChanges=\(large.counters.tableColumnWidthChangeCount) " +
-            "wall=\(formatted(large.wallMilliseconds))ms " +
-            "scale(prep=\(formatted(preparationScale)), scan=\(formatted(scanScale)))"
+            "prepareWall=\(formatted(large.preparationMilliseconds))ms " +
+            "scale(expected=\(formatted(expectedRowScale)), " +
+            "prep=\(formatted(preparationScale)), compare=\(formatted(comparisonScale)), " +
+            "scan=\(formatted(scanScale)), wall=\(formatted(wallScale)))"
         )
 
-        #expect(preparationScale < 5.25)
-        #expect(scanScale < 5.25)
+        let maximumScale = expectedRowScale * 1.25
+        #expect(preparationScale < maximumScale)
+        #expect(comparisonScale < maximumScale)
+        #expect(scanScale < maximumScale)
+        #expect(wallScale < expectedRowScale * 1.5)
     }
 }
 
@@ -220,6 +283,20 @@ private struct StreamingTableRun {
     var prepared: MarkdownPreparedSnapshot
     var counters: MarkdownDiagnosticsCounters
     var wallMilliseconds: Double
+}
+
+private struct TablePreparationRun {
+    var rowCount: Int
+    var columnCount: Int
+    var publicationCount: Int
+    var prepared: MarkdownPreparedSnapshot
+    var counters: MarkdownDiagnosticsCounters
+    var preparationMilliseconds: Double
+}
+
+private struct ParsedTablePreparationCorpus {
+    var block: MarkdownBlock
+    var table: MarkdownTableBlock
 }
 
 private let tablePrefix = """
@@ -267,11 +344,6 @@ private func rowChunks(_ row: String) -> [String] {
     return chunks
 }
 
-private func runGeneratedStreamingTable(rowCount: Int) throws -> StreamingTableRun {
-    let markdown = tablePrefix + (0..<rowCount).map(tableRow).joined()
-    return try runStreamingTable(markdown: markdown, rowCount: rowCount)
-}
-
 private func runStreamingTable(markdown: String, rowCount: Int) throws -> StreamingTableRun {
     let recorder = MarkdownDiagnosticsRecorder()
     let configuration = MarkdownRendererConfiguration(
@@ -315,7 +387,100 @@ private func runStreamingTable(markdown: String, rowCount: Int) throws -> Stream
     )
 }
 
-private func assertBoundedTableWork(_ run: StreamingTableRun) {
+private func parsedTablePreparationCorpus(rowCount: Int) throws -> ParsedTablePreparationCorpus {
+    let markdown = tablePrefix + (0..<rowCount).map(tableRow).joined()
+    var stream = MarkdownStream()
+    stream.append(markdown)
+    stream.finish()
+    let snapshot = stream.snapshot()
+    let block = try #require(snapshot.blocks.first(where: { $0.kind == .table }))
+    let table = try #require(block.table)
+    #expect(table.rows.count == rowCount)
+    return ParsedTablePreparationCorpus(block: block, table: table)
+}
+
+private func runTablePreparationPublications(
+    corpus: ParsedTablePreparationCorpus,
+    rowCount: Int
+) throws -> TablePreparationRun {
+    try #require(rowCount > 0 && rowCount <= corpus.table.rows.count)
+    let recorder = MarkdownDiagnosticsRecorder()
+    let configuration = MarkdownRendererConfiguration(diagnosticsRecorder: recorder)
+    let clock = ContinuousClock()
+    var prepared: MarkdownPreparedSnapshot?
+    var preparationMilliseconds = 0.0
+
+    func sourceEnd(for publishedRowCount: Int) -> (byte: Int, line: Int) {
+        if publishedRowCount < corpus.table.rows.count,
+           let nextCell = corpus.table.rows[publishedRowCount].first
+        {
+            return (
+                nextCell.sourceRange.byteRange.lowerBound,
+                nextCell.sourceRange.lineRange.lowerBound
+            )
+        }
+        return (
+            corpus.block.sourceRange.byteRange.upperBound,
+            corpus.block.sourceRange.lineRange.upperBound
+        )
+    }
+
+    func publish(rows publishedRowCount: Int, isFinished: Bool) {
+        var table = corpus.table
+        table.rows = Array(corpus.table.rows.prefix(publishedRowCount))
+        var block = corpus.block
+        block.table = table
+        block.isSealed = isFinished
+        block.contentHash = UInt64(publishedRowCount)
+        let end = sourceEnd(for: publishedRowCount)
+        block.sourceRange = MarkdownSourceRange(
+            byteRange: block.sourceRange.byteRange.lowerBound..<end.byte,
+            lineRange: block.sourceRange.lineRange.lowerBound..<end.line
+        )
+        let snapshot = MarkdownSnapshot(
+            blocks: [block],
+            sourceLength: end.byte,
+            generation: publishedRowCount + (isFinished ? 1 : 0),
+            isFinished: isFinished
+        )
+
+        let start = clock.now
+        prepared = configuration.prepare(snapshot: snapshot, reusing: prepared)
+        preparationMilliseconds += milliseconds(clock.now - start)
+    }
+
+    publish(rows: 0, isFinished: false)
+    for publishedRowCount in 1...rowCount {
+        publish(rows: publishedRowCount, isFinished: false)
+    }
+    publish(rows: rowCount, isFinished: true)
+
+    let finalPrepared = try #require(prepared)
+    let finalTable = try preparedTable(in: finalPrepared)
+    let oneShotTable = try preparedTable(
+        in: MarkdownRendererConfiguration().prepare(snapshot: finalPrepared.snapshot)
+    )
+    #expect(finalTable.rows.count == rowCount)
+    #expect(finalTable.rows.map(\.id).allSatisfy { !$0.isEmpty })
+    #expect(finalTable.header.map(\.id) == oneShotTable.header.map(\.id))
+    #expect(finalTable.rows.map(\.id) == oneShotTable.rows.map(\.id))
+    #expect(finalTable.rows.flatMap(\.cells).map(\.contentHash) ==
+        oneShotTable.rows.flatMap(\.cells).map(\.contentHash))
+    #expect(finalTable.columnWidths == oneShotTable.columnWidths)
+    #expect(finalTable.rows.map(\.preparedLayoutHeight) ==
+        oneShotTable.rows.map(\.preparedLayoutHeight))
+
+    return TablePreparationRun(
+        rowCount: rowCount,
+        columnCount: finalTable.columnWidths.count,
+        publicationCount: rowCount + 2,
+        prepared: finalPrepared,
+        counters: recorder.snapshot(),
+        preparationMilliseconds: preparationMilliseconds
+    )
+}
+
+private func assertBoundedTableWork(_ run: TablePreparationRun) {
     let finalCellCount = (run.rowCount + 1) * run.columnCount
     #expect(run.counters.tableCellPreparationCount <= finalCellCount * 5)
     #expect(run.counters.tableCellIncrementalComparisonCount <= finalCellCount * 5)

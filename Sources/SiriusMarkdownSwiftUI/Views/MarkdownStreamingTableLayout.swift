@@ -1,10 +1,10 @@
 import SiriusMarkdownCore
 import SwiftUI
 
-/// Stable row identity plus the two revisions that can change its measured
-/// size. Historical rows keep the same token while only the mutable tail cell
-/// grows; a bounded column-width bucket change intentionally invalidates every
-/// row because the grid geometry genuinely changed.
+/// Stable row or bounded row-group identity plus the revisions that can change
+/// its measured size. Historical groups keep the same token while only the
+/// mutable suffix grows; a bounded column-width bucket change intentionally
+/// invalidates every group because the grid geometry genuinely changed.
 struct MarkdownStreamingTableRowLayoutToken: Hashable {
     let id: String
     let contentFingerprint: MarkdownContentFingerprint
@@ -14,6 +14,54 @@ struct MarkdownStreamingTableRowLayoutToken: Hashable {
     let inlineRenderingMode: MarkdownInlineRenderingMode
     let nativeTextSelection: MarkdownNativeTextSelection
     let preparedLayoutHeight: Double?
+}
+
+/// Everything that can change the default table row's constructed SwiftUI
+/// subtree. Layout identity remains separate so link-action replacement does
+/// not discard a still-valid natural-size measurement.
+struct MarkdownStreamingTableRowRenderToken: Hashable {
+    let layoutToken: MarkdownStreamingTableRowLayoutToken
+    let columnAlignments: [MarkdownTableColumnAlignment?]
+    let linkActionIdentity: UUID?
+}
+
+/// Defers construction of a default table row until SwiftUI determines that
+/// its explicit render token changed. A growing table republishes its block on
+/// every tail append; without this boundary SwiftUI reevaluates every retained
+/// row and all of its inline leaf values even though their prepared models are
+/// immutable.
+struct MarkdownStreamingTableRowRenderBoundary<Content: View>: View, Equatable {
+    let token: MarkdownStreamingTableRowRenderToken
+    let diagnosticsRecorder: MarkdownDiagnosticsRecorder
+    private let content: () -> Content
+
+    init(
+        token: MarkdownStreamingTableRowRenderToken,
+        diagnosticsRecorder: MarkdownDiagnosticsRecorder,
+        @ViewBuilder content: @escaping () -> Content
+    ) {
+        self.token = token
+        self.diagnosticsRecorder = diagnosticsRecorder
+        self.content = content
+    }
+
+    nonisolated static func == (
+        lhs: MarkdownStreamingTableRowRenderBoundary<Content>,
+        rhs: MarkdownStreamingTableRowRenderBoundary<Content>
+    ) -> Bool {
+        let reused = lhs.token == rhs.token
+        lhs.diagnosticsRecorder.recordTableRowBodyComparison(reused: reused)
+        return reused
+    }
+
+    var body: some View {
+        evaluatedContent
+    }
+
+    private var evaluatedContent: Content {
+        diagnosticsRecorder.recordTableRowBodyEvaluation()
+        return content()
+    }
 }
 
 private struct MarkdownStreamingTableRowLayoutTokenKey: LayoutValueKey {

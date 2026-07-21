@@ -1143,6 +1143,110 @@ private func parserConvertsTableCellsAndAlignmentsFromAST() {
 }
 
 @Test
+private func tableBlockAggregateInlinesMatchConvertedCells() throws {
+    var stream = MarkdownStream()
+    stream.append(
+        "| Plain | Rich | Link | HTML | Math |\n" +
+            "| --- | --- | --- | --- | --- |\n" +
+            "| alpha | **bold** and `code` | [docs](https://example.com) | " +
+            "<strong>native</strong> | $x^2$ |"
+    )
+    stream.finish()
+
+    let block = try #require(stream.snapshot().blocks.first)
+    let table = try #require(block.table)
+    let cellInlines = (table.header + table.rows.flatMap { $0 }).flatMap(\.inlines)
+
+    // The block-level aggregate is a compatibility view over the semantic
+    // cell models. Keeping these byte-for-byte equal lets table conversion
+    // build each cell once instead of walking the complete table AST twice.
+    #expect(block.inlines == cellInlines)
+}
+
+@Test
+private func streamedTableReusesUnchangedCellRenderModels() throws {
+    let recorder = MarkdownDiagnosticsRecorder()
+    var stream = MarkdownStream(diagnosticsRecorder: recorder)
+    stream.append("| A | B |\n| --- | --- |\n| one | two |\n")
+    _ = stream.snapshot()
+    let initial = recorder.snapshot()
+
+    stream.append("| three | four |\n")
+    let updated = stream.snapshot()
+    let counters = recorder.snapshot()
+    let table = try #require(updated.blocks.first?.table)
+
+    #expect(table.rows.map { $0.map(\.text) } == [["one", "two"], ["three", "four"]])
+    #expect(counters.tableCellModelCacheHitCount - initial.tableCellModelCacheHitCount >= 4)
+    #expect(counters.tableCellModelConversionCount - initial.tableCellModelConversionCount == 2)
+}
+
+@Test
+private func tableCellCacheInvalidatesWhenReferenceResolutionChanges() throws {
+    let unresolvedSource = "| Link |\n| --- |\n| [docs][target] |\n"
+    let resolvedSource = unresolvedSource + "\n[target]: https://example.com/docs\n"
+    let recorder = MarkdownDiagnosticsRecorder()
+    let parser = SwiftMarkdownParser(tableCellConversionCacheCapacity: 8)
+
+    func parse(_ source: String) throws -> MarkdownBlock {
+        var buffer = MarkdownSourceBuffer()
+        buffer.append(source)
+        return try #require(
+            parser.parse(
+                buffer.slice(0..<buffer.byteCount),
+                lineMap: buffer.lineMap,
+                idNamespace: "reference-cache-test",
+                isSealed: false,
+                diagnosticsRecorder: recorder
+            ).first
+        )
+    }
+
+    let unresolved = try parse(unresolvedSource)
+    let afterUnresolved = recorder.snapshot()
+    let resolved = try parse(resolvedSource)
+    let counters = recorder.snapshot()
+    let resolvedCell = try #require(resolved.table?.rows.first?.first)
+
+    #expect(unresolved.table?.rows.first?.first?.inlines.allSatisfy { $0.destination == nil } == true)
+    #expect(resolvedCell.inlines.contains { $0.destination == "https://example.com/docs" })
+    #expect(counters.tableCellModelCacheHitCount - afterUnresolved.tableCellModelCacheHitCount == 1)
+    #expect(counters.tableCellModelConversionCount - afterUnresolved.tableCellModelConversionCount == 1)
+}
+
+@Test
+private func tableCellConversionCacheStaysBounded() {
+    let parser = SwiftMarkdownParser(tableCellConversionCacheCapacity: 3)
+
+    for index in 0..<8 {
+        let source = "| Header \(index) |\n| --- |\n| Value \(index) |\n"
+        var buffer = MarkdownSourceBuffer()
+        buffer.append(source)
+        _ = parser.parse(
+            buffer.slice(0..<buffer.byteCount),
+            lineMap: buffer.lineMap,
+            idNamespace: "bounded-table-cache",
+            isSealed: false
+        )
+    }
+
+    #expect(parser.cachedTableCellConversionCount == 3)
+
+    let recorder = MarkdownDiagnosticsRecorder()
+    let firstSource = "| Header 0 |\n| --- |\n| Value 0 |\n"
+    var firstBuffer = MarkdownSourceBuffer()
+    firstBuffer.append(firstSource)
+    _ = parser.parse(
+        firstBuffer.slice(0..<firstBuffer.byteCount),
+        lineMap: firstBuffer.lineMap,
+        idNamespace: "bounded-table-cache",
+        isSealed: false,
+        diagnosticsRecorder: recorder
+    )
+    #expect(recorder.snapshot().tableCellModelCacheHitCount == 2)
+}
+
+@Test
 private func parserUsesSourceRangeAndContentHashInStableBlockID() {
     var stream = MarkdownStream()
     stream.append("# Title")

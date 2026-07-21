@@ -30,7 +30,7 @@ TEST_LIST_FILE="$(mktemp)"
 trap 'rm -f "$TEST_LIST_FILE"; rm -rf "${CONSUMER_DIR:-}"' EXIT
 swift test list > "$TEST_LIST_FILE"
 TEST_COUNT="$(grep -Ec '^[A-Za-z0-9_]+Tests\.' "$TEST_LIST_FILE")"
-MINIMUM_TEST_COUNT=939
+MINIMUM_TEST_COUNT=941
 if (( TEST_COUNT < MINIMUM_TEST_COUNT )); then
   echo "error: swift test list discovered $TEST_COUNT tests; expected at least $MINIMUM_TEST_COUNT" >&2
   exit 1
@@ -43,7 +43,7 @@ for required_test in \
   "SiriusMarkdownSwiftUITests.MarkdownStreamingTableTests/suppliedUserBubbleStressTablePreparesEnoughHeightForEveryWrappedLine()" \
   "SiriusMarkdownSwiftUITests.MarkdownStreamingTableTests/incompleteDelimiterTransitionFinishAndResetRemainCorrect()" \
   "SiriusMarkdownSwiftUITests.MarkdownStreamingTableTests/tablePreparationWorkIsNearLinearFor120And500Rows()" \
-  "SiriusMarkdownSwiftUITests.MarkdownStreamingScalingTests/live120RowTableRemeasuresOnlyChangedRowsAndStaysFrameBounded()" \
+  "SiriusMarkdownSwiftUITests.MarkdownStreamingScalingTests/live120RowTableRemeasuresOnlyChangedRowsAndStaysUnderEndToEndBudget()" \
   "SiriusMarkdownSwiftUITests.defaultOrderedListNumeralSharesProductionContentBaseline()" \
   "SiriusMarkdownSwiftUITests.preparedListMarkerAndTextShareFirstLineBaselineAcrossMacRenderingModes()" \
   "SiriusMarkdownSwiftUITests.defaultTaskListSquareSharesFirstLineOpticalCenterAcrossMacRenderingModes()" \
@@ -362,7 +362,7 @@ for required_test in \
   "SiriusMarkdownSwiftUITests.MarkdownPerformanceBenchmarkTests/growingCodeTailReusesPriorTokenMeasurements()" \
   "SiriusMarkdownSwiftUITests.MarkdownPerformanceBenchmarkTests/nativeSwiftTailKeepsFullLexicalContextWhileUnsealed()" \
   "SiriusMarkdownSwiftUITests.MarkdownStreamingScalingTests/preparedRegionsStayBoundedAndOnlyTailRegionRevisionChanges()" \
-  "SiriusMarkdownSwiftUITests.MarkdownStreamingScalingTests/rapidPreparedPublicationsStayConstraintSafeInAppKitHost()" \
+  "SiriusMarkdownSwiftUITests.MarkdownStreamingScalingTests/rapidPreparedPublicationsRemainConstraintSafeAndReportEndToEndLatency()" \
   "SiriusMarkdownSwiftUITests.MarkdownStreamingScalingTests/persistentHostingRootReplacementStaysEnvironmentSafe()"
 do
   if ! grep -Fxq "$required_test" "$TEST_LIST_FILE"; then
@@ -433,5 +433,5 @@ xcrun docc convert Docs/SiriusMarkdown.docc \
   --additional-symbol-graph-dir "$SYMBOL_GRAPH_DIR" \
   --fallback-display-name SiriusMarkdown \
   --fallback-bundle-identifier com.sirius.markdown \
-  --fallback-bundle-version 0.6.19 \
+  --fallback-bundle-version 0.6.20 \
   --output-path /tmp/SiriusMarkdown.doccarchive

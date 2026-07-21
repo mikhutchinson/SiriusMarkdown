@@ -32,6 +32,10 @@ public struct BoundedMarkdownCache<Value: Sendable>: Sendable {
     private var order: [MarkdownCacheKey]
     public private(set) var capacity: Int
 
+    public var count: Int {
+        storage.count
+    }
+
     public init(capacity: Int) {
         self.capacity = max(1, capacity)
         self.storage = [:]
@@ -89,6 +93,44 @@ public struct BoundedMarkdownCache<Value: Sendable>: Sendable {
             compacted.append(existing)
         }
         order = compacted
+    }
+}
+
+final class MarkdownTableCellConversionCache: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage: [MarkdownCacheKey: MarkdownTableCell] = [:]
+    private let capacity: Int
+
+    init(capacity: Int) {
+        self.capacity = max(1, capacity)
+    }
+
+    func cell(forKey key: MarkdownCacheKey) -> MarkdownTableCell? {
+        lock.withLock {
+            storage[key]
+        }
+    }
+
+    func insert(_ cell: MarkdownTableCell, forKey key: MarkdownCacheKey) {
+        lock.withLock {
+            if storage[key] != nil {
+                storage[key] = cell
+                return
+            }
+            // An append-only table is reparsed from its first historical row.
+            // Once full, retaining that oldest stable prefix guarantees useful
+            // hits on every later pass. Conventional FIFO/LRU eviction would
+            // thrash when a table grows beyond capacity: early misses evict the
+            // later entries immediately before the same scan reaches them.
+            guard storage.count < capacity else { return }
+            storage[key] = cell
+        }
+    }
+
+    var count: Int {
+        lock.withLock {
+            storage.count
+        }
     }
 }
 

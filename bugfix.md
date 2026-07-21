@@ -4,6 +4,24 @@
 
 - None currently tracked.
 
+## Resolved in 0.6.20
+
+- Fixed live GFM tables repeatedly converting unchanged historical cell ASTs
+  and asking SwiftUI to revisit an ever-growing set of stable row subtrees.
+  Cell conversion now uses a bounded semantics-aware cache; exact prepared cell
+  layouts and bounded row render groups keep parsing, preparation, body
+  evaluation, selection geometry, and row measurement work focused on the
+  mutable suffix.
+- Fixed TextKit attachment placeholders and tinted math images retaining
+  non-serializable custom image representations. Both paths now use bounded
+  concrete bitmaps, eliminating ImageIO finalization warnings during attributed
+  storage normalization and copy while preserving semantic selection output.
+- Fixed renderer tests that passed after merely constructing a SwiftUI value or
+  unconditionally asserting success. The replacements mount real AppKit hosts,
+  verify painted pixels and live binding behavior, inspect exact pasteboard
+  representations, and measure the full streaming pipeline and view-graph
+  settle instead of only the final explicit layout call.
+
 ## Resolved in 0.6.19
 
 - Fixed a narrow prepared table cell wrapping from two lines to three only

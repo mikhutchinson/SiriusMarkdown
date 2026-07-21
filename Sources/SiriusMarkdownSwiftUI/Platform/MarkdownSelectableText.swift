@@ -656,6 +656,9 @@ private struct MarkdownAppKitSelectableTextView: NSViewRepresentable {
     }
 
     final class Coordinator: NSObject, NSTextViewDelegate {
+        private static let maximumMathAttachmentPixelDimension = 16_384.0
+        private static let maximumMathAttachmentPixelCount = 16_777_216.0
+
         var linkAction: MarkdownLinkAction?
         /// Last applied content/environment key; `configure` short-circuits
         /// while it is unchanged so repeated layout proposals stay cheap.
@@ -684,7 +687,7 @@ private struct MarkdownAppKitSelectableTextView: NSViewRepresentable {
             }
 
             let size = NSSize(width: record.pointWidth, height: record.pointHeight)
-            let transparentImage = NSImage(size: size)
+            let transparentImage = Self.makeTransparentAttachmentImage(pointSize: size)
             let attachment = NSTextAttachment()
             attachment.image = transparentImage
             attachment.bounds = NSRect(
@@ -700,6 +703,31 @@ private struct MarkdownAppKitSelectableTextView: NSViewRepresentable {
             )
             attachmentCache[record.id] = (record, attachment)
             return attachment
+        }
+
+        /// Attachment host views paint resolved images above this TextKit
+        /// placeholder. Keep the placeholder transparent, but give it a real
+        /// one-pixel bitmap representation so TextKit can safely serialize it
+        /// while normalizing attributed storage or copying a selection.
+        private static func makeTransparentAttachmentImage(pointSize: NSSize) -> NSImage {
+            let result = NSImage(size: pointSize)
+            guard let bitmap = NSBitmapImageRep(
+                bitmapDataPlanes: nil,
+                pixelsWide: 1,
+                pixelsHigh: 1,
+                bitsPerSample: 8,
+                samplesPerPixel: 4,
+                hasAlpha: true,
+                isPlanar: false,
+                colorSpaceName: .deviceRGB,
+                bytesPerRow: 0,
+                bitsPerPixel: 0
+            ) else {
+                return result
+            }
+            bitmap.size = pointSize
+            result.addRepresentation(bitmap)
+            return result
         }
 
         @discardableResult
@@ -723,21 +751,15 @@ private struct MarkdownAppKitSelectableTextView: NSViewRepresentable {
             let size = NSSize(width: image.renderPointWidth, height: image.renderPointHeight)
             guard size.width > 0,
                   size.height > 0,
-                  let sourceImage = NSImage(data: image.imageData)
+                  let sourceImage = NSImage(data: image.imageData),
+                  let tintedImage = Self.makeTintedMathAttachmentImage(
+                      sourceImage: sourceImage,
+                      pointSize: size,
+                      scale: image.renderScale,
+                      color: color
+                  )
             else {
                 return nil
-            }
-            sourceImage.size = size
-            let tintedImage = NSImage(size: size, flipped: false) { rect in
-                color.setFill()
-                rect.fill()
-                sourceImage.draw(
-                    in: rect,
-                    from: .zero,
-                    operation: .destinationIn,
-                    fraction: 1
-                )
-                return true
             }
             // `NSTextAttachment(data:ofType:)` can replace or clear a custom
             // attachment cell when TextKit inserts the attributed string on
@@ -763,6 +785,66 @@ private struct MarkdownAppKitSelectableTextView: NSViewRepresentable {
             // retain the custom cell beside the bounded cache for older AppKit.
             mathAttachmentCache[key] = (image, color, attachment, attachmentCell)
             return attachment
+        }
+
+        /// TextKit serializes attachment images while copying or normalizing
+        /// attributed storage. An `NSImage` drawing-handler initializer leaves
+        /// an `NSCustomImageRep` that cannot be serialized by ImageIO and emits
+        /// `CGImageDestinationFinalize failed` during otherwise valid renders.
+        /// Materialize the tinted result once into the bounded attachment cache.
+        @MainActor
+        private static func makeTintedMathAttachmentImage(
+            sourceImage: NSImage,
+            pointSize: NSSize,
+            scale: CGFloat,
+            color: NSColor
+        ) -> NSImage? {
+            let pixelWidthValue = (pointSize.width * scale).rounded(.up)
+            let pixelHeightValue = (pointSize.height * scale).rounded(.up)
+            guard pixelWidthValue.isFinite,
+                  pixelHeightValue.isFinite,
+                  pixelWidthValue > 0,
+                  pixelHeightValue > 0,
+                  pixelWidthValue <= maximumMathAttachmentPixelDimension,
+                  pixelHeightValue <= maximumMathAttachmentPixelDimension,
+                  pixelWidthValue * pixelHeightValue <= maximumMathAttachmentPixelCount
+            else {
+                return nil
+            }
+
+            guard let bitmap = NSBitmapImageRep(
+                bitmapDataPlanes: nil,
+                pixelsWide: Int(pixelWidthValue),
+                pixelsHigh: Int(pixelHeightValue),
+                bitsPerSample: 8,
+                samplesPerPixel: 4,
+                hasAlpha: true,
+                isPlanar: false,
+                colorSpaceName: .deviceRGB,
+                bytesPerRow: 0,
+                bitsPerPixel: 0
+            ), let context = NSGraphicsContext(bitmapImageRep: bitmap) else {
+                return nil
+            }
+            bitmap.size = pointSize
+            sourceImage.size = pointSize
+
+            NSGraphicsContext.saveGraphicsState()
+            defer { NSGraphicsContext.restoreGraphicsState() }
+            NSGraphicsContext.current = context
+            context.imageInterpolation = .high
+            color.setFill()
+            NSRect(origin: .zero, size: pointSize).fill()
+            sourceImage.draw(
+                in: NSRect(origin: .zero, size: pointSize),
+                from: .zero,
+                operation: .destinationIn,
+                fraction: 1
+            )
+
+            let result = NSImage(size: pointSize)
+            result.addRepresentation(bitmap)
+            return result
         }
 
         @discardableResult

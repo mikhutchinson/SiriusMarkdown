@@ -18,9 +18,16 @@ public struct MarkdownDiagnosticsCounters: Sendable, Hashable {
     public var mathRenderCount: Int
     public var mathFallbackCount: Int
     public var widthRelayoutCount: Int
+    /// Table cells converted from swift-markdown AST nodes into public render
+    /// models. Unchanged historical cells should not repeatedly add here.
+    public var tableCellModelConversionCount: Int
+    /// Exact semantic table-cell models reused across mutable-tail reparses.
+    public var tableCellModelCacheHitCount: Int
     /// Table cells whose attributed/prepared inline payload was rebuilt.
     public var tableCellPreparationCount: Int
-    /// Historical table cells copied from the preceding prepared snapshot.
+    /// Historical table cells retained from the preceding prepared snapshot.
+    /// The renderer records a retained prefix in aggregate, so this is a reuse
+    /// volume metric rather than a count of comparison or preparation work.
     public var tableCellReuseCount: Int
     /// Cells visited by incremental table comparison. Historical prefix rows
     /// retained as prepared values do not increment this counter.
@@ -29,10 +36,17 @@ public struct MarkdownDiagnosticsCounters: Sendable, Hashable {
     public var tableColumnWidthScanCount: Int
     /// Publications that changed the bounded effective table column widths.
     public var tableColumnWidthChangeCount: Int
-    /// Table rows whose SwiftUI subtree was asked for a fresh natural size.
+    /// Table row groups whose SwiftUI subtree was asked for a fresh natural size.
     public var tableRowLayoutMeasurementCount: Int
-    /// Table row natural sizes reused across SwiftUI layout passes/publications.
+    /// Table row-group natural sizes reused across SwiftUI layout passes/publications.
     public var tableRowLayoutCacheHitCount: Int
+    /// Stable table row-group SwiftUI bodies evaluated. Bounded grouping keeps
+    /// this below the triangular per-row publication count.
+    public var tableRowBodyEvaluationCount: Int
+    /// Comparisons requested by SwiftUI's stable table row-group render boundary.
+    public var tableRowBodyComparisonCount: Int
+    /// Comparisons whose explicit row render token was unchanged.
+    public var tableRowBodyReuseCount: Int
     public var boundaryScanCount: Int
     public var boundaryScannedByteCount: Int
     public var boundaryScannedLineCount: Int
@@ -92,6 +106,8 @@ public struct MarkdownDiagnosticsCounters: Sendable, Hashable {
         mathRenderCount: Int = 0,
         mathFallbackCount: Int = 0,
         widthRelayoutCount: Int = 0,
+        tableCellModelConversionCount: Int = 0,
+        tableCellModelCacheHitCount: Int = 0,
         tableCellPreparationCount: Int = 0,
         tableCellReuseCount: Int = 0,
         tableCellIncrementalComparisonCount: Int = 0,
@@ -99,6 +115,9 @@ public struct MarkdownDiagnosticsCounters: Sendable, Hashable {
         tableColumnWidthChangeCount: Int = 0,
         tableRowLayoutMeasurementCount: Int = 0,
         tableRowLayoutCacheHitCount: Int = 0,
+        tableRowBodyEvaluationCount: Int = 0,
+        tableRowBodyComparisonCount: Int = 0,
+        tableRowBodyReuseCount: Int = 0,
         boundaryScanCount: Int = 0,
         boundaryScannedByteCount: Int = 0,
         boundaryScannedLineCount: Int = 0,
@@ -137,6 +156,8 @@ public struct MarkdownDiagnosticsCounters: Sendable, Hashable {
         self.mathRenderCount = mathRenderCount
         self.mathFallbackCount = mathFallbackCount
         self.widthRelayoutCount = widthRelayoutCount
+        self.tableCellModelConversionCount = tableCellModelConversionCount
+        self.tableCellModelCacheHitCount = tableCellModelCacheHitCount
         self.tableCellPreparationCount = tableCellPreparationCount
         self.tableCellReuseCount = tableCellReuseCount
         self.tableCellIncrementalComparisonCount = tableCellIncrementalComparisonCount
@@ -144,6 +165,9 @@ public struct MarkdownDiagnosticsCounters: Sendable, Hashable {
         self.tableColumnWidthChangeCount = tableColumnWidthChangeCount
         self.tableRowLayoutMeasurementCount = tableRowLayoutMeasurementCount
         self.tableRowLayoutCacheHitCount = tableRowLayoutCacheHitCount
+        self.tableRowBodyEvaluationCount = tableRowBodyEvaluationCount
+        self.tableRowBodyComparisonCount = tableRowBodyComparisonCount
+        self.tableRowBodyReuseCount = tableRowBodyReuseCount
         self.boundaryScanCount = boundaryScanCount
         self.boundaryScannedByteCount = boundaryScannedByteCount
         self.boundaryScannedLineCount = boundaryScannedLineCount
@@ -259,6 +283,18 @@ public final class MarkdownDiagnosticsRecorder: @unchecked Sendable {
         }
     }
 
+    public func recordTableCellModelConversion() {
+        withLock {
+            counters.tableCellModelConversionCount += 1
+        }
+    }
+
+    public func recordTableCellModelCacheHit() {
+        withLock {
+            counters.tableCellModelCacheHitCount += 1
+        }
+    }
+
     public func recordTableCellPreparation() {
         withLock {
             counters.tableCellPreparationCount += 1
@@ -300,6 +336,21 @@ public final class MarkdownDiagnosticsRecorder: @unchecked Sendable {
     public func recordTableRowLayoutCacheHit() {
         withLock {
             counters.tableRowLayoutCacheHitCount += 1
+        }
+    }
+
+    public func recordTableRowBodyEvaluation() {
+        withLock {
+            counters.tableRowBodyEvaluationCount += 1
+        }
+    }
+
+    public func recordTableRowBodyComparison(reused: Bool) {
+        withLock {
+            counters.tableRowBodyComparisonCount += 1
+            if reused {
+                counters.tableRowBodyReuseCount += 1
+            }
         }
     }
 

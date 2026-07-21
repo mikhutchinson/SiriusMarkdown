@@ -2306,7 +2306,7 @@ public struct MarkdownRendererConfiguration: Sendable {
         let reusesHeader = canReuseStructuralPrefix &&
             previousTable?.headerID == headerID &&
             previousTable?.header.count == table.header.count
-        let header: [MarkdownPreparedTableCell]
+        var header: [MarkdownPreparedTableCell]
         if reusesHeader, let previousTable {
             header = previousTable.header
             diagnosticsRecorder.recordTableCellReuse(count: header.count)
@@ -2423,8 +2423,8 @@ public struct MarkdownRendererConfiguration: Sendable {
         {
             headerPreparedLayoutHeight = previousHeight
         } else {
-            headerPreparedLayoutHeight = preparedTableRowLayoutHeight(
-                cells: header,
+            headerPreparedLayoutHeight = resolvePreparedTableRowLayout(
+                cells: &header,
                 columnWidths: columnWidths
             )
         }
@@ -2441,8 +2441,8 @@ public struct MarkdownRendererConfiguration: Sendable {
                 {
                     rows[rowIndex].preparedLayoutHeight = previousHeight
                 } else {
-                    rows[rowIndex].preparedLayoutHeight = preparedTableRowLayoutHeight(
-                        cells: rows[rowIndex].cells,
+                    rows[rowIndex].preparedLayoutHeight = resolvePreparedTableRowLayout(
+                        cells: &rows[rowIndex].cells,
                         columnWidths: columnWidths
                     )
                 }
@@ -2463,8 +2463,13 @@ public struct MarkdownRendererConfiguration: Sendable {
         return preparedTable
     }
 
-    private func preparedTableRowLayoutHeight(
-        cells: [MarkdownPreparedTableCell],
+    /// Resolves each table leaf at its exact prepared content width and stores
+    /// that result back into the prepared inline value. Default table cells
+    /// therefore enter SwiftUI with the correct line ranges and Core Text plan
+    /// instead of mounting a GeometryReader/preference loop per cell merely
+    /// to rediscover a width the preparation pipeline already knew.
+    private func resolvePreparedTableRowLayout(
+        cells: inout [MarkdownPreparedTableCell],
         columnWidths: [Double]
     ) -> Double {
         let horizontalPadding = Double(theme.renderTableHorizontalCellPadding)
@@ -2473,7 +2478,7 @@ public struct MarkdownRendererConfiguration: Sendable {
 
         for column in columnWidths.indices {
             guard cells.indices.contains(column),
-                  let inline = cells[column].inlineLayout ?? cells[column].selectionInlineLayout
+                  var inline = cells[column].inlineLayout ?? cells[column].selectionInlineLayout
             else {
                 continue
             }
@@ -2482,13 +2487,24 @@ public struct MarkdownRendererConfiguration: Sendable {
                 for: inline,
                 containerWidth: contentWidth
             )
-            let lineCount = max(
-                1,
-                inline.layout(
-                    containerWidth: layoutWidth,
-                    allowsOverwideFallback: true
-                ).lines.count
+            let layout = inline.layout(
+                containerWidth: layoutWidth,
+                allowsOverwideFallback: true
             )
+            inline.initialLayoutResult = layout
+            inline.defaultLayoutWidth = contentWidth
+            #if canImport(CoreText)
+            inline.coreTextLinePlan = layout.lines.isEmpty
+                ? nil
+                : MarkdownCoreTextPaintedLinePlan.make(prepared: inline, layout: layout)
+            #endif
+            if cells[column].inlineLayout != nil {
+                cells[column].inlineLayout = inline
+            } else {
+                cells[column].selectionInlineLayout = inline
+            }
+
+            let lineCount = max(1, layout.lines.count)
             let lineSpacing = Double(InlineRunsView.nativeLineSpacing(for: inline))
             let contentHeight = Double(lineCount) * inline.lineHeight +
                 Double(max(0, lineCount - 1)) * lineSpacing

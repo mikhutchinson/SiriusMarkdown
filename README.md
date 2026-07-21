@@ -18,24 +18,24 @@ The core contract is simple:
 
 ## Current Release
 
-`0.6.19` fixes prepared table rows that could cache a height before a narrow
-cell completed its width-specific relayout:
+`0.6.20` reduces retained work while a GFM table grows and strengthens the
+tests that enforce the renderer boundary:
 
-- **No cross-row text leakage:** prepared header and body-row minimum heights
-  are resolved from final column widths, theme padding, and prepared line
-  metrics before SwiftUI can admit a row measurement to the stable cache.
-- **Streaming reuse preserved:** unchanged completed rows retain their prepared
-  heights incrementally. A column-width revision cheaply relayouts affected
-  prepared cells without reparsing, re-highlighting, or remeasuring raw text.
-- **Safe compatibility paths:** deliberately unprepared tables and custom table
-  cell styles use uncached natural measurement instead of reusing geometry that
-  was prepared for the package's default cell style.
-- **Regression coverage:** the original finite user-bubble table is covered by
-  exact prepared-height checks and pixel containment across CoreText-painted,
-  prepared-native, system-text, and AppKit-selection paths. It is also included
-  in the Table Stress demo for narrow, horizontally scrolled, and wide-window
-  inspection.
-- **Release validation:** the serial release suite discovers 939 tests, and the
+- **Bounded table conversion:** unchanged table-cell render models are reused
+  across mutable-tail reparses from a bounded cache with explicit conversion
+  and hit diagnostics.
+- **Prepared table leaves:** default cells enter SwiftUI with exact
+  width-specific line layouts, CoreText plans, and row heights. Stable bounded
+  row groups avoid triangular body evaluation and measurement work as rows
+  accumulate.
+- **Serializable native attachments:** transparent image placeholders and
+  tinted math images now use concrete bounded bitmap representations, avoiding
+  ImageIO serialization failures during TextKit copy and normalization.
+- **Honest renderer coverage:** construction-only and unconditional-success
+  tests were replaced with mounted AppKit rendering, pixel output, controlled
+  state changes, exact pasteboard representations, and end-to-end streaming
+  timing assertions.
+- **Release validation:** the serial release suite discovers 941 tests, and the
   full gate also builds a clean external consumer, bundles all three demos,
   compares every Pretext fixture, checks the math corpus, builds DocC, and runs
   the opt-in AppKit renderer probes.
@@ -43,7 +43,7 @@ cell completed its width-specific relayout:
 The release retains the sanitized native rich HTML, bounded decorated-link
 resolver, baseline corrections, bounded streaming, native selection, syntax
 highlighting, math, Mermaid, attachment, and Pretext-backed layout contracts
-from `0.6.18`.
+from earlier releases.
 
 ## Requirements
 
@@ -54,7 +54,7 @@ from `0.6.18`.
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/mikhutchinson/SiriusMarkdown.git", from: "0.6.19")
+    .package(url: "https://github.com/mikhutchinson/SiriusMarkdown.git", from: "0.6.20")
 ],
 targets: [
     .target(
@@ -313,12 +313,12 @@ git diff --check
 - Release runbook: `runbook.md`
 - Changelog: `changelog.md`
 - Bugfix log: `bugfix.md`
-- Current release notes: `release-notes/0.6.19.md`
+- Current release notes: `release-notes/0.6.20.md`
 - Third-party credits: `NOTICE.md`
 
 ## Release
 
-`0.6.19` is ready only when the docs describe the current public package surface,
+`0.6.20` is ready only when the docs describe the current public package surface,
 `bash Tools/product-check.sh` passes from the repository root, `git diff --check`
 is clean, the public remote is correct, and the release commit is tagged and
-pushed as `0.6.19` with a matching published GitHub Release and green CI.
+pushed as `0.6.20` with a matching published GitHub Release.

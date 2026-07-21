@@ -214,7 +214,8 @@ public struct MarkdownStream: Sendable {
                 lineMap: lineMap,
                 idNamespace: idNamespace,
                 isSealed: isSealed,
-                referenceDefinitionsPrefix: referenceDefinitionsPrefix
+                referenceDefinitionsPrefix: referenceDefinitionsPrefix,
+                diagnosticsRecorder: diagnosticsRecorder
             )
         }
         parserCache.insert(blocks, forKey: key)

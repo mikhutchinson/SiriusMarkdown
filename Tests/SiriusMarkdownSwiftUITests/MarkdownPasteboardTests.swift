@@ -26,6 +26,49 @@ private func prepareSource(_ source: String) -> (
     return (snapshot, configuration.prepare(snapshot: snapshot), configuration)
 }
 
+#if os(macOS) || (canImport(UIKit) && !os(tvOS) && !os(watchOS))
+private struct TestPlatformPasteboardSnapshot {
+    var plainText: String?
+    var markdown: String?
+    var rtf: Data?
+    var html: Data?
+}
+
+@MainActor
+private func clearTestPlatformPasteboard() {
+    #if os(macOS)
+    NSPasteboard.general.clearContents()
+    #else
+    UIPasteboard.general.items = []
+    #endif
+}
+
+@MainActor
+private func testPlatformPasteboardSnapshot() -> TestPlatformPasteboardSnapshot {
+    #if os(macOS)
+    let markdownType = NSPasteboard.PasteboardType(
+        rawValue: MarkdownPasteboard.markdownPasteboardType
+    )
+    let markdown = NSPasteboard.general.data(forType: markdownType)
+        .flatMap { String(data: $0, encoding: .utf8) }
+    return TestPlatformPasteboardSnapshot(
+        plainText: NSPasteboard.general.string(forType: .string),
+        markdown: markdown,
+        rtf: NSPasteboard.general.data(forType: .rtf),
+        html: NSPasteboard.general.data(forType: .html)
+    )
+    #else
+    let item = UIPasteboard.general.items.first
+    return TestPlatformPasteboardSnapshot(
+        plainText: item?["public.utf8-plain-text"] as? String,
+        markdown: item?[MarkdownPasteboard.markdownPasteboardType] as? String,
+        rtf: nil,
+        html: nil
+    )
+    #endif
+}
+#endif
+
 // MARK: - MarkdownAffordanceActionHandler class promotion
 
 @Suite(.serialized)
@@ -71,58 +114,57 @@ struct MarkdownAffordanceActionHandlerTests {
                 "Replacing handler on one configuration copy must not affect the other")
     }
 
-    // MARK: Three-closure initialiser does not crash
-
     @Test
     @MainActor
-    func defaultInitDoesNotCrash() {
-        // Previously caused SIGBUS when MarkdownAffordanceActionHandler was a struct with
-        // three @MainActor @Sendable closures (Swift runtime memmove in __DATA_CONST).
-        let handler = MarkdownAffordanceActionHandler()
-        // If we reach here without a crash, the promotion worked.
-        _ = handler.copyString
-        _ = handler.copyPayload
-        _ = handler.exportMarkdown
-        #expect(Bool(true), "default init must not crash (previously SIGBUS with struct + 3 closures)")
-    }
-
-    @Test
-    @MainActor
-    func fullCustomInitDoesNotCrash() {
-        var copyStrCalled = false
-        var copyPayloadCalled = false
-        var exportCalled = false
+    func fullCustomInitializerRoutesExactArgumentsToAllThreeClosures() {
+        var copiedStrings: [String] = []
+        var copiedPayloads: [MarkdownPasteboardPayload] = []
+        var exportedPayloads: [MarkdownExportPayload] = []
         let handler = MarkdownAffordanceActionHandler(
-            copyString: { _ in copyStrCalled = true },
-            copyPayload: { _ in copyPayloadCalled = true },
-            exportMarkdown: { _ in exportCalled = true }
+            copyString: { copiedStrings.append($0) },
+            copyPayload: { copiedPayloads.append($0) },
+            exportMarkdown: { exportedPayloads.append($0) }
         )
+        let copyPayload = MarkdownPasteboardPayload(plainText: "plain", markdown: "**plain**")
+        let exportPayload = MarkdownExportPayload(markdown: "# Export", suggestedFilename: "proof.md")
+
         handler.copyString("x")
-        handler.copyPayload(MarkdownPasteboardPayload(plainText: "x", markdown: "x"))
-        handler.exportMarkdown(MarkdownExportPayload(markdown: "x"))
-        #expect(copyStrCalled)
-        #expect(copyPayloadCalled)
-        #expect(exportCalled)
+        handler.copyPayload(copyPayload)
+        handler.exportMarkdown(exportPayload)
+
+        #expect(copiedStrings == ["x"])
+        #expect(copiedPayloads == [copyPayload])
+        #expect(exportedPayloads == [exportPayload])
     }
 
     // MARK: Default closures route to MarkdownPasteboard / MarkdownDocumentExporter
 
     @Test
     @MainActor
-    func copyStringDefaultCallsPasteboardCopy() {
-        // Verifies the default copyString writes something to the pasteboard
-        // without crashing. The macOS write is verified by type in the macOS suite.
+    func defaultCopyStringRoutesEqualPlainAndMarkdownRepresentations() {
+        #if os(macOS) || (canImport(UIKit) && !os(tvOS) && !os(watchOS))
+        clearTestPlatformPasteboard()
         let handler = MarkdownAffordanceActionHandler()
         handler.copyString("default-test-string")
-        #expect(Bool(true), "default copyString must not crash")
+        let snapshot = testPlatformPasteboardSnapshot()
+
+        #expect(snapshot.plainText == "default-test-string")
+        #expect(snapshot.markdown == "default-test-string")
+        #endif
     }
 
     @Test
     @MainActor
-    func copyPayloadDefaultCallsPasteboardCopy() {
+    func defaultCopyPayloadRoutesDistinctPlainAndMarkdownRepresentations() {
+        #if os(macOS) || (canImport(UIKit) && !os(tvOS) && !os(watchOS))
+        clearTestPlatformPasteboard()
         let handler = MarkdownAffordanceActionHandler()
         handler.copyPayload(MarkdownPasteboardPayload(plainText: "plain", markdown: "**plain**"))
-        #expect(Bool(true), "default copyPayload must not crash")
+        let snapshot = testPlatformPasteboardSnapshot()
+
+        #expect(snapshot.plainText == "plain")
+        #expect(snapshot.markdown == "**plain**")
+        #endif
     }
 
     // MARK: Custom closures are called
@@ -240,38 +282,49 @@ struct MarkdownPasteboardTypeTests {
 
     @Test
     @MainActor
-    func legacyCopyStringConvenienceDoesNotCrash() {
-        MarkdownPasteboard.copy("legacy plain string")
-        #expect(Bool(true))
-    }
-
-    @Test
-    @MainActor
-    func legacyCopyStringConvenienceProducesEqualPayload() {
-        // copy(_ string:) must produce a payload where plainText == markdown == string.
-        // We verify the semantic contract by inspecting what ends up on the pasteboard.
-        // (macOS assertion in the macOS-only suite below; here we just verify no crash.)
+    func legacyCopyStringConvenienceWritesEqualPlatformRepresentations() {
+        #if os(macOS) || (canImport(UIKit) && !os(tvOS) && !os(watchOS))
+        clearTestPlatformPasteboard()
         MarkdownPasteboard.copy("equal-both-sides")
-        #expect(Bool(true))
+        let snapshot = testPlatformPasteboardSnapshot()
+
+        #expect(snapshot.plainText == "equal-both-sides")
+        #expect(snapshot.markdown == "equal-both-sides")
+        #endif
     }
 
     @Test
     @MainActor
-    func copyPayloadWithNilRTFAndHTMLDoesNotCrash() {
-        MarkdownPasteboard.copy(MarkdownPasteboardPayload(plainText: "t", markdown: "**t**"))
-        #expect(Bool(true))
-    }
-
-    @Test
-    @MainActor
-    func copyPayloadWithAllFieldsPopulatedDoesNotCrash() {
+    func copyPayloadWritesDeclaredRepresentationsAndClearsMissingOptionals() {
+        #if os(macOS) || (canImport(UIKit) && !os(tvOS) && !os(watchOS))
+        let rtf = Data("rtf".utf8)
+        let html = Data("<p>t</p>".utf8)
+        clearTestPlatformPasteboard()
         MarkdownPasteboard.copy(MarkdownPasteboardPayload(
             plainText: "t",
             markdown: "**t**",
-            rtf: Data("rtf".utf8),
-            html: Data("<p>t</p>".utf8)
+            rtf: rtf,
+            html: html
         ))
-        #expect(Bool(true))
+        let populated = testPlatformPasteboardSnapshot()
+
+        #expect(populated.plainText == "t")
+        #expect(populated.markdown == "**t**")
+        #if os(macOS)
+        #expect(populated.rtf == rtf)
+        #expect(populated.html == html)
+        #endif
+
+        MarkdownPasteboard.copy(MarkdownPasteboardPayload(
+            plainText: "next",
+            markdown: "_next_"
+        ))
+        let cleared = testPlatformPasteboardSnapshot()
+        #expect(cleared.plainText == "next")
+        #expect(cleared.markdown == "_next_")
+        #expect(cleared.rtf == nil)
+        #expect(cleared.html == nil)
+        #endif
     }
 }
 
@@ -568,17 +621,40 @@ struct MarkdownDocumentSelectionCopyPathTests {
 
     @Test
     @MainActor
-    func copySelectedMarkdownOnControllerWritesMultiRepPasteboard() {
-        let source = "Copy me"
+    func copySelectedMarkdownOnControllerWritesExactSystemPasteboardRepresentations() {
+        let source = "**Copy me** and `code`"
         let (snapshot, prepared, _) = prepareSource(source)
         let controller = MarkdownSelectionController()
         controller.updateSnapshot(snapshot)
         controller.selectAll(in: snapshot)
         let provider = MarkdownCopyProvider(markdownSource: source)
 
-        // This calls MarkdownPasteboard.copy(payload) directly — no crash, no network.
+        #if os(macOS)
+        NSPasteboard.general.clearContents()
+        #elseif canImport(UIKit) && !os(tvOS) && !os(watchOS)
+        UIPasteboard.general.items = []
+        #endif
+
         controller.copySelectedMarkdown(in: prepared, copyProvider: provider)
-        #expect(Bool(true), "copySelectedMarkdown must not crash")
+
+        #if os(macOS)
+        let markdownType = NSPasteboard.PasteboardType(
+            rawValue: MarkdownPasteboard.markdownPasteboardType
+        )
+        let markdown = NSPasteboard.general.data(forType: markdownType)
+            .flatMap { String(data: $0, encoding: .utf8) }
+        #expect(NSPasteboard.general.string(forType: .string) == "Copy me and code")
+        #expect(markdown == source)
+        #expect(NSPasteboard.general.data(forType: .rtf) == nil)
+        #expect(NSPasteboard.general.data(forType: .html) == nil)
+        #elseif canImport(UIKit) && !os(tvOS) && !os(watchOS)
+        let item = UIPasteboard.general.items.first
+        #expect(item?["public.utf8-plain-text"] as? String == "Copy me and code")
+        #expect(item?[MarkdownPasteboard.markdownPasteboardType] as? String == source)
+        #else
+        #expect(controller.selectedMarkdown(in: prepared, copyProvider: provider) == source)
+        #expect(controller.selectedPlainText(in: prepared) == "Copy me and code")
+        #endif
     }
 
     // MARK: Code affordance copy still uses copyString (single-string path)
