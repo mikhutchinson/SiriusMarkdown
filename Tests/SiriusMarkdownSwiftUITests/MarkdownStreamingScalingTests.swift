@@ -134,6 +134,180 @@ private struct StreamingScalingHost: View {
     }
 }
 
+@MainActor
+private final class StreamingResizeGeometryRecorder {
+    var markdownFrame: CGRect = .zero
+    var sentinelFrame: CGRect = .zero
+}
+
+@MainActor
+private final class StreamingResizeWidthModel: ObservableObject {
+    @Published var width: CGFloat
+
+    init(width: CGFloat) {
+        self.width = width
+    }
+}
+
+private struct StreamingResizeHost: View {
+    let preparedSnapshot: MarkdownPreparedSnapshot
+    let configuration: MarkdownRendererConfiguration
+    let recorder: StreamingResizeGeometryRecorder
+    @ObservedObject var widthModel: StreamingResizeWidthModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            StreamingMarkdownView(
+                preparedSnapshot: preparedSnapshot,
+                configuration: configuration
+            )
+            .onGeometryChange(for: CGRect.self) { proxy in
+                proxy.frame(in: .named("streaming-resize-host"))
+            } action: { frame in
+                recorder.markdownFrame = frame
+            }
+
+            StreamingResizeSentinelView()
+                .frame(height: 28)
+                .onGeometryChange(for: CGRect.self) { proxy in
+                    proxy.frame(in: .named("streaming-resize-host"))
+                } action: { frame in
+                    recorder.sentinelFrame = frame
+                }
+        }
+        .frame(width: widthModel.width, alignment: .topLeading)
+        .fixedSize(horizontal: false, vertical: true)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .coordinateSpace(name: "streaming-resize-host")
+        .background(Color.white)
+    }
+}
+
+private struct StreamingResizeSentinelView: NSViewRepresentable {
+    func makeNSView(context _: Context) -> StreamingResizeSentinelNSView {
+        StreamingResizeSentinelNSView(frame: .zero)
+    }
+
+    func updateNSView(_: StreamingResizeSentinelNSView, context _: Context) {}
+}
+
+private final class StreamingResizeSentinelNSView: NSView {
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        layer?.backgroundColor = NSColor.magenta.cgColor
+        setAccessibilityElement(true)
+        setAccessibilityLabel("Streaming resize sentinel")
+    }
+
+    @available(*, unavailable)
+    required init?(coder _: NSCoder) {
+        nil
+    }
+}
+
+@MainActor
+private final class StreamingResizeHarness {
+    let recorder = StreamingResizeGeometryRecorder()
+    let widthModel: StreamingResizeWidthModel
+    let hostingView: NSHostingView<AnyView>
+    let window: NSWindow
+
+    init(markdown: String, width: CGFloat) {
+        var stream = MarkdownStream()
+        stream.append(markdown)
+        stream.finish()
+
+        var configuration = MarkdownRendererConfiguration.compactChat
+        configuration.inlineRenderingMode = .coreTextPaintedLines
+        configuration.nativeTextSelection = .disabled
+        configuration.documentSelection = .enabled
+        configuration.linkMetadataResolver = nil
+        let preparedSnapshot = configuration.prepare(snapshot: stream.snapshot())
+
+        let widthModel = StreamingResizeWidthModel(width: width)
+        self.widthModel = widthModel
+        let root = StreamingResizeHost(
+            preparedSnapshot: preparedSnapshot,
+            configuration: configuration,
+            recorder: recorder,
+            widthModel: widthModel
+        )
+        let hostingView = NSHostingView(rootView: AnyView(root))
+        hostingView.frame = NSRect(x: 0, y: 0, width: width, height: 1_200)
+        self.hostingView = hostingView
+
+        let window = NSWindow(
+            contentRect: hostingView.frame,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.animationBehavior = .none
+        window.isReleasedWhenClosed = false
+        window.contentView = hostingView
+        window.orderBack(nil)
+        self.window = window
+    }
+
+    func resize(to width: CGFloat) {
+        widthModel.width = width
+    }
+
+    func pump(iterations: Int = 12) {
+        for _ in 0..<iterations {
+            hostingView.needsLayout = true
+            hostingView.layoutSubtreeIfNeeded()
+            hostingView.displayIfNeeded()
+            RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+        }
+    }
+
+    func tearDown() {
+        window.orderOut(nil)
+        hostingView.rootView = AnyView(EmptyView())
+        hostingView.needsLayout = true
+        hostingView.layoutSubtreeIfNeeded()
+        window.contentView = nil
+    }
+
+    func paintedSurfaceSnapshot() -> StreamingResizePaintedSurfaceSnapshot {
+        var preparedLineCount = 0
+        var preparedFrames: [CGRect] = []
+        var preparedSurfaceIdentities: Set<ObjectIdentifier> = []
+        var sentinelFrame: CGRect?
+
+        func visit(_ view: NSView) {
+            if let surface = view as? MarkdownCoreTextPaintedNSView {
+                preparedLineCount += surface.plan.lines.count
+                preparedFrames.append(surface.convert(surface.bounds, to: hostingView))
+                preparedSurfaceIdentities.insert(ObjectIdentifier(surface))
+            }
+            if let sentinel = view as? StreamingResizeSentinelNSView {
+                sentinelFrame = sentinel.convert(sentinel.bounds, to: hostingView)
+            }
+            for child in view.subviews {
+                visit(child)
+            }
+        }
+
+        visit(hostingView)
+        return StreamingResizePaintedSurfaceSnapshot(
+            preparedLineCount: preparedLineCount,
+            preparedFrames: preparedFrames,
+            preparedSurfaceIdentities: preparedSurfaceIdentities,
+            sentinelFrame: sentinelFrame
+        )
+    }
+}
+
+private struct StreamingResizePaintedSurfaceSnapshot {
+    let preparedLineCount: Int
+    let preparedFrames: [CGRect]
+    let preparedSurfaceIdentities: Set<ObjectIdentifier>
+    let sentinelFrame: CGRect?
+}
+
 private func scalingChunk(index: Int) -> String {
     """
     Paragraph \(index) with a sentence of streaming prose that wraps.
@@ -350,6 +524,65 @@ struct MarkdownStreamingScalingTests {
         #expect(fittingSize.width > 0 && fittingSize.height > 0)
         #expect(harness.session.preparedSnapshot.snapshot.sourceLength == expectedSourceLength)
         #expect(replacementMedian < 16)
+    }
+
+    @Test
+    @MainActor
+    func mountedWideToNarrowResizeRemeasuresStreamingRegionBeforeSentinel() throws {
+        let markdown = """
+        A finalized assistant paragraph with a [prepared link](https://example.com) and enough \
+        explanatory prose to wrap from a few wide Core Text lines into many narrow visual lines.
+
+        - First list item adds more prepared inline content that must stay above the action row.
+        - Second list item keeps the mounted streaming region tall after the live resize.
+        """
+        let harness = StreamingResizeHarness(markdown: markdown, width: 420)
+        defer { harness.tearDown() }
+
+        harness.pump()
+        let wideMarkdownFrame = harness.recorder.markdownFrame
+        let wideSentinelFrame = harness.recorder.sentinelFrame
+        let widePaintedSurface = harness.paintedSurfaceSnapshot()
+
+        harness.resize(to: 180)
+        harness.pump()
+        let narrowMarkdownFrame = harness.recorder.markdownFrame
+        let narrowSentinelFrame = harness.recorder.sentinelFrame
+        let narrowPaintedSurface = harness.paintedSurfaceSnapshot()
+
+        print(
+            "[streaming-live-resize] wideLines=\(widePaintedSurface.preparedLineCount) " +
+            "narrowLines=\(narrowPaintedSurface.preparedLineCount) " +
+            "wideMarkdown=\(wideMarkdownFrame) wideSentinel=\(wideSentinelFrame) " +
+            "narrowMarkdown=\(narrowMarkdownFrame) narrowSentinel=\(narrowSentinelFrame) " +
+            "painted=\(narrowPaintedSurface.preparedFrames) " +
+            "paintedSentinel=\(String(describing: narrowPaintedSurface.sentinelFrame))"
+        )
+
+        #expect(widePaintedSurface.preparedLineCount > 0)
+        #expect(narrowPaintedSurface.preparedLineCount > widePaintedSurface.preparedLineCount)
+        #expect(
+            narrowPaintedSurface.preparedSurfaceIdentities
+                == widePaintedSurface.preparedSurfaceIdentities,
+            "A width change must not remount the prepared Core Text surfaces"
+        )
+        #expect(narrowMarkdownFrame.height > wideMarkdownFrame.height + 1)
+        #expect(narrowSentinelFrame.minY >= narrowMarkdownFrame.maxY - 0.5)
+
+        let widePaintedSentinel = try #require(widePaintedSurface.sentinelFrame)
+        #expect(
+            widePaintedSurface.preparedFrames.allSatisfy {
+                $0.maxY <= widePaintedSentinel.minY + 0.5
+            }
+        )
+        let paintedSentinel = try #require(narrowPaintedSurface.sentinelFrame)
+        #expect(!narrowPaintedSurface.preparedFrames.isEmpty)
+        #expect(
+            narrowPaintedSurface.preparedFrames.allSatisfy {
+                $0.maxY <= paintedSentinel.minY + 0.5
+            },
+            "Prepared Core Text surfaces must remain above the sentinel after resize"
+        )
     }
 
     @Test

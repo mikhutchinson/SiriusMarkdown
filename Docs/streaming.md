@@ -70,7 +70,11 @@ region containing the mutable tail. Region geometry reports are quantized,
 asynchronous, and coalesced before they invalidate the parent. This keeps the
 full feature-complete SwiftUI hierarchy mounted without relying on
 `LazyVStack`'s private item-phase cache or synchronously fitting the whole
-document after every publication.
+document after every publication. Because prepared inline width discovery is
+deferred, each mounted region also tracks a compact descendant settled-layout
+generation. A new width-specific line result advances that generation and
+invalidates any provisional height measured with the previous line layout
+before the region cache can reuse it.
 
 ## Snapshots
 

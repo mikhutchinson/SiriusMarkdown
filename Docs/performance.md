@@ -69,7 +69,11 @@ mounted but caches sealed region sizes by identity, content revision, and
 proposal width. A normal append changes only the final region; stable history
 is placed from cached sizes. Region geometry publication is asynchronous,
 quantized, and coalesced so it cannot form a synchronous AppKit/SwiftUI fitting
-loop.
+loop. Prepared inline leaves additionally publish a compact settled-layout
+generation inside their bounded region. When deferred width discovery installs
+a new line layout, that generation invalidates provisional geometry and
+width-keyed layout entries before the region is admitted as settled; the
+prepared leaf itself remains mounted.
 
 The prepared snapshot path intentionally does not use `LazyVStack` for live
 streams. This avoids depending on private viewport item-phase behavior while
@@ -135,7 +139,7 @@ The suite includes headless renderer-performance contract tests:
 - repeated preparation of the same snapshot must keep `prepareCount`, `codeHighlightCount`, and `mathRenderCount` stable while cache hits increase;
 - language-aware code highlighting must run only for uncached explicit supported-language fences; plaintext, nohighlight, unlabeled, and unsupported default fences stay plain and do not increment highlight work counters;
 - Highlight.js-backed highlighting of a growing code tail must process only appended bytes between full-context checkpoints, match a full highlight across multiline lexical state, and perform a full highlight on seal; the native Swift and custom paths remain full-context;
-- stable streaming regions must retain their revisions while only the mutable-tail region changes, and AppKit-hosted rapid publication must stay inside the frame budget without constraint recursion;
+- stable streaming regions must retain their revisions while only the mutable-tail region changes, AppKit-hosted rapid publication must stay inside the frame budget without constraint recursion, and a mounted wide-to-narrow resize must grow the region to contain every rewrapped CoreText surface without remounting it;
 - streaming tables must expose partial cells immediately, retain completed row/cell identity, compare and prepare only the mutable suffix, bound column-width revisions, and reuse historical row measurements across prepared-root publications;
 - equivalent CoreText token measurements must hit the shared bounded cache across distinct measurer values;
 - large streaming transcript preparation must create unique prepared item IDs for every block and keep an active tail prepared without forcing a full finish;

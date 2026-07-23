@@ -2,7 +2,18 @@
 
 ## Open
 
-- None currently tracked.
+## Resolved in 0.6.21
+
+- Fixed `StreamingMarkdownView` caching a provisional region height after a
+  live wide-to-narrow resize
+  measured descendants before their deferred prepared-inline width update.
+  The CoreText lines then painted through a following sibling even though the
+  inline line count was correct. Prepared leaves now publish a compact settled
+  layout generation to their bounded streaming region; stale geometry reports
+  and width-cache entries are rejected without remounting the leaf. A mounted
+  AppKit regression keeps one root alive from 420pt to 180pt and verifies line
+  growth, natural region-height growth, stable CoreText surface identity, and
+  sentinel containment.
 
 ## Resolved in 0.6.20
 

@@ -18,32 +18,26 @@ The core contract is simple:
 
 ## Current Release
 
-`0.6.20` reduces retained work while a GFM table grows and strengthens the
-tests that enforce the renderer boundary:
+`0.6.21` fixes live wide-to-narrow resizing for mounted streaming responses:
 
-- **Bounded table conversion:** unchanged table-cell render models are reused
-  across mutable-tail reparses from a bounded cache with explicit conversion
-  and hit diagnostics.
-- **Prepared table leaves:** default cells enter SwiftUI with exact
-  width-specific line layouts, CoreText plans, and row heights. Stable bounded
-  row groups avoid triangular body evaluation and measurement work as rows
-  accumulate.
-- **Serializable native attachments:** transparent image placeholders and
-  tinted math images now use concrete bounded bitmap representations, avoiding
-  ImageIO serialization failures during TextKit copy and normalization.
-- **Honest renderer coverage:** construction-only and unconditional-success
-  tests were replaced with mounted AppKit rendering, pixel output, controlled
-  state changes, exact pasteboard representations, and end-to-end streaming
-  timing assertions.
-- **Release validation:** the serial release suite discovers 941 tests, and the
+- **Settled region height:** bounded streaming regions now observe a compact
+  descendant inline-layout generation and invalidate provisional geometry when
+  a deferred width-specific CoreText reflow completes.
+- **Stable mounted identity:** the fix remeasures the existing region and
+  prepared text leaves. It does not remount Markdown, clip overflow, estimate
+  text height, or discard selection state.
+- **Real host regression:** an AppKit test keeps one `StreamingMarkdownView`
+  mounted above a sentinel while its width changes from 420pt to 180pt. It
+  verifies prepared-line growth, natural-height growth, stable CoreText surface
+  identity, and painted-surface containment.
+- **Release validation:** the serial release suite discovers 942 tests, and the
   full gate also builds a clean external consumer, bundles all three demos,
   compares every Pretext fixture, checks the math corpus, builds DocC, and runs
   the opt-in AppKit renderer probes.
 
-The release retains the sanitized native rich HTML, bounded decorated-link
-resolver, baseline corrections, bounded streaming, native selection, syntax
-highlighting, math, Mermaid, attachment, and Pretext-backed layout contracts
-from earlier releases.
+The release retains the bounded live-table work, sanitized native rich HTML,
+decorated-link resolver, native selection, syntax highlighting, math, Mermaid,
+attachment, and Pretext-backed layout contracts from earlier releases.
 
 ## Requirements
 
@@ -54,7 +48,7 @@ from earlier releases.
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/mikhutchinson/SiriusMarkdown.git", from: "0.6.20")
+    .package(url: "https://github.com/mikhutchinson/SiriusMarkdown.git", from: "0.6.21")
 ],
 targets: [
     .target(
@@ -313,12 +307,12 @@ git diff --check
 - Release runbook: `runbook.md`
 - Changelog: `changelog.md`
 - Bugfix log: `bugfix.md`
-- Current release notes: `release-notes/0.6.20.md`
+- Current release notes: `release-notes/0.6.21.md`
 - Third-party credits: `NOTICE.md`
 
 ## Release
 
-`0.6.20` is ready only when the docs describe the current public package surface,
+`0.6.21` is ready only when the docs describe the current public package surface,
 `bash Tools/product-check.sh` passes from the repository root, `git diff --check`
 is clean, the public remote is correct, and the release commit is tagged and
-pushed as `0.6.20` with a matching published GitHub Release.
+pushed as `0.6.21` with a matching published GitHub Release.

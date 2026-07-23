@@ -642,6 +642,77 @@ struct PreparedInlineLayoutIdentity: Hashable {
     var fixedPreparedContainerWidth: Double?
 }
 
+/// Bounded descendant-layout state propagated to a mounted streaming region.
+///
+/// A real container-width change reaches `PreparedInlineTextView` through a
+/// deferred preference update. Until that update runs, an ancestor can
+/// provisionally measure the new width with the old line layout. This compact
+/// aggregate changes only after the prepared leaf has installed its current
+/// width-specific `layoutResult`, giving the region host a precise signal to
+/// discard that provisional measurement without replacing view identity.
+struct MarkdownPreparedInlineLayoutSettlement: Equatable {
+    static let empty = Self(leafCount: 0, low: 0, high: 0)
+
+    var leafCount: Int
+    var low: UInt64
+    var high: UInt64
+
+    static func leaf(
+        identity: PreparedInlineLayoutIdentity,
+        containerWidth: CGFloat,
+        layoutResult: InlineLayoutResult
+    ) -> Self {
+        var fingerprint = MarkdownContentFingerprint(
+            domain: "prepared-inline-layout-settlement"
+        )
+        fingerprint.combine(identity.cacheFingerprint)
+        if let fixedPreparedContainerWidth = identity.fixedPreparedContainerWidth {
+            fingerprint.combine(true)
+            fingerprint.combine(fixedPreparedContainerWidth)
+        } else {
+            fingerprint.combine(false)
+        }
+        fingerprint.combine(Double(containerWidth))
+        fingerprint.combine(layoutResult.cacheFingerprint)
+        return Self(
+            leafCount: 1,
+            low: fingerprint.low,
+            high: fingerprint.high
+        )
+    }
+
+    mutating func combine(_ next: Self) {
+        leafCount &+= next.leafCount
+        // Streaming regions are bounded by prepared render items. Commutative
+        // two-lane aggregation avoids retaining one preference value per
+        // descendant while remaining sensitive to duplicate leaves.
+        low &+= next.low
+        high &+= next.high
+    }
+}
+
+struct MarkdownPreparedInlineLayoutSettlementPreferenceKey: PreferenceKey {
+    static let defaultValue = MarkdownPreparedInlineLayoutSettlement.empty
+
+    static func reduce(
+        value: inout MarkdownPreparedInlineLayoutSettlement,
+        nextValue: () -> MarkdownPreparedInlineLayoutSettlement
+    ) {
+        value.combine(nextValue())
+    }
+}
+
+private struct MarkdownStreamingRegionMeasurementEnabledKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    var markdownStreamingRegionMeasurementEnabled: Bool {
+        get { self[MarkdownStreamingRegionMeasurementEnabledKey.self] }
+        set { self[MarkdownStreamingRegionMeasurementEnabledKey.self] = newValue }
+    }
+}
+
 private struct PreparedInlineTextView: View {
     var prepared: MarkdownPreparedInlineContent
     var fallbackAttributed: AttributedString
@@ -654,6 +725,8 @@ private struct PreparedInlineTextView: View {
 
     @Environment(\.markdownDocumentSelectionContext) private var documentSelectionContext
     @Environment(\.markdownSelectionController) private var selectionController
+    @Environment(\.markdownStreamingRegionMeasurementEnabled)
+    private var streamingRegionMeasurementEnabled
 
     @State private var containerWidth: CGFloat = 0
     @State private var layoutResult: InlineLayoutResult
@@ -786,6 +859,16 @@ private struct PreparedInlineTextView: View {
                 }
                 refreshLayoutIfPossible()
             }
+            .preference(
+                key: MarkdownPreparedInlineLayoutSettlementPreferenceKey.self,
+                value: streamingRegionMeasurementEnabled
+                    ? MarkdownPreparedInlineLayoutSettlement.leaf(
+                        identity: layoutIdentity,
+                        containerWidth: containerWidth,
+                        layoutResult: layoutResult
+                    )
+                    : .empty
+            )
     }
 
     @ViewBuilder

@@ -71,27 +71,83 @@ private struct MarkdownStreamingRegionLayoutTokenKey: LayoutValueKey {
 final class MarkdownStreamingRegionMeasurementStore: ObservableObject {
     @Published private(set) var revision: UInt64 = 0
 
+    private struct PendingMeasurement {
+        let size: CGSize
+        let inlineLayoutSettlement: MarkdownPreparedInlineLayoutSettlement
+        let layoutGeneration: UInt64
+    }
+
     private var measurements: [MarkdownStreamingRegionLayoutToken: CGSize] = [:]
-    private var pendingMeasurements: [MarkdownStreamingRegionLayoutToken: CGSize] = [:]
+    private var pendingMeasurements: [
+        MarkdownStreamingRegionLayoutToken: PendingMeasurement
+    ] = [:]
+    private var inlineLayoutSettlements: [
+        MarkdownStreamingRegionLayoutToken: MarkdownPreparedInlineLayoutSettlement
+    ] = [:]
+    private var layoutGenerations: [MarkdownStreamingRegionLayoutToken: UInt64] = [:]
     private var flushScheduled = false
 
     var snapshot: [MarkdownStreamingRegionLayoutToken: CGSize] {
         measurements
     }
 
+    var layoutGenerationSnapshot: [MarkdownStreamingRegionLayoutToken: UInt64] {
+        layoutGenerations
+    }
+
     func synchronize(tokens: [MarkdownStreamingRegionLayoutToken]) {
         let retained = Set(tokens)
         measurements = measurements.filter { retained.contains($0.key) }
         pendingMeasurements = pendingMeasurements.filter { retained.contains($0.key) }
+        inlineLayoutSettlements = inlineLayoutSettlements.filter { retained.contains($0.key) }
+        layoutGenerations = layoutGenerations.filter { retained.contains($0.key) }
     }
 
-    func report(_ size: CGSize, for token: MarkdownStreamingRegionLayoutToken) {
+    func observeInlineLayoutSettlement(
+        _ settlement: MarkdownPreparedInlineLayoutSettlement,
+        for token: MarkdownStreamingRegionLayoutToken
+    ) {
+        let previous = inlineLayoutSettlements[token] ?? .empty
+        guard previous != settlement else { return }
+
+        inlineLayoutSettlements[token] = settlement
+        measurements.removeValue(forKey: token)
+        pendingMeasurements.removeValue(forKey: token)
+        layoutGenerations[token, default: 0] &+= 1
+        // Publish synchronously with the descendant's settled layout state.
+        // Deferring this invalidation can leave the parent accepting the
+        // provisional measurement for another complete host layout cycle.
+        // ObservableObject coalesces same-transaction publications from the
+        // bounded mounted regions.
+        revision &+= 1
+    }
+
+    func report(
+        _ size: CGSize,
+        inlineLayoutSettlement: MarkdownPreparedInlineLayoutSettlement,
+        for token: MarkdownStreamingRegionLayoutToken
+    ) {
+        // The measured-region view keeps its @State when a stable region ID
+        // receives a new content-revision token. Preference values may remain
+        // identical across that token change and therefore emit no change
+        // callback; establish the new token from the view's captured settled
+        // state so cross-publication measurement reuse is not lost.
+        if inlineLayoutSettlements[token] == nil {
+            inlineLayoutSettlements[token] = inlineLayoutSettlement
+        }
+        guard (inlineLayoutSettlements[token] ?? .empty) == inlineLayoutSettlement else {
+            return
+        }
         let settled = Self.quantized(size)
         guard settled.width > 0, settled.height >= 0 else { return }
         if let existing = measurements[token], Self.isApproximatelyEqual(existing, settled) {
             return
         }
-        pendingMeasurements[token] = settled
+        pendingMeasurements[token] = PendingMeasurement(
+            size: settled,
+            inlineLayoutSettlement: inlineLayoutSettlement,
+            layoutGeneration: layoutGenerations[token] ?? 0
+        )
         guard !flushScheduled else { return }
         flushScheduled = true
         Task { @MainActor [weak self] in
@@ -107,8 +163,17 @@ final class MarkdownStreamingRegionMeasurementStore: ObservableObject {
         pendingMeasurements.removeAll(keepingCapacity: true)
 
         var changed = false
-        for (token, size) in pending {
-            if let existing = measurements[token], Self.isApproximatelyEqual(existing, size) {
+        for (token, pendingMeasurement) in pending {
+            guard (inlineLayoutSettlements[token] ?? .empty)
+                    == pendingMeasurement.inlineLayoutSettlement,
+                  (layoutGenerations[token] ?? 0) == pendingMeasurement.layoutGeneration
+            else {
+                continue
+            }
+            let size = pendingMeasurement.size
+            if let existing = measurements[token],
+               Self.isApproximatelyEqual(existing, size)
+            {
                 continue
             }
             measurements[token] = size
@@ -141,11 +206,13 @@ final class MarkdownStreamingRegionMeasurementStore: ObservableObject {
 private struct MarkdownStreamingRegionStackLayout: Layout {
     let spacing: CGFloat
     let measurements: [MarkdownStreamingRegionLayoutToken: CGSize]
+    let layoutGenerations: [MarkdownStreamingRegionLayoutToken: UInt64]
 
     struct Cache {
         struct SizeKey: Hashable {
             let token: MarkdownStreamingRegionLayoutToken
             let proposalWidth: Int?
+            let layoutGeneration: UInt64
         }
 
         var proposalWidth: CGFloat?
@@ -164,7 +231,10 @@ private struct MarkdownStreamingRegionStackLayout: Layout {
         let activeTokens = Set(
             subviews.compactMap { $0[MarkdownStreamingRegionLayoutTokenKey.self] }
         )
-        cache.sizesByKey = cache.sizesByKey.filter { activeTokens.contains($0.key.token) }
+        cache.sizesByKey = cache.sizesByKey.filter {
+            activeTokens.contains($0.key.token) &&
+                $0.key.layoutGeneration == (layoutGenerations[$0.key.token] ?? 0)
+        }
         cache.proposalWidth = nil
         cache.tokens.removeAll(keepingCapacity: true)
         cache.sizes.removeAll(keepingCapacity: true)
@@ -207,6 +277,9 @@ private struct MarkdownStreamingRegionStackLayout: Layout {
         subviews: Subviews,
         cache: inout Cache
     ) {
+        cache.sizesByKey = cache.sizesByKey.filter {
+            $0.key.layoutGeneration == (layoutGenerations[$0.key.token] ?? 0)
+        }
         let childProposal = ProposedViewSize(width: proposalWidth, height: nil)
         var tokens: [MarkdownStreamingRegionLayoutToken?] = []
         var sizes: [CGSize] = []
@@ -222,22 +295,39 @@ private struct MarkdownStreamingRegionStackLayout: Layout {
             let subview = subviews[index]
             let token = subview[MarkdownStreamingRegionLayoutTokenKey.self]
             let measured = token.flatMap { measurements[$0] }
+            let layoutGeneration = token.flatMap { layoutGenerations[$0] } ?? 0
             let size: CGSize
             if let measured, measurement(measured, matches: proposalWidth) {
                 size = measured
                 if let token {
-                    cache.sizesByKey[Cache.SizeKey(token: token, proposalWidth: widthKey)] = measured
+                    cache.sizesByKey[
+                        Cache.SizeKey(
+                            token: token,
+                            proposalWidth: widthKey,
+                            layoutGeneration: layoutGeneration
+                        )
+                    ] = measured
                 }
             } else if let token,
                       let cached = cache.sizesByKey[
-                          Cache.SizeKey(token: token, proposalWidth: widthKey)
+                          Cache.SizeKey(
+                              token: token,
+                              proposalWidth: widthKey,
+                              layoutGeneration: layoutGeneration
+                          )
                       ]
             {
                 size = cached
             } else {
                 size = sanitized(subview.sizeThatFits(childProposal))
                 if let token {
-                    cache.sizesByKey[Cache.SizeKey(token: token, proposalWidth: widthKey)] = size
+                    cache.sizesByKey[
+                        Cache.SizeKey(
+                            token: token,
+                            proposalWidth: widthKey,
+                            layoutGeneration: layoutGeneration
+                        )
+                    ] = size
                 }
             }
 
@@ -294,15 +384,30 @@ private struct MarkdownStreamingMeasuredRegion<Content: View>: View {
     let token: MarkdownStreamingRegionLayoutToken
     let measurementStore: MarkdownStreamingRegionMeasurementStore
     @ViewBuilder let content: () -> Content
+    @State private var inlineLayoutSettlement = MarkdownPreparedInlineLayoutSettlement.empty
 
     var body: some View {
         content()
             .frame(maxWidth: .infinity, alignment: .leading)
             .fixedSize(horizontal: false, vertical: true)
+            .environment(\.markdownStreamingRegionMeasurementEnabled, true)
             .onGeometryChange(for: CGSize.self) { proxy in
                 proxy.size
             } action: { size in
-                measurementStore.report(size, for: token)
+                measurementStore.report(
+                    size,
+                    inlineLayoutSettlement: inlineLayoutSettlement,
+                    for: token
+                )
+            }
+            .onPreferenceChange(
+                MarkdownPreparedInlineLayoutSettlementPreferenceKey.self
+            ) { settlement in
+                inlineLayoutSettlement = settlement
+                measurementStore.observeInlineLayoutSettlement(
+                    settlement,
+                    for: token
+                )
             }
     }
 }
@@ -324,7 +429,8 @@ func markdownStreamingRegionStack<Content: View>(
 ) -> some View {
     MarkdownStreamingRegionStackLayout(
         spacing: spacing,
-        measurements: measurementStore.snapshot
+        measurements: measurementStore.snapshot,
+        layoutGenerations: measurementStore.layoutGenerationSnapshot
     ) {
         ForEach(regions) { region in
             let token = region.layoutToken

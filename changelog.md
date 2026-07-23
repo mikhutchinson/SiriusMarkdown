@@ -1,6 +1,12 @@
 # Changelog
 
-## Unreleased
+## 0.6.21 - 2026-07-23
+
+- Fixed `StreamingMarkdownView` retaining a provisional region height after a
+  mounted prepared inline leaf reflowed at a new width. Streaming regions now
+  invalidate width-keyed measurements when descendant line-layout state
+  settles, remeasure to the new natural height, and preserve the existing
+  prepared view identities, selection state, and bounded region cache.
 
 ## 0.6.20 - 2026-07-21
 
