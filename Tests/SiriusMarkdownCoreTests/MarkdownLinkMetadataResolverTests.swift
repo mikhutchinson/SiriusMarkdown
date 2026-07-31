@@ -40,6 +40,28 @@ struct MarkdownLinkMetadataResolverTests {
     }
 
     @Test
+    func rejectsEffectivelyInvisibleIconInsteadOfReplacingFallbackGlyph() async {
+        MarkdownLinkMetadataMockRegistry.shared.install { request in
+            switch request.url?.path {
+            case "/":
+                return .html("<link rel=\"icon\" href=\"/blank.png\">")
+            case "/blank.png":
+                return .png(Self.effectivelyTransparentOnePixelPNG)
+            default:
+                return .status(404)
+            }
+        }
+        let resolver = makeResolver()
+
+        #expect(await resolver.resolveMetadata(for: origin) == .unavailable)
+        #expect(
+            resolver.failureDescriptions(for: origin).contains {
+                $0.contains("/blank.png") && $0.contains("failed native image validation")
+            }
+        )
+    }
+
+    @Test
     func concurrentRequestsForOneOriginAreCoalesced() async {
         MarkdownLinkMetadataMockRegistry.shared.install { request in
             switch request.url?.path {
@@ -475,6 +497,12 @@ struct MarkdownLinkMetadataResolverTests {
 
     private static let onePixelPNG = Data(
         base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+    )!
+
+    // The reported Wix favicon decodes every pixel at alpha 1/255. This compact
+    // equivalent exercises the same effectively invisible payload boundary.
+    private static let effectivelyTransparentOnePixelPNG = Data(
+        base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAAXNSR0IArs4c6QAAADhlWElmTU0AKgAAAAgAAYdpAAQAAAABAAAAGgAAAAAAAqACAAQAAAABAAAAAaADAAQAAAABAAAAAQAAAADa6r/EAAAADUlEQVQIHWP4//8/IwAI/QL/l2WgPAAAAABJRU5ErkJggg=="
     )!
 
     private static let twoByOnePNG = Data(

@@ -21,6 +21,28 @@ func linksReceiveImmediateNativeGlyphWithoutChangingSourceModel() throws {
 }
 
 @Test
+func allowedNonHTTPSLinksReceiveImmediateNativeGlyphs() throws {
+    let block = try firstLinkDecorationBlock(
+        "[Relative](/docs), [scheme-less](example.com/profile), and [email](mailto:hello@example.com)."
+    )
+    let configuration = MarkdownRendererConfiguration(linkMetadataResolver: nil)
+    let prepared = try #require(configuration.prepare(block: block).inlineLayout)
+    let layout = try #require(prepared.initialLayoutResult)
+
+    #expect(
+        String(prepared.attributed.characters) ==
+            "🌐\u{00A0}Relative, 🌐\u{00A0}scheme-less, and 🌐\u{00A0}email."
+    )
+    #expect(
+        prepared.prepared.runs.filter {
+            $0.presentation.contains(.linkDecoration)
+        }.map(\.destination) == ["/docs", "example.com/profile", "mailto:hello@example.com"]
+    )
+    #expect(prepared.allSemanticLinksHaveDecorations)
+    #expect(MarkdownCoreTextPaintedLinePlan.make(prepared: prepared, layout: layout).underlinesLinks == false)
+}
+
+@Test
 func linkDecorationsCanBeDisabledWithoutChangingLinkBehavior() throws {
     let block = try firstLinkDecorationBlock("[Example](https://example.com)")
     let configuration = MarkdownRendererConfiguration(
@@ -39,13 +61,26 @@ func linkDecorationsCanBeDisabledWithoutChangingLinkBehavior() throws {
 
 @Test
 func mixedDecoratedAndUndecoratedLinksRetainUnderlines() throws {
+    let website = URL(string: "https://example.com")!
     let block = try firstLinkDecorationBlock(
         "[Website](https://example.com) and [email](mailto:hello@example.com)"
     )
-    let configuration = MarkdownRendererConfiguration(linkMetadataResolver: nil)
+    let configuration = MarkdownRendererConfiguration(
+        linkMetadataResolver: SelectiveCachedLinkMetadataResolver(
+            destination: website,
+            resolution: .metadata(
+                MarkdownLinkMetadata(
+                    destination: website,
+                    decoration: .glyph("◆")
+                )
+            )
+        ),
+        linkDecoration: MarkdownLinkDecorationConfiguration(fallbackGlyph: "")
+    )
     let prepared = try #require(configuration.prepare(block: block).inlineLayout)
     let layout = try #require(prepared.initialLayoutResult)
 
+    #expect(String(prepared.attributed.characters) == "◆\u{00A0}Website and email")
     #expect(prepared.allSemanticLinksHaveDecorations == false)
     #expect(MarkdownCoreTextPaintedLinePlan.make(prepared: prepared, layout: layout).underlinesLinks)
 }
@@ -121,6 +156,19 @@ func markdownAndHTMLAnchorsUseTheSameDecorationPipeline() throws {
 }
 
 @Test
+func relativeMarkdownAndHTMLAnchorsUseTheSameFallbackDecoration() throws {
+    let markdownBlock = try firstLinkDecorationBlock("[Documentation](/docs)")
+    let htmlOuter = try firstLinkDecorationBlock("<p><a href=\"/docs\">Documentation</a></p>")
+    let htmlBlock = try #require(htmlOuter.richContent?.blocks.first)
+    let configuration = MarkdownRendererConfiguration(linkMetadataResolver: nil)
+
+    let markdown = try #require(configuration.prepare(block: markdownBlock).inlineLayout)
+    let html = try #require(configuration.prepare(block: htmlBlock).inlineLayout)
+    #expect(String(markdown.attributed.characters) == String(html.attributed.characters))
+    #expect(String(html.attributed.characters) == "🌐\u{00A0}Documentation")
+}
+
+@Test
 @MainActor
 func renderSessionRefreshesPreparedLinksWhenFaviconArrives() async throws {
     let destination = URL(string: "https://example.com/")!
@@ -150,6 +198,24 @@ func renderSessionRefreshesPreparedLinksWhenFaviconArrives() async throws {
     #expect(resolver.resolveCount == 1)
 }
 
+@Test
+@MainActor
+func renderSessionDoesNotResolveRemoteMetadataForNonHTTPSFallbackLinks() async throws {
+    let resolver = DelayedLinkMetadataResolver(resolution: .unavailable)
+    let configuration = MarkdownRendererConfiguration(linkMetadataResolver: resolver)
+    let session = MarkdownRenderSession(configuration: configuration)
+
+    session.append("[Relative](/docs) and [email](mailto:hello@example.com)")
+    session.finish()
+    await session.waitUntilIdle()
+    await session.waitUntilLinkMetadataIdle()
+
+    let block = try #require(session.snapshot.blocks.first)
+    let inline = try #require(session.preparedSnapshot.preparedContentByBlockID[block.id]?.inlineLayout)
+    #expect(String(inline.attributed.characters) == "🌐\u{00A0}Relative and 🌐\u{00A0}email")
+    #expect(resolver.resolveCount == 0)
+}
+
 private struct CachedLinkMetadataResolver: MarkdownLinkMetadataResolver {
     var resolution: MarkdownLinkMetadataResolution
 
@@ -159,6 +225,19 @@ private struct CachedLinkMetadataResolver: MarkdownLinkMetadataResolver {
 
     func resolveMetadata(for destination: URL) async -> MarkdownLinkMetadataResolution {
         resolution
+    }
+}
+
+private struct SelectiveCachedLinkMetadataResolver: MarkdownLinkMetadataResolver {
+    var destination: URL
+    var resolution: MarkdownLinkMetadataResolution
+
+    func cachedResolution(for destination: URL) -> MarkdownLinkMetadataResolution? {
+        destination == self.destination ? resolution : nil
+    }
+
+    func resolveMetadata(for destination: URL) async -> MarkdownLinkMetadataResolution {
+        destination == self.destination ? resolution : .unavailable
     }
 }
 

@@ -5,6 +5,7 @@ import SwiftSoup
 import Darwin
 #endif
 #if canImport(ImageIO)
+import CoreGraphics
 import ImageIO
 #endif
 
@@ -104,7 +105,7 @@ public final class DefaultMarkdownLinkMetadataResolver:
 
     public var linkMetadataResolverCacheIdentity: String {
         [
-            "siriusmarkdown.default-link-metadata-resolver.v1",
+            "siriusmarkdown.default-link-metadata-resolver.v2",
             String(limits.maximumDocumentBytes),
             String(limits.maximumIconBytes),
             String(limits.maximumIconDimension),
@@ -631,6 +632,8 @@ public final class DefaultMarkdownLinkMetadataResolver:
         }
         var pixelWidth = 0
         var pixelHeight = 0
+        var representativeFrameIndex = 0
+        var representativeFrameArea = 0
         for index in 0..<CGImageSourceGetCount(source) {
             guard let properties = CGImageSourceCopyPropertiesAtIndex(source, index, nil) as? [CFString: Any],
                   let width = (properties[kCGImagePropertyPixelWidth] as? NSNumber)?.intValue,
@@ -642,6 +645,14 @@ public final class DefaultMarkdownLinkMetadataResolver:
             }
             pixelWidth = max(pixelWidth, width)
             pixelHeight = max(pixelHeight, height)
+            let area = width * height
+            if area > representativeFrameArea {
+                representativeFrameArea = area
+                representativeFrameIndex = index
+            }
+        }
+        guard iconHasVisiblePixels(source, frameIndex: representativeFrameIndex) else {
+            return nil
         }
         let mimeType = normalizedMIMEType(response.mimeType) ?? inferredIconMIMEType(data) ?? "image/x-icon"
         return MarkdownLinkIcon(
@@ -655,6 +666,52 @@ public final class DefaultMarkdownLinkMetadataResolver:
         return nil
         #endif
     }
+
+    #if canImport(ImageIO)
+    private static func iconHasVisiblePixels(
+        _ source: CGImageSource,
+        frameIndex: Int
+    ) -> Bool {
+        guard let image = CGImageSourceCreateImageAtIndex(source, frameIndex, nil) else {
+            return false
+        }
+        let sampleWidth = min(image.width, 32)
+        let sampleHeight = min(image.height, 32)
+        guard sampleWidth > 0, sampleHeight > 0 else {
+            return false
+        }
+
+        var pixels = [UInt8](repeating: 0, count: sampleWidth * sampleHeight * 4)
+        guard let context = CGContext(
+            data: &pixels,
+            width: sampleWidth,
+            height: sampleHeight,
+            bitsPerComponent: 8,
+            bytesPerRow: sampleWidth * 4,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else {
+            return false
+        }
+        context.interpolationQuality = .medium
+        context.draw(
+            image,
+            in: CGRect(x: 0, y: 0, width: sampleWidth, height: sampleHeight)
+        )
+
+        let requiredVisiblePixels = max(1, (sampleWidth * sampleHeight + 99) / 100)
+        var visiblePixelCount = 0
+        for alphaIndex in stride(from: 3, to: pixels.count, by: 4) {
+            if pixels[alphaIndex] >= 32 {
+                visiblePixelCount += 1
+                if visiblePixelCount >= requiredVisiblePixels {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+    #endif
 
     private static func inferredIconMIMEType(_ data: Data) -> String? {
         let bytes = [UInt8](data.prefix(12))

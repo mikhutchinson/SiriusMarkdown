@@ -967,6 +967,120 @@ func faviconDecorationSharesTheLinkLabelsOpticalCenterInNativeText() throws {
     }
 }
 
+@Test
+@MainActor
+func nonHTTPSFallbackGlyphPaintsInEveryNativeTextMode() throws {
+    let block = try firstBlock("[Relative documentation](/docs)")
+    let modes: [(MarkdownInlineRenderingMode, MarkdownNativeTextSelection)] = [
+        (.preparedNativeLines, .disabled),
+        (.coreTextPaintedLines, .disabled),
+        (.preparedNativeLines, .enabled),
+        (.coreTextPaintedLines, .enabled),
+    ]
+
+    for (renderingMode, selectionMode) in modes {
+        let configuration = MarkdownRendererConfiguration(
+            theme: .document,
+            inlineRenderingMode: renderingMode,
+            nativeTextSelection: selectionMode,
+            linkMetadataResolver: nil
+        )
+        let bitmap = try testBitmap(
+            for: MarkdownBlockView(
+                block: block,
+                configuration: configuration,
+                preparedContent: configuration.prepare(block: block)
+            ),
+            width: 220,
+            height: 56
+        )
+        let scale = Double(bitmap.pixelsWide) / 220
+        let glyphBounds = try #require(
+            nonWhitePixelVerticalBounds(in: bitmap, xRange: 0..<Int(20 * scale))
+        )
+        let labelBounds = try #require(
+            nonWhitePixelVerticalBounds(in: bitmap, xRange: Int(24 * scale)..<Int(180 * scale))
+        )
+
+        #expect(
+            glyphBounds.isEmpty == false,
+            "rendering mode: \(renderingMode), selection mode: \(selectionMode)"
+        )
+        #expect(
+            labelBounds.isEmpty == false,
+            "rendering mode: \(renderingMode), selection mode: \(selectionMode)"
+        )
+    }
+}
+
+@Test
+@MainActor
+func tightPublicLineHeightDoesNotClipPQGDescendersInAnyNativeTextMode() throws {
+    var theme = MarkdownTheme.compactChat
+    theme.paragraphFont = .system(size: 14)
+    theme.paragraphFontSize = 14
+    theme.paragraphLineHeight = 14
+    theme.paragraphFontProfiles = .paragraphDefault
+    theme.textColor = .black
+    let modes: [(MarkdownInlineRenderingMode, MarkdownNativeTextSelection)] = [
+        (.preparedNativeLines, .disabled),
+        (.coreTextPaintedLines, .disabled),
+        (.preparedNativeLines, .enabled),
+        (.coreTextPaintedLines, .enabled),
+    ]
+    let textCases = [
+        (name: "regular", x: "x", descenders: "pgq"),
+        (name: "strong", x: "**x**", descenders: "**pgq**"),
+    ]
+
+    for (renderingMode, selectionMode) in modes {
+        let configuration = MarkdownRendererConfiguration(
+            theme: theme,
+            inlineRenderingMode: renderingMode,
+            nativeTextSelection: selectionMode
+        )
+        for textCase in textCases {
+            let xBlock = try firstBlock(textCase.x)
+            let descenderBlock = try firstBlock(textCase.descenders)
+            let xPrepared = configuration.prepare(block: xBlock)
+            let descenderPrepared = configuration.prepare(block: descenderBlock)
+            let view = HStack(alignment: .top, spacing: 20) {
+                MarkdownBlockView(
+                    block: xBlock,
+                    configuration: configuration,
+                    preparedContent: xPrepared
+                )
+                .frame(width: 30, alignment: .leading)
+                MarkdownBlockView(
+                    block: descenderBlock,
+                    configuration: configuration,
+                    preparedContent: descenderPrepared
+                )
+                .frame(width: 70, alignment: .leading)
+            }
+            let bitmap = try testBitmap(
+                for: view,
+                width: 120,
+                height: 36,
+                backingScale: 2
+            )
+            let xBounds = try #require(
+                darkPixelVerticalBounds(in: bitmap, xRange: 0..<60)
+            )
+            let descenderBounds = try #require(
+                darkPixelVerticalBounds(in: bitmap, xRange: 100..<240)
+            )
+            let xHeight = xBounds.upperBound - xBounds.lowerBound
+            let descenderHeight = descenderBounds.upperBound - descenderBounds.lowerBound
+
+            #expect(
+                descenderHeight >= xHeight + 3,
+                "text: \(textCase.name), rendering mode: \(renderingMode), selection mode: \(selectionMode), x: \(xBounds), pgq: \(descenderBounds)"
+            )
+        }
+    }
+}
+
 private struct BlockStyleTestLinkMetadataResolver: MarkdownLinkMetadataResolver {
     var resolution: MarkdownLinkMetadataResolution
 

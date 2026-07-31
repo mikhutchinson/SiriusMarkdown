@@ -595,7 +595,14 @@ struct MarkdownInlineFallbackMetrics: Sendable, Hashable {
     ) {
         let safeFontSize = Self.sanitizedPositive(fontSize, fallback: fallbackFontSize)
         self.fontSize = safeFontSize
-        self.lineHeight = Self.sanitizedPositive(lineHeight, fallback: max(fallbackLineHeight, safeFontSize))
+        self.lineHeight = MarkdownInlineLineHeight.resolved(
+            requested: Self.sanitizedPositive(
+                lineHeight,
+                fallback: max(fallbackLineHeight, safeFontSize)
+            ),
+            fontSize: safeFontSize,
+            profiles: MarkdownInlineFontProfiles(uniform: fontProfile)
+        )
         self.fontProfile = fontProfile
     }
 

@@ -210,9 +210,11 @@ struct MarkdownPreparedTypographyMetrics: Sendable, Hashable {
         lineHeight: Double
     ) {
         let safeFontSize = fontSize.isFinite && fontSize > 0 ? fontSize : 14
-        let safeLineHeight = lineHeight.isFinite && lineHeight > 0
-            ? CGFloat(lineHeight)
-            : CGFloat(safeFontSize)
+        let safeLineHeight = CGFloat(MarkdownInlineLineHeight.resolved(
+            requested: lineHeight,
+            fontSize: safeFontSize,
+            profiles: MarkdownInlineFontProfiles(uniform: profile)
+        ))
         // The SF Symbol checkbox's raster center lands half a point above the
         // capital-text center on both 1x and 2x macOS renderers. Incorporate
         // that optical correction in the prepared guide so alignment remains
@@ -1404,7 +1406,7 @@ public struct MarkdownRendererConfiguration: Sendable {
             options: InlineLayoutOptions(
                 containerWidth: initialLayoutWidth,
                 fontSize: metrics.fontSize,
-                lineHeight: effectiveLineHeight
+                lineHeight: inline.lineHeight
             ),
             allowsOverwideFallback: true
         )
@@ -1667,12 +1669,16 @@ public struct MarkdownRendererConfiguration: Sendable {
         var previousDestination: String?
 
         for run in runs {
+            // Local fallback eligibility follows the ordinary link policy,
+            // not the narrower public-HTTPS remote-resource policy. Relative,
+            // mail, and host-normalized destinations still need a non-color
+            // cue even though MarkdownRenderSession will never schedule
+            // favicon discovery for them.
             guard run.isLinkPresentation,
                   run.kind != .softBreak,
                   run.kind != .hardBreak,
                   let destination = run.destination,
-                  let destinationURL = markdownLinkURL(for: destination, policy: linkPolicy),
-                  destinationURL.scheme?.lowercased() == "http" || destinationURL.scheme?.lowercased() == "https"
+                  let destinationURL = markdownLinkURL(for: destination, policy: linkPolicy)
             else {
                 decoratedRuns.append(run)
                 previousDestination = nil
@@ -2750,7 +2756,14 @@ public struct MarkdownRendererConfiguration: Sendable {
         fallbackLineHeight: Double
     ) -> (fontSize: Double, lineHeight: Double, fontProfiles: MarkdownInlineFontProfiles) {
         let safeFontSize = Self.sanitizedPositive(fontSize, fallback: fallbackFontSize)
-        let safeLineHeight = Self.sanitizedPositive(lineHeight, fallback: max(fallbackLineHeight, safeFontSize))
+        let safeLineHeight = MarkdownInlineLineHeight.resolved(
+            requested: Self.sanitizedPositive(
+                lineHeight,
+                fallback: max(fallbackLineHeight, safeFontSize)
+            ),
+            fontSize: safeFontSize,
+            profiles: fontProfiles
+        )
         return (safeFontSize, safeLineHeight, fontProfiles)
     }
 
@@ -2974,7 +2987,11 @@ public struct MarkdownPreparedInlineContent: Sendable {
         defaultLayoutWidth: Double = InlineRunsView.defaultLayoutWidth
     ) {
         let safeFontSize = Self.sanitizedPositive(fontSize, fallback: 14)
-        let safeLineHeight = Self.sanitizedPositive(lineHeight, fallback: safeFontSize)
+        let safeLineHeight = MarkdownInlineLineHeight.resolved(
+            requested: Self.sanitizedPositive(lineHeight, fallback: safeFontSize),
+            fontSize: safeFontSize,
+            profiles: fontProfiles
+        )
         self.attributed = attributed
         self.prepared = prepared
         self.hasScriptTypography = Self.containsScriptTypography(prepared)

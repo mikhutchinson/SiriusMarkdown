@@ -18,19 +18,23 @@ The core contract is simple:
 
 ## Current Release
 
-`0.6.21` fixes live wide-to-narrow resizing for mounted streaming responses:
+`0.6.22` restores the visible-decoration invariant for allowed links:
 
-- **Settled region height:** bounded streaming regions now observe a compact
-  descendant inline-layout generation and invalidate provisional geometry when
-  a deferred width-specific CoreText reflow completes.
-- **Stable mounted identity:** the fix remeasures the existing region and
-  prepared text leaves. It does not remount Markdown, clip overflow, estimate
-  text height, or discard selection state.
-- **Real host regression:** an AppKit test keeps one `StreamingMarkdownView`
-  mounted above a sentinel while its width changes from 420pt to 180pt. It
-  verifies prepared-line growth, natural-height growth, stable CoreText surface
-  identity, and painted-surface containment.
-- **Release validation:** the serial release suite discovers 942 tests, and the
+- **Immediate native fallback:** every policy-authorized destination that
+  normalizes into an activatable URL receives a globe glyph, including
+  relative, scheme-less, and non-HTTP safe destinations.
+- **Visible site-icon replacement:** public HTTPS favicon discovery remains
+  separately gated. A resolved icon replaces the globe only after bounded
+  native decoding confirms meaningful visible pixel coverage, so transparent
+  or effectively invisible files cannot blank the decoration.
+- **Safe public line metrics:** custom theme line heights are clamped only when
+  they are smaller than the configured CoreText profiles' real typographic
+  height, preventing `p`, `g`, and `q` descenders from being clipped.
+- **Real renderer regressions:** mounted AppKit tests verify painted fallback
+  pixels across both prepared rendering modes and both macOS selection modes,
+  exercise tight-line-height descenders in those same four native-text paths,
+  while Core tests reject an effectively transparent decoded icon.
+- **Release validation:** the serial release suite discovers 948 tests, and the
   full gate also builds a clean external consumer, bundles all three demos,
   compares every Pretext fixture, checks the math corpus, builds DocC, and runs
   the opt-in AppKit renderer probes.
@@ -48,7 +52,7 @@ attachment, and Pretext-backed layout contracts from earlier releases.
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/mikhutchinson/SiriusMarkdown.git", from: "0.6.21")
+    .package(url: "https://github.com/mikhutchinson/SiriusMarkdown.git", from: "0.6.22")
 ],
 targets: [
     .target(
@@ -132,11 +136,13 @@ small surfaces. Production paths should pass `MarkdownPreparedSnapshot`.
   by default, the documented native HTML subset is sanitized, active HTML and
   unsafe destinations are removed or denied, and math/code renderers are
   pluggable.
-- Decorated website links work without a host-owned favicon bundle. Every
-  allowed HTTP(S) link receives an immediate atomic globe glyph; the
-  package-owned resolver then
+- Decorated links work without a host-owned favicon bundle. Every allowed
+  activatable link receives an immediate atomic globe glyph, including
+  relative and non-HTTP safe destinations; the package-owned resolver then
+  considers only public HTTPS origins and
   discovers the destination's declared public HTTPS icon, bounded square social
-  artwork, or conventional favicon/touch-icon paths, validates it, and
+  artwork, or conventional favicon/touch-icon paths, validates its bytes,
+  dimensions, and visible pixel coverage, and
   refreshes only that prepared decoration. Requests are
   anonymous and ephemeral, private/special network endpoints and unsafe
   redirects are rejected, concurrent origins, payloads, and decoded dimensions
@@ -307,12 +313,12 @@ git diff --check
 - Release runbook: `runbook.md`
 - Changelog: `changelog.md`
 - Bugfix log: `bugfix.md`
-- Current release notes: `release-notes/0.6.21.md`
+- Current release notes: `release-notes/0.6.22.md`
 - Third-party credits: `NOTICE.md`
 
 ## Release
 
-`0.6.21` is ready only when the docs describe the current public package surface,
+`0.6.22` is ready only when the docs describe the current public package surface,
 `bash Tools/product-check.sh` passes from the repository root, `git diff --check`
 is clean, the public remote is correct, and the release commit is tagged and
-pushed as `0.6.21` with a matching published GitHub Release.
+pushed as `0.6.22` with a matching published GitHub Release.

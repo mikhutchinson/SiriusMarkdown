@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.6.22 - 2026-07-30
+
+- Restored the immediate fallback glyph for every allowed activatable link,
+  including relative, scheme-less, and non-HTTP safe destinations. Fallback
+  decoration is now independent of public-HTTPS favicon discovery, so links
+  cannot become color-only merely because they are ineligible for remote
+  metadata resolution.
+- Rejected transparent and effectively invisible favicon payloads before they
+  can replace the visible fallback glyph. The bounded native validation pass
+  now requires meaningful visible pixel coverage as well as valid bytes and
+  dimensions.
+- Prevented tight public theme line heights from clipping glyph descenders.
+  Prepared SwiftUI, CoreText-painted, and AppKit-selection surfaces now share a
+  cached minimum derived from the configured fonts' actual typographic height,
+  while larger requested spacing remains unchanged.
+
 ## 0.6.21 - 2026-07-23
 
 - Fixed `StreamingMarkdownView` retaining a provisional region height after a

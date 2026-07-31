@@ -2,6 +2,24 @@
 
 ## Open
 
+## Resolved in 0.6.22
+
+- Allowed relative, scheme-less, and non-HTTP safe links remained clickable but
+  received no fallback decoration because the preparation path incorrectly
+  applied the public-HTTP(S) favicon eligibility gate before inserting the
+  local glyph. The fallback now covers every policy-authorized activatable URL,
+  while asynchronous metadata discovery remains limited to public HTTPS
+  origins.
+- Public HTTPS links could still become visually blank when a site declared an
+  effectively transparent favicon. The default resolver now samples a bounded
+  decoded frame and requires meaningful visible pixel coverage before an icon
+  may replace the immediate globe fallback.
+- Public themes could request a line height smaller than the configured font's
+  actual ascent plus descent. Native prepared leaves then clipped below the
+  undersized frame, visibly cutting off `p`, `g`, and `q`. All native inline
+  paths now use a cached CoreText-derived minimum while preserving larger
+  caller-specified line heights.
+
 ## Resolved in 0.6.21
 
 - Fixed `StreamingMarkdownView` caching a provisional region height after a

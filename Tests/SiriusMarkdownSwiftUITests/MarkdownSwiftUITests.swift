@@ -307,7 +307,7 @@ func inlineTextMetricsClampInvalidPublicThemeAndFallbackValues() throws {
         lineHeight: -.infinity
     )
     #expect(fallbackView.fallbackTextMetrics.fontSize == 14)
-    #expect(fallbackView.fallbackTextMetrics.lineHeight == 14)
+    #expect(fallbackView.fallbackTextMetrics.lineHeight >= 14)
 
     let paragraphFallbackMetrics = MarkdownInlineFallbackMetrics(
         fontSize: .nan,
@@ -349,7 +349,7 @@ func inlineTextMetricsClampInvalidPublicThemeAndFallbackValues() throws {
         lineHeight: .nan
     )
     #expect(direct.fontSize == 14)
-    #expect(direct.lineHeight == 14)
+    #expect(direct.lineHeight == fallbackView.fallbackTextMetrics.lineHeight)
     #expect(direct.measured.fontSize == 14)
     #expect(direct.measured.naturalWidth == 0)
     #expect(direct.measured.segments.first?.width == 0)
@@ -1360,7 +1360,7 @@ func defaultJavaScriptResourceLoadingUsesNonTrappingLookup() throws {
 @Test
 func releaseAndProductChecksKeepRenderProbeVisualsOptIn() throws {
     let root = packageRootURL()
-    let currentReleaseVersion = "0.6.21"
+    let currentReleaseVersion = "0.6.22"
     let releaseCheck = try String(
         contentsOf: root.appending(path: "Tools/release-check.sh"),
         encoding: .utf8
@@ -4741,6 +4741,7 @@ func inlinePreparationCacheKeysSeparateRunFieldBoundaries() throws {
     let recorder = MarkdownDiagnosticsRecorder()
     let configuration = MarkdownRendererConfiguration(
         linkPolicy: IdentityLinkPolicy(identity: "allow", decision: .allow),
+        linkDecoration: .disabled,
         preparationCache: cache,
         diagnosticsRecorder: recorder
     )
