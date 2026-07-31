@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.6.23 - 2026-07-30
+
+- Carried forward the 0.6.22 visible-link-decoration, invisible-favicon, and
+  tight-line-height descender fixes.
+- Calibrated the honest append-to-render watchdog for the mounted 120-row table
+  across GitHub-hosted arm64 variance. The gate still enforces identical
+  incremental work counters, cache reuse, and a sub-16 ms explicit layout
+  budget; only its end-to-end wall-clock ceiling moves from 1.0 to 1.5 seconds.
+
 ## 0.6.22 - 2026-07-30
 
 - Restored the immediate fallback glyph for every allowed activatable link,

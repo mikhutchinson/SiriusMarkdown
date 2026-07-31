@@ -2,6 +2,15 @@
 
 ## Open
 
+## Resolved in 0.6.23
+
+- The release gate's mounted 120-row table test used a 1.0-second
+  append-to-render ceiling that passed locally at 0.70 seconds but failed on
+  current GitHub-hosted arm64 runners at 1.09–1.27 seconds with every structural
+  work counter unchanged and explicit layout below 1 ms. The cross-runner
+  watchdog is now 1.5 seconds while the existing cache, work-count, and
+  sub-16 ms explicit-layout invariants remain intact.
+
 ## Resolved in 0.6.22
 
 - Allowed relative, scheme-less, and non-HTTP safe links remained clickable but

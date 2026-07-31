@@ -18,7 +18,8 @@ The core contract is simple:
 
 ## Current Release
 
-`0.6.22` restores the visible-decoration invariant for allowed links:
+`0.6.23` restores the visible-decoration invariant for allowed links and
+calibrates its end-to-end streaming-table watchdog across supported runners:
 
 - **Immediate native fallback:** every policy-authorized destination that
   normalizes into an activatable URL receives a globe glyph, including
@@ -34,6 +35,9 @@ The core contract is simple:
   pixels across both prepared rendering modes and both macOS selection modes,
   exercise tight-line-height descenders in those same four native-text paths,
   while Core tests reject an effectively transparent decoded icon.
+- **Stable release watchdog:** the 120-row mounted table benchmark retains its
+  exact work-count and sub-16 ms explicit-layout invariants, with a 1.5-second
+  end-to-end ceiling that covers observed GitHub-hosted arm64 variance.
 - **Release validation:** the serial release suite discovers 948 tests, and the
   full gate also builds a clean external consumer, bundles all three demos,
   compares every Pretext fixture, checks the math corpus, builds DocC, and runs
@@ -52,7 +56,7 @@ attachment, and Pretext-backed layout contracts from earlier releases.
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/mikhutchinson/SiriusMarkdown.git", from: "0.6.22")
+    .package(url: "https://github.com/mikhutchinson/SiriusMarkdown.git", from: "0.6.23")
 ],
 targets: [
     .target(
@@ -313,12 +317,12 @@ git diff --check
 - Release runbook: `runbook.md`
 - Changelog: `changelog.md`
 - Bugfix log: `bugfix.md`
-- Current release notes: `release-notes/0.6.22.md`
+- Current release notes: `release-notes/0.6.23.md`
 - Third-party credits: `NOTICE.md`
 
 ## Release
 
-`0.6.22` is ready only when the docs describe the current public package surface,
+`0.6.23` is ready only when the docs describe the current public package surface,
 `bash Tools/product-check.sh` passes from the repository root, `git diff --check`
 is clean, the public remote is correct, and the release commit is tagged and
-pushed as `0.6.22` with a matching published GitHub Release.
+pushed as `0.6.23` with a matching published GitHub Release.

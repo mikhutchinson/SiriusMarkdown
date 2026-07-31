@@ -244,7 +244,8 @@ func changelogHistoricalEntriesPreserved() throws {
 func bugfixLogHistoricalEntriesPreserved() throws {
     let bugfix = try readFile("bugfix.md")
     #expect(bugfix.contains("## Fixed"), "Bugfix log should preserve 'Fixed' section")
-    #expect(bugfix.contains("## Resolved in 0.6.22"), "Bugfix log should record the current release")
+    #expect(bugfix.contains("## Resolved in 0.6.23"), "Bugfix log should record the current release")
+    #expect(bugfix.contains("## Resolved in 0.6.22"), "Bugfix log should preserve the 0.6.22 entry")
     #expect(bugfix.contains("## Resolved in 0.6.21"), "Bugfix log should preserve the 0.6.21 entry")
     #expect(bugfix.contains("## Resolved in 0.6.20"), "Bugfix log should preserve the 0.6.20 entry")
     #expect(bugfix.contains("## Resolved in 0.6.14"), "Bugfix log should preserve the 0.6.14 entry")
