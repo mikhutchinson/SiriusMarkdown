@@ -21,6 +21,9 @@ The goal is a native, streaming-first Markdown renderer for Apple applications: 
   detection for `$$`, `\[...\]`, and `\begin{...}...\end{...}` environments.
 - Font measurement: production CoreText measurement defaults to system-profile fonts and includes font profiles in cache identity; Pretext fixtures pin explicit named fonts for oracle stability.
 - Safety: links, images, HTML, code, and math stay policy controlled, with no remote image fetch by default.
+- Link cues: automatic decoration is a font-relative decorative template symbol
+  that shares one reserved box with a resolved untinted favicon; decoration and
+  the first label token cannot wrap onto separate lines.
 - Interaction: macOS defaults to bounded noneditable `NSTextView` leaves, giving selection and secondary-click menus to AppKit while avoiding an unbounded transcript-wide selection overlay. Visual wraps do not become copied newline characters, image-backed inline math stays selectable as a baseline-aligned TextKit attachment, semantic ranges survive streamed fallback/image transitions, and the standard Copy/Speech/services menu is not replaced by a package-only “Copy Markdown” item. Exact-source cross-block selection remains explicit and has one document-level context-menu owner: it resolves continuously through inter-block gutters, mutually excludes code/table scrollers through `MarkdownSelectionContextKind`, and writes plain text plus the Markdown UTI on Cmd-C without network or WebKit work. Package-owned document/code/Mermaid controls retain explicit accessibility labels and decorative SF Symbols.
 - Product surfaces: demos show clean transcript and reader behavior first, with diagnostics available as inspection rather than primary UI.
 

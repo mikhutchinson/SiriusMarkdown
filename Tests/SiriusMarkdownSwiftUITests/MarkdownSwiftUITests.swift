@@ -1360,7 +1360,7 @@ func defaultJavaScriptResourceLoadingUsesNonTrappingLookup() throws {
 @Test
 func releaseAndProductChecksKeepRenderProbeVisualsOptIn() throws {
     let root = packageRootURL()
-    let currentReleaseVersion = "0.6.23"
+    let currentReleaseVersion = "0.6.24"
     let releaseCheck = try String(
         contentsOf: root.appending(path: "Tools/release-check.sh"),
         encoding: .utf8
@@ -1936,11 +1936,14 @@ func nativeSelectionPreservesMixedImageAndMathAttachmentOrderAndPlainCopy() thro
     }
     let linkedRange = try #require(linkedAttachmentRange)
 
-    #expect(attachmentCount == 3)
-    #expect(replacementCount == 3)
-    #expect(textView.nativeAttachmentCacheCount == 1)
+    // The local image, two math images, and the automatic decorative link
+    // symbol are all native attachments. The symbol stays absent from copied
+    // plain text and shares the linked math activation range.
+    #expect(attachmentCount == 4)
+    #expect(replacementCount == 4)
+    #expect(textView.nativeAttachmentCacheCount == 2)
     #expect(textView.nativeMathAttachmentCacheCount == 2)
-    #expect(appKitAttachmentHostViews(in: hostingView).count == 1)
+    #expect(appKitAttachmentHostViews(in: hostingView).count == 2)
     #expect((storage.attribute(.link, at: linkedRange.location, effectiveRange: nil) as? URL)?.absoluteString == "https://example.com/math")
 
     textView.setSelectedRange(NSRange(location: 0, length: storage.length))

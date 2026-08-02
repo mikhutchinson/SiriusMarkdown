@@ -2,6 +2,25 @@
 
 ## Open
 
+## Resolved in 0.6.24
+
+- Fixed asynchronous favicon completion corrupting fixed-width prepared table
+  cells. `PreparedInlineTextView` retained the fallback glyph's longer UTF-8
+  layout ranges in `@State`; replacing that glyph with an attachment placeholder
+  could truncate the link label, produce an empty final line, and mount no icon.
+  Fixed-width leaves now render the newest immutable prepared layout, and the
+  CoreText line-plan cache also rejects a different prepared fingerprint even
+  when its natural width and line geometry compare equal.
+- Fixed link decorations wrapping away from their labels. The nonbreaking space
+  was tokenized as an ordinary break opportunity, so a globe or favicon could
+  end one line while the label began the next. Prepared segments now carry a
+  keep-with-next relationship through the first label token.
+- Fixed the automatic fallback looking oversized and inconsistent beside
+  compact Apple-platform text. `.automatic` now mounts a decorative template
+  SF Symbol in a font-relative box; branded favicon bytes replace it in the same
+  host and explicitly render untinted. Custom glyph and fixed-size initializer
+  behavior remains available.
+
 ## Resolved in 0.6.23
 
 - The release gate's mounted 120-row table test used a 1.0-second

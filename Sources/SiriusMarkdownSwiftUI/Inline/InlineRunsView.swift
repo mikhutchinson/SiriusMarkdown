@@ -774,6 +774,19 @@ private struct PreparedInlineTextView: View {
         )
     }
 
+    /// Table/list leaves already carry a layout prepared for their immutable
+    /// column width. They must render directly from that value: `@State`
+    /// retains its initializer across a SwiftUI update and can otherwise keep
+    /// byte ranges from the pre-favicon fallback after prepared content is
+    /// replaced with a shorter attachment placeholder.
+    private var renderedLayoutResult: InlineLayoutResult {
+        if fixedPreparedContainerWidth != nil {
+            return prepared.initialLayoutResult
+                ?? InlineLayoutResult(lines: [], naturalWidth: 0, height: 0)
+        }
+        return layoutResult
+    }
+
     @ViewBuilder
     var body: some View {
         if fixedPreparedContainerWidth != nil,
@@ -802,7 +815,7 @@ private struct PreparedInlineTextView: View {
         let width = CGFloat(fixedPreparedContainerWidth ?? prepared.defaultLayoutWidth)
         return NativeInlineLineTextView(
             prepared: prepared,
-            layoutResult: layoutResult,
+            layoutResult: renderedLayoutResult,
             fallbackAttributed: fallbackAttributed,
             baseFont: baseFont,
             theme: theme,
@@ -814,7 +827,11 @@ private struct PreparedInlineTextView: View {
         )
         .alignmentGuide(.firstTextBaseline) { _ in firstBaselineFromTop }
         .environment(\.openURL, markdownOpenURLAction(linkAction: linkAction))
-        .accessibilityValue(layoutResult.lines.isEmpty ? "" : "\(layoutResult.lines.count) prepared lines")
+        .accessibilityValue(
+            renderedLayoutResult.lines.isEmpty
+                ? ""
+                : "\(renderedLayoutResult.lines.count) prepared lines"
+        )
     }
 
     private var decoratedRenderSurface: some View {
@@ -829,7 +846,11 @@ private struct PreparedInlineTextView: View {
                 firstBaselineFromTop
             }
             .environment(\.openURL, markdownOpenURLAction(linkAction: linkAction))
-            .accessibilityValue(layoutResult.lines.isEmpty ? "" : "\(layoutResult.lines.count) prepared lines")
+            .accessibilityValue(
+                renderedLayoutResult.lines.isEmpty
+                    ? ""
+                    : "\(renderedLayoutResult.lines.count) prepared lines"
+            )
     }
 
     private var dynamicallySizedRenderSurface: some View {
@@ -907,7 +928,7 @@ private struct PreparedInlineTextView: View {
                 .overlay(alignment: .topLeading) {
                     NativeInlineLineTextView(
                         prepared: prepared,
-                        layoutResult: layoutResult,
+                        layoutResult: renderedLayoutResult,
                         fallbackAttributed: fallbackAttributed,
                         baseFont: baseFont,
                         theme: theme,
@@ -939,11 +960,11 @@ private struct PreparedInlineTextView: View {
 
     private var canRenderNativeLines: Bool {
         inlineRenderingMode.usesPreparedLineSurface &&
-            !layoutResult.lines.isEmpty
+            !renderedLayoutResult.lines.isEmpty
     }
 
     private var nativeLineSurfaceHeight: CGFloat {
-        let lineCount = layoutResult.lines.count
+        let lineCount = renderedLayoutResult.lines.count
         guard lineCount > 0 else {
             return CGFloat(prepared.lineHeight)
         }
@@ -1022,7 +1043,7 @@ private struct PreparedInlineTextView: View {
         return MarkdownDocumentSelectionFragment.inlineLineFragments(
             blockID: documentSelectionContext.blockID,
             prepared: prepared,
-            layout: layoutResult,
+            layout: renderedLayoutResult,
             rect: rect,
             idPrefix: "text-leaf"
         )
@@ -1077,7 +1098,7 @@ private struct PreparedInlineTextView: View {
         }
         let blockID = documentSelectionContext.blockID
         let prepared = prepared
-        let layoutResult = layoutResult
+        let layoutResult = renderedLayoutResult
         return { startPoint, endPoint in
             let fragments = MarkdownDocumentSelectionFragment.inlineLineFragments(
                 blockID: blockID,

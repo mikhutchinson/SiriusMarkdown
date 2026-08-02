@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.6.24 - 2026-08-02
+
+- Fixed fixed-width prepared table/list leaves retaining fallback-era inline
+  byte ranges after asynchronous favicon completion. Those leaves now consume
+  the latest immutable prepared layout directly, and CoreText plan reuse keys
+  the complete prepared-content fingerprint in addition to geometry.
+- Kept each link decoration, nonbreaking spacer, and first label token in one
+  prepared wrapping unit so neither a fallback nor a branded icon can be
+  stranded at the end of a narrow table-cell line.
+- Replaced `.automatic`'s colored emoji fallback with a decorative template SF
+  Symbol whose box follows surrounding text metrics up to the configured
+  maximum. Resolved branded favicons reuse that box and host without tinting;
+  direct configuration still supports custom text glyphs and fixed sizes.
+- Added the exact four-column mounted fallback-to-favicon regression, equal-
+  geometry CoreText cache coverage, keep-with-label layout coverage, same-host
+  symbol-to-bitmap coverage, and light/dark plus macOS selection-mode probes.
+  The release gate now discovers `954` Swift tests.
+
 ## 0.6.23 - 2026-07-30
 
 - Carried forward the 0.6.22 visible-link-decoration, invisible-favicon, and

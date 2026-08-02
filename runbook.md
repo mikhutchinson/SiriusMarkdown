@@ -1,6 +1,6 @@
 # Runbook
 
-This runbook is the local release authority for `SiriusMarkdown`. For the current public package release, use `0.6.23` as the tag and do not publish unless every release blocker below is clear.
+This runbook is the local release authority for `SiriusMarkdown`. For the current public package release, use `0.6.24` as the tag and do not publish unless every release blocker below is clear.
 
 ## Build
 
@@ -17,7 +17,7 @@ swift test
 ```
 
 Current status: `swift test` must pass with strict Swift-vs-Pretext comparison enabled across the required product fixture groups. Missing groups, duplicate fixture names/groups, absent required layout metadata (`font`, `lineHeight`, `whiteSpace`, `wordBreak`), invalid/nonzero `letterSpacing`, or known-drift allowlists are release blockers.
-The release-gate discovery floor for this slice is `948` Swift tests.
+The release-gate discovery floor for this slice is `954` Swift tests.
 
 Count the Swift test functions reported by the runner and keep the release-gate discovery floor current:
 
@@ -41,6 +41,9 @@ Parser acceptance for the current slice:
 Layout and renderer acceptance for the current slice:
 
 - Inline layout must keep the Pretext-shaped contract: call `prepare` to tokenize and measure, then call cheap `layout` for width changes. Tests should prove `layout(MeasuredInlineContent, ...)` does not call the measurer again.
+- Prepared link decoration, its nonbreaking spacer, and the first label token
+  must stay in one wrapping unit. Neither the fallback symbol nor a resolved
+  favicon may end a line without label text.
 - Renderer preparation must not eagerly populate per-character unit measurements. Unit fallback measurement is only allowed for explicit overwide fallback paths, and SwiftUI view-time layout must be able to refuse that fallback.
 - SwiftUI `body` must not parse Markdown, syntax highlight, or run custom per-inline measurement/wrapping. `InlineRunsView` should consume prepared inline content with measured segments instead of installing a custom SwiftUI `Layout`.
 - Use `MarkdownRenderSession` or `MarkdownRendererConfiguration.prepare(snapshot:)` in model/controller code and pass `MarkdownPreparedSnapshot` into `MarkdownDocumentView` or `StreamingMarkdownView`. Deprecated direct `snapshot:` view initializers are compatibility shims, not the streaming/document path; they may enforce cheap safety policy decisions but must not run full highlighting, math rendering, or inline preparation synchronously.
@@ -60,6 +63,10 @@ Layout and renderer acceptance for the current slice:
   `MarkdownRendererConfiguration.gitHub`.
 - Inline math detection must remain source-preserving and must not rewrite code spans, fenced code, or Markdown source before `swift-markdown` parsing. Dollar-delimited inline math must not consume common currency/reward amounts such as `$100 - $5,500`, `$108,500`, or compact ISO currency-code amounts; compact currency-code coverage should derive from Foundation's `Locale.Currency.isoCurrencies` rather than a hand-maintained code list. Bare-TeX recovery is only a conservative routing layer for generated math; it must keep code spans, paths, unknown commands, escaped Markdown, and prose out of math while preserving whole generated formula families as source-backed math runs.
 - Image handling must produce prepared decisions and placeholders by default; no network image fetch is allowed without an explicit host resolver.
+- Automatic link decoration must prepare a decorative template SF Symbol at a
+  font-relative size and reserve that same box for any resolved favicon.
+  Branded favicon pixels remain untinted; direct configuration may still use a
+  custom text glyph or fixed icon size.
 - Allowed images (an explicit `MarkdownImagePolicy` `.allow` decision) must become prepared inline attachments — reserved `pointWidth`/`pointHeight`/`ascent`/`descent` box metrics on the atomic image segment, a `CTRunDelegate`-backed gap on the CoreText line plan, and exactly one host view per attachment ID (`hosts.count == attachmentGaps.count`, INV-IA6). Denied images (the default) must keep the existing alt/`[image: reason]` text-atomic path unchanged. Width-only relayout must not re-invoke the image resolver or re-probe bytes. No `URLSession` call or full-frame `CGImageSourceCreate*` decode may live in a host's `body`/`updateNSView`/`updateUIView`; a cheap header-only size probe of already-resolved `Data`/local-file bytes during prepare is the one sanctioned exception. Do not add a parallel image rendering path (e.g. a `Text`-composition bypass) for the allowed box path — CoreText line gaps are the only paint path for allowed images.
 - macOS selection must default to bounded package-owned AppKit text leaves
   through `MarkdownRendererConfiguration.nativeTextSelection`. The
@@ -159,6 +166,10 @@ Layout and renderer acceptance for the current slice:
 - Repeated preparation of the same snapshot should reuse inline/code/math caches and record cache hits without incrementing prepare, highlighting, or math-render counters.
 - CTLine creation must not run in `updateNSView`/`updateUIView`; it must run in `prepare(snapshot:)` (INV-P1). The representable assigns a pre-built `MarkdownCoreTextPaintedLinePlan` when the layout result matches the initial pre-computed layout.
 - `PreparedInlineTextView` must render content on first appearance without waiting for the width preference (INV-P2). The initial layout is pre-computed at a default width during preparation.
+- Fixed-width prepared leaves must render the latest immutable prepared layout
+  directly rather than retaining its byte ranges in SwiftUI state. CoreText
+  line-plan reuse must include the prepared-content fingerprint as well as
+  geometry so metadata-driven decoration changes cannot reuse stale text.
 - `MarkdownRenderSession` must publish a `MarkdownPreparedSnapshotDiff` alongside the full snapshot (INV-P3). Only changed/new items trigger preparation; sealed blocks hit the reuse path.
 - `MarkdownRenderSession` must originate parse/highlight/prepare work from a
   detached task. MainActor work is limited to operation drain and publication.
@@ -210,7 +221,7 @@ Run this before claiming native-renderer product quality. It wraps the release g
 
 ## Public Release Checklist
 
-Use this checklist for `0.6.23`.
+Use this checklist for `0.6.24`.
 
 1. Confirm public hygiene:
 
@@ -260,28 +271,28 @@ Use this checklist for `0.6.23`.
 
    ```sh
    git add README.md runbook.md NOTICE.md changelog.md bugfix.md release-notes Docs Sources Tests Examples Tools Package.swift Package.resolved
-   git commit -m "Prepare SiriusMarkdown 0.6.23 release"
+   git commit -m "Prepare SiriusMarkdown 0.6.24 release"
    ```
 
 6. Tag and push:
 
    ```sh
-   git tag -a 0.6.23 -m "SiriusMarkdown 0.6.23"
+   git tag -a 0.6.24 -m "SiriusMarkdown 0.6.24"
    git push origin HEAD
-   git push origin 0.6.23
+   git push origin 0.6.24
    ```
 
 7. After pushing, create the public release from the matching `changelog.md`
    section and verify that GitHub marks it as Latest:
 
    ```sh
-   gh release create 0.6.23 \
+   gh release create 0.6.24 \
      --repo mikhutchinson/SiriusMarkdown \
      --verify-tag \
      --latest \
-     --title "SiriusMarkdown 0.6.23" \
-     --notes-file release-notes/0.6.23.md
-   gh release view 0.6.23 \
+     --title "SiriusMarkdown 0.6.24" \
+     --notes-file release-notes/0.6.24.md
+   gh release view 0.6.24 \
      --repo mikhutchinson/SiriusMarkdown \
      --json tagName,name,isDraft,isPrerelease,publishedAt,url
    ```

@@ -46,11 +46,16 @@ Prepared inline layout is the cacheable measurement, resize, diagnostics, and me
 
 ### CTLine plan preparation (INV-P1)
 
-**`MarkdownCoreTextPaintedLinePlan`** is created during **`prepare(snapshot:)`**, not in `updateNSView`/`updateUIView`. The representable assigns a pre-built plan. CTLine creation, font attribute application, and typographic measurement run in the prepare phase, cached by content identity. When the actual container width differs from the default width used during preparation, the representable rebuilds the plan from the refined layout result — but this only happens on width change, not on every SwiftUI update.
+**`MarkdownCoreTextPaintedLinePlan`** is created during **`prepare(snapshot:)`**, not in `updateNSView`/`updateUIView`. The representable assigns a pre-built plan. CTLine creation, font attribute application, and typographic measurement run in the prepare phase, cached by complete prepared-content fingerprint plus layout geometry; equal natural width/line ranges cannot make different link-decoration content reuse a stale plan. When the actual container width differs from the default width used during preparation, the representable rebuilds the plan from the refined layout result — but this only happens on width change, not on every SwiftUI update.
 
 ### Single-pass layout (INV-P2)
 
 **`PreparedInlineTextView`** pre-computes layout at a default width (**680pt** standard chat column) during preparation. The first render shows content immediately; `canRenderNativeLines` is true on first appearance without waiting for the width preference. Width refinement adjusts line breaks in a single pass via the cheap `layout()` path. This eliminates the two-pass latency where new blocks rendered empty until the `GeometryReader` width preference arrived.
+
+Fixed-width prepared leaves such as table cells render the latest immutable
+`initialLayoutResult` directly instead of copying it into retained SwiftUI
+state. Asynchronous fallback-symbol-to-favicon replacement therefore cannot
+apply byte ranges from the previous prepared string.
 
 ### Incremental snapshot publishing (INV-P3)
 

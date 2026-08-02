@@ -38,6 +38,8 @@ public enum MarkdownPreparedImageSource: Sendable, Hashable {
     case remote(URL)
 }
 
+let markdownLinkSystemSymbolSourcePrefix = "sirius-link-system-symbol:"
+
 public struct MarkdownPreparedImage: Sendable, Hashable {
     public var source: String
     public var altText: String?
@@ -113,18 +115,28 @@ public struct MarkdownLinkDecorationConfiguration: Sendable, Hashable {
     public var isEnabled: Bool
     public var fallbackGlyph: String
     public var iconPointSize: Double
+    public var fallbackSystemSymbolName: String?
+    public var adaptsIconPointSizeToText: Bool
 
     public init(
         isEnabled: Bool = true,
         fallbackGlyph: String = "🌐",
-        iconPointSize: Double = 18
+        iconPointSize: Double = 18,
+        fallbackSystemSymbolName: String? = nil,
+        adaptsIconPointSizeToText: Bool = false
     ) {
         self.isEnabled = isEnabled
         self.fallbackGlyph = fallbackGlyph
         self.iconPointSize = iconPointSize.isFinite && iconPointSize > 0 ? iconPointSize : 18
+        self.fallbackSystemSymbolName = fallbackSystemSymbolName
+        self.adaptsIconPointSizeToText = adaptsIconPointSizeToText
     }
 
-    public static let automatic = MarkdownLinkDecorationConfiguration()
+    public static let automatic = MarkdownLinkDecorationConfiguration(
+        fallbackGlyph: "",
+        fallbackSystemSymbolName: "globe",
+        adaptsIconPointSizeToText: true
+    )
     public static let disabled = MarkdownLinkDecorationConfiguration(isEnabled: false)
 }
 
@@ -1607,9 +1619,17 @@ public struct MarkdownRendererConfiguration: Sendable {
         }
 
         if runs.contains(where: { $0.presentation.contains(.linkDecoration) }) {
-            components.append(("linkDecorationMetricsVersion", "2"))
+            components.append(("linkDecorationMetricsVersion", "3"))
             components.append(("linkDecorationFallbackGlyph", linkDecoration.fallbackGlyph))
             components.append(("linkDecorationIconPointSize", String(linkDecoration.iconPointSize)))
+            components.append((
+                "linkDecorationFallbackSystemSymbol",
+                linkDecoration.fallbackSystemSymbolName ?? ""
+            ))
+            components.append((
+                "linkDecorationAdaptsIconPointSizeToText",
+                String(linkDecoration.adaptsIconPointSizeToText)
+            ))
         }
 
         if !imageDecisions.isEmpty {
@@ -1691,6 +1711,39 @@ public struct MarkdownRendererConfiguration: Sendable {
                    case let .metadata(metadata) = resolution {
                     resolvedDecoration = metadata.decoration
                 } else {
+                    if let symbolName = linkDecoration.fallbackSystemSymbolName,
+                       !symbolName.isEmpty
+                    {
+                        let token = markdownLinkSystemSymbolSourcePrefix + symbolName
+                        decoratedRuns.append(
+                            MarkdownInlineRun(
+                                kind: .link,
+                                text: "Website icon",
+                                sourceRange: nil,
+                                destination: destination,
+                                imageSource: token,
+                                presentation: MarkdownInlinePresentation.image.union(.linkDecoration)
+                            )
+                        )
+                        decoratedRuns.append(
+                            MarkdownInlineRun(
+                                kind: .link,
+                                text: "\u{00A0}",
+                                sourceRange: Self.zeroLengthSourceRange(atStartOf: run.sourceRange),
+                                destination: destination,
+                                presentation: .linkDecoration
+                            )
+                        )
+                        preparedImagesBySource[token] = MarkdownPreparedImage(
+                            source: token,
+                            altText: nil,
+                            sourceRange: run.sourceRange,
+                            preparedSource: .placeholder(reason: "Native link symbol")
+                        )
+                        decoratedRuns.append(run)
+                        previousDestination = destination
+                        continue
+                    }
                     resolvedDecoration = .glyph(linkDecoration.fallbackGlyph)
                 }
 
@@ -2101,7 +2154,7 @@ public struct MarkdownRendererConfiguration: Sendable {
             )
             let placeholderStyle: MarkdownAttachmentPlaceholderStyle
             if isLinkDecoration {
-                let pointSize = linkDecoration.iconPointSize
+                let pointSize = linkDecorationPointSize(fontSize: fontSize)
                 metrics = linkDecorationAttachmentMetrics(
                     pointSize: pointSize,
                     fontSize: fontSize,
@@ -2133,11 +2186,22 @@ public struct MarkdownRendererConfiguration: Sendable {
         }
     }
 
-    /// Centers a bitmap favicon on the visual center of the configured
-    /// fallback glyph. The fallback is what appears before metadata resolves,
-    /// so matching its CoreText image bounds prevents a vertical jump when
-    /// a branded image replaces it. These prepared metrics are shared by the
-    /// CoreText, UIKit, and AppKit render paths.
+    private func linkDecorationPointSize(fontSize: Double) -> Double {
+        let configured = linkDecoration.iconPointSize.isFinite && linkDecoration.iconPointSize > 0
+            ? linkDecoration.iconPointSize
+            : 18
+        guard linkDecoration.adaptsIconPointSizeToText else {
+            return configured
+        }
+        let safeFontSize = fontSize.isFinite && fontSize > 0 ? fontSize : 14
+        return min(configured, max(8, safeFontSize))
+    }
+
+    /// Centers a bitmap favicon on the visual center of the configured text
+    /// fallback when one exists. Automatic mode uses the same reserved box
+    /// for its template system symbol and the eventual branded image, so
+    /// metadata completion cannot change line geometry. These prepared
+    /// metrics are shared by the CoreText, UIKit, and AppKit render paths.
     private func linkDecorationAttachmentMetrics(
         pointSize: Double,
         fontSize: Double,

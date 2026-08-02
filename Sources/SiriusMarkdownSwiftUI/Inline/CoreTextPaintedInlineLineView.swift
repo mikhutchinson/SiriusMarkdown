@@ -55,11 +55,18 @@ struct CoreTextPaintedInlineLineView: View {
 /// unchanged since the last explicit `make()`, the existing plan is reused without recreating CTLine
 /// objects in `updateNSView`/`updateUIView`.
 struct CTPlanCacheKey: Equatable {
+    var preparedFingerprint: MarkdownContentFingerprint
     var preparedNaturalWidth: Double
     var layout: InlineLayoutResult
 
-    func matches(naturalWidth: Double, layout: InlineLayoutResult) -> Bool {
-        preparedNaturalWidth == naturalWidth && self.layout == layout
+    func matches(
+        preparedFingerprint: MarkdownContentFingerprint,
+        naturalWidth: Double,
+        layout: InlineLayoutResult
+    ) -> Bool {
+        self.preparedFingerprint == preparedFingerprint &&
+            preparedNaturalWidth == naturalWidth &&
+            self.layout == layout
     }
 }
 
@@ -779,6 +786,7 @@ private struct CoreTextPaintedInlineLineSurface: NSViewRepresentable {
             view.plan = prebuilt
             view.cachedLinePlanKey = nil
         } else if view.cachedLinePlanKey?.matches(
+            preparedFingerprint: prepared.cacheFingerprint,
             naturalWidth: prepared.measured.naturalWidth,
             layout: layoutResult
         ) == true {
@@ -797,6 +805,7 @@ private struct CoreTextPaintedInlineLineSurface: NSViewRepresentable {
                 layout: layoutResult
             )
             view.cachedLinePlanKey = CTPlanCacheKey(
+                preparedFingerprint: prepared.cacheFingerprint,
                 preparedNaturalWidth: prepared.measured.naturalWidth,
                 layout: layoutResult
             )
@@ -964,6 +973,7 @@ private struct CoreTextPaintedInlineLineSurface: UIViewRepresentable {
             view.plan = prebuilt
             view.cachedLinePlanKey = nil
         } else if view.cachedLinePlanKey?.matches(
+            preparedFingerprint: prepared.cacheFingerprint,
             naturalWidth: prepared.measured.naturalWidth,
             layout: layoutResult
         ) == true {
@@ -977,6 +987,7 @@ private struct CoreTextPaintedInlineLineSurface: UIViewRepresentable {
                 layout: layoutResult
             )
             view.cachedLinePlanKey = CTPlanCacheKey(
+                preparedFingerprint: prepared.cacheFingerprint,
                 preparedNaturalWidth: prepared.measured.naturalWidth,
                 layout: layoutResult
             )

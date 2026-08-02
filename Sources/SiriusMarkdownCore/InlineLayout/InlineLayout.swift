@@ -72,6 +72,13 @@ public struct PreparedInlineSegment: Sendable, Hashable {
     public var isBreakOpportunity: Bool {
         didSet { refreshCacheFingerprint() }
     }
+    /// Keeps this segment and the first following ordinary segment in one
+    /// wrapping unit. Link decorations use this for their icon/glyph and
+    /// nonbreaking spacer so a line never ends with decoration chrome while
+    /// the label begins on the next line.
+    public var keepsWithNext: Bool {
+        didSet { refreshCacheFingerprint() }
+    }
     /// Reserved box metrics for an allowed attachment segment (Inline
     /// Attachments Part 01). When non-nil, measurement must use
     /// `attachmentMetrics.pointWidth` instead of measuring `text`.
@@ -89,6 +96,7 @@ public struct PreparedInlineSegment: Sendable, Hashable {
         byteRange: Range<Int>,
         isHardBreak: Bool = false,
         isBreakOpportunity: Bool = false,
+        keepsWithNext: Bool = false,
         attachmentMetrics: MarkdownInlineAttachmentMetrics? = nil
     ) {
         self.kind = kind
@@ -97,6 +105,7 @@ public struct PreparedInlineSegment: Sendable, Hashable {
         self.byteRange = byteRange
         self.isHardBreak = isHardBreak
         self.isBreakOpportunity = isBreakOpportunity
+        self.keepsWithNext = keepsWithNext
         self.attachmentMetrics = attachmentMetrics
         refreshCacheFingerprint()
     }
@@ -109,6 +118,7 @@ public struct PreparedInlineSegment: Sendable, Hashable {
             byteRange: byteRange,
             isHardBreak: isHardBreak,
             isBreakOpportunity: isBreakOpportunity,
+            keepsWithNext: keepsWithNext,
             attachmentMetrics: attachmentMetrics
         )
     }
@@ -116,8 +126,10 @@ public struct PreparedInlineSegment: Sendable, Hashable {
     static func prepare(from runs: [MarkdownInlineRun]) -> [PreparedInlineSegment] {
         var segments: [PreparedInlineSegment] = []
         var cursor = 0
+        var pendingDecorationLabel = false
 
         for run in runs {
+            let isLinkDecoration = run.presentation.contains(.linkDecoration)
             if run.kind == .softBreak || run.kind == .hardBreak {
                 let upper = cursor + run.text.utf8.count
                 segments.append(
@@ -131,6 +143,7 @@ public struct PreparedInlineSegment: Sendable, Hashable {
                     )
                 )
                 cursor = upper
+                pendingDecorationLabel = false
                 continue
             }
 
@@ -144,15 +157,19 @@ public struct PreparedInlineSegment: Sendable, Hashable {
                         byteRange: cursor..<upper,
                         isHardBreak: false,
                         isBreakOpportunity: false,
+                        keepsWithNext: isLinkDecoration,
                         attachmentMetrics: run.attachmentMetrics
                     )
                 )
                 cursor = upper
+                pendingDecorationLabel = isLinkDecoration
                 continue
             }
 
             for token in tokenize(run.text) {
                 let upper = cursor + token.text.utf8.count
+                let keepsWithNext = isLinkDecoration ||
+                    (pendingDecorationLabel && token.isBreakOpportunity)
                 segments.append(
                     PreparedInlineSegment(
                         kind: run.kind,
@@ -160,10 +177,18 @@ public struct PreparedInlineSegment: Sendable, Hashable {
                         text: token.text,
                         byteRange: cursor..<upper,
                         isHardBreak: token.isHardBreak,
-                        isBreakOpportunity: token.isBreakOpportunity
+                        isBreakOpportunity: isLinkDecoration
+                            ? false
+                            : token.isBreakOpportunity,
+                        keepsWithNext: keepsWithNext
                     )
                 )
                 cursor = upper
+                if isLinkDecoration {
+                    pendingDecorationLabel = true
+                } else if pendingDecorationLabel, !token.isBreakOpportunity {
+                    pendingDecorationLabel = false
+                }
             }
         }
 
@@ -381,6 +406,7 @@ private func preparedInlineSegmentFingerprint(
     byteRange: Range<Int>,
     isHardBreak: Bool,
     isBreakOpportunity: Bool,
+    keepsWithNext: Bool,
     attachmentMetrics: MarkdownInlineAttachmentMetrics?
 ) -> MarkdownContentFingerprint {
     var fingerprint = MarkdownContentFingerprint(domain: "prepared-inline-segment-v1")
@@ -390,6 +416,7 @@ private func preparedInlineSegmentFingerprint(
     combine(byteRange, into: &fingerprint)
     fingerprint.combine(isHardBreak)
     fingerprint.combine(isBreakOpportunity)
+    fingerprint.combine(keepsWithNext)
     combine(attachmentMetrics, into: &fingerprint)
     return fingerprint
 }
@@ -1107,7 +1134,9 @@ public struct VariableWidthLineWalker<Measurer: InlineMeasuring>: Sendable {
         var currentWidth = 0.0
         var currentStart = 0
 
-        for measuredSegment in measured.segments {
+        var measuredSegmentIndex = 0
+        while measuredSegmentIndex < measured.segments.count {
+            let measuredSegment = measured.segments[measuredSegmentIndex]
             let segment = measuredSegment.segment
 
             if segment.isHardBreak {
@@ -1120,12 +1149,51 @@ public struct VariableWidthLineWalker<Measurer: InlineMeasuring>: Sendable {
                 )
                 currentWidth = 0
                 currentStart = segment.byteRange.upperBound
+                measuredSegmentIndex += 1
                 continue
+            }
+
+            if segment.keepsWithNext {
+                var groupEnd = measuredSegmentIndex
+                while groupEnd < measured.segments.count,
+                      measured.segments[groupEnd].segment.keepsWithNext
+                {
+                    groupEnd += 1
+                }
+
+                if groupEnd < measured.segments.count,
+                   !measured.segments[groupEnd].segment.isHardBreak
+                {
+                    let groupWidth = measured.segments[measuredSegmentIndex...groupEnd]
+                        .reduce(0) { $0 + $1.width }
+
+                    if currentWidth > 0,
+                       currentWidth + groupWidth > containerWidth
+                    {
+                        lines.append(
+                            InlineLineRange(
+                                byteRange: currentStart..<segment.byteRange.lowerBound,
+                                width: currentWidth
+                            )
+                        )
+                        currentStart = segment.byteRange.lowerBound
+                        currentWidth = 0
+                    }
+
+                    // The decoration plus the first label token is one
+                    // semantic wrapping unit. If that token alone exceeds
+                    // the container, preserve the cue/label relationship on
+                    // an overwide line instead of orphaning the cue.
+                    currentWidth += groupWidth
+                    measuredSegmentIndex = groupEnd + 1
+                    continue
+                }
             }
 
             if currentWidth > 0, currentWidth + measuredSegment.width > containerWidth {
                 if segment.isBreakOpportunity {
                     currentWidth += measuredSegment.width
+                    measuredSegmentIndex += 1
                     continue
                 }
 
@@ -1151,6 +1219,7 @@ public struct VariableWidthLineWalker<Measurer: InlineMeasuring>: Sendable {
             } else {
                 currentWidth += measuredSegment.width
             }
+            measuredSegmentIndex += 1
         }
 
         let end = measured.segments.last?.segment.byteRange.upperBound ?? currentStart

@@ -11,11 +11,17 @@ import SwiftUI
 /// attachments.
 enum MarkdownAttachmentHostDisplay {
     case data(Data)
+    case systemSymbol(name: String)
     case placeholder(reason: String?)
 
     init(record: MarkdownPreparedAttachment?) {
         guard let record else {
             self = .placeholder(reason: nil)
+            return
+        }
+        if record.image.source.hasPrefix(markdownLinkSystemSymbolSourcePrefix) {
+            let name = String(record.image.source.dropFirst(markdownLinkSystemSymbolSourcePrefix.count))
+            self = .systemSymbol(name: name)
             return
         }
         switch record.image.preparedSource {
@@ -34,7 +40,7 @@ enum MarkdownAttachmentHostDisplay {
     /// callers should prefer first (§3.2.6).
     var failureReason: String? {
         switch self {
-        case .data:
+        case .data, .systemSymbol:
             return nil
         case let .placeholder(reason):
             return reason
@@ -104,6 +110,7 @@ final class MarkdownAttachmentHostNSView: NSView {
 
     private var imageView: NSImageView?
     private var lastRenderedData: Data?
+    private var lastRenderedSystemSymbolName: String?
     private var placeholder: MarkdownAttachmentPlaceholderChromeLayer?
 
     override var isFlipped: Bool {
@@ -145,6 +152,8 @@ final class MarkdownAttachmentHostNSView: NSView {
         switch display {
         case let .data(data):
             showImage(data: data)
+        case let .systemSymbol(name):
+            showSystemSymbol(name: name)
         case let .placeholder(reason):
             showPlaceholder(reason: reason)
         }
@@ -162,11 +171,15 @@ final class MarkdownAttachmentHostNSView: NSView {
             imageView = view
         }
         imageView?.frame = bounds
+        imageView?.imageScaling = .scaleProportionallyUpOrDown
+        imageView?.imageAlignment = .alignCenter
+        imageView?.contentTintColor = nil
 
         guard data != lastRenderedData else {
             return
         }
         lastRenderedData = data
+        lastRenderedSystemSymbolName = nil
         // `NSImage(data:)` lazily decodes; the plan's host-provider seam
         // (Part 04 §4.3) explicitly allows Sendable `Data` here as long as
         // construction is cheap and bytes are already off-body — this is
@@ -174,10 +187,33 @@ final class MarkdownAttachmentHostNSView: NSView {
         imageView?.image = NSImage(data: data)
     }
 
+    private func showSystemSymbol(name: String) {
+        placeholder?.removeFromSuperlayer()
+        placeholder = nil
+
+        if imageView == nil {
+            let view = NSImageView()
+            view.imageScaling = .scaleProportionallyDown
+            view.imageAlignment = .alignCenter
+            addSubview(view)
+            imageView = view
+        }
+        imageView?.frame = bounds
+        imageView?.contentTintColor = .linkColor
+
+        guard name != lastRenderedSystemSymbolName else {
+            return
+        }
+        lastRenderedData = nil
+        lastRenderedSystemSymbolName = name
+        imageView?.image = NSImage(systemSymbolName: name, accessibilityDescription: nil)
+    }
+
     private func showPlaceholder(reason: String?) {
         imageView?.removeFromSuperview()
         imageView = nil
         lastRenderedData = nil
+        lastRenderedSystemSymbolName = nil
 
         if placeholder == nil {
             let layer = MarkdownAttachmentPlaceholderChromeLayer()
@@ -250,6 +286,7 @@ final class MarkdownAttachmentHostUIView: UIView {
 
     private var imageView: UIImageView?
     private var lastRenderedData: Data?
+    private var lastRenderedSystemSymbolName: String?
     private var placeholder: MarkdownAttachmentPlaceholderChromeLayer?
 
     override init(frame: CGRect) {
@@ -279,6 +316,8 @@ final class MarkdownAttachmentHostUIView: UIView {
         switch display {
         case let .data(data):
             showImage(data: data)
+        case let .systemSymbol(name):
+            showSystemSymbol(name: name)
         case let .placeholder(reason):
             showPlaceholder(reason: reason)
         }
@@ -295,18 +334,42 @@ final class MarkdownAttachmentHostUIView: UIView {
             imageView = view
         }
         imageView?.frame = bounds
+        imageView?.contentMode = .scaleAspectFit
 
         guard data != lastRenderedData else {
             return
         }
         lastRenderedData = data
-        imageView?.image = UIImage(data: data)
+        lastRenderedSystemSymbolName = nil
+        imageView?.image = UIImage(data: data)?.withRenderingMode(.alwaysOriginal)
+    }
+
+    private func showSystemSymbol(name: String) {
+        placeholder?.removeFromSuperlayer()
+        placeholder = nil
+
+        if imageView == nil {
+            let view = UIImageView()
+            view.contentMode = .scaleAspectFit
+            addSubview(view)
+            imageView = view
+        }
+        imageView?.frame = bounds
+        imageView?.tintColor = .link
+
+        guard name != lastRenderedSystemSymbolName else {
+            return
+        }
+        lastRenderedData = nil
+        lastRenderedSystemSymbolName = name
+        imageView?.image = UIImage(systemName: name)
     }
 
     private func showPlaceholder(reason: String?) {
         imageView?.removeFromSuperview()
         imageView = nil
         lastRenderedData = nil
+        lastRenderedSystemSymbolName = nil
 
         if placeholder == nil {
             let chromeLayer = MarkdownAttachmentPlaceholderChromeLayer()
