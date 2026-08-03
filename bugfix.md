@@ -2,6 +2,16 @@
 
 ## Open
 
+## Resolved in 0.6.25
+
+- The 0.6.24 exact-SHA hosted gate exposed additional Apple Silicon runner
+  variance in two intentionally mounted AppKit end-to-end watchdogs. Across
+  two runs, deferred SwiftUI graph completion reached 1.51–1.74 seconds while
+  explicit layout stayed at 0.75–6.41 ms, all table conversion/reuse/cache
+  counters were identical, and all 954 semantic, mounted, and visual product
+  regressions passed. The broad watchdogs now allow 2.0 seconds; the structural
+  and explicit-layout limits remain unchanged.
+
 ## Resolved in 0.6.24
 
 - Fixed asynchronous favicon completion corrupting fixed-width prepared table

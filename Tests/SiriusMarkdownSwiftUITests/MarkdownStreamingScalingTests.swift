@@ -469,8 +469,11 @@ struct MarkdownStreamingScalingTests {
         // former 16 ms assertion described neither its purpose nor its fully
         // materialized 179 KB workload and was unstable under full-suite load.
         // Retain broad watchdog budgets so a real runaway still fails local CI.
+        // Two exact-SHA GitHub-hosted arm64 runs measured 1.53 and 1.74
+        // seconds here while explicit layout remained 5.72–6.41 ms and every
+        // structural regression passed.
         #expect(layoutMedian < 500)
-        #expect(totalMedian < 1_500)
+        #expect(totalMedian < 2_000)
     }
 
     /// Guards the persistent-row-host boundary used by Sirius. A streaming
@@ -666,9 +669,10 @@ struct MarkdownStreamingScalingTests {
         // deferred SwiftUI graph flush that the former 16 ms assertion missed.
         // Keep a realistic but material cross-runner watchdog around the
         // retained-row graph cost rather than relabeling layout-only time.
-        // GitHub-hosted arm64 runners measured 1.09–1.27 seconds with every
-        // structural counter identical to a 0.70-second local pass.
-        #expect(lateTotalMedian < 1_500)
+        // GitHub-hosted arm64 runners have measured 1.09–1.51 seconds with
+        // every structural counter identical to a 0.70-second local pass and
+        // explicit layout still below 2 ms.
+        #expect(lateTotalMedian < 2_000)
     }
 }
 

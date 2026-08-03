@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.6.25 - 2026-08-02
+
+- Preserved the 0.6.24 narrow decorated-link fix and all 954 product
+  regressions while recalibrating two mounted end-to-end latency watchdogs
+  from 1.5 to 2.0 seconds. Two exact-SHA GitHub-hosted arm64 runs measured
+  1.51–1.74 seconds in deferred SwiftUI graph completion while explicit
+  layout remained 0.75–6.41 ms and every cache/work-count invariant passed.
+
 ## 0.6.24 - 2026-08-02
 
 - Fixed fixed-width prepared table/list leaves retaining fallback-era inline
