@@ -46,6 +46,7 @@ public struct MarkdownBlockView: View {
     private var block: MarkdownBlock
     private var configuration: MarkdownRendererConfiguration
     private var preparedContent: MarkdownPreparedBlockContent
+    private var indentationLevel: Int
     @State private var isCodeBlockCollapsed: Bool
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.markdownDocumentSelectionContext) private var documentSelectionContext
@@ -176,6 +177,7 @@ public struct MarkdownBlockView: View {
         self.block = block
         self.configuration = MarkdownRendererConfiguration(theme: theme, inlineRenderingMode: .coreTextPaintedLines)
         self.preparedContent = self.configuration.unpreparedContent(for: block)
+        self.indentationLevel = 0
         _isCodeBlockCollapsed = State(initialValue: self.configuration.theme.codeBlockAffordances.startsCollapsed)
     }
 
@@ -184,6 +186,7 @@ public struct MarkdownBlockView: View {
         self.block = block
         self.configuration = configuration
         self.preparedContent = configuration.unpreparedContent(for: block)
+        self.indentationLevel = 0
         _isCodeBlockCollapsed = State(initialValue: configuration.theme.codeBlockAffordances.startsCollapsed)
     }
 
@@ -195,6 +198,20 @@ public struct MarkdownBlockView: View {
         self.block = block
         self.configuration = configuration
         self.preparedContent = preparedContent ?? configuration.unpreparedContent(for: block)
+        self.indentationLevel = 0
+        _isCodeBlockCollapsed = State(initialValue: configuration.theme.codeBlockAffordances.startsCollapsed)
+    }
+
+    init(
+        block: MarkdownBlock,
+        configuration: MarkdownRendererConfiguration,
+        preparedContent: MarkdownPreparedBlockContent,
+        indentationLevel: Int
+    ) {
+        self.block = block
+        self.configuration = configuration
+        self.preparedContent = preparedContent
+        self.indentationLevel = indentationLevel
         _isCodeBlockCollapsed = State(initialValue: configuration.theme.codeBlockAffordances.startsCollapsed)
     }
 
@@ -236,7 +253,7 @@ public struct MarkdownBlockView: View {
                 label: MarkdownBlockStyleLabel(inlineContent(baseFont: headingFont, fallbackText: headingFallbackText)),
                 theme: theme,
                 blockID: block.id,
-                indentationLevel: 0,
+                indentationLevel: indentationLevel,
                 headingLevel: block.headingLevel ?? 1
             )
         ))
@@ -248,7 +265,7 @@ public struct MarkdownBlockView: View {
                 label: MarkdownBlockStyleLabel(inlineContent(baseFont: theme.paragraphFont, fallbackText: block.text)),
                 theme: theme,
                 blockID: block.id,
-                indentationLevel: 0
+                indentationLevel: indentationLevel
             )
         ))
     }
@@ -257,17 +274,31 @@ public struct MarkdownBlockView: View {
         AnyView(resolvedBlockQuoteStyle.makeBody(
             configuration: MarkdownBlockQuoteStyleConfiguration(
                 label: MarkdownBlockStyleLabel(
-                    inlineContent(
-                        baseFont: theme.paragraphFont,
-                        fallbackText: block.text,
-                        nativeTextSelection: selectionModeInsideLeadingLayout
-                    )
+                    blockQuoteLabel
                 ),
                 theme: theme,
                 blockID: block.id,
-                indentationLevel: 0
+                indentationLevel: indentationLevel
             )
         ))
+    }
+
+    @ViewBuilder
+    private var blockQuoteLabel: some View {
+        if preparedContent.childBlocks.isEmpty {
+            inlineContent(
+                baseFont: theme.paragraphFont,
+                fallbackText: block.text,
+                nativeTextSelection: selectionModeInsideLeadingLayout
+            )
+        } else {
+            MarkdownPreparedChildBlocksView(
+                children: preparedContent.childBlocks,
+                configuration: configuration,
+                theme: theme,
+                indentationLevel: indentationLevel + 1
+            )
+        }
     }
 
     private var thematicBreakContent: some View {
@@ -275,7 +306,7 @@ public struct MarkdownBlockView: View {
             configuration: MarkdownThematicBreakStyleConfiguration(
                 theme: theme,
                 blockID: block.id,
-                indentationLevel: 0
+                indentationLevel: indentationLevel
             )
         ))
     }
@@ -388,7 +419,7 @@ public struct MarkdownBlockView: View {
                     label: MarkdownBlockStyleLabel(mermaidLabel(mermaid)),
                     theme: theme,
                     blockID: block.id,
-                    indentationLevel: 0,
+                    indentationLevel: indentationLevel,
                     languageLabel: Self.codeBlockLanguageLabel(for: block),
                     isCollapsed: isCodeBlockCollapsed,
                     actions: codeBlockActions
@@ -400,7 +431,7 @@ public struct MarkdownBlockView: View {
                     label: MarkdownBlockStyleLabel(codeLabel(code)),
                     theme: theme,
                     blockID: block.id,
-                    indentationLevel: 0,
+                    indentationLevel: indentationLevel,
                     languageHint: block.infoString,
                     languageLabel: Self.codeBlockLanguageLabel(for: block),
                     isCollapsed: isCodeBlockCollapsed,
@@ -428,7 +459,7 @@ public struct MarkdownBlockView: View {
                     ),
                     theme: theme,
                     blockID: block.id,
-                    indentationLevel: 0,
+                    indentationLevel: indentationLevel,
                     languageHint: nil,
                     languageLabel: nil,
                     isCollapsed: false,
@@ -510,7 +541,7 @@ public struct MarkdownBlockView: View {
             configuration: configuration,
             theme: theme,
             blockID: block.id,
-            indentationLevel: 0
+            indentationLevel: indentationLevel
         )
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -642,7 +673,7 @@ public struct MarkdownBlockView: View {
                     label: MarkdownBlockStyleLabel(grid),
                     theme: theme,
                     blockID: block.id,
-                    indentationLevel: 0
+                    indentationLevel: indentationLevel
                 )
             ))
         } else {
@@ -904,7 +935,7 @@ public struct MarkdownBlockView: View {
                 label: MarkdownBlockStyleLabel(label),
                 theme: theme,
                 blockID: block.id,
-                indentationLevel: 0,
+                indentationLevel: indentationLevel,
                 isImage: isImage
             )
         ))
@@ -1008,7 +1039,7 @@ public struct MarkdownBlockView: View {
                     ),
                     theme: theme,
                     blockID: block.id,
-                    indentationLevel: 0
+                    indentationLevel: indentationLevel
                 )
             ))
         } else if let reason = preparedContent.policyDenialReason {
@@ -1116,7 +1147,7 @@ public struct MarkdownBlockView: View {
                 )),
                 theme: theme,
                 blockID: block.id,
-                indentationLevel: 0,
+                indentationLevel: indentationLevel,
                 row: row,
                 column: column,
                 columnCount: columnCount,
@@ -1428,6 +1459,27 @@ public struct MarkdownBlockView: View {
     }
 }
 
+private struct MarkdownPreparedChildBlocksView: View {
+    var children: [MarkdownPreparedChildBlock]
+    var configuration: MarkdownRendererConfiguration
+    var theme: MarkdownTheme
+    var indentationLevel: Int
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: theme.blockSpacing) {
+            ForEach(children) { child in
+                MarkdownBlockView(
+                    block: child.block,
+                    configuration: configuration,
+                    preparedContent: child.preparedContent,
+                    indentationLevel: indentationLevel
+                )
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
 private struct MarkdownListItemsView: View {
     var items: [MarkdownPreparedListItem]
     var kind: MarkdownBlockKind
@@ -1522,7 +1574,7 @@ private struct MarkdownListItemRow: View {
                         firstTextBaselineFromTop: markerFirstTextBaselineFromTop
                     ),
                     block: MarkdownBlockStyleLabel(
-                        listItemInlineView,
+                        listItemContentView,
                         firstTextBaselineFromTop: listItemFirstTextBaselineFromTop
                     ),
                     theme: theme,
@@ -1532,7 +1584,7 @@ private struct MarkdownListItemRow: View {
             ))
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            if !item.childItems.isEmpty {
+            if item.childBlocks.isEmpty, !item.childItems.isEmpty {
                 MarkdownListItemsView(
                     items: item.childItems,
                     kind: item.childListKind ?? .unorderedList,
@@ -1547,6 +1599,20 @@ private struct MarkdownListItemRow: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    @ViewBuilder
+    private var listItemContentView: some View {
+        if item.childBlocks.isEmpty {
+            listItemInlineView
+        } else {
+            MarkdownPreparedChildBlocksView(
+                children: item.childBlocks,
+                configuration: configuration,
+                theme: theme,
+                indentationLevel: indentationLevel + 1
+            )
+        }
     }
 
     @ViewBuilder
@@ -1589,6 +1655,15 @@ private struct MarkdownListItemRow: View {
     }
 
     private var listItemFirstTextBaselineFromTop: CGFloat {
+        if let firstChild = item.childBlocks.first,
+           let inline = firstChild.preparedContent.inlineLayout ??
+               firstChild.preparedContent.selectionInlineLayout
+        {
+            return inline.firstTextBaselineFromTop(
+                inlineRenderingMode: configuration.inlineRenderingMode,
+                nativeTextSelection: selectionModeInsideLeadingLayout
+            )
+        }
         if let inline = item.inlineLayout ?? item.selectionInlineLayout {
             return inline.firstTextBaselineFromTop(
                 inlineRenderingMode: configuration.inlineRenderingMode,

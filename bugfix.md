@@ -23,6 +23,10 @@
 - Fixed sanitized HTML table `colspan` and `rowspan` metadata being parsed but
   ignored. Bounded logical placement now drives prepared widths and heights,
   rowspan-aware borders, rendering, and source-backed selection.
+- Fixed fenced code, tables, block quotes, and mixed child lists inside block
+  quotes or list items being flattened into one inline leaf. The public native
+  model now carries source-ordered child blocks through preparation, rendering,
+  metadata refresh, selection, copy, and reference-definition exclusion.
 
 ## Resolved in 0.6.25
 

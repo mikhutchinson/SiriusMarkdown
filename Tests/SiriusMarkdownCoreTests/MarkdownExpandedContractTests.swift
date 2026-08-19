@@ -9,10 +9,31 @@ Paragraph with **strong**, *emphasis*, `code`, [link](https://example.com), and 
 
 - [ ] Task one
 - [x] Task two
+- Structured item
+
+  ```text
+  nested code
+  ```
+
+  | Nested | Table |
+  | - | - |
+  | yes | native |
+
+  1. Child list
 
 
 > Quote line
 > continued
+>
+> ```text
+> quoted code
+> ```
+>
+> | Nested | Table |
+> | - | - |
+> | yes | native |
+>
+> - Child list
 
 ```swift
 let fence = "``` inside text"
@@ -63,6 +84,7 @@ func streamedParseEqualsStaticParseForChunkSize(chunkSize: Int) {
     #expect(streamedSnapshot.blocks.map(\.kind) == oneShotSnapshot.blocks.map(\.kind))
     #expect(streamedSnapshot.blocks.map(\.text) == oneShotSnapshot.blocks.map(\.text))
     #expect(streamedSnapshot.blocks.map(\.id) == oneShotSnapshot.blocks.map(\.id))
+    #expect(streamedSnapshot.blocks == oneShotSnapshot.blocks)
     #expect(streamedSnapshot.isFinished)
     #expect(streamedSnapshot.blocks.allSatisfy { $0.isSealed })
 }
@@ -1102,21 +1124,55 @@ private func parserClassifiesNestedOrderedTaskListMetadataFromASTCheckboxes() th
 @Test
 private func parserDoesNotDropStructuredChildrenInsideBlockQuotesAndListItems() throws {
     var quoteStream = MarkdownStream()
-    quoteStream.append("> before\n>\n> ```swift\n> let value = 1\n> ```")
+    quoteStream.append(
+        """
+        > before
+        >
+        > ```swift
+        > let value = 1
+        > ```
+        >
+        > | Name | Value |
+        > | --- | --- |
+        > | one | 1 |
+        >
+        > 1. nested item
+        """
+    )
     quoteStream.finish()
 
     let quote = try #require(quoteStream.snapshot().blocks.first)
     #expect(quote.kind == .blockQuote)
-    #expect(quote.inlines.map(\.text).joined().contains("let value = 1"))
-    #expect(quote.inlines.contains { $0.kind == .code })
+    #expect(quote.childBlocks.map(\.kind) == [.paragraph, .codeBlock, .table, .orderedList])
+    #expect(quote.childBlocks[1].infoString == "swift")
+    #expect(quote.childBlocks[1].text == "let value = 1\n")
+    #expect(quote.childBlocks[2].table?.rows.first?.map(\.text) == ["one", "1"])
+    #expect(quote.childBlocks[3].listItems.first?.text == "nested item")
 
     var listStream = MarkdownStream()
-    listStream.append("- before\n\n  ```swift\n  let nested = 2\n  ```")
+    listStream.append(
+        """
+        - before
+
+          ```swift
+          let nested = 2
+          ```
+
+          | Name | Value |
+          | --- | --- |
+          | two | 2 |
+
+          1. nested ordered item
+        """
+    )
     listStream.finish()
 
     let item = try #require(listStream.snapshot().blocks.first?.listItems.first)
-    #expect(item.inlines.map(\.text).joined().contains("let nested = 2"))
-    #expect(item.inlines.contains { $0.kind == .code })
+    #expect(item.childBlocks.map(\.kind) == [.paragraph, .codeBlock, .table, .orderedList])
+    #expect(item.childBlocks[1].infoString == "swift")
+    #expect(item.childBlocks[1].text == "let nested = 2\n")
+    #expect(item.childBlocks[2].table?.rows.first?.map(\.text) == ["two", "2"])
+    #expect(item.childBlocks[3].listItems.first?.text == "nested ordered item")
 }
 
 @Test

@@ -471,6 +471,9 @@ public struct MarkdownStream: Sendable {
         }
 
         appendReferenceDefinitionExclusionRanges(from: block.inlines, to: &ranges)
+        for childBlock in block.childBlocks {
+            appendReferenceDefinitionExclusionRanges(from: childBlock, to: &ranges)
+        }
         for item in block.listItems {
             appendReferenceDefinitionExclusionRanges(from: item, to: &ranges)
         }
@@ -492,6 +495,9 @@ public struct MarkdownStream: Sendable {
     ) {
         appendReferenceDefinitionContentExclusionRanges(from: item.inlines, to: &ranges)
         appendReferenceDefinitionExclusionRanges(from: item.inlines, to: &ranges)
+        for childBlock in item.childBlocks {
+            appendReferenceDefinitionExclusionRanges(from: childBlock, to: &ranges)
+        }
         for child in item.childItems {
             appendReferenceDefinitionExclusionRanges(from: child, to: &ranges)
         }

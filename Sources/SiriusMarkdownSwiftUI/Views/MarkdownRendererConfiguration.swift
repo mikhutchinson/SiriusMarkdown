@@ -645,8 +645,33 @@ public struct MarkdownRendererConfiguration: Sendable {
                     policyDenialReason: reason
                 )
             }
-        case .unorderedList, .orderedList, .taskList:
+        case .blockQuote:
+            if !block.childBlocks.isEmpty {
+                let inline = preparedInline(
+                    for: block.inlines,
+                    sourceRange: block.sourceRange,
+                    block: block
+                )
+                var content = MarkdownPreparedBlockContent(
+                    blockID: block.id,
+                    inline: inline?.attributed,
+                    inlineLayout: inline
+                )
+                content.childBlocks = preparedChildBlocks(block.childBlocks)
+                return content
+            }
             let inline = preparedInline(for: block.inlines, sourceRange: block.sourceRange, block: block)
+            return MarkdownPreparedBlockContent(
+                blockID: block.id,
+                inline: inline?.attributed,
+                inlineLayout: inline
+            )
+        case .unorderedList, .orderedList, .taskList:
+            let inline = preparedInline(
+                for: block.inlines,
+                sourceRange: block.sourceRange,
+                block: block
+            )
             return MarkdownPreparedBlockContent(
                 blockID: block.id,
                 inline: inline?.attributed,
@@ -874,6 +899,13 @@ public struct MarkdownRendererConfiguration: Sendable {
                     policyDenialReason: reason
                 )
             }
+        case .blockQuote where !block.childBlocks.isEmpty:
+            var content = MarkdownPreparedBlockContent(
+                blockID: block.id,
+                inline: unpreparedInline(block.inlines)
+            )
+            content.childBlocks = unpreparedChildBlocks(block.childBlocks)
+            return content
         default:
             break
         }
@@ -891,7 +923,7 @@ public struct MarkdownRendererConfiguration: Sendable {
         parentID: String
     ) -> MarkdownPreparedListItem {
         let id = "unprepared-list:\(parentID):\(item.sourceRange.byteRange.lowerBound)-\(item.sourceRange.byteRange.upperBound)"
-        return MarkdownPreparedListItem(
+        var prepared = MarkdownPreparedListItem(
             id: id,
             sourceRange: item.sourceRange,
             taskState: item.taskState,
@@ -900,6 +932,19 @@ public struct MarkdownRendererConfiguration: Sendable {
             childOrderedListStart: item.childOrderedListStart,
             childItems: item.childItems.map { unpreparedListItem($0, parentID: id) }
         )
+        prepared.childBlocks = unpreparedChildBlocks(item.childBlocks)
+        return prepared
+    }
+
+    private func unpreparedChildBlocks(
+        _ blocks: [MarkdownBlock]
+    ) -> [MarkdownPreparedChildBlock] {
+        blocks.map { block in
+            MarkdownPreparedChildBlock(
+                block: block,
+                preparedContent: unpreparedContent(for: block)
+            )
+        }
     }
 
     private func unpreparedTable(
@@ -2167,7 +2212,7 @@ public struct MarkdownRendererConfiguration: Sendable {
                     sourceRange: item.sourceRange
                 )
             }
-            return MarkdownPreparedListItem(
+            var prepared = MarkdownPreparedListItem(
                 id: "list-item:\(item.sourceRange.byteRange.lowerBound):\(item.sourceRange.byteRange.upperBound)",
                 sourceRange: item.sourceRange,
                 taskState: item.taskState,
@@ -2177,6 +2222,19 @@ public struct MarkdownRendererConfiguration: Sendable {
                 childListKind: item.childListKind,
                 childOrderedListStart: item.childOrderedListStart,
                 childItems: preparedListItems(item.childItems)
+            )
+            prepared.childBlocks = preparedChildBlocks(item.childBlocks)
+            return prepared
+        }
+    }
+
+    private func preparedChildBlocks(
+        _ blocks: [MarkdownBlock]
+    ) -> [MarkdownPreparedChildBlock] {
+        blocks.map { block in
+            MarkdownPreparedChildBlock(
+                block: block,
+                preparedContent: prepare(block: block)
             )
         }
     }
@@ -4169,6 +4227,28 @@ public struct MarkdownPreparedRichBlock: Identifiable, Sendable {
     }
 }
 
+/// One recursively prepared native block inside a semantic container.
+/// Expensive parsing, highlighting, resource resolution, and inline
+/// preparation have completed before this value reaches SwiftUI.
+public struct MarkdownPreparedChildBlock: Identifiable, Sendable {
+    public var block: MarkdownBlock
+    public var preparedContent: MarkdownPreparedBlockContent
+
+    public var id: MarkdownBlockID { block.id }
+
+    public init(
+        block: MarkdownBlock,
+        preparedContent: MarkdownPreparedBlockContent
+    ) {
+        precondition(
+            block.id == preparedContent.blockID,
+            "Child block and prepared content must share stable identity."
+        )
+        self.block = block
+        self.preparedContent = preparedContent
+    }
+}
+
 public struct MarkdownPreparedRichContent: Sendable {
     public var blocks: [MarkdownPreparedRichBlock]
 
@@ -4191,6 +4271,7 @@ public struct MarkdownPreparedBlockContent: Sendable {
     public var htmlAllowed: Bool?
     public var policyDenialReason: String?
     public var richContent: MarkdownPreparedRichContent?
+    public var childBlocks: [MarkdownPreparedChildBlock]
 
     public init(
         blockID: MarkdownBlockID,
@@ -4220,6 +4301,7 @@ public struct MarkdownPreparedBlockContent: Sendable {
         self.htmlAllowed = htmlAllowed
         self.policyDenialReason = policyDenialReason
         self.richContent = richContent
+        self.childBlocks = []
     }
 }
 
@@ -4233,6 +4315,7 @@ public struct MarkdownPreparedListItem: Identifiable, Sendable {
     public var childListKind: MarkdownBlockKind?
     public var childOrderedListStart: UInt?
     public var childItems: [MarkdownPreparedListItem]
+    public var childBlocks: [MarkdownPreparedChildBlock]
 
     public init(
         id: String,
@@ -4254,6 +4337,7 @@ public struct MarkdownPreparedListItem: Identifiable, Sendable {
         self.childListKind = childListKind
         self.childOrderedListStart = childOrderedListStart
         self.childItems = childItems
+        self.childBlocks = []
     }
 }
 

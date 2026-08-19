@@ -637,6 +637,8 @@ public final class MarkdownSelectionController: ObservableObject {
         switch block.kind {
         case .unorderedList, .orderedList, .taskList:
             return block.listItems.map(plainText(for:)).joined(separator: "\n")
+        case .blockQuote where !block.childBlocks.isEmpty:
+            return block.childBlocks.map(plainText(for:)).joined(separator: "\n")
         case .table:
             guard let table = block.table else {
                 return block.text
@@ -681,6 +683,8 @@ public final class MarkdownSelectionController: ObservableObject {
         switch block.kind {
         case .unorderedList, .orderedList, .taskList:
             return joinedPlainText(block.listItems.compactMap { plainText(in: selectedRange, for: $0) })
+        case .blockQuote where !block.childBlocks.isEmpty:
+            return joinedPlainText(block.childBlocks.compactMap { plainText(in: selectedRange, for: $0) })
         case .table:
             guard let table = block.table else {
                 return plainText(
@@ -712,13 +716,20 @@ public final class MarkdownSelectionController: ObservableObject {
             return plainText(for: item)
         }
 
-        let ownText = plainText(
-            in: selectedRange,
-            runs: item.inlines,
-            fallbackText: item.text,
-            fallbackSourceRange: item.sourceRange.byteRange
-        )
-        let childText = item.childItems.compactMap { plainText(in: selectedRange, for: $0) }
+        let ownText: String?
+        let childText: [String]
+        if item.childBlocks.isEmpty {
+            ownText = plainText(
+                in: selectedRange,
+                runs: item.inlines,
+                fallbackText: item.text,
+                fallbackSourceRange: item.sourceRange.byteRange
+            )
+            childText = item.childItems.compactMap { plainText(in: selectedRange, for: $0) }
+        } else {
+            ownText = nil
+            childText = item.childBlocks.compactMap { plainText(in: selectedRange, for: $0) }
+        }
         return joinedPlainText(([ownText] + childText).compactMap { $0 })
     }
 
@@ -877,6 +888,11 @@ public final class MarkdownSelectionController: ObservableObject {
             marker = "[ ] "
         case nil:
             marker = ""
+        }
+
+        if !item.childBlocks.isEmpty {
+            let blocks = item.childBlocks.map(plainText(for:)).joined(separator: "\n")
+            return marker + blocks
         }
 
         let children = item.childItems.map(plainText(for:)).joined(separator: "\n")

@@ -18,8 +18,8 @@ The core contract is simple:
 
 ## Current Release
 
-`0.6.26` tightens asynchronous link-decoration refresh and completes native
-HTML table-span rendering:
+`0.6.26` tightens asynchronous link-decoration refresh, completes native HTML
+table-span rendering, and preserves structured blocks inside containers:
 
 - **Immediate native fallback:** every policy-authorized destination that
   normalizes into an activatable URL receives a template SF Symbol globe,
@@ -43,7 +43,11 @@ HTML table-span rendering:
   decorated link group, preventing duplicate globes or favicons.
 - **Native HTML table spans:** bounded `colspan` and `rowspan` metadata now drives
   prepared widths, heights, borders, rendering, and source-backed selection.
-- **Release validation:** the serial release suite discovers 964 tests, and the
+- **Recursive native containers:** block quotes and list items retain paragraph,
+  code, table, quote, and child-list blocks in source order. Those descendants
+  use the normal prepared block renderers instead of flattening into one inline
+  leaf, including for sanitized HTML containers.
+- **Release validation:** the serial release suite discovers 966 tests, and the
   full gate also builds a clean external consumer, bundles all three demos,
   compares every Pretext fixture, checks the math corpus, builds DocC, and runs
   the opt-in AppKit renderer probes.

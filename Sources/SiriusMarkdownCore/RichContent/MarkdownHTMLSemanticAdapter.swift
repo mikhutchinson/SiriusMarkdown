@@ -454,8 +454,19 @@ struct MarkdownHTMLSemanticAdapter {
                 return makeBlock(kind: .paragraph, runs: runs).map { [$0] } ?? []
             }
             if tagName == "blockquote" {
+                let childBlocks = blocks(from: element.getChildNodes())
                 let runs = inlineRuns(from: element.getChildNodes(), preservesWhitespace: false, separatesBlocks: true)
-                return makeBlock(kind: .blockQuote, runs: runs).map { [$0] } ?? []
+                guard !runs.isEmpty || !childBlocks.isEmpty else { return [] }
+                let range = coveringRange(
+                    runs.compactMap(\.sourceRange) + childBlocks.map(\.sourceRange)
+                ) ?? fallbackRange
+                return [makeBlock(
+                    kind: .blockQuote,
+                    text: runs.map(\.text).joined(),
+                    runs: runs,
+                    range: range,
+                    childBlocks: childBlocks
+                )]
             }
             if tagName == "ul" || tagName == "ol" {
                 return listBlock(from: element, ordered: tagName == "ol").map { [$0] } ?? []
@@ -606,7 +617,10 @@ struct MarkdownHTMLSemanticAdapter {
             )
         }
 
-        private mutating func listItem(from element: Element) -> MarkdownListItem? {
+        private mutating func listItem(
+            from element: Element,
+            includesChildBlocks: Bool = true
+        ) -> MarkdownListItem? {
             var inlineNodes: [Node] = []
             var nestedListElement: Element?
             for child in element.getChildNodes() {
@@ -618,20 +632,26 @@ struct MarkdownHTMLSemanticAdapter {
                 }
             }
             let runs = inlineRuns(from: inlineNodes, preservesWhitespace: false, separatesBlocks: true)
+            let childBlocks = includesChildBlocks ? blocks(from: element.getChildNodes()) : []
             let nestedOrdered = nestedListElement?.tagNameNormal() == "ol"
             let nestedItems = nestedListElement?.getChildNodes().compactMap { node -> MarkdownListItem? in
                 guard let child = node as? Element, child.tagNameNormal() == "li" else { return nil }
-                return listItem(from: child)
+                return listItem(from: child, includesChildBlocks: false)
             } ?? []
-            guard !runs.isEmpty || !nestedItems.isEmpty else { return nil }
-            let range = coveringRange(runs.compactMap(\.sourceRange) + nestedItems.map(\.sourceRange)) ?? fallbackRange
+            guard !runs.isEmpty || !nestedItems.isEmpty || !childBlocks.isEmpty else { return nil }
+            let range = coveringRange(
+                runs.compactMap(\.sourceRange) +
+                    nestedItems.map(\.sourceRange) +
+                    childBlocks.map(\.sourceRange)
+            ) ?? fallbackRange
             return MarkdownListItem(
                 sourceRange: range,
                 text: runs.map(\.text).joined(),
                 inlines: runs,
                 childListKind: nestedListElement == nil ? nil : (nestedOrdered ? .orderedList : .unorderedList),
                 childOrderedListStart: nestedOrdered ? positiveUIntAttribute("start", in: nestedListElement) : nil,
-                childItems: nestedItems
+                childItems: nestedItems,
+                childBlocks: childBlocks
             )
         }
 
@@ -768,7 +788,8 @@ struct MarkdownHTMLSemanticAdapter {
             table: MarkdownTableBlock? = nil,
             orderedListStart: UInt? = nil,
             headingLevel: Int? = nil,
-            infoString: String? = nil
+            infoString: String? = nil,
+            childBlocks: [MarkdownBlock] = []
         ) -> MarkdownBlock {
             let contentHash = MarkdownHTMLSemanticAdapter.stableHash(text)
             let baseIdentity = "\(kind.rawValue):\(range.byteRange.lowerBound)-\(range.byteRange.upperBound):\(String(contentHash, radix: 16))"
@@ -787,7 +808,8 @@ struct MarkdownHTMLSemanticAdapter {
                 orderedListStart: orderedListStart,
                 headingLevel: headingLevel,
                 infoString: infoString,
-                isSealed: isSealed
+                isSealed: isSealed,
+                childBlocks: childBlocks
             )
         }
 

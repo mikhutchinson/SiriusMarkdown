@@ -288,6 +288,7 @@ public final class MarkdownRenderSession: ObservableObject {
         func addListItems(_ items: [MarkdownListItem]) {
             for item in items {
                 add(item.inlines)
+                addBlocks(item.childBlocks)
                 addListItems(item.childItems)
             }
         }
@@ -295,6 +296,7 @@ public final class MarkdownRenderSession: ObservableObject {
         func addBlocks(_ blocks: [MarkdownBlock]) {
             for block in blocks {
                 add(block.inlines)
+                addBlocks(block.childBlocks)
                 addListItems(block.listItems)
                 if let table = block.table {
                     table.header.forEach { add($0.inlines) }
@@ -477,12 +479,14 @@ private actor MarkdownRenderSessionPipeline {
         func listItemsContainDestination(_ items: [MarkdownListItem]) -> Bool {
             items.contains { item in
                 runsContainDestination(item.inlines) ||
+                    item.childBlocks.contains(where: blockContainsDestination) ||
                     listItemsContainDestination(item.childItems)
             }
         }
 
         func blockContainsDestination(_ block: MarkdownBlock) -> Bool {
             if runsContainDestination(block.inlines) ||
+                block.childBlocks.contains(where: blockContainsDestination) ||
                 listItemsContainDestination(block.listItems)
             {
                 return true

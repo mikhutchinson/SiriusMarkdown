@@ -16,10 +16,14 @@
 - Implemented bounded native HTML table `colspan` and `rowspan` geometry across
   width preparation, row-height resolution, rendering, borders, and source-
   backed selection. The AppKit RenderProbe now renders both span forms.
-- Raised the serial release discovery floor to 964 Swift tests, including
+- Preserved native block structure recursively inside Markdown and authorized
+  HTML block quotes and list items. Nested code, tables, quotes, and mixed list
+  kinds now use the normal prepared renderers, selection, link resolution, and
+  overflow containment instead of flattened inline runs.
+- Raised the serial release discovery floor to 966 Swift tests, including
   mounted same-geometry globe-to-favicon replacement, selective refresh,
   resolver retry/scope, redirect aggregation, multiline-link, and HTML-span
-  regressions.
+  regressions plus mounted recursive-container renderer invocation.
 
 ## 0.6.25 - 2026-08-02
 

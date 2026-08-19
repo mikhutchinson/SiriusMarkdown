@@ -158,6 +158,18 @@ struct MarkdownDocumentSelectionFragment: Identifiable, Equatable {
             }
         }
 
+        if !preparedContent.childBlocks.isEmpty {
+            let childFragments = childBlockFragments(
+                parentBlock: block,
+                children: preparedContent.childBlocks,
+                rect: rect,
+                idPrefix: "container"
+            )
+            if !childFragments.isEmpty {
+                return childFragments
+            }
+        }
+
         if let inlineLayout = preparedContent.inlineLayout {
             let lines = inlineLineFragments(
                 blockID: block.id,
@@ -486,7 +498,27 @@ struct MarkdownDocumentSelectionFragment: Identifiable, Equatable {
         let itemRectWidth = max(rect.width - indentation, 0)
         var fragments: [MarkdownDocumentSelectionFragment] = []
         for item in items {
-            if let prepared = item.inlineLayout ?? item.selectionInlineLayout {
+            if !item.childBlocks.isEmpty {
+                let childRect = CGRect(
+                    x: itemRectX,
+                    y: yCursor,
+                    width: itemRectWidth,
+                    height: max(1, rect.maxY - yCursor)
+                )
+                let childFragments = childBlockFragments(
+                    parentBlock: block,
+                    children: item.childBlocks,
+                    rect: childRect,
+                    idPrefix: "list:\(item.id)"
+                )
+                fragments.append(contentsOf: childFragments)
+                yCursor += item.childBlocks.reduce(0) { partial, child in
+                    partial + estimatedHeight(
+                        for: child.preparedContent,
+                        width: itemRectWidth
+                    )
+                } + CGFloat(max(0, item.childBlocks.count - 1)) * 4
+            } else if let prepared = item.inlineLayout ?? item.selectionInlineLayout {
                 let lineHeight = CGFloat(prepared.lineHeight)
                 let spacing = InlineRunsView.nativeLineSpacing(for: prepared)
                 let containerWidth = InlineRunsView.nativeLineLayoutWidth(
@@ -518,15 +550,105 @@ struct MarkdownDocumentSelectionFragment: Identifiable, Equatable {
                 ))
             }
 
-            fragments.append(contentsOf: listItemFragmentsInternal(
-                block: block,
-                items: item.childItems,
-                rect: rect,
-                yCursor: &yCursor,
-                indentation: indentation + listItemIndentationPerLevel
-            ))
+            if item.childBlocks.isEmpty {
+                fragments.append(contentsOf: listItemFragmentsInternal(
+                    block: block,
+                    items: item.childItems,
+                    rect: rect,
+                    yCursor: &yCursor,
+                    indentation: indentation + listItemIndentationPerLevel
+                ))
+            }
         }
         return fragments
+    }
+
+    private static func childBlockFragments(
+        parentBlock: MarkdownBlock,
+        children: [MarkdownPreparedChildBlock],
+        rect: CGRect,
+        idPrefix: String
+    ) -> [MarkdownDocumentSelectionFragment] {
+        var fragments: [MarkdownDocumentSelectionFragment] = []
+        var yCursor = rect.minY
+        for child in children {
+            let height = estimatedHeight(for: child.preparedContent, width: rect.width)
+            let childRect = CGRect(x: rect.minX, y: yCursor, width: rect.width, height: height)
+            let childFragments = Self.fragments(
+                for: child.block,
+                preparedContent: child.preparedContent,
+                rect: childRect
+            ).map { fragment in
+                var fragment = fragment
+                fragment.id = "\(idPrefix):\(child.id.rawValue):\(fragment.id)"
+                fragment.blockID = parentBlock.id
+                return fragment
+            }
+            fragments.append(contentsOf: childFragments)
+            yCursor += height + 4
+        }
+        return fragments
+    }
+
+    private static func estimatedHeight(
+        for content: MarkdownPreparedBlockContent,
+        width: CGFloat
+    ) -> CGFloat {
+        if let table = content.table {
+            return CGFloat(
+                (table.headerPreparedLayoutHeight ?? (table.header.isEmpty ? 0 : 38)) +
+                    table.rows.reduce(0) { $0 + ($1.preparedLayoutHeight ?? 38) }
+            )
+        }
+        if !content.childBlocks.isEmpty {
+            return content.childBlocks.reduce(0) { partial, child in
+                partial + estimatedHeight(for: child.preparedContent, width: width)
+            } + CGFloat(max(0, content.childBlocks.count - 1)) * 4
+        }
+        if !content.listItems.isEmpty {
+            return content.listItems.reduce(0) { partial, item in
+                partial + estimatedHeight(for: item, width: width)
+            } + CGFloat(max(0, content.listItems.count - 1)) * 4
+        }
+        if let prepared = content.inlineLayout ?? content.selectionInlineLayout {
+            let layout = prepared.layout(
+                containerWidth: InlineRunsView.nativeLineLayoutWidth(
+                    for: prepared,
+                    containerWidth: Double(max(1, width))
+                ),
+                allowsOverwideFallback: true
+            )
+            return CGFloat(max(1, layout.lines.count)) *
+                (CGFloat(prepared.lineHeight) + InlineRunsView.nativeLineSpacing(for: prepared))
+        }
+        return 24
+    }
+
+    private static func estimatedHeight(
+        for item: MarkdownPreparedListItem,
+        width: CGFloat
+    ) -> CGFloat {
+        if !item.childBlocks.isEmpty {
+            return item.childBlocks.reduce(0) { partial, child in
+                partial + estimatedHeight(for: child.preparedContent, width: width)
+            } + CGFloat(max(0, item.childBlocks.count - 1)) * 4
+        }
+        if let prepared = item.inlineLayout ?? item.selectionInlineLayout {
+            let layout = prepared.layout(
+                containerWidth: InlineRunsView.nativeLineLayoutWidth(
+                    for: prepared,
+                    containerWidth: Double(max(1, width))
+                ),
+                allowsOverwideFallback: true
+            )
+            let ownHeight = CGFloat(max(1, layout.lines.count)) *
+                (CGFloat(prepared.lineHeight) + InlineRunsView.nativeLineSpacing(for: prepared))
+            let childHeight = item.childItems.reduce(0) { partial, child in
+                partial + estimatedHeight(for: child, width: max(1, width - listItemIndentationPerLevel))
+            }
+            return ownHeight + childHeight
+        }
+        return max(24, CGFloat(item.childItems.count) * 24)
     }
 
     private static func tableCellFragments(
@@ -1226,6 +1348,9 @@ extension MarkdownPreparedBlockContent {
         if listItems.contains(where: \.emitsTextLeafSelectionFragments) {
             return true
         }
+        if childBlocks.contains(where: { $0.preparedContent.emitsTextLeafSelectionFragments }) {
+            return true
+        }
         if let table {
             let cells = table.header + table.rows.flatMap(\.cells)
             if cells.contains(where: { $0.inlineLayout != nil || $0.selectionInlineLayout != nil }) {
@@ -1240,6 +1365,7 @@ extension MarkdownPreparedListItem {
     var emitsTextLeafSelectionFragments: Bool {
         inlineLayout != nil ||
             selectionInlineLayout != nil ||
+            childBlocks.contains(where: { $0.preparedContent.emitsTextLeafSelectionFragments }) ||
             childItems.contains(where: \.emitsTextLeafSelectionFragments)
     }
 }

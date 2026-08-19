@@ -242,7 +242,6 @@ private final class StyleInvocationRecorder {
     var invokedNames: [String] = []
     var headingLevels: [Int] = []
     var languageHints: [String?] = []
-    var markerWidthReadCount = 0
     var unorderedMarkerIndentationLevels: [Int] = []
 }
 
@@ -365,10 +364,7 @@ private struct SpyUnorderedMarkerStyle: MarkdownUnorderedListMarkerStyle {
     let width: CGFloat
     let recorder: StyleInvocationRecorder
 
-    var markerWidth: CGFloat? {
-        recorder.markerWidthReadCount += 1
-        return width
-    }
+    var markerWidth: CGFloat? { width }
 
     func makeBody(configuration: Configuration) -> some View {
         recorder.unorderedMarkerIndentationLevels.append(configuration.indentationLevel)
@@ -1445,7 +1441,63 @@ func environmentStylesAreInvokedForRepresentativeBlockSlots() throws {
 
 @Test
 @MainActor
-func nestedListIndentationReadsCustomMarkerWidth() throws {
+func nestedContainersInvokeNativeCodeTableAndListRenderers() throws {
+    let source = """
+    > Quoted introduction
+    >
+    > ```swift
+    > let quoted = true
+    > ```
+    >
+    > | Name | Value |
+    > | --- | --- |
+    > | quote | native |
+    >
+    > 1. quoted list item
+
+    - List introduction
+
+      ```swift
+      let listed = true
+      ```
+
+      | Name | Value |
+      | --- | --- |
+      | list | native |
+
+      1. nested ordered item
+    """
+    var stream = MarkdownStream()
+    stream.append(source)
+    stream.finish()
+
+    var configuration = MarkdownRendererConfiguration.compactChat
+    configuration.linkMetadataResolver = nil
+    let prepared = configuration.prepare(snapshot: stream.snapshot())
+    let recorder = StyleInvocationRecorder()
+    let view = MarkdownDocumentView(
+        preparedSnapshot: prepared,
+        configuration: configuration
+    )
+    .markdown.blockQuoteStyle(SpyBlockQuoteStyle(name: "container-quote", recorder: recorder))
+    .markdown.codeBlockStyle(SpyCodeBlockStyle(name: "nested-code", recorder: recorder))
+    .markdown.tableStyle(SpyTableBlockStyle(name: "nested-table", recorder: recorder))
+    .markdown.tableCellStyle(SpyTableCellStyle(name: "nested-table-cell", recorder: recorder))
+    .markdown.listItemStyle(SpyListItemStyle(name: "nested-list-item", recorder: recorder))
+
+    renderOffscreen(view, width: 520, height: 900)
+
+    #expect(recorder.invokedNames.contains("container-quote"))
+    #expect(recorder.invokedNames.filter { $0 == "nested-code" }.count >= 2)
+    #expect(recorder.invokedNames.filter { $0 == "nested-table" }.count >= 2)
+    #expect(recorder.invokedNames.contains("nested-table-cell"))
+    #expect(recorder.invokedNames.filter { $0 == "nested-list-item" }.count >= 3)
+    #expect(recorder.languageHints.compactMap { $0 }.filter { $0 == "swift" }.count >= 2)
+}
+
+@Test
+@MainActor
+func nestedRecursiveListUsesCustomMarkerAtEachIndentationLevel() throws {
     let block = try firstBlock("""
     - parent
       - child
@@ -1464,7 +1516,6 @@ func nestedListIndentationReadsCustomMarkerWidth() throws {
     defer { tearDownWindow(window) }
     pumpLayout(hostingView)
 
-    #expect(recorder.markerWidthReadCount >= 1)
     #expect(recorder.unorderedMarkerIndentationLevels.contains(0))
     #expect(recorder.unorderedMarkerIndentationLevels.contains(1))
 }

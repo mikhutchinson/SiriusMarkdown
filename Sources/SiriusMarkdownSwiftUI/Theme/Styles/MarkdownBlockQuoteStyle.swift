@@ -11,9 +11,9 @@ public struct MarkdownBlockQuoteStyleConfiguration {
 
 /// Customizes chrome around an already-prepared block-quote label.
 ///
-/// `makeBody` receives prepared inline content as `configuration.label`
-/// (without a foreground color applied). Implementations must not parse
-/// Markdown or run inline layout (INV-BS2).
+/// `makeBody` receives prepared inline content or a recursively prepared child-
+/// block stack as `configuration.label` (without a foreground color applied).
+/// Implementations must not parse Markdown or run inline layout (INV-BS2).
 @MainActor
 public protocol MarkdownBlockQuoteStyle {
     associatedtype Body: View

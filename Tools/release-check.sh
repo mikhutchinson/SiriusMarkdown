@@ -30,7 +30,7 @@ TEST_LIST_FILE="$(mktemp)"
 trap 'rm -f "$TEST_LIST_FILE"; rm -rf "${CONSUMER_DIR:-}"' EXIT
 swift test list > "$TEST_LIST_FILE"
 TEST_COUNT="$(grep -Ec '^[A-Za-z0-9_]+Tests\.' "$TEST_LIST_FILE")"
-MINIMUM_TEST_COUNT=964
+MINIMUM_TEST_COUNT=966
 if (( TEST_COUNT < MINIMUM_TEST_COUNT )); then
   echo "error: swift test list discovered $TEST_COUNT tests; expected at least $MINIMUM_TEST_COUNT" >&2
   exit 1
@@ -61,6 +61,7 @@ for required_test in \
   "SiriusMarkdownSwiftUITests.coreTextPlanCacheRejectsDifferentPreparedContentWithEqualGeometry()" \
   "SiriusMarkdownSwiftUITests.automaticFallbackAndFaviconHaveDistinctPresentationFingerprintsAtEqualGeometry()" \
   "SiriusMarkdownSwiftUITests.customDestinationScopedResolverVisitsEveryURLOnTheSameOrigin()" \
+  "SiriusMarkdownSwiftUITests.renderSessionResolvesLinksInsideRecursiveContainerBlocks()" \
   "SiriusMarkdownSwiftUITests.renderSessionRetriesMetadataAfterResolverCacheIsCleared()" \
   "SiriusMarkdownSwiftUITests.metadataRefreshDiffInvalidatesOnlyBlocksContainingChangedLinks()" \
   "SiriusMarkdownSwiftUITests.multilineSemanticLinkReceivesOneDecoration()" \
@@ -68,6 +69,7 @@ for required_test in \
   "SiriusMarkdownSwiftUITests.authorizedHTMLRowspanReservesCoveredColumnsAndCombinedHeight()" \
   "SiriusMarkdownSwiftUITests.authorizedHTMLSpanSelectionUsesLogicalCellColumns()" \
   "SiriusMarkdownSwiftUITests.malformedHTMLTableSpansRemainBounded()" \
+  "SiriusMarkdownSwiftUITests.nestedContainersInvokeNativeCodeTableAndListRenderers()" \
   "SiriusMarkdownSwiftUITests.preparedNativeHTMLScriptsReachAppKitWithScaledFontsAndBaselineOffsets()" \
   "SiriusMarkdownSwiftUITests.defaultTableCellDividerStretchesToTallestCell()" \
   "SiriusMarkdownSwiftUITests.defaultTableRowContainsPreparedTextAfterNarrowCellRelayout()" \

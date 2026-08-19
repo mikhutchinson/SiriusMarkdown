@@ -118,7 +118,12 @@ func HTMLImagesBecomePolicyGovernedNativeImageRuns() throws {
 func structuredHTMLPreservesNativeQuoteCodeTableAndListMetadata() throws {
     let source = """
     <article>
-      <blockquote><p>Quoted <code>value</code></p></blockquote>
+      <blockquote>
+        <p>Quoted <code>value</code></p>
+        <pre><code class="language-swift">let nested = 2</code></pre>
+        <table><tr><th>Nested</th><th>Value</th></tr><tr><td>row</td><td>2</td></tr></table>
+        <ul><li>Nested item</li></ul>
+      </blockquote>
       <pre><code class="language-swift">let value = 1</code></pre>
       <ol start="4"><li>Fourth</li><li>Fifth</li></ol>
       <table><thead><tr><th align="right">Name</th><th>Value</th></tr></thead>
@@ -130,6 +135,10 @@ func structuredHTMLPreservesNativeQuoteCodeTableAndListMetadata() throws {
 
     #expect(blocks.map(\.kind) == [.blockQuote, .codeBlock, .orderedList, .table])
     #expect(blocks[0].inlines.first { $0.text == "value" }?.presentation.contains(.code) == true)
+    #expect(blocks[0].childBlocks.map(\.kind) == [.paragraph, .codeBlock, .table, .unorderedList])
+    #expect(blocks[0].childBlocks[1].infoString == "swift")
+    #expect(blocks[0].childBlocks[2].table?.rows.first?.map(\.text) == ["row", "2"])
+    #expect(blocks[0].childBlocks[3].listItems.first?.text == "Nested item")
     #expect(blocks[1].infoString == "swift")
     #expect(blocks[1].text == "let value = 1")
     #expect(blocks[2].orderedListStart == 4)

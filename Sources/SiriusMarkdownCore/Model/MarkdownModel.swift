@@ -163,6 +163,13 @@ public struct MarkdownListItem: Sendable, Hashable {
     public var childListKind: MarkdownBlockKind?
     public var childOrderedListStart: UInt?
     public var childItems: [MarkdownListItem]
+    /// Native block children in source order.
+    ///
+    /// Parsed list items populate this with paragraphs, code blocks, tables,
+    /// quotes, and child lists so renderers do not have to flatten structured
+    /// descendants into one inline leaf. The legacy list-only fields remain
+    /// populated for source compatibility with existing clients.
+    public var childBlocks: [MarkdownBlock]
 
     public init(
         sourceRange: MarkdownSourceRange,
@@ -180,6 +187,29 @@ public struct MarkdownListItem: Sendable, Hashable {
         self.childListKind = childListKind
         self.childOrderedListStart = childOrderedListStart
         self.childItems = childItems
+        self.childBlocks = []
+    }
+
+    public init(
+        sourceRange: MarkdownSourceRange,
+        taskState: MarkdownTaskState? = nil,
+        text: String,
+        inlines: [MarkdownInlineRun] = [],
+        childListKind: MarkdownBlockKind? = nil,
+        childOrderedListStart: UInt? = nil,
+        childItems: [MarkdownListItem] = [],
+        childBlocks: [MarkdownBlock]
+    ) {
+        self.init(
+            sourceRange: sourceRange,
+            taskState: taskState,
+            text: text,
+            inlines: inlines,
+            childListKind: childListKind,
+            childOrderedListStart: childOrderedListStart,
+            childItems: childItems
+        )
+        self.childBlocks = childBlocks
     }
 }
 
@@ -266,6 +296,10 @@ public struct MarkdownBlock: Identifiable, Sendable, Hashable {
     public var headingLevel: Int?
     public var infoString: String?
     public var isSealed: Bool
+    /// Native block descendants for semantic containers such as block quotes.
+    /// Child blocks retain the normal block model and stable identities so
+    /// preparation and rendering can recurse without reparsing source.
+    public var childBlocks: [MarkdownBlock]
     /// Sanitized native semantic content converted from an authorized HTML
     /// block. The outer `.htmlBlock` retains the exact Markdown source range
     /// and stable identity; child blocks reuse the normal renderer pipeline.
@@ -299,6 +333,41 @@ public struct MarkdownBlock: Identifiable, Sendable, Hashable {
         self.infoString = infoString
         self.isSealed = isSealed
         self.richContent = richContent
+        self.childBlocks = []
+    }
+
+    public init(
+        id: MarkdownBlockID,
+        kind: MarkdownBlockKind,
+        sourceRange: MarkdownSourceRange,
+        text: String,
+        inlines: [MarkdownInlineRun] = [],
+        listItems: [MarkdownListItem] = [],
+        table: MarkdownTableBlock? = nil,
+        contentHash: UInt64 = 0,
+        orderedListStart: UInt? = nil,
+        headingLevel: Int? = nil,
+        infoString: String? = nil,
+        isSealed: Bool,
+        richContent: MarkdownRichContent? = nil,
+        childBlocks: [MarkdownBlock]
+    ) {
+        self.init(
+            id: id,
+            kind: kind,
+            sourceRange: sourceRange,
+            text: text,
+            inlines: inlines,
+            listItems: listItems,
+            table: table,
+            contentHash: contentHash,
+            orderedListStart: orderedListStart,
+            headingLevel: headingLevel,
+            infoString: infoString,
+            isSealed: isSealed,
+            richContent: richContent
+        )
+        self.childBlocks = childBlocks
     }
 
     public init(
@@ -327,6 +396,32 @@ public struct MarkdownBlock: Identifiable, Sendable, Hashable {
             isSealed: isSealed,
             richContent: richContent
         )
+    }
+
+    public init(
+        id: MarkdownBlockID,
+        kind: MarkdownBlockKind,
+        sourceRange: MarkdownSourceRange,
+        text: String,
+        inlines: [MarkdownInlineRun] = [],
+        headingLevel: Int? = nil,
+        infoString: String? = nil,
+        isSealed: Bool,
+        richContent: MarkdownRichContent? = nil,
+        childBlocks: [MarkdownBlock]
+    ) {
+        self.init(
+            id: id,
+            kind: kind,
+            sourceRange: sourceRange,
+            text: text,
+            inlines: inlines,
+            headingLevel: headingLevel,
+            infoString: infoString,
+            isSealed: isSealed,
+            richContent: richContent
+        )
+        self.childBlocks = childBlocks
     }
 }
 

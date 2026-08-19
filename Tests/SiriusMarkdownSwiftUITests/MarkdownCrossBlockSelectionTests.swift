@@ -185,26 +185,62 @@ struct MarkdownListItemSelectionTests {
 
     @Test
     @MainActor
-    func nestedListItemPublishesTextLeafFragments() throws {
-        let source = """
-        - Top level
-          - Nested item
-          - Another nested
-        - Back to top
-        """
-        let (_, prepared, _) = prepareSnapshot(source)
-        let listBlock = try #require(prepared.snapshot.blocks.first(where: { $0.kind == .unorderedList }))
-        let listContent = try #require(prepared.preparedContentByBlockID[listBlock.id])
+    func recursiveContainersPublishOrderedTextLeafFragments() throws {
+        do {
+            let source = """
+            - Top level
+              - Nested item
+              - Another nested
+            - Back to top
+            """
+            let (_, prepared, _) = prepareSnapshot(source)
+            let listBlock = try #require(prepared.snapshot.blocks.first(where: { $0.kind == .unorderedList }))
+            let listContent = try #require(prepared.preparedContentByBlockID[listBlock.id])
 
-        let fragments = MarkdownDocumentSelectionFragment.fragments(
-            for: listBlock,
-            preparedContent: listContent,
-            rect: testRect
-        )
+            let fragments = MarkdownDocumentSelectionFragment.fragments(
+                for: listBlock,
+                preparedContent: listContent,
+                rect: testRect
+            )
 
-        #expect(fragments.count >= 4)
-        let fragmentsWithTextGeometry = fragments.filter { $0.textGeometry != nil }
-        #expect(!fragmentsWithTextGeometry.isEmpty)
+            #expect(fragments.count >= 4)
+            #expect(fragments.contains { $0.textGeometry != nil })
+        }
+
+        do {
+            let source = """
+            > > ```swift
+            > > let first = 1
+            > > let second = 2
+            > > let third = 3
+            > > ```
+            > >
+            > > | Name | Value |
+            > > | --- | --- |
+            > > | nested | native |
+            >
+            > Following quoted paragraph
+            """
+            let (_, prepared, _) = prepareSnapshot(source)
+            let quoteBlock = try #require(prepared.snapshot.blocks.first(where: { $0.kind == .blockQuote }))
+            let quoteContent = try #require(prepared.preparedContentByBlockID[quoteBlock.id])
+
+            let fragments = MarkdownDocumentSelectionFragment.fragments(
+                for: quoteBlock,
+                preparedContent: quoteContent,
+                rect: CGRect(x: 0, y: 0, width: 400, height: 800)
+            )
+            let followingRange = sourceRange(of: "Following quoted paragraph", in: source).byteRange
+            let following = try #require(fragments.first(where: {
+                $0.sourceRange.byteRange.overlaps(followingRange)
+            }))
+            let precedingStructuredFragments = fragments.filter {
+                $0.sourceRange.byteRange.upperBound <= followingRange.lowerBound
+            }
+
+            #expect(!precedingStructuredFragments.isEmpty)
+            #expect(following.rect.minY >= precedingStructuredFragments.map(\.rect.maxY).max() ?? 0)
+        }
     }
 
     @Test

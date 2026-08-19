@@ -130,6 +130,7 @@ private struct SwiftMarkdownRenderModelConverter {
         let kind = blockKind(for: markup, rawText: rawText)
         let table = tableBlock(for: markup)
         let inlines = inlineRuns(for: markup, fallbackRange: range, table: table)
+        let childBlocks = childBlocks(for: markup)
         let contentHash = stableContentHash(rawText)
         let id = stableBlockID(kind: kind, range: range, sequence: sequence)
         let richContent: MarkdownRichContent? = if let htmlBlock = markup as? HTMLBlock {
@@ -157,7 +158,8 @@ private struct SwiftMarkdownRenderModelConverter {
             headingLevel: (markup as? Heading)?.level,
             infoString: (markup as? CodeBlock)?.language,
             isSealed: isSealed,
-            richContent: richContent
+            richContent: richContent,
+            childBlocks: childBlocks
         )
     }
 
@@ -359,15 +361,22 @@ private struct SwiftMarkdownRenderModelConverter {
     private func listItems(for markup: Markup) -> [MarkdownListItem] {
         switch markup {
         case let list as UnorderedList:
-            return list.children.compactMap { ($0 as? ListItem).map(markdownListItem) }
+            return list.children.compactMap { child in
+                (child as? ListItem).map { markdownListItem($0) }
+            }
         case let list as OrderedList:
-            return list.children.compactMap { ($0 as? ListItem).map(markdownListItem) }
+            return list.children.compactMap { child in
+                (child as? ListItem).map { markdownListItem($0) }
+            }
         default:
             return []
         }
     }
 
-    private func markdownListItem(_ item: ListItem) -> MarkdownListItem {
+    private func markdownListItem(
+        _ item: ListItem,
+        includesChildBlocks: Bool = true
+    ) -> MarkdownListItem {
         let range = markdownSourceRange(for: item)
         let nestedMetadata = nestedListMetadata(in: item)
         let inlines = listItemInlineRuns(in: item, fallbackRange: range)
@@ -378,8 +387,27 @@ private struct SwiftMarkdownRenderModelConverter {
             inlines: inlines,
             childListKind: nestedMetadata.kind,
             childOrderedListStart: nestedMetadata.orderedStart,
-            childItems: nestedListItems(in: item)
+            childItems: nestedListItems(in: item),
+            childBlocks: includesChildBlocks ? convertedChildBlocks(in: item.children) : []
         )
+    }
+
+    private func childBlocks(for markup: Markup) -> [MarkdownBlock] {
+        guard let quote = markup as? BlockQuote else {
+            return []
+        }
+        return convertedChildBlocks(in: quote.children)
+    }
+
+    private func convertedChildBlocks(in children: MarkupChildren) -> [MarkdownBlock] {
+        var blocks: [MarkdownBlock] = []
+        var sequence = 0
+        for child in children {
+            let converted = convertBlocks(child, sequence: sequence)
+            blocks.append(contentsOf: converted)
+            sequence += converted.count
+        }
+        return blocks
     }
 
     private func listItemInlineRuns(in item: ListItem, fallbackRange: MarkdownSourceRange) -> [MarkdownInlineRun] {
@@ -553,9 +581,13 @@ private struct SwiftMarkdownRenderModelConverter {
         item.children.flatMap { child -> [MarkdownListItem] in
             switch child {
             case let list as UnorderedList:
-                return list.children.compactMap { ($0 as? ListItem).map(markdownListItem) }
+                return list.children.compactMap { child in
+                    (child as? ListItem).map { markdownListItem($0, includesChildBlocks: false) }
+                }
             case let list as OrderedList:
-                return list.children.compactMap { ($0 as? ListItem).map(markdownListItem) }
+                return list.children.compactMap { child in
+                    (child as? ListItem).map { markdownListItem($0, includesChildBlocks: false) }
+                }
             default:
                 return []
             }

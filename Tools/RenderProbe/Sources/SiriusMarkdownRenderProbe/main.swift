@@ -16,6 +16,7 @@ struct SiriusMarkdownRenderProbe {
         let attributeResult = renderInlineAttributeCrossingProbe()
         let overflowResult = renderOverflowContainmentProbe()
         let htmlTableSpanResult = renderHTMLTableSpanProbe()
+        let nestedContainerResult = renderNestedContainerProbe()
         let codeHighlightResult = renderCodeHighlightingProbe()
         let breakResult = renderBreakAndLongWordProbe()
         let widthResult = renderInlineWidthProbe()
@@ -34,6 +35,11 @@ struct SiriusMarkdownRenderProbe {
         assertRenderable("inline attribute crossing prepared native document", attributeResult)
         assertRenderable("code and table overflow prepared native document", overflowResult)
         assertRenderable("authorized HTML table span document", htmlTableSpanResult)
+        assertRenderable(
+            "nested quote and list structured children",
+            nestedContainerResult,
+            minimumNonWhitePixels: 2_400
+        )
         assertRenderable(
             "code highlighting prepared native document",
             codeHighlightResult,
@@ -193,6 +199,7 @@ struct SiriusMarkdownRenderProbe {
         print("Inline attribute crossing probe: \(attributeResult.nonWhitePixels) non-white pixels, \(attributeResult.distinctColorBuckets) color buckets")
         print("Overflow containment probe: \(overflowResult.nonWhitePixels) non-white pixels, \(overflowResult.distinctColorBuckets) color buckets, fitting width \(overflowResult.fittingWidth)")
         print("Authorized HTML table span probe: \(htmlTableSpanResult.nonWhitePixels) non-white pixels, \(htmlTableSpanResult.distinctColorBuckets) color buckets")
+        print("Nested container probe: \(nestedContainerResult.nonWhitePixels) non-white pixels, \(nestedContainerResult.distinctColorBuckets) color buckets")
         print("Code highlighting probe: \(codeHighlightResult.nonWhitePixels) non-white pixels, \(codeHighlightResult.distinctColorBuckets) color buckets")
         print("Break and long-word probe: \(breakResult.nonWhitePixels) non-white pixels, \(breakResult.distinctColorBuckets) color buckets")
         print("Prepared inline width probe: dark text reached x=\(widthResult.darkRightmostX)")
@@ -445,6 +452,41 @@ struct SiriusMarkdownRenderProbe {
             configuration: .document,
             size: NSSize(width: 520, height: 260),
             outputPath: ProcessInfo.processInfo.environment["SIRIUS_MARKDOWN_HTML_TABLE_SPAN_PROBE_OUTPUT"]
+        )
+    }
+
+    @MainActor
+    private static func renderNestedContainerProbe() -> RenderResult {
+        renderDocument(
+            markdown:
+                """
+                > A block quote keeps its structured descendants.
+                >
+                > ```swift
+                > let quoted = "native code"
+                > ```
+                >
+                > | Quote table | Renderer |
+                > | --- | --- |
+                > | cell | native |
+                >
+                > 1. Quoted ordered item
+
+                - A list item also keeps structured descendants.
+
+                  ```swift
+                  let listed = "native code"
+                  ```
+
+                  | List table | Renderer |
+                  | --- | --- |
+                  | cell | native |
+
+                  1. Nested ordered item
+                """,
+            configuration: .document,
+            size: NSSize(width: 600, height: 760),
+            outputPath: ProcessInfo.processInfo.environment["SIRIUS_MARKDOWN_NESTED_CONTAINER_PROBE_OUTPUT"]
         )
     }
 

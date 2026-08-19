@@ -387,6 +387,50 @@ func customDestinationScopedResolverVisitsEveryURLOnTheSameOrigin() async {
 
 @Test
 @MainActor
+func renderSessionResolvesLinksInsideRecursiveContainerBlocks() async throws {
+    let quoted = URL(string: "https://nested.example/quoted")!
+    let listed = URL(string: "https://nested.example/listed")!
+    let resolver = DestinationScopedLinkMetadataResolver()
+    let session = MarkdownRenderSession(configuration: MarkdownRendererConfiguration(
+        linkMetadataResolver: resolver
+    ))
+
+    session.append(
+        """
+        > [Quoted](\(quoted.absoluteString))
+
+        - Before
+
+          [Listed](\(listed.absoluteString))
+        """
+    )
+    session.finish()
+    await session.waitUntilIdle()
+    await session.waitUntilLinkMetadataIdle()
+
+    #expect(resolver.resolvedDestinations == Set([quoted, listed]))
+    let quote = try #require(session.snapshot.blocks.first { $0.kind == .blockQuote })
+    let list = try #require(session.snapshot.blocks.first { $0.kind == .unorderedList })
+    let quoteContent = try #require(
+        session.preparedSnapshot.preparedContentByBlockID[quote.id]?.childBlocks.first?.preparedContent
+    )
+    let listContent = try #require(
+        session.preparedSnapshot.preparedContentByBlockID[list.id]?
+            .listItems.first?
+            .childBlocks.last?
+            .preparedContent
+    )
+
+    #expect(quoteContent.inlineLayout?.prepared.runs.contains {
+        $0.presentation.contains(.linkDecoration)
+    } == true)
+    #expect(listContent.inlineLayout?.prepared.runs.contains {
+        $0.presentation.contains(.linkDecoration)
+    } == true)
+}
+
+@Test
+@MainActor
 func renderSessionRetriesMetadataAfterResolverCacheIsCleared() async {
     let destination = URL(string: "https://retry.example/first")!
     let resolver = RetryableLinkMetadataResolver()

@@ -7,8 +7,8 @@ import SwiftUI
 /// shape) so a style can lay them out however it likes — `marker` is
 /// already built from the relevant marker style
 /// (`MarkdownUnorderedListMarkerStyle` / `MarkdownOrderedListMarkerStyle` /
-/// `MarkdownTaskListMarkerStyle`); `block` is the item's own prepared
-/// inline content, not including nested child lists.
+/// `MarkdownTaskListMarkerStyle`); `block` is the item's prepared inline
+/// content or recursively prepared native child-block stack.
 public struct MarkdownListItemStyleConfiguration {
     public var marker: MarkdownBlockStyleLabel
     public var block: MarkdownBlockStyleLabel
@@ -19,10 +19,11 @@ public struct MarkdownListItemStyleConfiguration {
 
 /// Customizes the layout of one list item's marker + content.
 ///
-/// `makeBody` receives already-built marker and content labels. Nested
-/// child lists are rendered separately by `MarkdownBlockView`, indented
-/// beneath this item — implementations are not responsible for recursing
-/// into children (INV-BS2).
+/// `makeBody` receives already-built marker and content labels. Parsed native
+/// child blocks, including child lists, are already recursively rendered in
+/// the content label. Legacy manually constructed `childItems` remain a
+/// separately rendered compatibility path. Implementations are not
+/// responsible for recursing into either representation (INV-BS2).
 @MainActor
 public protocol MarkdownListItemStyle {
     associatedtype Body: View
