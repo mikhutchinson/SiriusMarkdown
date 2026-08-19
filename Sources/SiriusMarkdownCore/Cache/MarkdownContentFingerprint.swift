@@ -62,6 +62,13 @@ public struct MarkdownContentFingerprint: Sendable, Hashable {
         }
     }
 
+    public mutating func combine(_ value: Data) {
+        combine(UInt64(value.count))
+        for byte in value {
+            combine(byte: byte)
+        }
+    }
+
     private mutating func combine(byte: UInt8) {
         low ^= UInt64(byte)
         low &*= 0x100000001b3

@@ -244,7 +244,8 @@ func changelogHistoricalEntriesPreserved() throws {
 func bugfixLogHistoricalEntriesPreserved() throws {
     let bugfix = try readFile("bugfix.md")
     #expect(bugfix.contains("## Fixed"), "Bugfix log should preserve 'Fixed' section")
-    #expect(bugfix.contains("## Resolved in 0.6.25"), "Bugfix log should record the current release")
+    #expect(bugfix.contains("## Resolved in 0.6.26"), "Bugfix log should record the current release")
+    #expect(bugfix.contains("## Resolved in 0.6.25"), "Bugfix log should preserve the 0.6.25 entry")
     #expect(bugfix.contains("## Resolved in 0.6.24"), "Bugfix log should preserve the 0.6.24 entry")
     #expect(bugfix.contains("## Resolved in 0.6.23"), "Bugfix log should preserve the 0.6.23 entry")
     #expect(bugfix.contains("## Resolved in 0.6.22"), "Bugfix log should preserve the 0.6.22 entry")
@@ -266,12 +267,12 @@ func releaseCheckTestFloorMatchesCurrentCount() throws {
     let releaseCheck = try readFile("Tools/release-check.sh")
     let readme = try readFile("README.md")
     #expect(
-        releaseCheck.contains("MINIMUM_TEST_COUNT=954"),
-        "release-check.sh test floor should be 954"
+        releaseCheck.contains("MINIMUM_TEST_COUNT=964"),
+        "release-check.sh test floor should be 964"
     )
     #expect(
-        readme.contains("release suite discovers 954 tests"),
-        "README test count should match the 954-test release floor"
+        readme.contains("release suite discovers 964 tests"),
+        "README test count should match the 964-test release floor"
     )
 }
 

@@ -19,7 +19,8 @@ public final class MarkdownRenderSession: ObservableObject {
     private var pendingOperations: [MarkdownRenderSessionOperation] = []
     private var presentationRevision: Int = 0
     private var linkMetadataTasks: [URL: Task<Void, Never>] = [:]
-    private var scheduledLinkMetadataOrigins: Set<URL> = []
+    private var preparedLinkMetadataResolutions: [URL: MarkdownLinkMetadataResolution] = [:]
+    private var pendingLinkMetadataRefreshes: [URL: MarkdownLinkMetadataResolution] = [:]
     private var linkMetadataRefreshTask: Task<Void, Never>?
 
     public init(
@@ -185,6 +186,10 @@ public final class MarkdownRenderSession: ObservableObject {
         snapshot = state.snapshot
         preparedSnapshot = state.preparedSnapshot
         snapshotDiff = state.preparedSnapshot.diff
+        for operation in batch.operations {
+            guard case let .refreshLinkMetadata(resolutions) = operation else { continue }
+            preparedLinkMetadataResolutions.merge(resolutions) { _, latest in latest }
+        }
         scheduleLinkMetadataResolution(in: state.snapshot)
     }
 
@@ -196,31 +201,46 @@ public final class MarkdownRenderSession: ObservableObject {
         }
 
         for destination in Self.externalHTTPSLinkDestinations(in: snapshot, policy: configuration.linkPolicy) {
-            let origin = Self.linkOrigin(for: destination) ?? destination
-            guard !scheduledLinkMetadataOrigins.contains(origin) else { continue }
-            scheduledLinkMetadataOrigins.insert(origin)
-            if resolver.cachedResolution(for: destination) == .unavailable {
+            guard linkMetadataTasks[destination] == nil else { continue }
+            let cachedResolution = resolver.cachedResolution(for: destination)
+            if cachedResolution == .unavailable {
+                linkMetadataResolutionFinished(.unavailable, destination: destination)
                 continue
             }
-
+            if let cachedResolution,
+               preparedLinkMetadataResolutions[destination] == cachedResolution
+            {
+                continue
+            }
             // Even a positive cache hit crosses an asynchronous boundary once.
             // The cache may have filled after the just-published preparation
             // read it; resolving (immediately) and scheduling one debounced
             // refresh closes that race without network work.
-            linkMetadataTasks[origin] = Task { [weak self, resolver] in
+            linkMetadataTasks[destination] = Task { [weak self, resolver] in
                 let resolution = await resolver.resolveMetadata(for: destination)
                 guard !Task.isCancelled else { return }
-                self?.linkMetadataResolutionFinished(resolution, origin: origin)
+                self?.linkMetadataResolutionFinished(resolution, destination: destination)
             }
         }
     }
 
     private func linkMetadataResolutionFinished(
         _ resolution: MarkdownLinkMetadataResolution,
-        origin: URL
+        destination: URL
     ) {
-        linkMetadataTasks.removeValue(forKey: origin)
-        guard case .metadata = resolution else { return }
+        linkMetadataTasks.removeValue(forKey: destination)
+        if resolution == .unavailable {
+            if case .metadata? = preparedLinkMetadataResolutions[destination] {
+                // A cleared or expired positive cache can legitimately fall
+                // back to unavailable. Reprepare the affected link so a stale
+                // branded icon does not survive the resolver's new state.
+            } else {
+                preparedLinkMetadataResolutions[destination] = .unavailable
+                return
+            }
+        }
+        guard preparedLinkMetadataResolutions[destination] != resolution else { return }
+        pendingLinkMetadataRefreshes[destination] = resolution
 
         // A page of citations often completes several favicon requests in
         // one network burst. Debounce them into one preparation publication.
@@ -229,14 +249,19 @@ public final class MarkdownRenderSession: ObservableObject {
             try? await Task.sleep(for: .milliseconds(100))
             guard !Task.isCancelled else { return }
             self?.linkMetadataRefreshTask = nil
-            self?.schedule(.refreshLinkMetadata)
+            guard let self else { return }
+            let resolutions = self.pendingLinkMetadataRefreshes
+            self.pendingLinkMetadataRefreshes.removeAll(keepingCapacity: true)
+            guard !resolutions.isEmpty else { return }
+            self.schedule(.refreshLinkMetadata(resolutions))
         }
     }
 
     private func cancelLinkMetadataResolution() {
         linkMetadataTasks.values.forEach { $0.cancel() }
         linkMetadataTasks.removeAll()
-        scheduledLinkMetadataOrigins.removeAll()
+        preparedLinkMetadataResolutions.removeAll()
+        pendingLinkMetadataRefreshes.removeAll()
         linkMetadataRefreshTask?.cancel()
         linkMetadataRefreshTask = nil
     }
@@ -283,16 +308,6 @@ public final class MarkdownRenderSession: ObservableObject {
 
         addBlocks(snapshot.blocks)
         return destinations
-    }
-
-    private nonisolated static func linkOrigin(for destination: URL) -> URL? {
-        guard let host = destination.host else { return nil }
-        var components = URLComponents()
-        components.scheme = "https"
-        components.host = host.lowercased()
-        components.port = destination.port == 443 ? nil : destination.port
-        components.path = "/"
-        return components.url
     }
 
     private func drainPendingOperations() -> [MarkdownRenderSessionOperation] {
@@ -363,7 +378,7 @@ private enum MarkdownRenderSessionOperation: Sendable {
     case appendHostBoundary(MarkdownHostBoundaryID?)
     case finish
     case reset
-    case refreshLinkMetadata
+    case refreshLinkMetadata([URL: MarkdownLinkMetadataResolution])
 }
 
 private struct MarkdownRenderSessionState: Sendable {
@@ -399,6 +414,7 @@ private actor MarkdownRenderSessionPipeline {
     }
 
     func apply(_ operations: [MarkdownRenderSessionOperation]) -> MarkdownRenderSessionState {
+        var invalidatingLinkDestinations: Set<URL> = []
         for operation in operations {
             switch operation {
             case let .append(markdown):
@@ -414,22 +430,76 @@ private actor MarkdownRenderSessionPipeline {
                 )
                 configuration.preparationCache.removeAll()
                 preparedSnapshot = nil
-            case .refreshLinkMetadata:
-                // Metadata changes presentation, not source semantics.
-                preparedSnapshot = nil
+            case let .refreshLinkMetadata(resolutions):
+                // Metadata changes presentation, not source semantics. Retain
+                // the previous prepared snapshot and invalidate only top-level
+                // blocks that actually contain one of the changed links.
+                invalidatingLinkDestinations.formUnion(resolutions.keys)
             }
         }
 
         let snapshot = stream.snapshot()
+        let invalidatingBlockIDs = Self.blockIDs(
+            containingAny: invalidatingLinkDestinations,
+            in: snapshot,
+            policy: configuration.linkPolicy
+        )
         let preparedSnapshot = configuration.prepare(
             snapshot: snapshot,
-            reusing: preparedSnapshot
+            reusing: preparedSnapshot,
+            invalidatingBlockIDs: invalidatingBlockIDs
         )
         self.preparedSnapshot = preparedSnapshot
         return MarkdownRenderSessionState(
             snapshot: snapshot,
             preparedSnapshot: preparedSnapshot
         )
+    }
+
+    private nonisolated static func blockIDs(
+        containingAny destinations: Set<URL>,
+        in snapshot: MarkdownSnapshot,
+        policy: any MarkdownLinkPolicy
+    ) -> Set<MarkdownBlockID> {
+        guard !destinations.isEmpty else { return [] }
+
+        func runsContainDestination(_ runs: [MarkdownInlineRun]) -> Bool {
+            runs.contains { run in
+                guard let destination = run.destination,
+                      let url = markdownLinkURL(for: destination, policy: policy)
+                else {
+                    return false
+                }
+                return destinations.contains(url)
+            }
+        }
+
+        func listItemsContainDestination(_ items: [MarkdownListItem]) -> Bool {
+            items.contains { item in
+                runsContainDestination(item.inlines) ||
+                    listItemsContainDestination(item.childItems)
+            }
+        }
+
+        func blockContainsDestination(_ block: MarkdownBlock) -> Bool {
+            if runsContainDestination(block.inlines) ||
+                listItemsContainDestination(block.listItems)
+            {
+                return true
+            }
+            if let table = block.table,
+               (table.header + table.rows.flatMap { $0 }).contains(where: {
+                   runsContainDestination($0.inlines)
+               })
+            {
+                return true
+            }
+            return block.richContent?.blocks.contains(where: blockContainsDestination) == true
+        }
+
+        return Set(snapshot.blocks.compactMap { block in
+            blockContainsDestination(block) ? block.id : nil
+        })
     }
 }
 

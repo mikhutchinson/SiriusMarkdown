@@ -681,7 +681,8 @@ public struct MarkdownRendererConfiguration: Sendable {
 
     func prepare(
         snapshot: MarkdownSnapshot,
-        reusing previousSnapshot: MarkdownPreparedSnapshot?
+        reusing previousSnapshot: MarkdownPreparedSnapshot?,
+        invalidatingBlockIDs: Set<MarkdownBlockID> = []
     ) -> MarkdownPreparedSnapshot {
         var preparedContentByBlockID: [MarkdownBlockID: MarkdownPreparedBlockContent] = [:]
         var preparedItems: [MarkdownPreparedSnapshotItem] = []
@@ -694,7 +695,15 @@ public struct MarkdownRendererConfiguration: Sendable {
         var newItemIDs: Set<String> = []
 
         for (index, item) in snapshot.items.enumerated() {
-            if index < previousItems.count,
+            let invalidatesPreparedBlock: Bool
+            if case let .block(block) = item {
+                invalidatesPreparedBlock = invalidatingBlockIDs.contains(block.id)
+            } else {
+                invalidatesPreparedBlock = false
+            }
+
+            if !invalidatesPreparedBlock,
+               index < previousItems.count,
                let reused = Self.reusedPreparedItem(for: item, previousItem: previousItems[index]) {
                 switch reused {
                 case let .block(block, prepared):
@@ -713,10 +722,15 @@ public struct MarkdownRendererConfiguration: Sendable {
                         previousItems: previousItems.dropFirst(index)
                     )
                 }
-                let prepared = fallbackReuse?.content(for: block) ?? prepare(
-                    block: block,
-                    reusing: previousSnapshot?.preparedContentByBlockID[block.id]
-                )
+                let prepared: MarkdownPreparedBlockContent
+                if invalidatesPreparedBlock {
+                    prepared = prepare(block: block, reusing: nil)
+                } else {
+                    prepared = fallbackReuse?.content(for: block) ?? prepare(
+                        block: block,
+                        reusing: previousSnapshot?.preparedContentByBlockID[block.id]
+                    )
+                }
                 preparedContentByBlockID[block.id] = prepared
                 preparedItems.append(.block(block, prepared))
                 let itemID = "block:\(block.id.rawValue)"
@@ -896,47 +910,102 @@ public struct MarkdownRendererConfiguration: Sendable {
             return nil
         }
 
+        let gridPlacement = Self.tableGridPlacement(
+            header: table.header,
+            rows: table.rows,
+            alignmentCount: table.columnAlignments.count,
+            hasSpans: table.hasSpans
+        )
         let headerID = Self.tableRowID(parentID: parentID, role: "header", cells: table.header)
-        let header = table.header.enumerated().map { column, cell in
-            unpreparedTableCell(cell, rowID: headerID, column: column)
+        var header = table.header.enumerated().map { column, cell in
+            unpreparedTableCell(
+                cell,
+                placement: gridPlacement.header.indices.contains(column)
+                    ? gridPlacement.header[column]
+                    : MarkdownPreparedTableCellPlacement(
+                        columnIndex: column,
+                        colspan: 1,
+                        rowspan: 1
+                    ),
+                rowID: headerID,
+                column: column
+            )
         }
-        let rows = table.rows.map { row in
+        var rows = table.rows.enumerated().map { rowIndex, row in
             let rowID = Self.tableRowID(parentID: parentID, role: "body", cells: row)
             return MarkdownPreparedTableRow(
                 id: rowID,
                 cells: row.enumerated().map { column, cell in
-                    unpreparedTableCell(cell, rowID: rowID, column: column)
+                    unpreparedTableCell(
+                        cell,
+                        placement: gridPlacement.rows.indices.contains(rowIndex) &&
+                            gridPlacement.rows[rowIndex].indices.contains(column)
+                            ? gridPlacement.rows[rowIndex][column]
+                            : MarkdownPreparedTableCellPlacement(
+                                columnIndex: column,
+                                colspan: 1,
+                                rowspan: 1
+                            ),
+                        rowID: rowID,
+                        column: column
+                    )
                 }
             )
         }
-        let columnCount = Self.tableColumnCount(
-            alignments: table.columnAlignments,
-            header: header,
-            rows: rows
-        )
+        let columnCount = gridPlacement.columnCount
         let naturalWidths = tableNaturalWidths(
             columnCount: columnCount,
             header: header,
             rows: rows
         )
 
-        return MarkdownPreparedTableBlock(
+        let columnWidths = tableEffectiveColumnWidths(
+            naturalWidths: naturalWidths,
+            columnCount: columnCount,
+            isSealed: true,
+            previousWidths: nil
+        )
+        if gridPlacement.hasSpans {
+            _ = resolveSpanAwarePreparedTableLayout(
+                header: &header,
+                rows: &rows,
+                columnWidths: columnWidths
+            )
+        } else {
+            _ = resolvePreparedTableRowLayout(cells: &header, columnWidths: columnWidths)
+            for rowIndex in rows.indices {
+                _ = resolvePreparedTableRowLayout(
+                    cells: &rows[rowIndex].cells,
+                    columnWidths: columnWidths
+                )
+            }
+        }
+
+        let separatorSegments = preparedTableSeparatorSegments(
+            header: header,
+            rows: rows,
+            columnWidths: columnWidths,
+            hasSpans: gridPlacement.hasSpans
+        )
+        for rowIndex in rows.indices {
+            rows[rowIndex].separatorSegments = separatorSegments[rowIndex + 1]
+        }
+        var preparedTable = MarkdownPreparedTableBlock(
             columnAlignments: table.columnAlignments,
             header: header,
             rows: rows,
             headerID: headerID,
+            hasSpans: gridPlacement.hasSpans,
             columnNaturalWidths: naturalWidths,
-            columnWidths: tableEffectiveColumnWidths(
-                naturalWidths: naturalWidths,
-                columnCount: columnCount,
-                isSealed: true,
-                previousWidths: nil
-            )
+            columnWidths: columnWidths
         )
+        preparedTable.headerSeparatorSegments = separatorSegments.first ?? []
+        return preparedTable
     }
 
     private func unpreparedTableCell(
         _ cell: MarkdownTableCell,
+        placement: MarkdownPreparedTableCellPlacement,
         rowID: String,
         column: Int
     ) -> MarkdownPreparedTableCell {
@@ -950,8 +1019,9 @@ public struct MarkdownRendererConfiguration: Sendable {
             inline: inline,
             naturalWidth: Double(inline.characters.count) *
                 Self.sanitizedPositive(theme.paragraphFontSize, fallback: 16) * 0.56,
-            colspan: cell.colspan,
-            rowspan: cell.rowspan
+            columnIndex: placement.columnIndex,
+            colspan: placement.colspan,
+            rowspan: placement.rowspan
         )
     }
 
@@ -1689,6 +1759,16 @@ public struct MarkdownRendererConfiguration: Sendable {
         var previousDestination: String?
 
         for run in runs {
+            if (run.kind == .softBreak || run.kind == .hardBreak),
+               let destination = run.destination,
+               destination == previousDestination
+            {
+                // A line break is still inside the same semantic link. Keep
+                // the link group open so the continuation does not receive a
+                // second glyph/favicon after wrapping onto its authored line.
+                decoratedRuns.append(run)
+                continue
+            }
             // Local fallback eligibility follows the ordinary link policy,
             // not the narrower public-HTTPS remote-resource policy. Relative,
             // mail, and host-normalized destinations still need a non-color
@@ -2364,6 +2444,98 @@ public struct MarkdownRendererConfiguration: Sendable {
         return (maxWidth, naturalHeight * scale)
     }
 
+    /// Bounds malformed authored spans before they become renderer structure.
+    /// Ordinary Markdown/HTML tables remain far below this limit, while an
+    /// attacker cannot turn a single `colspan` into an unbounded SwiftUI grid.
+    private static let maximumPreparedTableColumns = 256
+
+    private nonisolated static func tableGridPlacement(
+        header: [MarkdownTableCell],
+        rows: [[MarkdownTableCell]],
+        alignmentCount: Int,
+        hasSpans: Bool
+    ) -> MarkdownPreparedTableGridPlacement {
+        guard hasSpans else {
+            return MarkdownPreparedTableGridPlacement(
+                header: [],
+                rows: [],
+                columnCount: min(
+                    maximumPreparedTableColumns,
+                    max(
+                        max(alignmentCount, header.count),
+                        rows.lazy.map(\.count).max() ?? 0
+                    )
+                ),
+                hasSpans: false
+            )
+        }
+
+        let allRows = [header] + rows
+        var occupiedUntilRow: [Int: Int] = [:]
+        var placedRows: [[MarkdownPreparedTableCellPlacement]] = []
+        placedRows.reserveCapacity(allRows.count)
+        var columnCount = min(maximumPreparedTableColumns, alignmentCount)
+        var hasSpans = false
+
+        for (rowIndex, cells) in allRows.enumerated() {
+            var placements: [MarkdownPreparedTableCellPlacement] = []
+            placements.reserveCapacity(cells.count)
+            var candidateColumn = 0
+
+            for cell in cells {
+                let requestedColspan = max(1, min(Int(cell.colspan), maximumPreparedTableColumns))
+                let requestedRowspan = max(1, min(Int(cell.rowspan), max(1, allRows.count)))
+                var start = candidateColumn
+
+                while start < maximumPreparedTableColumns {
+                    let availableSpan = min(requestedColspan, maximumPreparedTableColumns - start)
+                    let blockedColumn = (start..<(start + availableSpan)).first { column in
+                        (occupiedUntilRow[column] ?? 0) > rowIndex
+                    }
+                    guard let blockedColumn else { break }
+                    start = blockedColumn + 1
+                }
+
+                guard start < maximumPreparedTableColumns else {
+                    // Preserve bounded behavior for malformed rows with more
+                    // logical cells than the renderer limit. The final slot is
+                    // deterministic and remains source-backed.
+                    placements.append(MarkdownPreparedTableCellPlacement(
+                        columnIndex: maximumPreparedTableColumns - 1,
+                        colspan: 1,
+                        rowspan: 1
+                    ))
+                    continue
+                }
+
+                let colspan = max(1, min(requestedColspan, maximumPreparedTableColumns - start))
+                let rowspan = max(1, requestedRowspan)
+                let placement = MarkdownPreparedTableCellPlacement(
+                    columnIndex: start,
+                    colspan: UInt(colspan),
+                    rowspan: UInt(rowspan)
+                )
+                placements.append(placement)
+                hasSpans = hasSpans || colspan > 1 || rowspan > 1
+                if rowspan > 1 {
+                    for column in start..<(start + colspan) {
+                        occupiedUntilRow[column] = rowIndex + rowspan
+                    }
+                }
+                candidateColumn = start + colspan
+                columnCount = max(columnCount, candidateColumn)
+            }
+            placedRows.append(placements)
+        }
+
+        return MarkdownPreparedTableGridPlacement(
+            header: placedRows.first ?? [],
+            rows: Array(placedRows.dropFirst()),
+            columnCount: columnCount,
+            hasSpans: hasSpans
+        )
+    }
+
     private func preparedTable(
         _ table: MarkdownTableBlock,
         parentID: String,
@@ -2371,11 +2543,30 @@ public struct MarkdownRendererConfiguration: Sendable {
         reusing previousTable: MarkdownPreparedTableBlock?
     ) -> MarkdownPreparedTableBlock {
         var changedCells: [(column: Int, cell: MarkdownPreparedTableCell)] = []
+        let gridPlacement = Self.tableGridPlacement(
+            header: table.header,
+            rows: table.rows,
+            alignmentCount: table.columnAlignments.count,
+            hasSpans: table.hasSpans
+        )
         let headerID = Self.tableRowID(parentID: parentID, role: "header", cells: table.header)
         let canReuseStructuralPrefix = previousTable?.columnAlignments == table.columnAlignments
+        let headerPlacementMatches: Bool
+        if gridPlacement.hasSpans {
+            headerPlacementMatches = previousTable?.header.map {
+                MarkdownPreparedTableCellPlacement(
+                    columnIndex: $0.columnIndex,
+                    colspan: $0.colspan,
+                    rowspan: $0.rowspan
+                )
+            } == gridPlacement.header
+        } else {
+            headerPlacementMatches = previousTable?.hasSpans == false
+        }
         let reusesHeader = canReuseStructuralPrefix &&
             previousTable?.headerID == headerID &&
-            previousTable?.header.count == table.header.count
+            previousTable?.header.count == table.header.count &&
+            headerPlacementMatches
         var header: [MarkdownPreparedTableCell]
         if reusesHeader, let previousTable {
             header = previousTable.header
@@ -2383,6 +2574,7 @@ public struct MarkdownRendererConfiguration: Sendable {
         } else {
             header = preparedTableCells(
                 table.header,
+                placements: gridPlacement.header,
                 rowID: headerID,
                 previousCellsByID: [:],
                 changedCells: &changedCells
@@ -2427,6 +2619,9 @@ public struct MarkdownRendererConfiguration: Sendable {
                 id: rowID,
                 cells: preparedTableCells(
                     row,
+                    placements: gridPlacement.rows.indices.contains(rowIndex)
+                        ? gridPlacement.rows[rowIndex]
+                        : [],
                     rowID: rowID,
                     previousCellsByID: previousCellsByID,
                     changedCells: &changedCells
@@ -2434,12 +2629,9 @@ public struct MarkdownRendererConfiguration: Sendable {
             ))
         }
 
-        let columnCount = Self.tableColumnCount(
-            alignments: table.columnAlignments,
-            header: header,
-            rows: rows
-        )
+        let columnCount = gridPlacement.columnCount
         let canIncrementWidths = !isSealed &&
+            !gridPlacement.hasSpans &&
             previousTable?.columnNaturalWidths.count == columnCount
         var naturalWidths: [Double]
         if canIncrementWidths, let previousTable {
@@ -2485,49 +2677,74 @@ public struct MarkdownRendererConfiguration: Sendable {
         // preference can add a line after the shorter row height is already
         // cached and the text will paint into (or be covered by) the next row.
         let canReusePreparedHeights = previousTable?.hasPreparedLayoutHeights == true &&
-            !widthsChanged
+            !widthsChanged && !gridPlacement.hasSpans
         let headerPreparedLayoutHeight: Double
-        if canReusePreparedHeights,
-           reusesHeader,
-           let previousHeight = previousTable?.headerPreparedLayoutHeight
-        {
-            headerPreparedLayoutHeight = previousHeight
-        } else {
-            headerPreparedLayoutHeight = resolvePreparedTableRowLayout(
-                cells: &header,
+        if gridPlacement.hasSpans {
+            let rowHeights = resolveSpanAwarePreparedTableLayout(
+                header: &header,
+                rows: &rows,
                 columnWidths: columnWidths
             )
-        }
+            headerPreparedLayoutHeight = rowHeights.first ?? 38
+            for rowIndex in rows.indices {
+                rows[rowIndex].preparedLayoutHeight = rowHeights.indices.contains(rowIndex + 1)
+                    ? rowHeights[rowIndex + 1]
+                    : 38
+            }
+        } else {
+            if canReusePreparedHeights,
+               reusesHeader,
+               let previousHeight = previousTable?.headerPreparedLayoutHeight
+            {
+                headerPreparedLayoutHeight = previousHeight
+            } else {
+                headerPreparedLayoutHeight = resolvePreparedTableRowLayout(
+                    cells: &header,
+                    columnWidths: columnWidths
+                )
+            }
 
-        let heightResolutionStart = canReusePreparedHeights ? reusablePrefixCount : 0
-        if heightResolutionStart < rows.count {
-            for rowIndex in heightResolutionStart..<rows.count {
-                if canReusePreparedHeights,
-                   let previousRows = previousTable?.rows,
-                   previousRows.indices.contains(rowIndex),
-                   previousRows[rowIndex].id == rows[rowIndex].id,
-                   previousRows[rowIndex].contentFingerprint == rows[rowIndex].contentFingerprint,
-                   let previousHeight = previousRows[rowIndex].preparedLayoutHeight
-                {
-                    rows[rowIndex].preparedLayoutHeight = previousHeight
-                } else {
-                    rows[rowIndex].preparedLayoutHeight = resolvePreparedTableRowLayout(
-                        cells: &rows[rowIndex].cells,
-                        columnWidths: columnWidths
-                    )
+            let heightResolutionStart = canReusePreparedHeights ? reusablePrefixCount : 0
+            if heightResolutionStart < rows.count {
+                for rowIndex in heightResolutionStart..<rows.count {
+                    if canReusePreparedHeights,
+                       let previousRows = previousTable?.rows,
+                       previousRows.indices.contains(rowIndex),
+                       previousRows[rowIndex].id == rows[rowIndex].id,
+                       previousRows[rowIndex].contentFingerprint == rows[rowIndex].contentFingerprint,
+                       let previousHeight = previousRows[rowIndex].preparedLayoutHeight
+                    {
+                        rows[rowIndex].preparedLayoutHeight = previousHeight
+                    } else {
+                        rows[rowIndex].preparedLayoutHeight = resolvePreparedTableRowLayout(
+                            cells: &rows[rowIndex].cells,
+                            columnWidths: columnWidths
+                        )
+                    }
                 }
             }
         }
 
+        let separatorSegments = preparedTableSeparatorSegments(
+            header: header,
+            rows: rows,
+            columnWidths: columnWidths,
+            hasSpans: gridPlacement.hasSpans
+        )
+        for rowIndex in rows.indices {
+            rows[rowIndex].separatorSegments = separatorSegments[rowIndex + 1]
+        }
         var preparedTable = MarkdownPreparedTableBlock(
             columnAlignments: table.columnAlignments,
             header: header,
             rows: rows,
             headerID: headerID,
+            hasSpans: gridPlacement.hasSpans,
             columnNaturalWidths: naturalWidths,
             columnWidths: columnWidths,
             columnWidthRevision: widthRevision
         )
+        preparedTable.headerSeparatorSegments = separatorSegments.first ?? []
         preparedTable.headerPreparedLayoutHeight = headerPreparedLayoutHeight
         preparedTable.hasPreparedLayoutHeights = true
         return preparedTable
@@ -2542,76 +2759,225 @@ public struct MarkdownRendererConfiguration: Sendable {
         cells: inout [MarkdownPreparedTableCell],
         columnWidths: [Double]
     ) -> Double {
-        let horizontalPadding = Double(theme.renderTableHorizontalCellPadding)
-        let verticalPadding = Double(theme.renderTableVerticalCellPadding)
-        var tallestContent = 0.0
+        var requiredHeights: [Double] = []
+        requiredHeights.reserveCapacity(cells.count)
+        for cellIndex in cells.indices {
+            requiredHeights.append(resolvePreparedTableCellLayout(
+                cell: &cells[cellIndex],
+                columnWidths: columnWidths
+            ))
+        }
+        let rowHeight = max(38, requiredHeights.max() ?? 38)
+        for cellIndex in cells.indices {
+            cells[cellIndex].preparedHeight = rowHeight
+        }
+        return rowHeight
+    }
 
-        for column in columnWidths.indices {
-            guard cells.indices.contains(column),
-                  var inline = cells[column].inlineLayout ?? cells[column].selectionInlineLayout
-            else {
-                continue
-            }
-            let contentWidth = max(1, columnWidths[column] - horizontalPadding * 2)
-            let layoutWidth = InlineRunsView.nativeLineLayoutWidth(
-                for: inline,
-                containerWidth: contentWidth
-            )
-            let layout = inline.layout(
-                containerWidth: layoutWidth,
-                allowsOverwideFallback: true
-            )
-            inline.initialLayoutResult = layout
-            inline.defaultLayoutWidth = contentWidth
-            #if canImport(CoreText)
-            inline.coreTextLinePlan = layout.lines.isEmpty
-                ? nil
-                : MarkdownCoreTextPaintedLinePlan.make(prepared: inline, layout: layout)
-            #endif
-            if cells[column].inlineLayout != nil {
-                cells[column].inlineLayout = inline
-            } else {
-                cells[column].selectionInlineLayout = inline
-            }
+    private func resolveSpanAwarePreparedTableLayout(
+        header: inout [MarkdownPreparedTableCell],
+        rows: inout [MarkdownPreparedTableRow],
+        columnWidths: [Double]
+    ) -> [Double] {
+        var allRows = [header] + rows.map(\.cells)
+        var requiredHeights = allRows.map { Array(repeating: 38.0, count: $0.count) }
 
-            let lineCount = max(1, layout.lines.count)
-            let lineSpacing = Double(InlineRunsView.nativeLineSpacing(for: inline))
-            let contentHeight = Double(lineCount) * inline.lineHeight +
-                Double(max(0, lineCount - 1)) * lineSpacing
-            tallestContent = max(tallestContent, contentHeight)
+        for rowIndex in allRows.indices {
+            for cellIndex in allRows[rowIndex].indices {
+                requiredHeights[rowIndex][cellIndex] = resolvePreparedTableCellLayout(
+                    cell: &allRows[rowIndex][cellIndex],
+                    columnWidths: columnWidths
+                )
+            }
         }
 
-        return max(38, tallestContent + verticalPadding * 2)
+        var rowHeights = Array(repeating: 38.0, count: allRows.count)
+        for rowIndex in allRows.indices {
+            for cellIndex in allRows[rowIndex].indices where allRows[rowIndex][cellIndex].rowspan <= 1 {
+                rowHeights[rowIndex] = max(
+                    rowHeights[rowIndex],
+                    requiredHeights[rowIndex][cellIndex]
+                )
+            }
+        }
+
+        for rowIndex in allRows.indices {
+            for cellIndex in allRows[rowIndex].indices where allRows[rowIndex][cellIndex].rowspan > 1 {
+                let rowspan = min(Int(allRows[rowIndex][cellIndex].rowspan), allRows.count - rowIndex)
+                let range = rowIndex..<(rowIndex + max(1, rowspan))
+                let currentHeight = range.reduce(0.0) { $0 + rowHeights[$1] }
+                let deficit = max(0, requiredHeights[rowIndex][cellIndex] - currentHeight)
+                if deficit > 0 {
+                    let addition = deficit / Double(range.count)
+                    for spannedRow in range {
+                        rowHeights[spannedRow] += addition
+                    }
+                }
+            }
+        }
+
+        for rowIndex in allRows.indices {
+            for cellIndex in allRows[rowIndex].indices {
+                let rowspan = min(Int(allRows[rowIndex][cellIndex].rowspan), allRows.count - rowIndex)
+                allRows[rowIndex][cellIndex].preparedHeight =
+                    (rowIndex..<(rowIndex + max(1, rowspan))).reduce(0.0) {
+                        $0 + rowHeights[$1]
+                    }
+            }
+        }
+
+        header = allRows.first ?? []
+        for rowIndex in rows.indices {
+            rows[rowIndex].cells = allRows[rowIndex + 1]
+        }
+        return rowHeights
+    }
+
+    private func preparedTableSeparatorSegments(
+        header: [MarkdownPreparedTableCell],
+        rows: [MarkdownPreparedTableRow],
+        columnWidths: [Double],
+        hasSpans: Bool
+    ) -> [[MarkdownPreparedTableSeparatorSegment]] {
+        let allRows = [header] + rows.map(\.cells)
+        guard !allRows.isEmpty, !columnWidths.isEmpty else {
+            return Array(repeating: [], count: allRows.count)
+        }
+        guard hasSpans else {
+            let fullWidth = columnWidths.reduce(0, +)
+            let fullSegment = MarkdownPreparedTableSeparatorSegment(offset: 0, width: fullWidth)
+            return Array(repeating: [fullSegment], count: allRows.count)
+        }
+
+        var blockedColumnsByBoundary = Array(
+            repeating: Array(repeating: false, count: columnWidths.count),
+            count: allRows.count
+        )
+        for (rowIndex, cells) in allRows.enumerated() {
+            for cell in cells where cell.rowspan > 1 {
+                let finalRow = min(allRows.count, rowIndex + Int(cell.rowspan))
+                guard finalRow > rowIndex + 1 else { continue }
+                let firstColumn = min(max(0, cell.columnIndex), columnWidths.count)
+                let finalColumn = min(
+                    columnWidths.count,
+                    firstColumn + max(1, Int(cell.colspan))
+                )
+                guard finalColumn > firstColumn else { continue }
+                for boundary in rowIndex..<(finalRow - 1) {
+                    for column in firstColumn..<finalColumn {
+                        blockedColumnsByBoundary[boundary][column] = true
+                    }
+                }
+            }
+        }
+
+        let columnOffsets = columnWidths.reduce(into: [0.0]) { offsets, width in
+            offsets.append(offsets.last! + width)
+        }
+        return blockedColumnsByBoundary.map { blockedColumns in
+            var segments: [MarkdownPreparedTableSeparatorSegment] = []
+            var column = 0
+            while column < blockedColumns.count {
+                while column < blockedColumns.count, blockedColumns[column] {
+                    column += 1
+                }
+                let start = column
+                while column < blockedColumns.count, !blockedColumns[column] {
+                    column += 1
+                }
+                guard column > start else { continue }
+                segments.append(MarkdownPreparedTableSeparatorSegment(
+                    offset: columnOffsets[start],
+                    width: columnOffsets[column] - columnOffsets[start]
+                ))
+            }
+            return segments
+        }
+    }
+
+    private func resolvePreparedTableCellLayout(
+        cell: inout MarkdownPreparedTableCell,
+        columnWidths: [Double]
+    ) -> Double {
+        let horizontalPadding = Double(theme.renderTableHorizontalCellPadding)
+        let verticalPadding = Double(theme.renderTableVerticalCellPadding)
+        let lowerBound = min(max(0, cell.columnIndex), columnWidths.count)
+        let upperBound = min(columnWidths.count, lowerBound + max(1, Int(cell.colspan)))
+        let columnRange = lowerBound..<upperBound
+        cell.preparedColumnOffset = columnWidths[..<lowerBound].reduce(0, +)
+        cell.preparedWidth = columnRange.reduce(0) { $0 + columnWidths[$1] }
+
+        guard var inline = cell.inlineLayout ?? cell.selectionInlineLayout else {
+            return 38
+        }
+        let contentWidth = max(1, cell.preparedWidth - horizontalPadding * 2)
+        let layoutWidth = InlineRunsView.nativeLineLayoutWidth(
+            for: inline,
+            containerWidth: contentWidth
+        )
+        let layout = inline.layout(
+            containerWidth: layoutWidth,
+            allowsOverwideFallback: true
+        )
+        inline.initialLayoutResult = layout
+        inline.defaultLayoutWidth = contentWidth
+        #if canImport(CoreText)
+        inline.coreTextLinePlan = layout.lines.isEmpty
+            ? nil
+            : MarkdownCoreTextPaintedLinePlan.make(prepared: inline, layout: layout)
+        #endif
+        if cell.inlineLayout != nil {
+            cell.inlineLayout = inline
+        } else {
+            cell.selectionInlineLayout = inline
+        }
+
+        let lineCount = max(1, layout.lines.count)
+        let lineSpacing = Double(InlineRunsView.nativeLineSpacing(for: inline))
+        let contentHeight = Double(lineCount) * inline.lineHeight +
+            Double(max(0, lineCount - 1)) * lineSpacing
+        return max(38, contentHeight + verticalPadding * 2)
     }
 
     private func preparedTableCells(
         _ cells: [MarkdownTableCell],
+        placements: [MarkdownPreparedTableCellPlacement],
         rowID: String,
         previousCellsByID: [String: MarkdownPreparedTableCell],
         changedCells: inout [(column: Int, cell: MarkdownPreparedTableCell)]
     ) -> [MarkdownPreparedTableCell] {
         cells.enumerated().map { column, cell in
             diagnosticsRecorder.recordTableCellIncrementalComparison()
+            let placement = placements.indices.contains(column)
+                ? placements[column]
+                : MarkdownPreparedTableCellPlacement(columnIndex: column, colspan: 1, rowspan: 1)
             let id = Self.tableCellID(rowID: rowID, column: column, cell: cell)
             let contentHash = Self.tableCellContentHash(cell)
             if let previous = previousCellsByID[id],
                previous.sourceRange == cell.sourceRange,
                previous.contentHash == contentHash,
-               previous.colspan == cell.colspan,
-               previous.rowspan == cell.rowspan
+               previous.columnIndex == placement.columnIndex,
+               previous.colspan == placement.colspan,
+               previous.rowspan == placement.rowspan
             {
                 diagnosticsRecorder.recordTableCellReuse()
                 return previous
             }
 
-            let prepared = preparedTableCell(cell, id: id, contentHash: contentHash)
-            changedCells.append((column: column, cell: prepared))
+            let prepared = preparedTableCell(
+                cell,
+                placement: placement,
+                id: id,
+                contentHash: contentHash
+            )
+            changedCells.append((column: placement.columnIndex, cell: prepared))
             return prepared
         }
     }
 
     private func preparedTableCell(
         _ cell: MarkdownTableCell,
+        placement: MarkdownPreparedTableCellPlacement,
         id: String,
         contentHash: UInt64
     ) -> MarkdownPreparedTableCell {
@@ -2637,8 +3003,9 @@ public struct MarkdownRendererConfiguration: Sendable {
                 selectionInline?.measured.naturalWidth ??
                 Double(cell.text.count) *
                 Self.sanitizedPositive(theme.paragraphFontSize, fallback: 16) * 0.56,
-            colspan: cell.colspan,
-            rowspan: cell.rowspan
+            columnIndex: placement.columnIndex,
+            colspan: placement.colspan,
+            rowspan: placement.rowspan
         )
     }
 
@@ -2695,17 +3062,6 @@ public struct MarkdownRendererConfiguration: Sendable {
         return appendField("table-cell-text", value: cell.text, to: inlineHash)
     }
 
-    private nonisolated static func tableColumnCount(
-        alignments: [MarkdownTableColumnAlignment?],
-        header: [MarkdownPreparedTableCell],
-        rows: [MarkdownPreparedTableRow]
-    ) -> Int {
-        max(
-            max(alignments.count, header.count),
-            rows.map { $0.cells.count }.max() ?? 0
-        )
-    }
-
     private func tableNaturalWidths(
         columnCount: Int,
         header: [MarkdownPreparedTableCell],
@@ -2713,18 +3069,30 @@ public struct MarkdownRendererConfiguration: Sendable {
     ) -> [Double] {
         guard columnCount > 0 else { return [] }
         var widths = Array(repeating: 0.0, count: columnCount)
-        for cell in header.enumerated() where cell.offset < columnCount {
-            widths[cell.offset] = max(
-                widths[cell.offset],
-                Self.sanitizedTableNaturalWidth(cell.element.naturalWidth)
+        let cells = header + rows.flatMap(\.cells)
+
+        for cell in cells where cell.colspan <= 1 && cell.columnIndex < columnCount {
+            widths[cell.columnIndex] = max(
+                widths[cell.columnIndex],
+                Self.sanitizedTableNaturalWidth(cell.naturalWidth)
             )
         }
-        for row in rows {
-            for cell in row.cells.enumerated() where cell.offset < columnCount {
-                widths[cell.offset] = max(
-                    widths[cell.offset],
-                    Self.sanitizedTableNaturalWidth(cell.element.naturalWidth)
-                )
+
+        // Multi-column cells impose a minimum on the sum of their columns,
+        // not on the first column alone. Satisfy any remaining deficit evenly
+        // so authored spans stay bounded and deterministic.
+        for cell in cells where cell.colspan > 1 && cell.columnIndex < columnCount {
+            let upperBound = min(columnCount, cell.columnIndex + Int(cell.colspan))
+            guard upperBound > cell.columnIndex else { continue }
+            let range = cell.columnIndex..<upperBound
+            let current = range.reduce(0.0) { $0 + widths[$1] }
+            let required = Self.sanitizedTableNaturalWidth(cell.naturalWidth)
+            let deficit = max(0, required - current)
+            if deficit > 0 {
+                let addition = deficit / Double(range.count)
+                for column in range {
+                    widths[column] += addition
+                }
             }
         }
         return widths
@@ -2941,6 +3309,19 @@ private struct MarkdownPreparedMathDecision {
     var policyDecision: MarkdownPolicyDecision
 }
 
+private struct MarkdownPreparedTableCellPlacement: Equatable {
+    var columnIndex: Int
+    var colspan: UInt
+    var rowspan: UInt
+}
+
+private struct MarkdownPreparedTableGridPlacement {
+    var header: [MarkdownPreparedTableCellPlacement]
+    var rows: [[MarkdownPreparedTableCellPlacement]]
+    var columnCount: Int
+    var hasSpans: Bool
+}
+
 private struct MarkdownPreparedSnapshotReuse {
     private var contentsByBlockID: [MarkdownBlockID: [(block: MarkdownBlock, content: MarkdownPreparedBlockContent)]]
 
@@ -2990,7 +3371,9 @@ public struct MarkdownPreparedInlineContent: Sendable {
     /// Reserved-box attachment records for allowed images, keyed by the
     /// stable `MarkdownAttachmentID` prepare assigned to their display run
     /// (Inline Attachments Part 01). Empty on the denied text-atomic path.
-    public var attachments: [MarkdownAttachmentID: MarkdownPreparedAttachment]
+    public var attachments: [MarkdownAttachmentID: MarkdownPreparedAttachment] {
+        didSet { refreshCacheFingerprint() }
+    }
     public var fontSize: Double {
         didSet { refreshTypographyMetricsAndCacheFingerprint() }
     }
@@ -3093,6 +3476,39 @@ public struct MarkdownPreparedInlineContent: Sendable {
         fingerprint.combine(fontSize)
         fingerprint.combine(lineHeight)
         fingerprint.combine(fontProfiles.cacheKey)
+        fingerprint.combine(attachments.count)
+        for id in attachments.keys.sorted(by: { $0.rawValue < $1.rawValue }) {
+            guard let attachment = attachments[id] else { continue }
+            fingerprint.combine(id.rawValue)
+            fingerprint.combine(attachment.image.source)
+            fingerprint.combine(attachment.image.altText ?? "")
+            if let sourceRange = attachment.image.sourceRange {
+                fingerprint.combine(sourceRange.byteRange.lowerBound)
+                fingerprint.combine(sourceRange.byteRange.upperBound)
+            } else {
+                fingerprint.combine(-1)
+            }
+            switch attachment.image.preparedSource {
+            case let .placeholder(reason):
+                fingerprint.combine("placeholder")
+                fingerprint.combine(reason)
+            case let .localFile(path):
+                fingerprint.combine("local-file")
+                fingerprint.combine(path)
+            case let .data(data, mimeType):
+                fingerprint.combine("data")
+                fingerprint.combine(mimeType)
+                fingerprint.combine(data)
+            case let .remote(url):
+                fingerprint.combine("remote")
+                fingerprint.combine(url.absoluteString)
+            }
+            fingerprint.combine(attachment.pointWidth)
+            fingerprint.combine(attachment.pointHeight)
+            fingerprint.combine(attachment.ascent)
+            fingerprint.combine(attachment.descent)
+            fingerprint.combine(attachment.isDecorative)
+        }
         cacheFingerprint = fingerprint
     }
 
@@ -3847,25 +4263,40 @@ public struct MarkdownPreparedTableCell: Identifiable, Sendable {
     public var contentHash: UInt64
     /// Stable, constant-size identity consumed by table row layout caching.
     public var contentFingerprint: MarkdownContentFingerprint
+    /// Presentation identity, including attachment payloads that can change
+    /// without changing the cell's measured geometry.
+    public var presentationFingerprint: MarkdownContentFingerprint
     public var inline: AttributedString?
     public var inlineLayout: MarkdownPreparedInlineContent?
     public var selectionInlineLayout: MarkdownPreparedInlineContent?
     /// Natural prepared inline width captured outside SwiftUI body evaluation.
     public var naturalWidth: Double
+    /// Logical zero-based column occupied by this cell after applying earlier
+    /// row spans. This is prepared outside SwiftUI body evaluation.
+    public var columnIndex: Int
     public var colspan: UInt
     public var rowspan: UInt
+    /// Final prepared geometry consumed directly by rendering and selection.
+    public var preparedColumnOffset: Double
+    public var preparedWidth: Double
+    public var preparedHeight: Double
 
     public init(
         id: String,
         sourceRange: MarkdownSourceRange,
         contentHash: UInt64 = 0,
         contentFingerprint: MarkdownContentFingerprint? = nil,
+        presentationFingerprint: MarkdownContentFingerprint? = nil,
         inline: AttributedString? = nil,
         inlineLayout: MarkdownPreparedInlineContent? = nil,
         selectionInlineLayout: MarkdownPreparedInlineContent? = nil,
         naturalWidth: Double = 0,
+        columnIndex: Int = 0,
         colspan: UInt = 1,
-        rowspan: UInt = 1
+        rowspan: UInt = 1,
+        preparedColumnOffset: Double = 0,
+        preparedWidth: Double = 0,
+        preparedHeight: Double = 0
     ) {
         self.id = id
         self.sourceRange = sourceRange
@@ -3874,8 +4305,12 @@ public struct MarkdownPreparedTableCell: Identifiable, Sendable {
         self.inlineLayout = inlineLayout
         self.selectionInlineLayout = selectionInlineLayout
         self.naturalWidth = naturalWidth
+        self.columnIndex = max(0, columnIndex)
         self.colspan = colspan
         self.rowspan = rowspan
+        self.preparedColumnOffset = preparedColumnOffset
+        self.preparedWidth = preparedWidth
+        self.preparedHeight = preparedHeight
         if let contentFingerprint {
             self.contentFingerprint = contentFingerprint
         } else {
@@ -3885,22 +4320,39 @@ public struct MarkdownPreparedTableCell: Identifiable, Sendable {
             fingerprint.combine(sourceRange.byteRange.upperBound)
             fingerprint.combine(contentHash)
             fingerprint.combine(naturalWidth)
+            fingerprint.combine(self.columnIndex)
             fingerprint.combine(UInt(colspan))
             fingerprint.combine(UInt(rowspan))
+            self.contentFingerprint = fingerprint
+        }
+        if let presentationFingerprint {
+            self.presentationFingerprint = presentationFingerprint
+        } else {
+            var fingerprint = MarkdownContentFingerprint(domain: "markdown-prepared-table-cell-presentation")
+            fingerprint.combine(self.contentFingerprint)
             if let inlineLayout {
                 fingerprint.combine(inlineLayout.cacheFingerprint)
             } else if let selectionInlineLayout {
                 fingerprint.combine(selectionInlineLayout.cacheFingerprint)
             }
-            self.contentFingerprint = fingerprint
+            self.presentationFingerprint = fingerprint
         }
     }
+}
+
+struct MarkdownPreparedTableSeparatorSegment: Sendable, Equatable {
+    var offset: Double
+    var width: Double
 }
 
 public struct MarkdownPreparedTableRow: Identifiable, Sendable {
     public var id: String
     public var cells: [MarkdownPreparedTableCell]
     public var contentFingerprint: MarkdownContentFingerprint
+    public var presentationFingerprint: MarkdownContentFingerprint
+    /// Prepared horizontal border pieces after excluding columns covered by
+    /// a cell that continues into the next logical row.
+    var separatorSegments: [MarkdownPreparedTableSeparatorSegment]?
     /// Width-resolved minimum row height produced during render preparation.
     /// `nil` is reserved for deliberately unprepared fallback content, whose
     /// SwiftUI subtree must be measured without cross-publication reuse.
@@ -3909,10 +4361,12 @@ public struct MarkdownPreparedTableRow: Identifiable, Sendable {
     public init(
         id: String,
         cells: [MarkdownPreparedTableCell],
-        contentFingerprint: MarkdownContentFingerprint? = nil
+        contentFingerprint: MarkdownContentFingerprint? = nil,
+        presentationFingerprint: MarkdownContentFingerprint? = nil
     ) {
         self.id = id
         self.cells = cells
+        self.separatorSegments = nil
         self.preparedLayoutHeight = nil
         if let contentFingerprint {
             self.contentFingerprint = contentFingerprint
@@ -3925,6 +4379,17 @@ public struct MarkdownPreparedTableRow: Identifiable, Sendable {
             }
             self.contentFingerprint = fingerprint
         }
+        if let presentationFingerprint {
+            self.presentationFingerprint = presentationFingerprint
+        } else {
+            var fingerprint = MarkdownContentFingerprint(domain: "markdown-prepared-table-row-presentation")
+            fingerprint.combine(id)
+            fingerprint.combine(cells.count)
+            for cell in cells {
+                fingerprint.combine(cell.presentationFingerprint)
+            }
+            self.presentationFingerprint = fingerprint
+        }
     }
 }
 
@@ -3932,8 +4397,12 @@ public struct MarkdownPreparedTableBlock: Sendable {
     public var columnAlignments: [MarkdownTableColumnAlignment?]
     public var header: [MarkdownPreparedTableCell]
     public var rows: [MarkdownPreparedTableRow]
+    public private(set) var hasSpans: Bool
     public var headerID: String
     public var headerContentFingerprint: MarkdownContentFingerprint
+    public var headerPresentationFingerprint: MarkdownContentFingerprint
+    /// Prepared header-border pieces after applying header row spans.
+    var headerSeparatorSegments: [MarkdownPreparedTableSeparatorSegment]?
     /// Width-resolved minimum header height produced during preparation.
     var headerPreparedLayoutHeight: Double?
     /// True only when every row height was resolved from prepared inline data.
@@ -3956,6 +4425,8 @@ public struct MarkdownPreparedTableBlock: Sendable {
         rows: [MarkdownPreparedTableRow],
         headerID: String = "table-header",
         headerContentFingerprint: MarkdownContentFingerprint? = nil,
+        headerPresentationFingerprint: MarkdownContentFingerprint? = nil,
+        hasSpans: Bool? = nil,
         columnNaturalWidths: [Double] = [],
         columnWidths: [Double] = [],
         columnWidthFingerprint: MarkdownContentFingerprint? = nil,
@@ -3964,6 +4435,9 @@ public struct MarkdownPreparedTableBlock: Sendable {
         self.columnAlignments = columnAlignments
         self.header = header
         self.rows = rows
+        self.hasSpans = hasSpans ?? (header + rows.flatMap(\.cells)).contains {
+            $0.colspan > 1 || $0.rowspan > 1
+        }
         self.headerID = headerID
         self.headerPreparedLayoutHeight = nil
         self.hasPreparedLayoutHeights = false
@@ -3978,10 +4452,21 @@ public struct MarkdownPreparedTableBlock: Sendable {
             }
             self.headerContentFingerprint = fingerprint
         }
-        let inferredColumnCount = max(
-            max(columnAlignments.count, header.count),
-            rows.map { $0.cells.count }.max() ?? 0
-        )
+        if let headerPresentationFingerprint {
+            self.headerPresentationFingerprint = headerPresentationFingerprint
+        } else {
+            var fingerprint = MarkdownContentFingerprint(domain: "markdown-prepared-table-header-presentation")
+            fingerprint.combine(headerID)
+            fingerprint.combine(header.count)
+            for cell in header {
+                fingerprint.combine(cell.presentationFingerprint)
+            }
+            self.headerPresentationFingerprint = fingerprint
+        }
+        let positionedColumnCount = (header + rows.flatMap(\.cells)).map {
+            $0.columnIndex + max(1, Int($0.colspan))
+        }.max() ?? 0
+        let inferredColumnCount = max(columnAlignments.count, positionedColumnCount)
         self.columnNaturalWidths = columnNaturalWidths.isEmpty && inferredColumnCount > 0
             ? Array(repeating: 0, count: inferredColumnCount)
             : columnNaturalWidths

@@ -466,6 +466,17 @@ struct MarkdownLinkMetadataResolverTests {
     }
 
     @Test
+    func endpointValidationAggregatesEveryTaskInARedirectChain() async {
+        let delegate = MarkdownNoRedirectURLSessionDelegate()
+        delegate.recordContactedAddresses(["93.184.216.34"])
+        delegate.recordContactedAddresses(["127.0.0.1"])
+
+        #expect(
+            await delegate.contactedOnlyPublicAddresses(afterCollecting: 2) == false
+        )
+    }
+
+    @Test
     func addressClassificationRejectsEveryPrivateAndSpecialWebDestination() {
         let denied = [
             "0.0.0.1", "10.0.0.1", "100.64.0.1", "127.0.0.1", "169.254.1.1",

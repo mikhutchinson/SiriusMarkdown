@@ -216,8 +216,16 @@ public struct MarkdownTableCell: Sendable, Hashable {
 
 public struct MarkdownTableBlock: Sendable, Hashable {
     public var columnAlignments: [MarkdownTableColumnAlignment?]
-    public var header: [MarkdownTableCell]
-    public var rows: [[MarkdownTableCell]]
+    public var header: [MarkdownTableCell] {
+        didSet { refreshSpanSummary() }
+    }
+    public var rows: [[MarkdownTableCell]] {
+        didSet { refreshSpanSummary() }
+    }
+    /// True when any semantic cell spans more than one logical row or column.
+    /// Parsers compute this once so ordinary streaming GFM tables can retain
+    /// their allocation-free preparation fast path.
+    public private(set) var hasSpans: Bool
 
     public init(
         columnAlignments: [MarkdownTableColumnAlignment?],
@@ -227,6 +235,21 @@ public struct MarkdownTableBlock: Sendable, Hashable {
         self.columnAlignments = columnAlignments
         self.header = header
         self.rows = rows
+        self.hasSpans = Self.containsSpans(header: header, rows: rows)
+    }
+
+    private static func containsSpans(
+        header: [MarkdownTableCell],
+        rows: [[MarkdownTableCell]]
+    ) -> Bool {
+        header.contains { $0.colspan > 1 || $0.rowspan > 1 } ||
+            rows.contains { row in
+                row.contains { $0.colspan > 1 || $0.rowspan > 1 }
+            }
+    }
+
+    private mutating func refreshSpanSummary() {
+        hasSpans = Self.containsSpans(header: header, rows: rows)
     }
 }
 

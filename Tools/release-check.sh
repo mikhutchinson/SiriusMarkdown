@@ -30,13 +30,14 @@ TEST_LIST_FILE="$(mktemp)"
 trap 'rm -f "$TEST_LIST_FILE"; rm -rf "${CONSUMER_DIR:-}"' EXIT
 swift test list > "$TEST_LIST_FILE"
 TEST_COUNT="$(grep -Ec '^[A-Za-z0-9_]+Tests\.' "$TEST_LIST_FILE")"
-MINIMUM_TEST_COUNT=954
+MINIMUM_TEST_COUNT=964
 if (( TEST_COUNT < MINIMUM_TEST_COUNT )); then
   echo "error: swift test list discovered $TEST_COUNT tests; expected at least $MINIMUM_TEST_COUNT" >&2
   exit 1
 fi
 for required_test in \
   "SiriusMarkdownCoreTests.MarkdownLinkMetadataResolverTests/retainsOnlyNavigationIssuedCookiesAcrossManualRedirects()" \
+  "SiriusMarkdownCoreTests.MarkdownLinkMetadataResolverTests/endpointValidationAggregatesEveryTaskInARedirectChain()" \
   "SiriusMarkdownCoreTests.MarkdownLinkMetadataResolverTests/rejectsEffectivelyInvisibleIconInsteadOfReplacingFallbackGlyph()" \
   "SiriusMarkdownSwiftUITests.MarkdownStreamingTableTests/partialCellTextIsVisibleBeforeItsRowTerminator()" \
   "SiriusMarkdownSwiftUITests.MarkdownStreamingTableTests/completedRowsAndCellsKeepIdentityWhileTailCellGrows()" \
@@ -58,6 +59,15 @@ for required_test in \
   "SiriusMarkdownSwiftUITests.mountedFixedWidthTableRefreshesAllLinkTextWhenFaviconArrives()" \
   "SiriusMarkdownSwiftUITests.automaticSystemLinkFallbackMountsInSelectionModesAndColorSchemes()" \
   "SiriusMarkdownSwiftUITests.coreTextPlanCacheRejectsDifferentPreparedContentWithEqualGeometry()" \
+  "SiriusMarkdownSwiftUITests.automaticFallbackAndFaviconHaveDistinctPresentationFingerprintsAtEqualGeometry()" \
+  "SiriusMarkdownSwiftUITests.customDestinationScopedResolverVisitsEveryURLOnTheSameOrigin()" \
+  "SiriusMarkdownSwiftUITests.renderSessionRetriesMetadataAfterResolverCacheIsCleared()" \
+  "SiriusMarkdownSwiftUITests.metadataRefreshDiffInvalidatesOnlyBlocksContainingChangedLinks()" \
+  "SiriusMarkdownSwiftUITests.multilineSemanticLinkReceivesOneDecoration()" \
+  "SiriusMarkdownSwiftUITests.authorizedHTMLColspanUsesTheCombinedPreparedColumnWidth()" \
+  "SiriusMarkdownSwiftUITests.authorizedHTMLRowspanReservesCoveredColumnsAndCombinedHeight()" \
+  "SiriusMarkdownSwiftUITests.authorizedHTMLSpanSelectionUsesLogicalCellColumns()" \
+  "SiriusMarkdownSwiftUITests.malformedHTMLTableSpansRemainBounded()" \
   "SiriusMarkdownSwiftUITests.preparedNativeHTMLScriptsReachAppKitWithScaledFontsAndBaselineOffsets()" \
   "SiriusMarkdownSwiftUITests.defaultTableCellDividerStretchesToTallestCell()" \
   "SiriusMarkdownSwiftUITests.defaultTableRowContainsPreparedTextAfterNarrowCellRelayout()" \
@@ -444,5 +454,5 @@ xcrun docc convert Docs/SiriusMarkdown.docc \
   --additional-symbol-graph-dir "$SYMBOL_GRAPH_DIR" \
   --fallback-display-name SiriusMarkdown \
   --fallback-bundle-identifier com.sirius.markdown \
-  --fallback-bundle-version 0.6.25 \
+  --fallback-bundle-version 0.6.26 \
   --output-path /tmp/SiriusMarkdown.doccarchive

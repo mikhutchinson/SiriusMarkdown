@@ -385,6 +385,7 @@ public final class DefaultMarkdownLinkMetadataResolver:
         let redirectDelegate = MarkdownNoRedirectURLSessionDelegate()
         let session = URLSession(configuration: configuration, delegate: redirectDelegate, delegateQueue: nil)
         defer { session.finishTasksAndInvalidate() }
+        var startedRequestCount = 0
 
         for redirectCount in 0...limits.maximumRedirects {
             try Task.checkCancellation()
@@ -435,6 +436,7 @@ public final class DefaultMarkdownLinkMetadataResolver:
                 }
             }
 
+            startedRequestCount += 1
             let (bytes, response) = try await session.bytes(for: request)
             guard let http = response as? HTTPURLResponse else {
                 throw MarkdownLinkMetadataError.invalidResponse
@@ -505,7 +507,9 @@ public final class DefaultMarkdownLinkMetadataResolver:
             // test/host interception surfaces and do not expose a real socket.
             let contactedOnlyPublicAddresses = usesCustomProtocol
                 ? true
-                : await redirectDelegate.contactedOnlyPublicAddresses()
+                : await redirectDelegate.contactedOnlyPublicAddresses(
+                    afterCollecting: startedRequestCount
+                )
             guard contactedOnlyPublicAddresses else {
                 throw MarkdownLinkMetadataError.disallowedDestination
             }
@@ -887,10 +891,16 @@ private actor MarkdownLinkMetadataRequestLimiter {
     }
 }
 
-private final class MarkdownNoRedirectURLSessionDelegate: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+final class MarkdownNoRedirectURLSessionDelegate: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+    private struct EndpointContinuation {
+        var requiredTaskCount: Int
+        var continuation: CheckedContinuation<Bool, Never>
+    }
+
     private let lock = NSLock()
-    private var publicEndpointResult: Bool?
-    private var endpointContinuations: [CheckedContinuation<Bool, Never>] = []
+    private var collectedTaskCount = 0
+    private var contactedOnlyPublicEndpoints = true
+    private var endpointContinuations: [EndpointContinuation] = []
 
     func urlSession(
         _ session: URLSession,
@@ -907,25 +917,37 @@ private final class MarkdownNoRedirectURLSessionDelegate: NSObject, URLSessionTa
         task: URLSessionTask,
         didFinishCollecting metrics: URLSessionTaskMetrics
     ) {
-        let addresses = metrics.transactionMetrics.compactMap(\.remoteAddress)
-        let result = !addresses.isEmpty && addresses.allSatisfy(
-            DefaultMarkdownLinkMetadataResolver.isPublicAddress
-        )
-        let continuations = lock.withLock { () -> [CheckedContinuation<Bool, Never>] in
-            guard publicEndpointResult == nil else { return [] }
-            publicEndpointResult = result
-            let continuations = endpointContinuations
-            endpointContinuations.removeAll()
-            return continuations
-        }
-        continuations.forEach { $0.resume(returning: result) }
+        recordContactedAddresses(metrics.transactionMetrics.compactMap(\.remoteAddress))
     }
 
-    func contactedOnlyPublicAddresses() async -> Bool {
+    func recordContactedAddresses(_ addresses: [String]) {
+        let taskResult = !addresses.isEmpty && addresses.allSatisfy(
+            DefaultMarkdownLinkMetadataResolver.isPublicAddress
+        )
+        let ready = lock.withLock { () -> (Bool, [EndpointContinuation]) in
+            collectedTaskCount += 1
+            contactedOnlyPublicEndpoints = contactedOnlyPublicEndpoints && taskResult
+            let ready = endpointContinuations.filter {
+                $0.requiredTaskCount <= collectedTaskCount
+            }
+            endpointContinuations.removeAll {
+                $0.requiredTaskCount <= collectedTaskCount
+            }
+            return (contactedOnlyPublicEndpoints, ready)
+        }
+        ready.1.forEach { $0.continuation.resume(returning: ready.0) }
+    }
+
+    func contactedOnlyPublicAddresses(afterCollecting requiredTaskCount: Int) async -> Bool {
         await withCheckedContinuation { continuation in
             let result = lock.withLock { () -> Bool? in
-                if let publicEndpointResult { return publicEndpointResult }
-                endpointContinuations.append(continuation)
+                if collectedTaskCount >= requiredTaskCount {
+                    return contactedOnlyPublicEndpoints
+                }
+                endpointContinuations.append(EndpointContinuation(
+                    requiredTaskCount: requiredTaskCount,
+                    continuation: continuation
+                ))
                 return nil
             }
             if let result {

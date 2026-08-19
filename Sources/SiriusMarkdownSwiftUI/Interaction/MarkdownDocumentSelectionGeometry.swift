@@ -534,48 +534,57 @@ struct MarkdownDocumentSelectionFragment: Identifiable, Equatable {
         table: MarkdownPreparedTableBlock,
         rect: CGRect
     ) -> [MarkdownDocumentSelectionFragment] {
-        let columnCount = max(
-            table.columnAlignments.count,
-            table.header.count,
-            table.rows.map(\.cells.count).max() ?? 0
-        )
-        guard columnCount > 0 else { return [] }
-        let rowCount = 1 + table.rows.count
-        let cellWidth = rect.width / CGFloat(columnCount)
-        let cellHeight = rect.height / CGFloat(rowCount)
-
+        guard !table.columnWidths.isEmpty else { return [] }
+        let totalPreparedWidth = max(1, table.columnWidths.reduce(0, +))
+        let rowHeights = [table.headerPreparedLayoutHeight ?? 38] +
+            table.rows.map { $0.preparedLayoutHeight ?? 38 }
+        let totalPreparedHeight = max(1, rowHeights.reduce(0, +))
+        let xScale = Double(rect.width) / totalPreparedWidth
+        let yScale = Double(rect.height) / totalPreparedHeight
         var fragments: [MarkdownDocumentSelectionFragment] = []
 
-        for (column, cell) in table.header.enumerated() {
-            let cellRect = CGRect(
-                x: rect.minX + CGFloat(column) * cellWidth,
-                y: rect.minY,
-                width: cellWidth,
-                height: cellHeight
-            )
-            fragments.append(contentsOf: tableCellFragment(
-                block: block,
-                cell: cell,
-                rect: cellRect,
-                index: column
-            ))
-        }
-
-        for (rowIndex, row) in table.rows.enumerated() {
-            for (column, cell) in row.cells.enumerated() {
+        func appendCells(
+            _ cells: [MarkdownPreparedTableCell],
+            rowIndex: Int,
+            rowOrigin: Double
+        ) {
+            for (cellIndex, cell) in cells.enumerated() {
+                let column = min(max(0, cell.columnIndex), table.columnWidths.count)
+                let upperColumn = min(
+                    table.columnWidths.count,
+                    column + max(1, Int(cell.colspan))
+                )
+                let fallbackOffset = table.columnWidths[..<column].reduce(0, +)
+                let fallbackWidth = table.columnWidths[column..<upperColumn].reduce(0, +)
+                let preparedOffset = cell.preparedColumnOffset > 0
+                    ? cell.preparedColumnOffset
+                    : fallbackOffset
+                let preparedWidth = cell.preparedWidth > 0
+                    ? cell.preparedWidth
+                    : fallbackWidth
+                let preparedHeight = cell.preparedHeight > 0
+                    ? cell.preparedHeight
+                    : rowHeights[rowIndex]
                 let cellRect = CGRect(
-                    x: rect.minX + CGFloat(column) * cellWidth,
-                    y: rect.minY + CGFloat(rowIndex + 1) * cellHeight,
-                    width: cellWidth,
-                    height: cellHeight
+                    x: rect.minX + CGFloat(preparedOffset * xScale),
+                    y: rect.minY + CGFloat(rowOrigin * yScale),
+                    width: CGFloat(preparedWidth * xScale),
+                    height: CGFloat(preparedHeight * yScale)
                 )
                 fragments.append(contentsOf: tableCellFragment(
                     block: block,
                     cell: cell,
                     rect: cellRect,
-                    index: table.header.count + rowIndex * columnCount + column
+                    index: rowIndex * table.columnWidths.count + cellIndex
                 ))
             }
+        }
+
+        appendCells(table.header, rowIndex: 0, rowOrigin: 0)
+        var rowOrigin = rowHeights[0]
+        for (rowIndex, row) in table.rows.enumerated() {
+            appendCells(row.cells, rowIndex: rowIndex + 1, rowOrigin: rowOrigin)
+            rowOrigin += rowHeights[rowIndex + 1]
         }
 
         return fragments

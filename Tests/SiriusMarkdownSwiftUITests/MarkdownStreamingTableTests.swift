@@ -9,6 +9,7 @@ struct MarkdownStreamingTableTests {
     func stableRowRenderTokenTracksPresentationInputsWithoutClosureIdentity() {
         let content = MarkdownContentFingerprint(domain: "row-content")
         let widths = MarkdownContentFingerprint(domain: "row-widths")
+        let presentation = MarkdownContentFingerprint(domain: "row-presentation")
         let layout = MarkdownStreamingTableRowLayoutToken(
             id: "row-1",
             contentFingerprint: content,
@@ -23,16 +24,19 @@ struct MarkdownStreamingTableTests {
         let copiedAction = action
         let token = MarkdownStreamingTableRowRenderToken(
             layoutToken: layout,
+            presentationFingerprint: presentation,
             columnAlignments: [.left, .right],
             linkActionIdentity: action.renderIdentity
         )
         let copiedToken = MarkdownStreamingTableRowRenderToken(
             layoutToken: layout,
+            presentationFingerprint: presentation,
             columnAlignments: [.left, .right],
             linkActionIdentity: copiedAction.renderIdentity
         )
         let replacementToken = MarkdownStreamingTableRowRenderToken(
             layoutToken: layout,
+            presentationFingerprint: presentation,
             columnAlignments: [.left, .right],
             linkActionIdentity: MarkdownLinkAction { _ in }.renderIdentity
         )
@@ -41,7 +45,14 @@ struct MarkdownStreamingTableTests {
         #expect(token != replacementToken)
         #expect(token != MarkdownStreamingTableRowRenderToken(
             layoutToken: layout,
+            presentationFingerprint: presentation,
             columnAlignments: [.center, .right],
+            linkActionIdentity: action.renderIdentity
+        ))
+        #expect(token != MarkdownStreamingTableRowRenderToken(
+            layoutToken: layout,
+            presentationFingerprint: MarkdownContentFingerprint(domain: "replacement-presentation"),
+            columnAlignments: [.left, .right],
             linkActionIdentity: action.renderIdentity
         ))
     }

@@ -207,6 +207,35 @@ func coreTextPlanCacheRejectsDifferentPreparedContentWithEqualGeometry() throws 
 }
 
 @Test
+func automaticFallbackAndFaviconHaveDistinctPresentationFingerprintsAtEqualGeometry() throws {
+    let destination = URL(string: "https://example.com/")!
+    let icon = MarkdownLinkIcon(
+        sourceURL: URL(string: "https://example.com/favicon.png")!,
+        data: onePixelLinkDecorationPNG,
+        mimeType: "image/png",
+        pixelWidth: 1,
+        pixelHeight: 1
+    )
+    let block = try firstLinkDecorationBlock("[Example](https://example.com/)")
+    let fallback = try #require(
+        MarkdownRendererConfiguration(linkMetadataResolver: nil)
+            .prepare(block: block).inlineLayout
+    )
+    let resolved = try #require(
+        MarkdownRendererConfiguration(linkMetadataResolver: CachedLinkMetadataResolver(
+            resolution: .metadata(MarkdownLinkMetadata(
+                destination: destination,
+                decoration: .favicon(icon)
+            ))
+        )).prepare(block: block).inlineLayout
+    )
+
+    #expect(fallback.measured.naturalWidth == resolved.measured.naturalWidth)
+    #expect(fallback.initialLayoutResult == resolved.initialLayoutResult)
+    #expect(fallback.cacheFingerprint != resolved.cacheFingerprint)
+}
+
+@Test
 func linkDecorationKeepsTheFirstLabelTokenOnItsLine() throws {
     let destination = URL(string: "https://example.com/")!
     let icon = MarkdownLinkIcon(
@@ -339,6 +368,92 @@ func renderSessionDoesNotResolveRemoteMetadataForNonHTTPSFallbackLinks() async t
     #expect(resolver.resolveCount == 0)
 }
 
+@Test
+@MainActor
+func customDestinationScopedResolverVisitsEveryURLOnTheSameOrigin() async {
+    let first = URL(string: "https://example.com/first")!
+    let second = URL(string: "https://example.com/second")!
+    let resolver = DestinationScopedLinkMetadataResolver()
+    let session = MarkdownRenderSession(configuration: MarkdownRendererConfiguration(
+        linkMetadataResolver: resolver
+    ))
+
+    session.append("[First](\(first.absoluteString)) [Second](\(second.absoluteString))")
+    session.finish()
+    await session.waitUntilLinkMetadataIdle()
+
+    #expect(resolver.resolvedDestinations == Set([first, second]))
+}
+
+@Test
+@MainActor
+func renderSessionRetriesMetadataAfterResolverCacheIsCleared() async {
+    let destination = URL(string: "https://retry.example/first")!
+    let resolver = RetryableLinkMetadataResolver()
+    let session = MarkdownRenderSession(configuration: MarkdownRendererConfiguration(
+        linkMetadataResolver: resolver
+    ))
+
+    session.append("[First](\(destination.absoluteString))")
+    await session.waitUntilLinkMetadataIdle()
+    #expect(resolver.resolveCount == 1)
+
+    resolver.clearNegativeCacheAndAllowSuccess()
+    session.append(" trailing text")
+    session.finish()
+    await session.waitUntilLinkMetadataIdle()
+
+    #expect(resolver.resolveCount == 2)
+}
+
+@Test
+@MainActor
+func metadataRefreshDiffInvalidatesOnlyBlocksContainingChangedLinks() async throws {
+    let resolver = SlowLinkMetadataResolver(
+        delay: .milliseconds(350),
+        resolution: .metadata(MarkdownLinkMetadata(
+            destination: URL(string: "https://diff.example/page")!,
+            decoration: .glyph("!")
+        ))
+    )
+    let session = MarkdownRenderSession(configuration: MarkdownRendererConfiguration(
+        linkMetadataResolver: resolver,
+        linkDecoration: MarkdownLinkDecorationConfiguration(fallbackGlyph: "~")
+    ))
+
+    session.append("[Linked](https://diff.example/page)\n\nPlain unaffected paragraph.\n")
+    session.finish()
+    await session.waitUntilIdle()
+    let linkedBlock = try #require(session.snapshot.blocks.first { $0.inlines.contains { $0.destination != nil } })
+    let plainBlock = try #require(session.snapshot.blocks.first { $0.text.contains("unaffected") })
+
+    await session.waitUntilLinkMetadataIdle()
+
+    let linkedID = "block:\(linkedBlock.id.rawValue)"
+    let plainID = "block:\(plainBlock.id.rawValue)"
+    #expect(session.snapshotDiff.changedItemIDs == [linkedID])
+    #expect(!session.snapshotDiff.contains(plainID))
+    #expect(session.snapshotDiff.newItemIDs.isEmpty)
+}
+
+@Test
+func multilineSemanticLinkReceivesOneDecoration() throws {
+    let block = try firstLinkDecorationBlock(
+        "[first line\nsecond line](https://example.com/page)"
+    )
+    let configuration = MarkdownRendererConfiguration(
+        linkMetadataResolver: nil,
+        linkDecoration: MarkdownLinkDecorationConfiguration(fallbackGlyph: "~")
+    )
+    let prepared = try #require(configuration.prepare(block: block).inlineLayout)
+
+    #expect(
+        prepared.prepared.runs.filter {
+            $0.presentation.contains(.linkDecoration)
+        }.count == 1
+    )
+}
+
 #if canImport(AppKit)
 @Test
 @MainActor
@@ -362,11 +477,7 @@ func mountedFixedWidthTableRefreshesAllLinkTextWhenFaviconArrives() async throws
         inlineRenderingMode: .coreTextPaintedLines,
         nativeTextSelection: .disabled,
         documentSelection: .disabled,
-        linkMetadataResolver: resolver,
-        linkDecoration: MarkdownLinkDecorationConfiguration(
-            fallbackGlyph: "🌐",
-            iconPointSize: 14
-        )
+        linkMetadataResolver: resolver
     )
     let session = MarkdownRenderSession(configuration: configuration)
     session.append(mountedLinkDecorationTableMarkdown)
@@ -384,12 +495,13 @@ func mountedFixedWidthTableRefreshesAllLinkTextWhenFaviconArrives() async throws
     }
     pumpMountedLinkDecorationLayout(hostingView, iterations: 5)
 
-    let fallbackSurface = try #require(
-        mountedLinkDecorationPaintedViews(in: hostingView).first {
-            $0.plan.accessibilityLabel.contains("Offer definitive duct-decompressing surgery")
-        }
-    )
-    #expect(fallbackSurface.plan.lines.map(\.text).joined().contains("🌐"))
+    let fallbackHost = try #require(mountedLinkDecorationAttachmentHosts(in: hostingView).first)
+    let fallbackFrameSize = fallbackHost.frame.size
+    if case let .systemSymbol(name) = MarkdownAttachmentHostDisplay(record: fallbackHost.record) {
+        #expect(name == "globe")
+    } else {
+        Issue.record("Expected the mounted table to start with the automatic globe symbol.")
+    }
 
     await session.waitUntilLinkMetadataIdle()
     pumpMountedLinkDecorationLayout(hostingView, iterations: 10)
@@ -400,12 +512,19 @@ func mountedFixedWidthTableRefreshesAllLinkTextWhenFaviconArrives() async throws
         }
     )
     let renderedText = resolvedSurface.plan.lines.map(\.text).joined(separator: " ")
+    let resolvedHost = try #require(mountedLinkDecorationAttachmentHosts(in: hostingView).first)
 
     #expect(renderedText.contains("Consensus"))
     #expect(renderedText.contains("guidance"))
     #expect(resolvedSurface.plan.lines.allSatisfy { $0.text != " " })
     #expect(resolvedSurface.plan.attachmentGaps.count == 1)
     #expect(resolvedSurface.attachmentHostsByID.count == 1)
+    #expect(resolvedHost.frame.size == fallbackFrameSize)
+    if case let .data(data) = MarkdownAttachmentHostDisplay(record: resolvedHost.record) {
+        #expect(data == onePixelLinkDecorationPNG)
+    } else {
+        Issue.record("Expected the mounted table globe to refresh to favicon bytes.")
+    }
 }
 
 @Test
@@ -564,6 +683,60 @@ private final class SlowLinkMetadataResolver: MarkdownLinkMetadataResolver, @unc
     func resolveMetadata(for destination: URL) async -> MarkdownLinkMetadataResolution {
         try? await Task.sleep(for: delay)
         return lock.withLock {
+            cached = resolution
+            return resolution
+        }
+    }
+}
+
+private final class DestinationScopedLinkMetadataResolver: MarkdownLinkMetadataResolver, @unchecked Sendable {
+    private let lock = NSLock()
+    private var resolutions: [URL: MarkdownLinkMetadataResolution] = [:]
+
+    var resolvedDestinations: Set<URL> {
+        lock.withLock { Set(resolutions.keys) }
+    }
+
+    func cachedResolution(for destination: URL) -> MarkdownLinkMetadataResolution? {
+        lock.withLock { resolutions[destination] }
+    }
+
+    func resolveMetadata(for destination: URL) async -> MarkdownLinkMetadataResolution {
+        let resolution = MarkdownLinkMetadataResolution.metadata(MarkdownLinkMetadata(
+            destination: destination,
+            title: destination.lastPathComponent,
+            decoration: .glyph("#")
+        ))
+        lock.withLock { resolutions[destination] = resolution }
+        return resolution
+    }
+}
+
+private final class RetryableLinkMetadataResolver: MarkdownLinkMetadataResolver, @unchecked Sendable {
+    private let lock = NSLock()
+    private var cached: MarkdownLinkMetadataResolution?
+    private var shouldSucceed = false
+    private var count = 0
+
+    var resolveCount: Int { lock.withLock { count } }
+
+    func clearNegativeCacheAndAllowSuccess() {
+        lock.withLock {
+            cached = nil
+            shouldSucceed = true
+        }
+    }
+
+    func cachedResolution(for destination: URL) -> MarkdownLinkMetadataResolution? {
+        lock.withLock { cached }
+    }
+
+    func resolveMetadata(for destination: URL) async -> MarkdownLinkMetadataResolution {
+        lock.withLock {
+            count += 1
+            let resolution: MarkdownLinkMetadataResolution = shouldSucceed
+                ? .metadata(MarkdownLinkMetadata(destination: destination, decoration: .glyph("!")))
+                : .unavailable
             cached = resolution
             return resolution
         }

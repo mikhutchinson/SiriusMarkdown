@@ -18,9 +18,8 @@ The core contract is simple:
 
 ## Current Release
 
-`0.6.25` preserves the live link-decoration replacement and narrow-cell
-wrapping fixes from 0.6.24 while calibrating the mounted release watchdogs to
-current GitHub-hosted Apple Silicon variance:
+`0.6.26` tightens asynchronous link-decoration refresh and completes native
+HTML table-span rendering:
 
 - **Immediate native fallback:** every policy-authorized destination that
   normalizes into an activatable URL receives a template SF Symbol globe,
@@ -30,20 +29,21 @@ current GitHub-hosted Apple Silicon variance:
   separately gated. A resolved icon replaces the template symbol in the same
   reserved attachment host only after bounded native decoding confirms
   meaningful visible pixel coverage; branded pixels stay untinted.
-- **Correct live table refresh:** fixed-width prepared leaves render the latest
-  immutable prepared layout instead of retaining pre-resolution byte ranges in
-  SwiftUI state. CoreText plan reuse also includes the prepared-content
-  fingerprint, preventing same-geometry content from reusing a stale plan.
-- **Coherent wrapping:** decoration, nonbreaking spacer, and the first link-label
-  token form one prepared wrapping unit, so neither the symbol nor a resolved
-  favicon can be orphaned at the end of a line.
-- **Real renderer regressions:** mounted AppKit tests reproduce the fallback-to-
-  favicon update inside a four-column table and cover template-symbol rendering
-  in light/dark appearances with native selection enabled and disabled.
-- **Honest hosted watchdogs:** the release suite retains strict work-count,
-  cache-reuse, and explicit-layout invariants while allowing up to 2.0 seconds
-  for deferred SwiftUI graph completion in its largest mounted workloads.
-- **Release validation:** the serial release suite discovers 954 tests, and the
+- **Presentation-correct live refresh:** attachment payload identity is distinct
+  from reusable layout identity, so an equal-size favicon replaces its globe
+  immediately without throwing away valid measurement state.
+- **Selective metadata updates:** custom resolvers are scheduled per destination,
+  expired or cleared negative entries can retry, and completion reprepares only
+  blocks containing changed links. Resolver implementations remain free to
+  coalesce work by origin.
+- **Redirect endpoint safety:** manual redirect chains aggregate contacted-socket
+  validation across every request rather than accepting the final task from a
+  mixed public/private chain.
+- **Coherent semantic links:** authored soft and hard breaks stay inside one
+  decorated link group, preventing duplicate globes or favicons.
+- **Native HTML table spans:** bounded `colspan` and `rowspan` metadata now drives
+  prepared widths, heights, borders, rendering, and source-backed selection.
+- **Release validation:** the serial release suite discovers 964 tests, and the
   full gate also builds a clean external consumer, bundles all three demos,
   compares every Pretext fixture, checks the math corpus, builds DocC, and runs
   the opt-in AppKit renderer probes.
@@ -61,7 +61,7 @@ attachment, and Pretext-backed layout contracts from earlier releases.
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/mikhutchinson/SiriusMarkdown.git", from: "0.6.25")
+    .package(url: "https://github.com/mikhutchinson/SiriusMarkdown.git", from: "0.6.26")
 ],
 targets: [
     .target(
@@ -324,12 +324,12 @@ git diff --check
 - Release runbook: `runbook.md`
 - Changelog: `changelog.md`
 - Bugfix log: `bugfix.md`
-- Current release notes: `release-notes/0.6.25.md`
+- Current release notes: `release-notes/0.6.26.md`
 - Third-party credits: `NOTICE.md`
 
 ## Release
 
-`0.6.25` is ready only when the docs describe the current public package surface,
+`0.6.26` is ready only when the docs describe the current public package surface,
 `bash Tools/product-check.sh` passes from the repository root, `git diff --check`
 is clean, the public remote is correct, and the release commit is tagged and
-pushed as `0.6.25` with a matching published GitHub Release.
+pushed as `0.6.26` with a matching published GitHub Release.

@@ -21,8 +21,23 @@ struct MarkdownStreamingTableRowLayoutToken: Hashable {
 /// not discard a still-valid natural-size measurement.
 struct MarkdownStreamingTableRowRenderToken: Hashable {
     let layoutToken: MarkdownStreamingTableRowLayoutToken
+    let presentationFingerprint: MarkdownContentFingerprint
     let columnAlignments: [MarkdownTableColumnAlignment?]
     let linkActionIdentity: UUID?
+
+    init(
+        layoutToken: MarkdownStreamingTableRowLayoutToken,
+        presentationFingerprint: MarkdownContentFingerprint = MarkdownContentFingerprint(
+            domain: "markdown-table-row-presentation-default"
+        ),
+        columnAlignments: [MarkdownTableColumnAlignment?],
+        linkActionIdentity: UUID?
+    ) {
+        self.layoutToken = layoutToken
+        self.presentationFingerprint = presentationFingerprint
+        self.columnAlignments = columnAlignments
+        self.linkActionIdentity = linkActionIdentity
+    }
 }
 
 /// Defers construction of a default table row until SwiftUI determines that

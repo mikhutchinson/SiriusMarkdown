@@ -15,6 +15,7 @@ struct SiriusMarkdownRenderProbe {
         let multilingualResult = renderMultilingualNativeDocument()
         let attributeResult = renderInlineAttributeCrossingProbe()
         let overflowResult = renderOverflowContainmentProbe()
+        let htmlTableSpanResult = renderHTMLTableSpanProbe()
         let codeHighlightResult = renderCodeHighlightingProbe()
         let breakResult = renderBreakAndLongWordProbe()
         let widthResult = renderInlineWidthProbe()
@@ -32,6 +33,7 @@ struct SiriusMarkdownRenderProbe {
         assertRenderable("multilingual prepared native document", multilingualResult, minimumNonWhitePixels: 1_200)
         assertRenderable("inline attribute crossing prepared native document", attributeResult)
         assertRenderable("code and table overflow prepared native document", overflowResult)
+        assertRenderable("authorized HTML table span document", htmlTableSpanResult)
         assertRenderable(
             "code highlighting prepared native document",
             codeHighlightResult,
@@ -190,6 +192,7 @@ struct SiriusMarkdownRenderProbe {
         print("Multilingual render probe: \(multilingualResult.nonWhitePixels) non-white pixels, \(multilingualResult.distinctColorBuckets) color buckets")
         print("Inline attribute crossing probe: \(attributeResult.nonWhitePixels) non-white pixels, \(attributeResult.distinctColorBuckets) color buckets")
         print("Overflow containment probe: \(overflowResult.nonWhitePixels) non-white pixels, \(overflowResult.distinctColorBuckets) color buckets, fitting width \(overflowResult.fittingWidth)")
+        print("Authorized HTML table span probe: \(htmlTableSpanResult.nonWhitePixels) non-white pixels, \(htmlTableSpanResult.distinctColorBuckets) color buckets")
         print("Code highlighting probe: \(codeHighlightResult.nonWhitePixels) non-white pixels, \(codeHighlightResult.distinctColorBuckets) color buckets")
         print("Break and long-word probe: \(breakResult.nonWhitePixels) non-white pixels, \(breakResult.distinctColorBuckets) color buckets")
         print("Prepared inline width probe: dark text reached x=\(widthResult.darkRightmostX)")
@@ -423,6 +426,26 @@ struct SiriusMarkdownRenderProbe {
         result.fittingWidth = fittingWidth
         result.maximumFittingWidth = Double(columnWidth + 1)
         return result
+    }
+
+    @MainActor
+    private static func renderHTMLTableSpanProbe() -> RenderResult {
+        renderDocument(
+            markdown:
+                """
+                <table>
+                  <thead><tr><th>Schedule</th><th>Details</th></tr></thead>
+                  <tbody>
+                    <tr><td rowspan="2">Monday</td><td>Morning session</td></tr>
+                    <tr><td>Afternoon session</td></tr>
+                    <tr><td colspan="2">All-day closing event</td></tr>
+                  </tbody>
+                </table>
+                """,
+            configuration: .document,
+            size: NSSize(width: 520, height: 260),
+            outputPath: ProcessInfo.processInfo.environment["SIRIUS_MARKDOWN_HTML_TABLE_SPAN_PROBE_OUTPUT"]
+        )
     }
 
     @MainActor

@@ -2,6 +2,28 @@
 
 ## Open
 
+## Resolved in 0.6.26
+
+- Fixed tables retaining generic globe attachments after equal-geometry favicon
+  completion. Attachment payloads now affect presentation fingerprints while
+  row measurement identity remains stable, and the mounted fixed-width table
+  regression verifies the visible symbol-to-bitmap replacement.
+- Fixed one metadata result discarding the full prepared snapshot. Refreshes
+  now carry exact destinations and invalidate only the top-level blocks that
+  contain them.
+- Fixed destination-scoped custom resolvers being skipped after the first URL
+  on an origin, and fixed negative results becoming a permanent session
+  blacklist after resolver cache expiry or clearing. Scheduling is now per
+  destination while resolver implementations retain ownership of coalescing.
+- Fixed redirect endpoint validation observing only one URLSession task's
+  metrics. Every manually followed request contributes to the final public-
+  endpoint decision.
+- Fixed authored multiline anchors receiving another decoration after a soft
+  or hard break. Break runs now preserve the existing semantic link group.
+- Fixed sanitized HTML table `colspan` and `rowspan` metadata being parsed but
+  ignored. Bounded logical placement now drives prepared widths and heights,
+  rowspan-aware borders, rendering, and source-backed selection.
+
 ## Resolved in 0.6.25
 
 - The 0.6.24 exact-SHA hosted gate exposed additional Apple Silicon runner

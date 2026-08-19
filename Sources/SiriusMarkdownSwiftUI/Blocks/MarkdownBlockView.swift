@@ -12,6 +12,7 @@ private struct MarkdownPreparedTableRowRenderGroup: Identifiable {
     let rows: [MarkdownPreparedTableRow]
     let id: String
     let contentFingerprint: MarkdownContentFingerprint
+    let presentationFingerprint: MarkdownContentFingerprint
     let preparedLayoutHeight: Double?
 
     init(startIndex: Int, rows: [MarkdownPreparedTableRow]) {
@@ -25,6 +26,15 @@ private struct MarkdownPreparedTableRowRenderGroup: Identifiable {
             fingerprint.combine(row.contentFingerprint)
         }
         self.contentFingerprint = fingerprint
+        var presentationFingerprint = MarkdownContentFingerprint(
+            domain: "markdown-prepared-table-row-group-presentation"
+        )
+        presentationFingerprint.combine(startIndex)
+        presentationFingerprint.combine(rows.count)
+        for row in rows {
+            presentationFingerprint.combine(row.presentationFingerprint)
+        }
+        self.presentationFingerprint = presentationFingerprint
         let heights = rows.compactMap(\.preparedLayoutHeight)
         self.preparedLayoutHeight = heights.count == rows.count
             ? heights.reduce(0, +)
@@ -517,7 +527,40 @@ public struct MarkdownBlockView: View {
                     ? configuration.preparationCache
                     : nil
             ) {
-                if !table.header.isEmpty {
+                if table.hasSpans {
+                    // Spanning cells must share one stacking/z-index context,
+                    // including header-to-body rowspans. HTML tables are
+                    // prepared as sealed native content, so they do not need
+                    // the bounded streaming row-group boundaries used by GFM.
+                    VStack(spacing: 0) {
+                        if !table.header.isEmpty {
+                            tableRow(
+                                cells: table.header,
+                                rowIndex: -1,
+                                isHeader: true,
+                                columnWidths: columnWidths,
+                                hasSpans: true,
+                                separatorSegments: table.headerSeparatorSegments,
+                                preparedLayoutHeight: usesPreparedLayoutHeights
+                                    ? table.headerPreparedLayoutHeight
+                                    : nil
+                            )
+                        }
+                        ForEach(Array(table.rows.enumerated()), id: \.element.id) { rowIndex, row in
+                            tableRow(
+                                cells: row.cells,
+                                rowIndex: rowIndex,
+                                isHeader: false,
+                                columnWidths: columnWidths,
+                                hasSpans: true,
+                                separatorSegments: row.separatorSegments,
+                                preparedLayoutHeight: usesPreparedLayoutHeights
+                                    ? row.preparedLayoutHeight
+                                    : nil
+                            )
+                        }
+                    }
+                } else if !table.header.isEmpty {
                     let layoutToken = MarkdownStreamingTableRowLayoutToken(
                         id: table.headerID,
                         contentFingerprint: table.headerContentFingerprint,
@@ -532,6 +575,7 @@ public struct MarkdownBlockView: View {
                     )
                     tableRowsWithStableRenderBoundary(
                         layoutToken: layoutToken,
+                        presentationFingerprint: table.headerPresentationFingerprint,
                         columnAlignments: table.columnAlignments,
                         usesStableRenderBoundary: usesPreparedLayoutHeights
                     ) {
@@ -540,6 +584,8 @@ public struct MarkdownBlockView: View {
                             rowIndex: -1,
                             isHeader: true,
                             columnWidths: columnWidths,
+                            hasSpans: table.hasSpans,
+                            separatorSegments: table.headerSeparatorSegments,
                             preparedLayoutHeight: usesPreparedLayoutHeights
                                 ? table.headerPreparedLayoutHeight
                                 : nil
@@ -547,7 +593,8 @@ public struct MarkdownBlockView: View {
                     }
                 }
 
-                ForEach(tableRowRenderGroups(table.rows)) { group in
+                if !table.hasSpans {
+                    ForEach(tableRowRenderGroups(table.rows)) { group in
                     let layoutToken = MarkdownStreamingTableRowLayoutToken(
                         id: group.id,
                         contentFingerprint: group.contentFingerprint,
@@ -562,6 +609,7 @@ public struct MarkdownBlockView: View {
                     )
                     tableRowsWithStableRenderBoundary(
                         layoutToken: layoutToken,
+                        presentationFingerprint: group.presentationFingerprint,
                         columnAlignments: table.columnAlignments,
                         usesStableRenderBoundary: usesPreparedLayoutHeights
                     ) {
@@ -572,12 +620,15 @@ public struct MarkdownBlockView: View {
                                     rowIndex: group.startIndex + offset,
                                     isHeader: false,
                                     columnWidths: columnWidths,
+                                    hasSpans: table.hasSpans,
+                                    separatorSegments: row.separatorSegments,
                                     preparedLayoutHeight: usesPreparedLayoutHeights
                                         ? row.preparedLayoutHeight
                                         : nil
                                 )
                             }
                         }
+                    }
                     }
                 }
             }
@@ -602,6 +653,7 @@ public struct MarkdownBlockView: View {
     @ViewBuilder
     private func tableRowsWithStableRenderBoundary<Content: View>(
         layoutToken: MarkdownStreamingTableRowLayoutToken,
+        presentationFingerprint: MarkdownContentFingerprint,
         columnAlignments: [MarkdownTableColumnAlignment?],
         usesStableRenderBoundary: Bool,
         @ViewBuilder content: @escaping () -> Content
@@ -610,6 +662,7 @@ public struct MarkdownBlockView: View {
             MarkdownStreamingTableRowRenderBoundary(
                 token: MarkdownStreamingTableRowRenderToken(
                     layoutToken: layoutToken,
+                    presentationFingerprint: presentationFingerprint,
                     columnAlignments: columnAlignments,
                     linkActionIdentity: configuration.linkAction?.renderIdentity
                 ),
@@ -642,24 +695,68 @@ public struct MarkdownBlockView: View {
         rowIndex: Int,
         isHeader: Bool,
         columnWidths: [CGFloat],
+        hasSpans: Bool,
+        separatorSegments: [MarkdownPreparedTableSeparatorSegment]?,
         preparedLayoutHeight: Double?
     ) -> some View {
-        HStack(alignment: .top, spacing: 0) {
-            ForEach(columnWidths.indices, id: \.self) { column in
-                tableCell(
-                    cells[safe: column],
-                    row: rowIndex,
-                    column: column,
-                    columnCount: columnWidths.count,
-                    isHeader: isHeader,
-                    isLastColumn: column == columnWidths.count - 1,
-                    width: columnWidths[column]
-                )
+        let rowHeight = CGFloat(preparedLayoutHeight ?? 38)
+        let tableWidth = columnWidths.reduce(0, +)
+        return ZStack(alignment: .topLeading) {
+            if hasSpans {
+                ForEach(cells) { cell in
+                    let column = min(max(0, cell.columnIndex), columnWidths.count)
+                    let upperColumn = min(
+                        columnWidths.count,
+                        column + max(1, Int(cell.colspan))
+                    )
+                    let fallbackOffset = columnWidths[..<column].reduce(0, +)
+                    let fallbackWidth = columnWidths[column..<upperColumn].reduce(0, +)
+                    let cellOffset = cell.preparedColumnOffset > 0
+                        ? CGFloat(cell.preparedColumnOffset)
+                        : fallbackOffset
+                    let cellWidth = cell.preparedWidth > 0
+                        ? CGFloat(cell.preparedWidth)
+                        : fallbackWidth
+                    let cellHeight = cell.preparedHeight > 0
+                        ? CGFloat(cell.preparedHeight)
+                        : rowHeight
+                    tableCell(
+                        cell,
+                        row: rowIndex,
+                        column: column,
+                        columnCount: columnWidths.count,
+                        isHeader: isHeader,
+                        isLastColumn: upperColumn == columnWidths.count,
+                        width: cellWidth
+                    )
+                    .frame(width: cellWidth, height: cellHeight, alignment: .top)
+                    .offset(x: cellOffset)
+                }
+            } else {
+                ForEach(columnWidths.indices, id: \.self) { column in
+                    let cellOffset = columnWidths[..<column].reduce(0, +)
+                    tableCell(
+                        cells[safe: column],
+                        row: rowIndex,
+                        column: column,
+                        columnCount: columnWidths.count,
+                        isHeader: isHeader,
+                        isLastColumn: column == columnWidths.count - 1,
+                        width: columnWidths[column]
+                    )
+                    .frame(
+                        width: columnWidths[column],
+                        height: rowHeight,
+                        alignment: .top
+                    )
+                    .offset(x: cellOffset)
+                }
             }
         }
         .frame(
-            minHeight: preparedLayoutHeight.map { CGFloat($0) },
-            alignment: .top
+            width: tableWidth,
+            height: rowHeight,
+            alignment: .topLeading
         )
         .background(tableRowBackground(rowIndex: rowIndex, isHeader: isHeader))
         .overlay(alignment: .top) {
@@ -669,11 +766,24 @@ public struct MarkdownBlockView: View {
                     .frame(height: 2)
             }
         }
-        .overlay(alignment: .bottom) {
-            Rectangle()
-                .fill(theme.tableBorderColor)
-                .frame(height: 1)
+        .overlay(alignment: .bottomLeading) {
+            let segments = separatorSegments ?? [MarkdownPreparedTableSeparatorSegment(
+                offset: 0,
+                width: Double(tableWidth)
+            )]
+            ZStack(alignment: .bottomLeading) {
+                ForEach(Array(segments.enumerated()), id: \.offset) { _, segment in
+                    Rectangle()
+                        .fill(theme.tableBorderColor)
+                        .frame(width: CGFloat(segment.width), height: 1)
+                        .offset(x: CGFloat(segment.offset))
+                }
+            }
+            .frame(width: tableWidth, height: 1, alignment: .bottomLeading)
         }
+        // Earlier rows own cells that may extend into later rows. Keep those
+        // prepared rowspan surfaces above the covered row backgrounds/cells.
+        .zIndex(Double(-rowIndex))
     }
 
     @ViewBuilder
@@ -718,21 +828,33 @@ public struct MarkdownBlockView: View {
             rowID: String,
             rowHeight: CGFloat
         ) {
-            var columnOriginX = rect.minX
-            for column in table.columnWidths.indices {
-                let columnWidth = CGFloat(table.columnWidths[column])
-                defer { columnOriginX += columnWidth }
-                guard cells.indices.contains(column),
-                      let prepared = cells[column].inlineLayout ?? cells[column].selectionInlineLayout,
+            for cell in cells {
+                let column = min(max(0, cell.columnIndex), table.columnWidths.count)
+                let upperColumn = min(
+                    table.columnWidths.count,
+                    column + max(1, Int(cell.colspan))
+                )
+                let fallbackOffset = table.columnWidths[..<column].reduce(0, +)
+                let fallbackWidth = table.columnWidths[column..<upperColumn].reduce(0, +)
+                let cellOffset = cell.preparedColumnOffset > 0
+                    ? CGFloat(cell.preparedColumnOffset)
+                    : CGFloat(fallbackOffset)
+                let cellWidth = cell.preparedWidth > 0
+                    ? CGFloat(cell.preparedWidth)
+                    : CGFloat(fallbackWidth)
+                let cellHeight = cell.preparedHeight > 0
+                    ? CGFloat(cell.preparedHeight)
+                    : rowHeight
+                guard let prepared = cell.inlineLayout ?? cell.selectionInlineLayout,
                       let layout = prepared.initialLayoutResult
                 else {
                     continue
                 }
                 let contentRect = CGRect(
-                    x: columnOriginX + horizontalPadding,
+                    x: rect.minX + cellOffset + horizontalPadding,
                     y: rowOriginY + verticalPadding,
-                    width: max(1, columnWidth - horizontalPadding * 2),
-                    height: max(1, rowHeight - verticalPadding * 2)
+                    width: max(1, cellWidth - horizontalPadding * 2),
+                    height: max(1, cellHeight - verticalPadding * 2)
                 )
                 fragments.append(contentsOf: MarkdownDocumentSelectionFragment.inlineLineFragments(
                     blockID: documentSelectionContext.blockID,

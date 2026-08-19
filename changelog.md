@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.6.26 - 2026-08-18
+
+- Made asynchronous link decoration refresh presentation-correct even when a
+  fallback globe and favicon have identical geometry. Attachment bytes now
+  participate in presentation identity without invalidating reusable layout,
+  and metadata completion reprepares only top-level blocks containing the
+  changed destinations instead of discarding the full prepared snapshot.
+- Scheduled custom metadata resolvers per destination while retaining resolver-
+  owned origin coalescing, and allowed destinations to retry after an expired
+  or explicitly cleared negative cache. Manual redirect validation now
+  aggregates the contacted endpoint result from every request in the chain.
+- Kept authored multiline links within one semantic decoration group, so a
+  soft or hard break inside one anchor cannot create a second globe/favicon.
+- Implemented bounded native HTML table `colspan` and `rowspan` geometry across
+  width preparation, row-height resolution, rendering, borders, and source-
+  backed selection. The AppKit RenderProbe now renders both span forms.
+- Raised the serial release discovery floor to 964 Swift tests, including
+  mounted same-geometry globe-to-favicon replacement, selective refresh,
+  resolver retry/scope, redirect aggregation, multiline-link, and HTML-span
+  regressions.
+
 ## 0.6.25 - 2026-08-02
 
 - Preserved the 0.6.24 narrow decorated-link fix and all 954 product
