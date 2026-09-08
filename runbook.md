@@ -1,6 +1,6 @@
 # Runbook
 
-This runbook is the local release authority for `SiriusMarkdown`. For the current public package release, use `0.6.27` as the tag and do not publish unless every release blocker below is clear.
+This runbook is the local release authority for `SiriusMarkdown`. For the current public package release, use `0.6.28` as the tag and do not publish unless every release blocker below is clear.
 
 ## Build
 
@@ -222,7 +222,7 @@ Run this before claiming native-renderer product quality. It wraps the release g
 
 ## Public Release Checklist
 
-Use this checklist for `0.6.27`.
+Use this checklist for `0.6.28`.
 
 1. Confirm public hygiene:
 
@@ -272,28 +272,28 @@ Use this checklist for `0.6.27`.
 
    ```sh
    git add README.md runbook.md NOTICE.md changelog.md bugfix.md release-notes Docs Sources Tests Examples Tools Package.swift Package.resolved
-   git commit -m "Prepare SiriusMarkdown 0.6.27 release"
+   git commit -m "Prepare SiriusMarkdown 0.6.28 release"
    ```
 
 6. Tag and push:
 
    ```sh
-   git tag -a 0.6.27 -m "SiriusMarkdown 0.6.27"
+   git tag -a 0.6.28 -m "SiriusMarkdown 0.6.28"
    git push origin HEAD
-   git push origin 0.6.27
+   git push origin 0.6.28
    ```
 
 7. After pushing, create the public release from the matching `changelog.md`
    section and verify that GitHub marks it as Latest:
 
    ```sh
-   gh release create 0.6.27 \
+   gh release create 0.6.28 \
      --repo mikhutchinson/SiriusMarkdown \
      --verify-tag \
      --latest \
-     --title "SiriusMarkdown 0.6.27" \
-     --notes-file release-notes/0.6.27.md
-   gh release view 0.6.27 \
+     --title "SiriusMarkdown 0.6.28" \
+     --notes-file release-notes/0.6.28.md
+   gh release view 0.6.28 \
      --repo mikhutchinson/SiriusMarkdown \
      --json tagName,name,isDraft,isPrerelease,publishedAt,url
    ```

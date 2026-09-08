@@ -172,12 +172,24 @@ public struct StreamingMarkdownView: View {
     private var hostBoundaryView: @MainActor (MarkdownHostBoundary) -> AnyView
 
     private var suppliedFindController: MarkdownDocumentFindController?
+    private var showsInlineFindControls = true
 
     /// Enables package-owned Find and fragment navigation within the host's
     /// existing scroll view. No nested scrolling surface is introduced.
     public func documentFindController(_ controller: MarkdownDocumentFindController) -> Self {
+        documentFindController(controller, showsInlineControls: true)
+    }
+
+    /// Retains Find indexing, selection and native-scroll reveal while allowing
+    /// the host to place its own `MarkdownDocumentFindBar` outside the scroller.
+    /// When false, the host also owns presenting Find (for example via Cmd-F).
+    public func documentFindController(
+        _ controller: MarkdownDocumentFindController,
+        showsInlineControls: Bool
+    ) -> Self {
         var copy = self
         copy.suppliedFindController = controller
+        copy.showsInlineFindControls = showsInlineControls
         return copy
     }
 
@@ -254,7 +266,8 @@ public struct StreamingMarkdownView: View {
         if let find = suppliedFindController {
             let selection = self.selectionController ?? selectionController ?? internalSelectionController
             MarkdownDocumentNavigationView(snapshot: preparedSnapshot, externalLinkAction: configuration.linkAction,
-                selectionController: selection, findController: find, ownsScrollView: false) { action, revealing in
+                selectionController: selection, findController: find, ownsScrollView: false,
+                showsFindControls: showsInlineFindControls) { action, revealing in
                     var routed = self
                     routed.configuration.linkAction = action
                     return routed.selectionDocumentContent(selectionController: revealing ? selection : selectionController, regions: regions)

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.6.28 - 2026-09-08
+
+- Allow host-scrolled Markdown to suppress inline Find controls while retaining
+  navigation, so a host can pin one `MarkdownDocumentFindBar` above its scroller.
+
 ## 0.6.27 - 2026-09-08
 
 - Export nested, spanning and multiline tables from semantic cell metadata;

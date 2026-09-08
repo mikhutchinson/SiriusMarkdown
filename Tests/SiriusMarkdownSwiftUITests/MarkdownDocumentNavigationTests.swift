@@ -124,8 +124,8 @@ struct MarkdownDocumentNavigationTests {
         #expect(!find.isPresented)
     }
 
-    @Test
-    func hostScrolledTranscriptFindAndAnchorsRevealWithoutNestedScroller() async throws {
+    @Test(arguments: [true, false])
+    func hostScrolledTranscriptFindAndAnchorsRevealWithoutNestedScroller(showsInlineControls: Bool) async throws {
         let markdown = "[Jump](#target) First needle.\n\n" +
             (0..<45).map { "Paragraph \($0) provides scrolling space.\n\n" }.joined() +
             "# Target\n\nLast needle."
@@ -135,9 +135,12 @@ struct MarkdownDocumentNavigationTests {
         let prepared = prepare(markdown, configuration: configuration)
         let find = MarkdownDocumentFindController()
         let selection = MarkdownSelectionController()
-        let host = NSHostingView(rootView: AnyView(ScrollView {
-            StreamingMarkdownView(preparedSnapshot: prepared, configuration: configuration, selectionController: selection)
-                .documentFindController(find)
+        let host = NSHostingView(rootView: AnyView(VStack(spacing: 0) {
+            if !showsInlineControls { MarkdownDocumentFindBar(controller: find) }
+            ScrollView {
+                StreamingMarkdownView(preparedSnapshot: prepared, configuration: configuration, selectionController: selection)
+                    .documentFindController(find, showsInlineControls: showsInlineControls)
+            }
         }.frame(width: 600, height: 240)))
         let window = makeWindow(host)
         defer { tearDown(host, window) }
@@ -148,11 +151,19 @@ struct MarkdownDocumentNavigationTests {
         find.query = "needle"
         await settle(host)
         #expect(find.matches.count == 2)
+        let fields = descendants(host).compactMap { $0 as? NSTextField }.filter { $0.placeholderString == "Find in Document" }
+        #expect(fields.count == 1, "External Find controls must not duplicate inline controls")
+        let field = try #require(fields.first)
+        let fieldOrigin = field.convert(NSPoint.zero, to: host)
         find.next()
         await settle(host)
         #expect(scroll.contentView.bounds.minY > 400)
         #expect(selection.selectedSourceRanges == [try #require(find.currentMatch).sourceRange])
         #expect(descendants(host).compactMap { $0 as? MarkdownHostScrollRevealView }.count == 1)
+        if !showsInlineControls {
+            #expect(abs(field.convert(NSPoint.zero, to: host).y - fieldOrigin.y) < 1,
+                    "External Find bar must stay fixed while its document scrolls")
+        }
         find.previous()
         await settle(host)
         #expect(scroll.contentView.bounds.minY < 100)

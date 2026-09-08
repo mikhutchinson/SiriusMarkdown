@@ -128,6 +128,7 @@ final class MarkdownDocumentNavigationState: ObservableObject {
 struct MarkdownDocumentNavigationView<Content: View>: View {
     let snapshot: MarkdownPreparedSnapshot
     let ownsScrollView: Bool
+    let showsFindControls: Bool
     let externalLinkAction: MarkdownLinkAction?
     let selectionController: MarkdownSelectionController
     @ObservedObject var findController: MarkdownDocumentFindController
@@ -135,9 +136,11 @@ struct MarkdownDocumentNavigationView<Content: View>: View {
     let content: (MarkdownLinkAction, Bool) -> Content
 
     init(snapshot: MarkdownPreparedSnapshot, externalLinkAction: MarkdownLinkAction?, selectionController: MarkdownSelectionController,
-         findController: MarkdownDocumentFindController, ownsScrollView: Bool = true, @ViewBuilder content: @escaping (MarkdownLinkAction, Bool) -> Content) {
+         findController: MarkdownDocumentFindController, ownsScrollView: Bool = true,
+         showsFindControls: Bool = true, @ViewBuilder content: @escaping (MarkdownLinkAction, Bool) -> Content) {
         self.snapshot = snapshot
         self.ownsScrollView = ownsScrollView
+        self.showsFindControls = showsFindControls
         self.externalLinkAction = externalLinkAction
         self.selectionController = selectionController
         self.findController = findController
@@ -150,10 +153,10 @@ struct MarkdownDocumentNavigationView<Content: View>: View {
     var body: some View {
         ScrollViewReader { proxy in
             VStack(spacing: 0) {
-                if findController.isPresented { MarkdownDocumentFindBar(controller: findController) }
+                if showsFindControls && findController.isPresented { MarkdownDocumentFindBar(controller: findController) }
                 navigationContent
                     .overlay(alignment: .topTrailing) {
-                        if !findController.isPresented {
+                        if showsFindControls && !findController.isPresented {
                             Button { findController.isPresented = true } label: {
                                 Image(systemName: "magnifyingglass")
                             }

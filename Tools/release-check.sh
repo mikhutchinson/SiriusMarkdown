@@ -51,7 +51,7 @@ for required_test in \
   "SiriusMarkdownSwiftUITests.MarkdownAsyncImageTests/imageCompletionRefreshesOnlyOwnersAndPreservesSourceIdentity()" \
   "SiriusMarkdownSwiftUITests.MarkdownAsyncImageTests/imageRequestsAreBoundedAndResetDiscardsLateCompletion()" \
   "SiriusMarkdownSwiftUITests.MarkdownDocumentNavigationTests/findRevealsHorizontallyOverflowingCodeAndTableCells()" \
-  "SiriusMarkdownSwiftUITests.MarkdownDocumentNavigationTests/hostScrolledTranscriptFindAndAnchorsRevealWithoutNestedScroller()" \
+  "SiriusMarkdownSwiftUITests.MarkdownDocumentNavigationTests/hostScrolledTranscriptFindAndAnchorsRevealWithoutNestedScroller(showsInlineControls:)" \
   "SiriusMarkdownCoreTests.MarkdownHTMLAnchorTests/anchorMetadataChangesIdentityWithoutChangingLayoutFingerprint()" \
   "SiriusMarkdownCoreTests.MarkdownHTMLAnchorTests/inlineAndEmptyIDsKeepTheirSourceRangesWithoutVisibleText()" \
   "SiriusMarkdownCoreTests.MarkdownHTMLAnchorTests/streamedAnchorMetadataMatchesStaticModelWithAbsoluteOffsets()" \
@@ -534,6 +534,11 @@ stream.finish()
 let configuration = MarkdownRendererConfiguration.document
 let prepared = configuration.prepare(snapshot: stream.snapshot())
 precondition(prepared.snapshot.blocks.count == 2)
+let find = MarkdownDocumentFindController()
+let hosted = StreamingMarkdownView(preparedSnapshot: prepared, configuration: configuration)
+    .documentFindController(find, showsInlineControls: false)
+let controls = MarkdownDocumentFindBar(controller: find)
+_ = (hosted, controls)
 EOF
 swift package --package-path "$CONSUMER_DIR" resolve
 swift build --package-path "$CONSUMER_DIR"
@@ -564,5 +569,5 @@ xcrun docc convert Docs/SiriusMarkdown.docc \
   --additional-symbol-graph-dir "$SYMBOL_GRAPH_DIR" \
   --fallback-display-name SiriusMarkdown \
   --fallback-bundle-identifier com.sirius.markdown \
-  --fallback-bundle-version 0.6.27 \
+  --fallback-bundle-version 0.6.28 \
   --output-path /tmp/SiriusMarkdown.doccarchive

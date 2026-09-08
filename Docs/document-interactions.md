@@ -39,6 +39,28 @@ Only the active result mounts a reveal marker. Find works even when ordinary
 document selection is disabled. The Find bar belongs to the transcript content;
 hosts can also present the reusable `MarkdownDocumentFindBar` in their own toolbar.
 Without the modifier, the streaming surface retains its existing render path.
+To keep a single Find bar pinned above a host-owned scroller, suppress only the
+streaming view's inline controls and supply the same controller to the external
+bar:
+
+```swift
+VStack(spacing: 0) {
+    if find.isPresented {
+        MarkdownDocumentFindBar(controller: find)
+    }
+    ScrollView {
+        StreamingMarkdownView(preparedSnapshot: prepared, configuration: configuration)
+            .documentFindController(find, showsInlineControls: false)
+    }
+}
+```
+
+With inline controls suppressed, the host owns presenting Find, including its
+Cmd-F command (`find.isPresented = true`). The external bar supplies next,
+previous and dismissal controls. Indexing, selection highlighting, fragment
+links and native scroll reveal retain their existing behavior. The original
+one-argument modifier continues to show the package's inline controls.
+
 Code and table results also reveal their inner horizontal scroller. Prepared
 non-wrapping code uses native font metrics shared with selection geometry.
 Mounted scrolling evidence currently covers macOS; UIKit uses its native scroll
