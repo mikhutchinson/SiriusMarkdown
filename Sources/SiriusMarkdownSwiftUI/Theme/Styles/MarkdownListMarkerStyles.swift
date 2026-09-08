@@ -61,6 +61,14 @@ public struct MarkdownOrderedListMarkerStyleConfiguration {
     public var blockID: MarkdownBlockID
     public var indentationLevel: Int
     public var ordinal: Int
+
+    /// The semantic model uses UInt, whereas the public marker API uses Int.
+    /// Saturate unrepresentable authored starts and subsequent item offsets.
+    static func resolvedOrdinal(start: UInt?, index: Int) -> Int {
+        let start = Int(clamping: start ?? 1)
+        let (ordinal, overflow) = start.addingReportingOverflow(max(0, index))
+        return overflow ? Int.max : ordinal
+    }
 }
 
 /// Customizes the numeral for an ordered list item.

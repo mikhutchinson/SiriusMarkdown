@@ -242,6 +242,7 @@ public struct MarkdownBlockView: View {
         }
         .id(block.id)
         .accessibilityLabel(Self.accessibilityLabel(for: block))
+        .accessibilityAddTraits(block.kind == .heading ? .isHeader : [])
         .onAppear {
             MarkdownDiagnostics().signpostEvent("BlockRender", category: "SwiftUI")
         }
@@ -667,6 +668,11 @@ public struct MarkdownBlockView: View {
                 table: table,
                 enabled: usesPreparedLayoutHeights
             ))
+            .modifier(MarkdownTableAccessibilityModifier(
+                table: table,
+                enabled: usesPreparedLayoutHeights,
+                linkAction: configuration.linkAction
+            ))
 
             AnyView(resolvedTableStyle.makeBody(
                 configuration: MarkdownTableBlockStyleConfiguration(
@@ -824,13 +830,10 @@ public struct MarkdownBlockView: View {
     ) -> some View {
         if enabled {
             GeometryReader { proxy in
-                Color.clear.preference(
-                    key: MarkdownDocumentSelectionFragmentsKey.self,
-                    value: tableSelectionFragments(
-                        table: table,
-                        rect: proxy.frame(in: .named(markdownDocumentSelectionCoordinateSpaceName))
-                    )
-                )
+                let rect = proxy.frame(in: .named(markdownDocumentSelectionCoordinateSpaceName))
+                let fragments = tableSelectionFragments(table: table, rect: rect)
+                Color.clear.preference(key: MarkdownDocumentSelectionFragmentsKey.self, value: fragments)
+                    .overlay { MarkdownLeafSourceRevealMarker(fragments: fragments, origin: rect.origin) }
             }
             .allowsHitTesting(false)
         }
@@ -953,6 +956,7 @@ public struct MarkdownBlockView: View {
             nativeTextSelection: configuration.nativeTextSelection
         )
             .padding(.vertical, 6)
+            .accessibilityHidden(image.accessibilityTree != nil)
         ViewThatFits(in: .horizontal) {
             mathView
                 .frame(maxWidth: .infinity, alignment: .center)
@@ -962,6 +966,17 @@ public struct MarkdownBlockView: View {
         }
         .frame(maxWidth: .infinity, alignment: .center)
         .background(mathImageSelectionFragmentPreference)
+        #if os(macOS)
+        .background {
+            if let tree = image.accessibilityTree { MarkdownMathAccessibilityHost(tree: tree) }
+        }
+        #else
+        .accessibilityChildren {
+            if let tree = image.accessibilityTree {
+                MarkdownMathAccessibilityNodeView(node: tree.root)
+            }
+        }
+        #endif
     }
 
     private var mathImageSelectionFragmentPreference: some View {
@@ -1713,7 +1728,10 @@ private struct MarkdownListItemRow: View {
                     theme: theme,
                     blockID: blockID,
                     indentationLevel: indentationLevel,
-                    ordinal: Int(orderedStart ?? 1) + index
+                    ordinal: MarkdownOrderedListMarkerStyleConfiguration.resolvedOrdinal(
+                        start: orderedStart,
+                        index: index
+                    )
                 )
             ))
         } else {

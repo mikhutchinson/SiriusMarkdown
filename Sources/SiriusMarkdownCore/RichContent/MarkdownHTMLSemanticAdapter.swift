@@ -60,7 +60,13 @@ struct MarkdownHTMLSemanticAdapter {
                 isSealed: isSealed
             )
             let blocks = converter.blocks(from: body.getChildNodes())
-            return MarkdownRichContent(blocks: blocks, diagnostics: converter.diagnostics)
+            return MarkdownRichContent(
+                blocks: blocks,
+                diagnostics: converter.diagnostics,
+                htmlAnchors: sanitizedAnchors(in: body, mapper: MarkdownHTMLSourceMapper(
+                    html: html, absoluteSourceRange: sourceRange, lineMap: lineMap
+                ))
+            )
         } catch {
             return inertFallback(
                 html: html,
@@ -81,19 +87,28 @@ struct MarkdownHTMLSemanticAdapter {
             return runs
         }
 
+        // Authored custom elements must never be mistaken for our opaque
+        // Markdown placeholders. Pick a name absent from all raw HTML first.
+        let rawHTML = runs.filter { $0.presentation.contains(.html) }
+            .map { $0.text.lowercased() }.joined()
+        var placeholderTag = "sirius-markdown-run"
+        while rawHTML.contains(placeholderTag) {
+            placeholderTag.append("-internal")
+        }
         var fragment = ""
         fragment.reserveCapacity(runs.reduce(0) { $0 + $1.text.utf8.count + 48 })
         var tagSourceRanges: [String: [MarkdownSourceRange]] = [:]
         for (index, run) in runs.enumerated() {
             if run.presentation.contains(.html) {
                 fragment.append(run.text)
-                if let tagName = lexicalTagName(in: run.text), let sourceRange = run.sourceRange {
+                if !run.text.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("</"),
+                   let tagName = lexicalTagName(in: run.text), let sourceRange = run.sourceRange {
                     tagSourceRanges[tagName, default: []].append(sourceRange)
                 }
             } else {
-                fragment.append("<sirius-markdown-run data-index=\"")
+                fragment.append("<\(placeholderTag) data-index=\"")
                 fragment.append(String(index))
-                fragment.append("\"></sirius-markdown-run>")
+                fragment.append("\"></\(placeholderTag)>")
             }
         }
 
@@ -102,14 +117,39 @@ struct MarkdownHTMLSemanticAdapter {
             guard let body = document.body() else {
                 return runs.filter { !$0.presentation.contains(.html) }
             }
-            var state = InlineTreeState(originalRuns: runs, tagSourceRanges: tagSourceRanges)
+            var state = InlineTreeState(originalRuns: runs, tagSourceRanges: tagSourceRanges, placeholderTag: placeholderTag)
             let normalized = body.getChildNodes().flatMap { node in
                 inlineRuns(from: node, context: InlineContext(), state: &state)
             }
-            return collapseHTMLWhitespace(in: normalized)
+            // swift-markdown already normalized these runs, including code
+            // spans and significant hard breaks. HTML supplies semantics only.
+            return normalized
         } catch {
             return runs.filter { !$0.presentation.contains(.html) }
         }
+    }
+
+    private static func sanitizedAnchorID(of element: Element) -> String? {
+        let tag = element.tagNameNormal()
+        guard containerTags.contains(tag) || paragraphTags.contains(tag) ||
+              headingLevels[tag] != nil || inlineTags.contains(tag) ||
+              ["blockquote", "ul", "ol", "li", "pre", "hr", "table", "thead", "tbody", "tfoot", "tr", "th", "td", "img", "br", "wbr"].contains(tag),
+              let identifier = try? element.attr("id"), !identifier.isEmpty,
+              identifier.rangeOfCharacter(from: .whitespacesAndNewlines.union(.controlCharacters)) == nil else { return nil }
+        return identifier
+    }
+
+    private static func sanitizedAnchors(in node: Node, mapper: MarkdownHTMLSourceMapper) -> [MarkdownHTMLAnchor] {
+        guard let element = node as? Element else { return [] }
+        let tag = element.tagNameNormal()
+        guard !droppedSubtreeTags.contains(tag), !ignoredLeafTags.contains(tag) else { return [] }
+        let mappedRange = mapper.sourceRange(for: element)
+        var anchors: [MarkdownHTMLAnchor] = []
+        if let identifier = sanitizedAnchorID(of: element), let sourceRange = mappedRange {
+            anchors.append(MarkdownHTMLAnchor(identifier: identifier, sourceRange: sourceRange))
+        }
+        for child in element.getChildNodes() { anchors.append(contentsOf: sanitizedAnchors(in: child, mapper: mapper)) }
+        return anchors
     }
 
     private static func inertFallback(
@@ -156,14 +196,14 @@ struct MarkdownHTMLSemanticAdapter {
     private struct InlineTreeState {
         var originalRuns: [MarkdownInlineRun]
         var tagSourceRanges: [String: [MarkdownSourceRange]]
+        var placeholderTag: String
+        var nextSourceRangeIndex: [String: Int] = [:]
 
         mutating func sourceRange(for tagName: String) -> MarkdownSourceRange? {
-            guard var ranges = tagSourceRanges[tagName], !ranges.isEmpty else {
-                return nil
-            }
-            let first = ranges.removeFirst()
-            tagSourceRanges[tagName] = ranges
-            return first
+            let index = nextSourceRangeIndex[tagName, default: 0]
+            guard let ranges = tagSourceRanges[tagName], ranges.indices.contains(index) else { return nil }
+            nextSourceRangeIndex[tagName] = index + 1
+            return ranges[index]
         }
     }
 
@@ -189,7 +229,7 @@ struct MarkdownHTMLSemanticAdapter {
             return []
         }
         let tagName = element.tagNameNormal()
-        if tagName == "sirius-markdown-run" {
+        if tagName == state.placeholderTag {
             guard let rawIndex = try? element.attr("data-index"),
                   let index = Int(rawIndex),
                   state.originalRuns.indices.contains(index)
@@ -208,26 +248,34 @@ struct MarkdownHTMLSemanticAdapter {
             }
             return [run]
         }
+        let elementSourceRange = state.sourceRange(for: tagName)
         if droppedSubtreeTags.contains(tagName) || ignoredLeafTags.contains(tagName) {
             return []
         }
+        let anchorRuns: [MarkdownInlineRun]
+        if let identifier = sanitizedAnchorID(of: element), let elementSourceRange {
+            anchorRuns = [MarkdownInlineRun(kind: .text, text: "", sourceRange: elementSourceRange,
+                htmlAnchors: [MarkdownHTMLAnchor(identifier: identifier, sourceRange: elementSourceRange)])]
+        } else {
+            anchorRuns = []
+        }
         if tagName == "br" {
-            return [
+            return anchorRuns + [
                 MarkdownInlineRun(
                     kind: .hardBreak,
                     text: "\n",
-                    sourceRange: state.sourceRange(for: tagName),
+                    sourceRange: elementSourceRange,
                     destination: context.destination,
                     presentation: context.presentation
                 )
             ]
         }
         if tagName == "wbr" {
-            return [
+            return anchorRuns + [
                 MarkdownInlineRun(
                     kind: .softBreak,
                     text: "",
-                    sourceRange: state.sourceRange(for: tagName),
+                    sourceRange: elementSourceRange,
                     destination: context.destination,
                     presentation: context.presentation
                 )
@@ -235,10 +283,10 @@ struct MarkdownHTMLSemanticAdapter {
         }
         if tagName == "img" {
             let source = ((try? element.attr("src")) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !source.isEmpty else { return [] }
+            guard !source.isEmpty else { return anchorRuns }
             let alt = (try? element.attr("alt")) ?? ""
-            let sourceRange = state.sourceRange(for: tagName)
-            return [
+            let sourceRange = elementSourceRange
+            return anchorRuns + [
                 MarkdownInlineRun(
                     kind: context.destination == nil ? .image : .link,
                     text: alt,
@@ -252,7 +300,7 @@ struct MarkdownHTMLSemanticAdapter {
 
         var childContext = context
         applyInlineSemantics(of: element, tagName: tagName, to: &childContext)
-        return element.getChildNodes().flatMap { child in
+        return anchorRuns + element.getChildNodes().flatMap { child in
             inlineRuns(from: child, context: childContext, state: &state)
         }
     }
@@ -305,15 +353,15 @@ struct MarkdownHTMLSemanticAdapter {
             if run.kind == .hardBreak {
                 while let last = result.last,
                       last.kind != .hardBreak,
-                      last.text.last?.isWhitespace == true {
+                      last.text.last.map(isCollapsibleHTMLWhitespace) == true {
                     var trimmed = last
-                    trimmed.text = trimmed.text.trimmingCharacters(in: .whitespaces)
+                    while trimmed.text.last.map(isCollapsibleHTMLWhitespace) == true {
+                        trimmed.text.removeLast()
+                    }
                     result.removeLast()
                     if !trimmed.text.isEmpty { result.append(trimmed) }
                 }
-                if result.last?.kind != .hardBreak {
-                    result.append(run)
-                }
+                result.append(run)
                 atBoundary = true
                 continue
             }
@@ -326,7 +374,7 @@ struct MarkdownHTMLSemanticAdapter {
             var output = ""
             var pendingSpace = false
             for character in run.text {
-                if character.isWhitespace {
+                if isCollapsibleHTMLWhitespace(character) {
                     pendingSpace = true
                 } else {
                     if pendingSpace, !atBoundary, !output.isEmpty || !result.isEmpty {
@@ -339,6 +387,7 @@ struct MarkdownHTMLSemanticAdapter {
             }
             if pendingSpace, !atBoundary {
                 output.append(" ")
+                atBoundary = true
             }
             run.text = output
             if !run.text.isEmpty {
@@ -348,16 +397,20 @@ struct MarkdownHTMLSemanticAdapter {
 
         while let last = result.last,
               last.kind != .hardBreak,
-              last.text.last?.isWhitespace == true {
+              last.text.last.map(isCollapsibleHTMLWhitespace) == true {
             var trimmed = last
-            trimmed.text = trimmed.text.trimmingCharacters(in: .whitespaces)
+            while trimmed.text.last.map(isCollapsibleHTMLWhitespace) == true {
+                trimmed.text.removeLast()
+            }
             result.removeLast()
             if !trimmed.text.isEmpty { result.append(trimmed) }
         }
-        while result.last?.kind == .hardBreak {
-            result.removeLast()
-        }
         return result
+    }
+
+    private static func isCollapsibleHTMLWhitespace(_ character: Character) -> Bool {
+        character == " " || character == "\t" || character == "\n"
+            || character == "\r" || character == "\r\n" || character == "\u{000C}"
     }
 
     private static func lexicalTagName(in rawHTML: String) -> String? {
@@ -503,9 +556,11 @@ struct MarkdownHTMLSemanticAdapter {
             from nodes: [Node],
             preservesWhitespace: Bool,
             separatesBlocks: Bool = false,
+            normalizesWhitespace: Bool = true,
             context: InlineContext = InlineContext()
         ) -> [MarkdownInlineRun] {
             var output: [MarkdownInlineRun] = []
+            var trailingSyntheticBreakIndex: Int?
             var childContext = context
             childContext.preservesWhitespace = preservesWhitespace || context.preservesWhitespace
 
@@ -585,14 +640,23 @@ struct MarkdownHTMLSemanticAdapter {
                     from: element.getChildNodes(),
                     preservesWhitespace: nestedContext.preservesWhitespace,
                     separatesBlocks: separatesBlocks,
+                    normalizesWhitespace: false,
                     context: nestedContext
                 ))
                 if isNestedBlock, !output.isEmpty, output.last?.kind != .hardBreak {
                     output.append(MarkdownInlineRun(kind: .hardBreak, text: "\n", sourceRange: fallbackRange))
+                    trailingSyntheticBreakIndex = output.count - 1
                 }
             }
+            if trailingSyntheticBreakIndex == output.count - 1, !output.isEmpty {
+                output.removeLast()
+            }
 
-            return preservesWhitespace ? output : MarkdownHTMLSemanticAdapter.collapseHTMLWhitespace(in: output)
+            // Collapse across the complete inline sequence, never separately
+            // within each element: an element's trailing space can separate it
+            // from its next sibling.
+            return preservesWhitespace || !normalizesWhitespace
+                ? output : MarkdownHTMLSemanticAdapter.collapseHTMLWhitespace(in: output)
         }
 
         private mutating func listBlock(from element: Element, ordered: Bool) -> MarkdownBlock? {

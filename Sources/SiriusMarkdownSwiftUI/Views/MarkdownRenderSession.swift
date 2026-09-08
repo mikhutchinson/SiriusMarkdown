@@ -22,6 +22,16 @@ public final class MarkdownRenderSession: ObservableObject {
     private var preparedLinkMetadataResolutions: [URL: MarkdownLinkMetadataResolution] = [:]
     private var pendingLinkMetadataRefreshes: [URL: MarkdownLinkMetadataResolution] = [:]
     private var linkMetadataRefreshTask: Task<Void, Never>?
+    private var imageTasks: [String: Task<Void, Never>] = [:]
+    private var imageTaskIDs: [String: UUID] = [:]
+    private var imageOwners: [String: Set<MarkdownBlockID>] = [:]
+    private var imageLoadingViewport: Set<MarkdownBlockID>?
+    private var imageResolutionIDs: [String: String] = [:]
+    private var authorizedImageSources: Set<String> = []
+    private var pendingImageRefreshes: [String: MarkdownAsyncImageResolution] = [:]
+    private var imageRefreshTask: Task<Void, Never>?
+    private var imageEpoch = UUID()
+
 
     public init(
         configuration: MarkdownRendererConfiguration = .compactChat,
@@ -62,6 +72,11 @@ public final class MarkdownRenderSession: ObservableObject {
         self.snapshotDiff = preparedSnapshot.diff
     }
 
+    deinit {
+        imageTasks.values.forEach { $0.cancel() }
+        imageRefreshTask?.cancel()
+    }
+
     public var streamCounters: MarkdownDiagnosticsCounters {
         streamDiagnosticsRecorder.snapshot()
     }
@@ -99,6 +114,7 @@ public final class MarkdownRenderSession: ObservableObject {
         sourceCopyStore.removeAll()
         configuration.preparationCache.removeAll()
         cancelLinkMetadataResolution()
+        cancelImageResolution()
         schedule(.reset)
     }
 
@@ -127,6 +143,92 @@ public final class MarkdownRenderSession: ObservableObject {
             await refreshTask?.value
             await waitUntilIdle()
         }
+    }
+
+    /// Waits for opted-in image loads and their prepared snapshot publication.
+    /// Ordinary waitUntilIdle remains independent of network completion.
+    public func waitUntilImagesIdle() async {
+        while true {
+            await waitUntilIdle()
+            let tasks = Array(imageTasks.values)
+            let refresh = imageRefreshTask
+            if tasks.isEmpty, refresh == nil, renderTask == nil { return }
+            for task in tasks { await task.value }
+            await refresh?.value
+        }
+    }
+
+    /// Restricts new image loads to visible top-level block IDs supplied by the
+    /// host's viewport tracking. An empty set pauses loads; nil permits all
+    /// document images. Already prepared images remain available when scrolled
+    /// away. A reset retains viewport gating but clears its old block IDs.
+    public func updateImageLoadingViewport(blockIDs: Set<MarkdownBlockID>?) {
+        guard imageLoadingViewport != blockIDs else { return }
+        imageLoadingViewport = blockIDs
+        scheduleImageResolution(owners: imageOwners)
+    }
+
+    private func scheduleImageResolution(owners: [String: Set<MarkdownBlockID>]) {
+        imageOwners = owners
+        authorizedImageSources = Set(owners.compactMap { source, blocks in
+            imageLoadingViewport.map { $0.isDisjoint(with: blocks) } == true ? nil : source
+        })
+        for source in Array(imageTasks.keys) where !authorizedImageSources.contains(source) {
+            imageTaskIDs.removeValue(forKey: source)
+            imageTasks.removeValue(forKey: source)?.cancel()
+        }
+        imageResolutionIDs = imageResolutionIDs.filter { owners[$0.key] != nil }
+        startImageRequests()
+    }
+
+    private func startImageRequests() {
+        guard let resolver = configuration.imageResolver as? any MarkdownAsyncImageResolver else { return }
+        let epoch = imageEpoch
+        for source in authorizedImageSources.sorted() {
+            guard imageTasks.count < 4 else { break }
+            guard imageTasks[source] == nil, imageResolutionIDs[source] == nil else { continue }
+            let requestID = UUID()
+            imageTaskIDs[source] = requestID
+            imageTasks[source] = Task.detached(priority: .utility) { [weak self, resolver] in
+                let resolution = await resolver.resolveImage(for: source)
+                guard !Task.isCancelled else { return }
+                await self?.imageResolutionFinished(resolution, source: source, epoch: epoch, requestID: requestID)
+            }
+        }
+    }
+
+    private func imageResolutionFinished(_ resolution: MarkdownAsyncImageResolution, source: String, epoch: UUID, requestID: UUID) {
+        guard epoch == imageEpoch, authorizedImageSources.contains(source), imageTaskIDs[source] == requestID else { return }
+        imageTaskIDs.removeValue(forKey: source)
+        imageTasks.removeValue(forKey: source)
+        imageResolutionIDs[source] = resolution.cacheIdentity
+        pendingImageRefreshes[source] = resolution
+        startImageRequests()
+        // Coalesce completion bursts, but keep a fixed deadline so a sustained
+        // download stream cannot indefinitely postpone the first visible image.
+        guard imageRefreshTask == nil else { return }
+        imageRefreshTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(50))
+            guard !Task.isCancelled, let self else { return }
+            self.imageRefreshTask = nil
+            let sources = self.pendingImageRefreshes
+            self.pendingImageRefreshes.removeAll(keepingCapacity: true)
+            if !sources.isEmpty { self.schedule(.refreshImages(sources)) }
+        }
+    }
+
+    private func cancelImageResolution() {
+        imageEpoch = UUID()
+        imageTasks.values.forEach { $0.cancel() }
+        imageTasks.removeAll()
+        imageTaskIDs.removeAll()
+        imageOwners.removeAll()
+        if imageLoadingViewport != nil { imageLoadingViewport = [] }
+        imageResolutionIDs.removeAll()
+        authorizedImageSources.removeAll()
+        pendingImageRefreshes.removeAll()
+        imageRefreshTask?.cancel()
+        imageRefreshTask = nil
     }
 
     private func schedule(_ operation: MarkdownRenderSessionOperation) {
@@ -191,6 +293,7 @@ public final class MarkdownRenderSession: ObservableObject {
             preparedLinkMetadataResolutions.merge(resolutions) { _, latest in latest }
         }
         scheduleLinkMetadataResolution(in: state.snapshot)
+        scheduleImageResolution(owners: state.imageOwners)
     }
 
     private func scheduleLinkMetadataResolution(in snapshot: MarkdownSnapshot) {
@@ -348,7 +451,7 @@ public final class MarkdownRenderSession: ObservableObject {
             switch operation {
             case let .append(markdown):
                 pendingAppendChunks.append(markdown)
-            case .appendHostBoundary, .finish, .reset, .refreshLinkMetadata:
+            case .appendHostBoundary, .finish, .reset, .refreshLinkMetadata, .refreshImages:
                 flushPendingAppend()
                 coalesced.append(operation)
             }
@@ -381,11 +484,13 @@ private enum MarkdownRenderSessionOperation: Sendable {
     case finish
     case reset
     case refreshLinkMetadata([URL: MarkdownLinkMetadataResolution])
+    case refreshImages([String: MarkdownAsyncImageResolution])
 }
 
 private struct MarkdownRenderSessionState: Sendable {
     var snapshot: MarkdownSnapshot
     var preparedSnapshot: MarkdownPreparedSnapshot
+    var imageOwners: [String: Set<MarkdownBlockID>]
 }
 
 private struct MarkdownRenderSessionBatch: Sendable {
@@ -395,6 +500,10 @@ private struct MarkdownRenderSessionBatch: Sendable {
 
 private actor MarkdownRenderSessionPipeline {
     private var stream: MarkdownStream
+    private var imageIndex = MarkdownPreparedImageResourceIndex()
+    // These values are part of the current document, shared with its prepared
+    // attachments. Global cache eviction must not discard an in-flight result.
+    private var resolvedImages: [String: MarkdownAsyncImageResolution] = [:]
     private var configuration: MarkdownRendererConfiguration
     private var preparedSnapshot: MarkdownPreparedSnapshot?
     private let parserCacheCapacity: Int
@@ -417,6 +526,7 @@ private actor MarkdownRenderSessionPipeline {
 
     func apply(_ operations: [MarkdownRenderSessionOperation]) -> MarkdownRenderSessionState {
         var invalidatingLinkDestinations: Set<URL> = []
+        var invalidatingImageSources: Set<String> = []
         for operation in operations {
             switch operation {
             case let .append(markdown):
@@ -432,6 +542,11 @@ private actor MarkdownRenderSessionPipeline {
                 )
                 configuration.preparationCache.removeAll()
                 preparedSnapshot = nil
+                imageIndex = MarkdownPreparedImageResourceIndex()
+                resolvedImages.removeAll()
+            case let .refreshImages(resolutions):
+                resolvedImages.merge(resolutions) { _, newest in newest }
+                invalidatingImageSources.formUnion(resolutions.keys)
             case let .refreshLinkMetadata(resolutions):
                 // Metadata changes presentation, not source semantics. Retain
                 // the previous prepared snapshot and invalidate only top-level
@@ -441,20 +556,30 @@ private actor MarkdownRenderSessionPipeline {
         }
 
         let snapshot = stream.snapshot()
-        let invalidatingBlockIDs = Self.blockIDs(
+        var invalidatingBlockIDs = Self.blockIDs(
             containingAny: invalidatingLinkDestinations,
             in: snapshot,
             policy: configuration.linkPolicy
         )
-        let preparedSnapshot = configuration.prepare(
+        for source in invalidatingImageSources { invalidatingBlockIDs.formUnion(imageIndex.owners[source] ?? []) }
+        var preparationConfiguration = configuration
+        if !resolvedImages.isEmpty {
+            preparationConfiguration.imageResolver = MarkdownImageCompletionResolver(base: configuration.imageResolver, resolutions: resolvedImages)
+        }
+        let preparedSnapshot = preparationConfiguration.prepare(
             snapshot: snapshot,
             reusing: preparedSnapshot,
             invalidatingBlockIDs: invalidatingBlockIDs
         )
         self.preparedSnapshot = preparedSnapshot
+        if configuration.imageResolver is any MarkdownAsyncImageResolver {
+            imageIndex.update(preparedSnapshot)
+            resolvedImages = resolvedImages.filter { imageIndex.owners[$0.key] != nil }
+        }
         return MarkdownRenderSessionState(
             snapshot: snapshot,
-            preparedSnapshot: preparedSnapshot
+            preparedSnapshot: preparedSnapshot,
+            imageOwners: imageIndex.owners
         )
     }
 

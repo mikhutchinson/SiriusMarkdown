@@ -15,6 +15,8 @@ struct MarkdownSelectableText: View {
     var selectionInlineLayout: MarkdownPreparedInlineContent?
     var preparedInlineContent: MarkdownPreparedInlineContent? = nil
     var mathTextPieces: [MarkdownInlineMathPiece]? = nil
+    var usesNativeLinkInteraction: Bool = false
+    var nativeLineLayout: InlineLayoutResult? = nil
 
     @Environment(\.markdownDocumentSelectionContext) private var documentSelectionContext
 
@@ -31,7 +33,9 @@ struct MarkdownSelectableText: View {
     @ViewBuilder
     private var selectableContent: some View {
         #if os(macOS)
-        if nativeTextSelection == .enabled {
+        // Prepared code uses explicit font metrics; SwiftUI's semantic body
+        // font can differ and place selection/reveal geometry beyond its glyphs.
+        if nativeTextSelection == .enabled || usesNativeLinkInteraction || mathTextPieces?.isEmpty == false || (!wraps && selectionInlineLayout != nil) {
             MarkdownAppKitSelectableTextView(
                 attributed: attributed,
                 fallbackFontSize: fontSize,
@@ -42,7 +46,9 @@ struct MarkdownSelectableText: View {
                 lineSpacing: lineSpacing,
                 wraps: wraps,
                 preparedInlineContent: preparedInlineContent,
-                mathTextPieces: mathTextPieces
+                mathTextPieces: mathTextPieces,
+                allowsNativeSelection: nativeTextSelection == .enabled,
+                nativeLineLayout: nativeLineLayout
             )
         } else {
             swiftUIText
@@ -64,10 +70,11 @@ struct MarkdownSelectableText: View {
     private var selectionFragmentPreference: some View {
         GeometryReader { proxy in
             let rect = selectionPreferenceRect(from: proxy)
-            Color.clear.preference(
-                key: MarkdownDocumentSelectionFragmentsKey.self,
-                value: selectionFragments(rect: rect)
-            )
+            let fragments = selectionFragments(rect: rect)
+            Color.clear.preference(key: MarkdownDocumentSelectionFragmentsKey.self, value: fragments)
+                .overlay {
+                    if !wraps { MarkdownLeafSourceRevealMarker(fragments: fragments, origin: rect.origin) }
+                }
         }
         .allowsHitTesting(false)
     }
@@ -126,6 +133,8 @@ private struct MarkdownAppKitSelectableTextView: NSViewRepresentable {
     var wraps: Bool
     var preparedInlineContent: MarkdownPreparedInlineContent?
     var mathTextPieces: [MarkdownInlineMathPiece]?
+    var allowsNativeSelection: Bool
+    var nativeLineLayout: InlineLayoutResult?
 
     @Environment(\.colorScheme) private var colorScheme
 
@@ -139,7 +148,7 @@ private struct MarkdownAppKitSelectableTextView: NSViewRepresentable {
         textView.delegate = context.coordinator
         textView.drawsBackground = false
         textView.isEditable = false
-        textView.isSelectable = true
+        textView.isSelectable = allowsNativeSelection
         textView.isRichText = true
         textView.importsGraphics = false
         textView.usesFindPanel = false
@@ -207,7 +216,8 @@ private struct MarkdownAppKitSelectableTextView: NSViewRepresentable {
             mathTextPieces: mathTextPieces,
             attachments: preparedInlineContent?.attachments,
             underlinesLinks: preparedInlineContent?.allSemanticLinksHaveDecorations != true,
-            colorScheme: colorScheme
+            colorScheme: colorScheme,
+            nativeLineLayoutFingerprint: nativeLineLayout?.cacheFingerprint
         )
     }
 
@@ -222,11 +232,16 @@ private struct MarkdownAppKitSelectableTextView: NSViewRepresentable {
         _ textView: MarkdownAppKitNativeSelectableTextView,
         coordinator: Coordinator
     ) {
+        textView.isSelectable = allowsNativeSelection
+        textView.markdownLinkAction = coordinator.linkAction
         let key = configurationKey
         guard coordinator.configuredKey != key else {
             return
         }
         coordinator.configuredKey = key
+        coordinator.nativeLineRunRanges = nativeLineLayout.flatMap { layout in
+            preparedInlineContent.map { MarkdownNativeLineSourceMap.runRanges(prepared: $0.prepared, layout: layout) }
+        }
         coordinator.measuredSizes.removeAll(keepingCapacity: true)
         textView.contentBuildCount += 1
 
@@ -279,6 +294,7 @@ private struct MarkdownAppKitSelectableTextView: NSViewRepresentable {
             keys: next.mathAttachmentKeys
         )
         textView.preparedAttachments = next.attachments
+        textView.reconcileMathAccessibility()
         if textView.accessibilityValue() != next.plainText {
             textView.setAccessibilityValue(next.plainText)
         }
@@ -444,7 +460,7 @@ private struct MarkdownAppKitSelectableTextView: NSViewRepresentable {
     ) {
         let fallback = (try? NSMutableAttributedString(attributed, including: \.appKit)) ??
             NSMutableAttributedString(string: String(attributed.characters))
-        markLinkDecorationsAsNonSemantic(in: fallback)
+        markLinkDecorationsAsNonSemantic(in: fallback, runRanges: coordinator.nativeLineRunRanges)
         guard let mathTextPieces, !mathTextPieces.isEmpty else {
             return (fallback, [], [], fallback.string)
         }
@@ -560,6 +576,9 @@ private struct MarkdownAppKitSelectableTextView: NSViewRepresentable {
                 ) {
                     attributes[.attachment] = attachment
                     attributes[.markdownNativePlainText] = image.latex
+                    if let tree = image.accessibilityTree {
+                        attributes[.markdownMathAccessibility] = MarkdownMathAccessibilityBox(tree)
+                    }
                     result.append(NSAttributedString(string: "\u{FFFC}", attributes: attributes))
                     mathAttachmentKeys.insert(attachmentKey)
                 } else if fallbackLength > 0, sourceOffset + fallbackLength <= fallback.length {
@@ -591,21 +610,29 @@ private struct MarkdownAppKitSelectableTextView: NSViewRepresentable {
 
         var placements: [MarkdownAppKitNativeAttachmentPlacement] = []
         var utf16Offset = 0
-        for run in preparedInlineContent.prepared.runs {
+        var replacementDelta = 0
+        for (index, run) in preparedInlineContent.prepared.runs.enumerated() {
             let runLength = (run.text as NSString).length
             defer { utf16Offset += runLength }
+            let sourceRange: NSRange?
+            if let mapped = coordinator.nativeLineRunRanges {
+                sourceRange = mapped[index]
+            } else {
+                sourceRange = NSRange(location: utf16Offset, length: runLength)
+            }
+            guard let sourceRange else { continue }
+            let range = NSRange(location: sourceRange.location + replacementDelta, length: sourceRange.length)
             guard let metrics = run.attachmentMetrics,
                   let record = preparedInlineContent.attachments[metrics.id],
                   runLength > 0,
-                  utf16Offset >= 0,
-                  utf16Offset + runLength <= attributed.length
+                  range.location >= 0,
+                  range.upperBound <= attributed.length
             else {
                 continue
             }
 
-            let range = NSRange(location: utf16Offset, length: runLength)
             attributed.replaceCharacters(in: range, with: "\u{FFFC}")
-            let attachmentRange = NSRange(location: utf16Offset, length: 1)
+            let attachmentRange = NSRange(location: range.location, length: 1)
             let attachment = coordinator.nativeTextAttachment(for: record)
             attributed.addAttributes(
                 [
@@ -623,30 +650,38 @@ private struct MarkdownAppKitSelectableTextView: NSViewRepresentable {
                     record: record
                 )
             )
-            utf16Offset += 1 - runLength
+            replacementDelta += 1 - range.length
         }
         return placements
     }
 
     private func markLinkDecorationsAsNonSemantic(
-        in attributed: NSMutableAttributedString
+        in attributed: NSMutableAttributedString,
+        runRanges: [NSRange?]?
     ) {
         guard let preparedInlineContent else { return }
         var utf16Offset = 0
-        for run in preparedInlineContent.prepared.runs {
+        for (index, run) in preparedInlineContent.prepared.runs.enumerated() {
             let length = (run.text as NSString).length
             defer { utf16Offset += length }
-            guard run.presentation.contains(.linkDecoration),
+            let range: NSRange?
+            if let runRanges {
+                range = runRanges[index]
+            } else {
+                range = NSRange(location: utf16Offset, length: length)
+            }
+            guard let range,
+                  run.presentation.contains(.linkDecoration),
                   length > 0,
-                  utf16Offset >= 0,
-                  utf16Offset + length <= attributed.length
+                  range.location >= 0,
+                  range.upperBound <= attributed.length
             else {
                 continue
             }
             attributed.addAttribute(
                 .markdownNativePlainText,
                 value: "",
-                range: NSRange(location: utf16Offset, length: length)
+                range: range
             )
         }
     }
@@ -663,6 +698,7 @@ private struct MarkdownAppKitSelectableTextView: NSViewRepresentable {
         /// Last applied content/environment key; `configure` short-circuits
         /// while it is unchanged so repeated layout proposals stay cheap.
         var configuredKey: MarkdownAppKitLeafConfigurationKey?
+        var nativeLineRunRanges: [NSRange?]?
         /// Measured sizes per proposed-width key, invalidated whenever
         /// `configuredKey` changes.
         var measuredSizes: [CGFloat: CGSize] = [:]
@@ -832,6 +868,9 @@ private struct MarkdownAppKitSelectableTextView: NSViewRepresentable {
             NSGraphicsContext.saveGraphicsState()
             defer { NSGraphicsContext.restoreGraphicsState() }
             NSGraphicsContext.current = context
+            // Bitmap contexts use pixel coordinates even after changing the
+            // representation's logical size. Draw across the full Retina raster.
+            context.cgContext.scaleBy(x: CGFloat(bitmap.pixelsWide) / pointSize.width, y: CGFloat(bitmap.pixelsHigh) / pointSize.height)
             context.imageInterpolation = .high
             color.setFill()
             NSRect(origin: .zero, size: pointSize).fill()
@@ -890,6 +929,7 @@ struct MarkdownAppKitLeafConfigurationKey: Equatable {
     var attachments: [MarkdownAttachmentID: MarkdownPreparedAttachment]?
     var underlinesLinks: Bool
     var colorScheme: ColorScheme
+    var nativeLineLayoutFingerprint: MarkdownContentFingerprint? = nil
 }
 
 private extension NSAttributedString.Key {
@@ -942,6 +982,96 @@ struct MarkdownAppKitMathAttachmentKey: Hashable {
 }
 
 final class MarkdownAppKitNativeSelectableTextView: NSTextView {
+    private var mathAccessibilityElements: [MarkdownMathAccessibilityElement] = []
+    private var mathAccessibilitySignature: [MathAccessibilityDescriptor] = []
+    private struct MathAccessibilityDescriptor: Equatable {
+        var range: NSRange
+        var tree: MarkdownMathAccessibilityTree
+    }
+
+    func reconcileMathAccessibility() {
+        guard let textStorage else { return }
+        var descriptors: [MathAccessibilityDescriptor] = []
+        textStorage.enumerateAttribute(.markdownMathAccessibility, in: NSRange(location: 0, length: textStorage.length)) { value, range, _ in
+            if let box = value as? MarkdownMathAccessibilityBox { descriptors.append(.init(range: range, tree: box.tree)) }
+        }
+        guard descriptors != mathAccessibilitySignature else { return }
+        mathAccessibilitySignature = descriptors
+        mathAccessibilityElements = descriptors.map { descriptor in
+            MarkdownMathAccessibilityElement(node: descriptor.tree.root, host: self, parent: self) { [weak self] in
+                guard let self, let manager = self.layoutManager, let container = self.textContainer,
+                      let window = self.window, descriptor.range.upperBound <= (self.textStorage?.length ?? 0) else { return .zero }
+                let glyphs = manager.glyphRange(forCharacterRange: descriptor.range, actualCharacterRange: nil)
+                let rect = manager.boundingRect(forGlyphRange: glyphs, in: container)
+                    .offsetBy(dx: self.textContainerOrigin.x, dy: self.textContainerOrigin.y)
+                return window.convertToScreen(self.convert(rect, to: nil))
+            }
+        }
+    }
+
+    override func accessibilityChildren() -> [Any]? {
+        let existing = super.accessibilityChildren() ?? []
+        return existing + mathAccessibilityElements
+    }
+
+    var markdownLinkAction: MarkdownLinkAction?
+    private var pendingLinkClick: (point: CGPoint, destination: String)?
+
+    func linkDestination(at point: CGPoint) -> String? {
+        guard let layoutManager, let textContainer, let textStorage, textStorage.length > 0 else { return nil }
+        let local = CGPoint(x: point.x - textContainerOrigin.x, y: point.y - textContainerOrigin.y)
+        let glyph = layoutManager.glyphIndex(for: local, in: textContainer)
+        guard glyph < layoutManager.numberOfGlyphs,
+              layoutManager.boundingRect(forGlyphRange: NSRange(location: glyph, length: 1), in: textContainer)
+                .insetBy(dx: -2, dy: -2).contains(local) else { return nil }
+        let index = layoutManager.characterIndexForGlyph(at: glyph)
+        guard index < textStorage.length, let link = textStorage.attribute(.link, at: index, effectiveRange: nil) else { return nil }
+        return (link as? URL)?.absoluteString ?? (link as? String)
+    }
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        pendingLinkClick = nil
+        let point = convert(event.locationInWindow, from: nil)
+        guard let destination = linkDestination(at: point) else { return super.menu(for: event) }
+        return MarkdownLinkContextMenu(destination: destination, linkAction: markdownLinkAction)
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        guard !isSelectable else { super.mouseDown(with: event); return }
+        pendingLinkClick = nil
+        let point = convert(event.locationInWindow, from: nil)
+        if event.clickCount == 1, !event.modifierFlags.contains(.control), !event.modifierFlags.contains(.shift),
+           let destination = linkDestination(at: point) {
+            pendingLinkClick = (point, destination)
+        }
+        nextResponder?.mouseDown(with: event)
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard !isSelectable else { super.mouseDragged(with: event); return }
+        if let pendingLinkClick {
+            let point = convert(event.locationInWindow, from: nil)
+            if hypot(point.x - pendingLinkClick.point.x, point.y - pendingLinkClick.point.y) >= 4 {
+                self.pendingLinkClick = nil
+            }
+        }
+        nextResponder?.mouseDragged(with: event)
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        guard !isSelectable else { super.mouseUp(with: event); return }
+        defer { pendingLinkClick = nil }
+        let point = convert(event.locationInWindow, from: nil)
+        if let pendingLinkClick,
+           hypot(point.x - pendingLinkClick.point.x, point.y - pendingLinkClick.point.y) < 4,
+           linkDestination(at: point) == pendingLinkClick.destination {
+            if let markdownLinkAction { markdownLinkAction.open(pendingLinkClick.destination) }
+            else { MarkdownURLOpener.open(pendingLinkClick.destination) }
+            return
+        }
+        nextResponder?.mouseUp(with: event)
+    }
+
     /// Number of times `configure` actually rebuilt and applied the attributed
     /// source (test hook). Steady-state layout passes must not increment this:
     /// rebuilding per SwiftUI size proposal is the BUG class that pegged host

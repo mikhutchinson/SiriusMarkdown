@@ -6,7 +6,9 @@
     "test": "node src/index.js --check"
   },
   "dependencies": {
+    "@chenglou/pretext": "^0.0.6",
     "@napi-rs/canvas": "^0.1.100",
-    "@chenglou/pretext": "^0.0.6"
+    "base64-js": "0.0.8",
+    "unicode-trie": "2.0.0"
   }
 }

@@ -320,3 +320,16 @@ private func assertLatexStreamingEquivalence(chunkSize: Int) {
 @Test func latexStreamingEquivalenceChunk013() { assertLatexStreamingEquivalence(chunkSize: 13) }
 @Test func latexStreamingEquivalenceChunk017() { assertLatexStreamingEquivalence(chunkSize: 17) }
 @Test func latexStreamingEquivalenceChunk023() { assertLatexStreamingEquivalence(chunkSize: 23) }
+
+@Test(arguments: ["\n", "\r\n", "\r"])
+func quotedDollarDisplayMathChildUsesASTContainerDepth(newline: String) throws {
+    let source = ["> $$", "> x > y", "> $$"].joined(separator: newline)
+    let document = snapshot(source)
+    let quote = try #require(document.blocks.first)
+    let child = try #require(quote.childBlocks.first)
+    #expect(child.kind == .mathBlock)
+    #expect(child.inlines.first?.text == "x > y")
+    #expect(quote.inlines.first(where: { $0.kind == .math })?.text == "x > y")
+    let plain = snapshot("$$\nx > y\n$$")
+    #expect(plain.blocks.first?.inlines.first?.text == "x > y")
+}

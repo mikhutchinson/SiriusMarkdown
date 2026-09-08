@@ -11,9 +11,9 @@ import SwiftUI
 /// On macOS the platform default is `.enabled`, backed by bounded `NSTextView`
 /// leaves so selection appearance, keyboard behavior, and contextual commands
 /// come from AppKit. Other platforms retain the source-backed document
-/// selection default. Hosts can still opt into SiriusMarkdown's cross-block
-/// source selector explicitly through
-/// `MarkdownRendererConfiguration.documentSelection`.
+/// selection default. Document configurations use cross-block selection by
+/// default; passing `nativeTextSelection: .enabled` explicitly restores this
+/// leaf-level compatibility mode.
 public enum MarkdownNativeTextSelection: Sendable, Hashable {
     /// Render Markdown text without native text-selection behavior. Document
     /// selection and `MarkdownSelectionController` remain available through

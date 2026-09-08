@@ -30,6 +30,7 @@ public struct InlineRunsView: View {
     private var linkAction: MarkdownLinkAction?
     private var inlineRenderingMode: MarkdownInlineRenderingMode
     private var nativeTextSelection: MarkdownNativeTextSelection
+    private var hasSemanticLinks: Bool
     /// Exact content width already resolved by an enclosing prepared layout,
     /// currently the default table-cell pipeline. When present, the inline
     /// leaf must not mount a GeometryReader/preference feedback loop.
@@ -48,11 +49,13 @@ public struct InlineRunsView: View {
         lineHeight: Double? = nil,
         fontProfile: MarkdownFontProfile? = nil
     ) {
-        self.attributed = Self.attributedString(
+        let attributed = Self.attributedString(
             for: runs,
             linkPolicy: linkPolicy,
             imagePolicy: imagePolicy
         )
+        self.attributed = attributed
+        self.hasSemanticLinks = attributed.runs.contains { $0.link != nil }
         self.prepared = nil
         self.theme = theme
         self.baseFont = baseFont ?? theme.paragraphFont
@@ -79,6 +82,7 @@ public struct InlineRunsView: View {
         fontProfile: MarkdownFontProfile? = nil
     ) {
         self.attributed = attributed
+        self.hasSemanticLinks = attributed.runs.contains { $0.link != nil }
         self.prepared = nil
         self.theme = theme
         self.baseFont = baseFont ?? theme.paragraphFont
@@ -102,6 +106,7 @@ public struct InlineRunsView: View {
         nativeTextSelection: MarkdownNativeTextSelection = .platformDefault
     ) {
         self.attributed = prepared.attributed
+        self.hasSemanticLinks = prepared.hasSemanticLinks
         self.prepared = prepared
         self.theme = theme
         self.baseFont = baseFont ?? theme.paragraphFont
@@ -130,13 +135,9 @@ public struct InlineRunsView: View {
     public var body: some View {
         if let prepared {
             #if os(macOS)
-            if nativeTextSelection == .enabled {
-                preparedInlineTextView(prepared)
-            } else if let mathPieces = prepared.mathTextPieces, !mathPieces.isEmpty {
-                inlineMathTextView(pieces: mathPieces, prepared: prepared)
-            } else {
-                preparedInlineTextView(prepared)
-            }
+            // The prepared AppKit attachment surface retains math pixels and
+            // provides the same link interaction as ordinary native text.
+            preparedInlineTextView(prepared)
             #else
             if let mathPieces = prepared.mathTextPieces, !mathPieces.isEmpty {
                 inlineMathTextView(pieces: mathPieces, prepared: prepared)
@@ -153,7 +154,8 @@ public struct InlineRunsView: View {
                 fontProfile: fallbackMetrics.fontProfile,
                 textColor: theme.textColor,
                 linkAction: linkAction,
-                nativeTextSelection: nativeTextSelection
+                nativeTextSelection: nativeTextSelection,
+                usesNativeLinkInteraction: hasSemanticLinks
             )
         }
     }
@@ -186,12 +188,11 @@ public struct InlineRunsView: View {
     }
 
     /*
-     Image-backed inline math normally uses `InlineMathTextView` so SwiftUI can
-     compose its prepared glyph bitmap into `Text`. On macOS native-selection
-     mode, `PreparedInlineTextView` instead feeds those same prepared pieces to
-     the bounded AppKit text leaf as TextKit attachments. This keeps the math
-     visual and makes the entire paragraph selectable without mounting
-     SwiftUI's private `SelectionOverlay`.
+     Image-backed inline math uses `InlineMathTextView` on UIKit platforms.
+     On macOS `PreparedInlineTextView` feeds those same prepared pieces to the
+     bounded AppKit leaf as TextKit attachments. This keeps link context menus
+     available in math paragraphs and supports native selection when requested
+     without mounting SwiftUI's private `SelectionOverlay`.
      */
 
     public nonisolated static func plainText(
@@ -791,6 +792,7 @@ private struct PreparedInlineTextView: View {
     var body: some View {
         if fixedPreparedContainerWidth != nil,
            nativeTextSelection != .enabled,
+           !usesNativeMathAttachmentSurface,
            canRenderNativeLines
         {
             fixedPreparedNativeLineSurface
@@ -901,7 +903,7 @@ private struct PreparedInlineTextView: View {
 
     @ViewBuilder
     private var renderSurface: some View {
-        if nativeTextSelection == .enabled {
+        if nativeTextSelection == .enabled || usesNativeMathAttachmentSurface {
             MarkdownNativeSelectableWidthLayout {
                 MarkdownSelectableText(
                     attributed: InlineRunsView.renderingAttributedString(for: prepared),
@@ -911,15 +913,21 @@ private struct PreparedInlineTextView: View {
                     fontProfile: prepared.fontProfiles.body,
                     textColor: theme.textColor,
                     linkAction: linkAction,
-                    nativeTextSelection: .enabled,
+                    nativeTextSelection: nativeTextSelection,
                     lineSpacing: InlineRunsView.nativeLineSpacing(for: prepared),
                     wraps: true,
                     preparedInlineContent: prepared,
-                    mathTextPieces: prepared.mathTextPieces
+                    mathTextPieces: prepared.mathTextPieces,
+                    usesNativeLinkInteraction: prepared.hasSemanticLinks
                 )
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(widthReaderIfNeeded)
+            .background {
+                if nativeTextSelection != .enabled {
+                    nativeLineSelectionFragmentsPreferenceIfNeeded
+                }
+            }
         } else if canRenderNativeLines {
             Color.clear
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -949,13 +957,23 @@ private struct PreparedInlineTextView: View {
                 fontProfile: prepared.fontProfiles.body,
                 textColor: theme.textColor,
                 linkAction: linkAction,
-                nativeTextSelection: nativeTextSelection
+                nativeTextSelection: nativeTextSelection,
+                preparedInlineContent: prepared,
+                usesNativeLinkInteraction: prepared.hasSemanticLinks
             )
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .clipped()
                 .background(widthReaderIfNeeded)
                 .background(fallbackSelectionFragmentPreferenceIfNeeded)
         }
+    }
+
+    private var usesNativeMathAttachmentSurface: Bool {
+        #if os(macOS)
+        prepared.mathTextPieces?.isEmpty == false
+        #else
+        false
+        #endif
     }
 
     private var canRenderNativeLines: Bool {
@@ -1005,7 +1023,7 @@ private struct PreparedInlineTextView: View {
 
     @ViewBuilder
     private var nativeLineSelectionFragmentsPreferenceIfNeeded: some View {
-        if fixedPreparedContainerWidth == nil {
+        if documentSelectionContext != nil, fixedPreparedContainerWidth == nil {
             nativeLineSelectionFragmentsPreference
         }
     }
@@ -1025,7 +1043,7 @@ private struct PreparedInlineTextView: View {
 
     @ViewBuilder
     private var fallbackSelectionFragmentPreferenceIfNeeded: some View {
-        if fixedPreparedContainerWidth == nil {
+        if documentSelectionContext != nil, fixedPreparedContainerWidth == nil {
             fallbackSelectionFragmentPreference
         }
     }

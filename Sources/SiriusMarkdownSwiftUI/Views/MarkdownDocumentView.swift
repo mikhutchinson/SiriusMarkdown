@@ -11,6 +11,8 @@ public struct MarkdownDocumentView: View {
     private var hostBoundaryView: @MainActor (MarkdownHostBoundary) -> AnyView
 
     @StateObject private var internalSelectionController = MarkdownSelectionController()
+    @StateObject private var internalFindController = MarkdownDocumentFindController()
+    private var suppliedFindController: MarkdownDocumentFindController?
 
     private var theme: MarkdownTheme {
         configuration.theme
@@ -64,15 +66,31 @@ public struct MarkdownDocumentView: View {
 
     public var body: some View {
         let controller = activeSelectionController
-        ScrollView {
-            selectionDocumentContent(selectionController: controller)
+        let findSelection = selectionController ?? internalSelectionController
+        MarkdownDocumentNavigationView(
+            snapshot: preparedSnapshot,
+            externalLinkAction: configuration.linkAction,
+            selectionController: findSelection,
+            findController: suppliedFindController ?? internalFindController
+        ) { action, findPresented in
+            var routed = self
+            routed.configuration.linkAction = action
+            return routed.selectionDocumentContent(selectionController: findPresented ? findSelection : controller)
         }
         .onAppear {
-            controller?.updateSnapshot(preparedSnapshot.snapshot)
+            findSelection.updateSnapshot(preparedSnapshot.snapshot)
         }
-        .markdownOnChange(of: preparedSnapshot.snapshot.generation) { _ in
-            controller?.updateSnapshot(preparedSnapshot.snapshot)
+        .markdownOnChange(of: preparedSnapshot.documentIndexIdentity) { _ in
+            findSelection.updateSnapshot(preparedSnapshot.snapshot)
         }
+    }
+
+    /// Supplies observable Find state for toolbar controls and programmatic
+    /// navigation. The document builds its search index only when requested.
+    public func documentFindController(_ controller: MarkdownDocumentFindController) -> Self {
+        var copy = self
+        copy.suppliedFindController = controller
+        return copy
     }
 
     private var activeSelectionController: MarkdownSelectionController? {
@@ -87,7 +105,7 @@ public struct MarkdownDocumentView: View {
         let content = LazyVStack(alignment: .leading, spacing: theme.renderBlockSpacing) {
             ForEach(preparedSnapshot.renderItems) { item in
                 preparedRenderItemView(item, selectionController: selectionController)
-                    .id(itemViewID(for: item, in: preparedSnapshot))
+                    .id(item.id)
             }
         }
         .padding()
@@ -144,21 +162,7 @@ public struct MarkdownDocumentView: View {
         }
     }
 
-    /// Returns a stable view identity for `item` that only changes when the diff marks the
-    /// item as changed or new (INV-P3).  Unchanged sealed items receive the ":0" suffix so
-    /// SwiftUI recognises them across snapshot publishes and skips expensive re-evaluation.
-    private func itemViewID(
-        for item: MarkdownPreparedSnapshotRenderItem,
-        in snapshot: MarkdownPreparedSnapshot
-    ) -> String {
-        let baseID = snapshot.item(at: item.itemIndex)?.id ?? item.id
-        // Only items whose content actually changed need a new view identity. New items start at
-        // ":0" so when they seal on the next render they keep the same identity without a flip.
-        if snapshot.diff.changedItemIDs.contains(baseID) {
-            return item.id + ":\(snapshot.diff.generation)"
-        }
-        return item.id + ":0"
-    }
+
 }
 
 public struct StreamingMarkdownView: View {
@@ -166,6 +170,16 @@ public struct StreamingMarkdownView: View {
     private var preparedSnapshot: MarkdownPreparedSnapshot
     private var selectionController: MarkdownSelectionController?
     private var hostBoundaryView: @MainActor (MarkdownHostBoundary) -> AnyView
+
+    private var suppliedFindController: MarkdownDocumentFindController?
+
+    /// Enables package-owned Find and fragment navigation within the host's
+    /// existing scroll view. No nested scrolling surface is introduced.
+    public func documentFindController(_ controller: MarkdownDocumentFindController) -> Self {
+        var copy = self
+        copy.suppliedFindController = controller
+        return copy
+    }
 
     @StateObject private var internalSelectionController = MarkdownSelectionController()
     @StateObject private var regionMeasurementStore = MarkdownStreamingRegionMeasurementStore()
@@ -222,15 +236,31 @@ public struct StreamingMarkdownView: View {
 
     public var body: some View {
         let controller = activeSelectionController
+        let selectionForUpdates = suppliedFindController == nil ? controller : (selectionController ?? internalSelectionController)
         let regions = streamingRegions
-        selectionDocumentContent(selectionController: controller)
+        navigableContent(selectionController: controller, regions: regions)
         .onAppear {
-            controller?.updateSnapshot(preparedSnapshot.snapshot)
+            selectionForUpdates?.updateSnapshot(preparedSnapshot.snapshot)
             regionMeasurementStore.synchronize(tokens: regions.map(\.layoutToken))
         }
-        .markdownOnChange(of: preparedSnapshot.snapshot.generation) { _ in
-            controller?.updateSnapshot(preparedSnapshot.snapshot)
+        .markdownOnChange(of: preparedSnapshot.documentIndexIdentity) { _ in
+            selectionForUpdates?.updateSnapshot(preparedSnapshot.snapshot)
             regionMeasurementStore.synchronize(tokens: regions.map(\.layoutToken))
+        }
+    }
+
+    @ViewBuilder
+    private func navigableContent(selectionController: MarkdownSelectionController?, regions: [MarkdownStreamingPreparedRegion]) -> some View {
+        if let find = suppliedFindController {
+            let selection = self.selectionController ?? selectionController ?? internalSelectionController
+            MarkdownDocumentNavigationView(snapshot: preparedSnapshot, externalLinkAction: configuration.linkAction,
+                selectionController: selection, findController: find, ownsScrollView: false) { action, revealing in
+                    var routed = self
+                    routed.configuration.linkAction = action
+                    return routed.selectionDocumentContent(selectionController: revealing ? selection : selectionController, regions: regions)
+                }
+        } else {
+            selectionDocumentContent(selectionController: selectionController, regions: regions)
         }
     }
 
@@ -242,7 +272,10 @@ public struct StreamingMarkdownView: View {
     }
 
     @ViewBuilder
-    private func selectionDocumentContent(selectionController: MarkdownSelectionController?) -> some View {
+    private func selectionDocumentContent(
+        selectionController: MarkdownSelectionController?,
+        regions: [MarkdownStreamingPreparedRegion]
+    ) -> some View {
         // StreamingMarkdownView is the host-scrolled surface. It keeps every
         // prepared item mounted, but groups items into bounded stable regions:
         // sealed regions reuse their settled natural size and only the region
@@ -250,12 +283,12 @@ public struct StreamingMarkdownView: View {
         // LazyVStack/AppKit item-phase crash and an eager whole-document
         // sizeThatFits pass on every publication.
         let content = markdownStreamingRegionStack(
-            regions: streamingRegions,
+            regions: regions,
             spacing: theme.renderBlockSpacing,
             measurementStore: regionMeasurementStore
         ) { item in
             preparedRenderItemView(item, selectionController: selectionController)
-                .id(itemViewID(for: item, in: preparedSnapshot))
+                .id(item.id)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -277,7 +310,7 @@ public struct StreamingMarkdownView: View {
             renderItems: preparedSnapshot.renderItems,
             layoutContextRevision: streamingLayoutContextRevision
         ) { item in
-            itemViewID(for: item, in: preparedSnapshot)
+            itemLayoutRevision(for: item, in: preparedSnapshot)
         }
     }
 
@@ -312,28 +345,36 @@ public struct StreamingMarkdownView: View {
     ) -> some View {
         switch item {
         case let .block(block, preparedContent):
-            let blockView = MarkdownBlockView(
+            MarkdownStreamingBlockRenderBoundary(
                 block: block,
-                configuration: configuration,
-                preparedContent: preparedContent
-            )
-            if let selectionController {
-                MarkdownSelectionFragmentContainer(
+                preparedRevision: preparedContent.renderRevision,
+                configurationRevision: configuration.renderRevision,
+                selectionController: selectionController
+            ) {
+                let blockView = MarkdownBlockView(
                     block: block,
-                    preparedContent: preparedContent,
-                    selectionController: selectionController
-                ) {
+                    configuration: configuration,
+                    preparedContent: preparedContent
+                )
+                if let selectionController {
+                    MarkdownSelectionFragmentContainer(
+                        block: block,
+                        preparedContent: preparedContent,
+                        selectionController: selectionController
+                    ) {
+                        blockView
+                    }
+                } else {
                     blockView
                 }
-            } else {
-                blockView
-            }
+            }.equatable()
         case let .hostBoundary(boundary):
             hostBoundaryView(boundary)
         }
     }
 
-    private func itemViewID(
+    // Content revisions invalidate measurements without replacing native views.
+    private func itemLayoutRevision(
         for item: MarkdownPreparedSnapshotRenderItem,
         in snapshot: MarkdownPreparedSnapshot
     ) -> String {
@@ -343,6 +384,25 @@ public struct StreamingMarkdownView: View {
         }
         return item.id + ":0"
     }
+}
+
+/// A value boundary above the per-block selection and native render subtree.
+/// Environment and observed selection changes still propagate to descendants;
+/// unrelated snapshot publications do not reconstruct their captured views.
+struct MarkdownStreamingBlockRenderBoundary<Content: View>: View, Equatable {
+    let block: MarkdownBlock
+    let preparedRevision: UUID
+    let configurationRevision: UUID
+    let selectionController: MarkdownSelectionController?
+    @ViewBuilder let content: () -> Content
+
+    nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.preparedRevision == rhs.preparedRevision &&
+        lhs.configurationRevision == rhs.configurationRevision &&
+        lhs.selectionController === rhs.selectionController && lhs.block == rhs.block
+    }
+
+    var body: some View { content() }
 }
 
 private struct MarkdownSelectionFragmentContainer<Content: View>: View {
@@ -392,6 +452,8 @@ private struct MarkdownDocumentSelectionLayer<Content: View>: View {
     @State private var fragments: [MarkdownDocumentSelectionFragment] = []
     @State private var dragAnchor: MarkdownDocumentSelectionEndpoint?
     @State private var focusToken = 0
+    @Environment(\.markdownDocumentRevealRequest) private var revealRequest
+    @Environment(\.markdownHostScrollReveal) private var hostScrollReveal
     private let dragActivation = MarkdownDocumentSelectionDragActivation()
 
     var body: some View {
@@ -400,16 +462,21 @@ private struct MarkdownDocumentSelectionLayer<Content: View>: View {
             .coordinateSpace(name: markdownDocumentSelectionCoordinateSpaceName)
             .overlay(alignment: .topLeading) {
                 selectionHighlights
+                revealAnchor
             }
             .background {
+                #if os(macOS)
+                MarkdownDocumentSelectionEventHandler(fragments: fragments, copyContext: copyContext)
+                #else
                 MarkdownDocumentSelectionKeyHandler(
                     focusToken: focusToken,
                     copyContext: copyContext
                 )
                 .frame(width: 0, height: 0)
+                #endif
             }
             .contentShape(Rectangle())
-            .simultaneousGesture(selectionGesture)
+            .simultaneousGesture(selectionGesture, including: selectionGestureMask)
             .onPreferenceChange(MarkdownDocumentSelectionFragmentsKey.self) { value in
                 // Measures whether this closure runs (and thus sorts) on
                 // layout passes where nothing actually changed, separately
@@ -441,8 +508,36 @@ private struct MarkdownDocumentSelectionLayer<Content: View>: View {
             }
     }
 
+    @ViewBuilder
+    private var revealAnchor: some View {
+        if let request = revealRequest, let rect = request.highlight(in: fragments) {
+            Color.clear
+                .frame(width: 1, height: 1)
+                .background {
+                    if hostScrollReveal { MarkdownHostScrollRevealMarker(requestID: request.id) }
+                }
+                .id(request.anchorID)
+                .position(x: rect.rect.midX, y: rect.rect.midY)
+                .preference(key: MarkdownDocumentRevealAnchorKey.self, value: request.anchorID)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+        }
+    }
+
+    private var selectionGestureMask: GestureMask {
+        #if os(macOS)
+        .none
+        #else
+        .all
+        #endif
+    }
+
     private var selectionGesture: some Gesture {
-        #if os(tvOS)
+        #if os(macOS)
+        // AppKit owns pointer granularity and modifier state for the document.
+        // Keep this gesture inert so it cannot race the native event bridge.
+        DragGesture(minimumDistance: dragActivation.minimumDistance)
+        #elseif os(tvOS)
         TapGesture()
             .onEnded {
                 takeFocus()
@@ -569,18 +664,10 @@ struct MarkdownDocumentSelectionCopyContext {
 
     @MainActor
     func copySelection() {
-        let markdown = selectionController.selectedMarkdown(
-            in: preparedSnapshot,
-            copyProvider: copyProvider
+        let payload = selectionController.selectedPasteboardPayload(
+            in: preparedSnapshot, copyProvider: copyProvider
         )
-        guard !markdown.isEmpty else {
-            return
-        }
-        let plainText = selectionController.selectedPlainText(in: preparedSnapshot)
-        let payload = MarkdownPasteboardPayload(
-            plainText: plainText.isEmpty ? markdown : plainText,
-            markdown: markdown
-        )
+        guard !payload.markdown.isEmpty else { return }
         affordanceActionHandler.copyPayload(payload)
     }
 

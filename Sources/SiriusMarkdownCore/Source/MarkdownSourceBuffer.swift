@@ -146,8 +146,19 @@ public struct MarkdownSourceBuffer: Sendable, Hashable {
 
         let bytes = Array(text.utf8)
 
-        for (index, byte) in bytes.enumerated() where byte == 10 {
-            newlineByteOffsets.append(lowerBound + index)
+        var previousByte = chunks.last?.last
+        for (index, byte) in bytes.enumerated() {
+            if byte == 13 {
+                newlineByteOffsets.append(lowerBound + index)
+            } else if byte == 10 {
+                if previousByte == 13 {
+                    // CRLF is one newline, including when split across appends.
+                    newlineByteOffsets[newlineByteOffsets.count - 1] = lowerBound + index
+                } else {
+                    newlineByteOffsets.append(lowerBound + index)
+                }
+            }
+            previousByte = byte
         }
 
         chunkStartOffsets.append(lowerBound)
@@ -201,6 +212,7 @@ public struct MarkdownSourceBuffer: Sendable, Hashable {
         var lineSegments: [ArraySlice<UInt8>] = []
         var segmentStart: Int?
         var lineStart = byteRange.lowerBound
+        var newlineIndex = lineMap.lineNumber(containingByteOffset: lineStart) - 1
 
         for chunkIndex in firstChunkIndex(intersecting: byteRange)..<chunks.count {
             let chunk = chunks[chunkIndex]
@@ -214,13 +226,14 @@ public struct MarkdownSourceBuffer: Sendable, Hashable {
                 let end = upper - chunkRange.lowerBound
 
                 for index in start..<end {
-                    let byte = chunk[index]
                     let absoluteOffset = chunkRange.lowerBound + index
                     if segmentStart == nil {
                         segmentStart = index
                     }
 
-                    if byte == 10 {
+                    if newlineIndex < newlineByteOffsets.count,
+                       absoluteOffset == newlineByteOffsets[newlineIndex] {
+                        newlineIndex += 1
                         if let start = segmentStart, start < index {
                             lineSegments.append(chunk[start..<index])
                         }

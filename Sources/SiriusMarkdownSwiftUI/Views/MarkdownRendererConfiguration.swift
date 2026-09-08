@@ -294,25 +294,23 @@ public struct MarkdownRendererConfiguration: Sendable {
 
         /// The platform-appropriate default document-selection layer.
         ///
-        /// macOS uses bounded AppKit text views by default, so the custom
-        /// cross-block layer stays off unless a host requests it explicitly.
-        /// Other platforms keep the source-backed document selector.
-        public static var platformDefault: Self {
-            #if os(macOS)
-            .disabled
-            #else
-            .enabled
-            #endif
-        }
+        /// Documents select across native block boundaries. macOS uses one
+        /// AppKit event handler for pointer and keyboard interaction; explicit
+        /// native text selection remains available for leaf-level compatibility.
+        public static var platformDefault: Self { .enabled }
     }
 
+    // Copies preserve this cheap presentation token. Every public configuration
+    // mutation invalidates render boundaries, including replacement callbacks.
+    private(set) var renderRevision = UUID()
     public var theme: MarkdownTheme {
         didSet {
+            renderRevision = UUID()
             listMarkerBaselineMetrics = MarkdownListMarkerBaselineMetrics(theme: theme)
         }
     }
     var listMarkerBaselineMetrics: MarkdownListMarkerBaselineMetrics
-    public var inlineRenderingMode: MarkdownInlineRenderingMode
+    public var inlineRenderingMode: MarkdownInlineRenderingMode { didSet { renderRevision = UUID() } }
     /// Native text leaf selection policy.
     ///
     /// On macOS this defaults to bounded AppKit text selection. Other
@@ -320,6 +318,7 @@ public struct MarkdownRendererConfiguration: Sendable {
     /// source selection is controlled separately by `documentSelection`.
     public var nativeTextSelection: MarkdownNativeTextSelection {
         didSet {
+            renderRevision = UUID()
             if nativeTextSelection == .enabled {
                 documentSelection = .disabled
             }
@@ -334,27 +333,28 @@ public struct MarkdownRendererConfiguration: Sendable {
     /// private `SelectionOverlay` surfaces.
     public var documentSelection: DocumentSelection {
         didSet {
+            renderRevision = UUID()
             if documentSelection == .enabled {
                 nativeTextSelection = .disabled
             }
         }
     }
-    public var linkAction: MarkdownLinkAction?
-    public var copyProvider: MarkdownCopyProvider?
-    public var linkPolicy: any MarkdownLinkPolicy
-    public var linkMetadataResolver: (any MarkdownLinkMetadataResolver)?
-    public var linkDecoration: MarkdownLinkDecorationConfiguration
-    public var imagePolicy: any MarkdownImagePolicy
-    public var imageResolver: any MarkdownImageResolver
-    public var htmlPolicy: any MarkdownHTMLPolicy
-    public var codePolicy: any MarkdownCodePolicy
-    public var mathPolicy: any MarkdownMathPolicy
-    public var codeHighlighter: any MarkdownCodeHighlighter
-    public var mermaidRenderer: (any MarkdownMermaidRenderer)?
-    public var mathRenderer: any MarkdownMathRenderer
-    public var affordanceActionHandler: MarkdownAffordanceActionHandler
-    public var preparationCache: MarkdownRenderPreparationCache
-    public var diagnosticsRecorder: MarkdownDiagnosticsRecorder
+    public var linkAction: MarkdownLinkAction? { didSet { renderRevision = UUID() } }
+    public var copyProvider: MarkdownCopyProvider? { didSet { renderRevision = UUID() } }
+    public var linkPolicy: any MarkdownLinkPolicy { didSet { renderRevision = UUID() } }
+    public var linkMetadataResolver: (any MarkdownLinkMetadataResolver)? { didSet { renderRevision = UUID() } }
+    public var linkDecoration: MarkdownLinkDecorationConfiguration { didSet { renderRevision = UUID() } }
+    public var imagePolicy: any MarkdownImagePolicy { didSet { renderRevision = UUID() } }
+    public var imageResolver: any MarkdownImageResolver { didSet { renderRevision = UUID() } }
+    public var htmlPolicy: any MarkdownHTMLPolicy { didSet { renderRevision = UUID() } }
+    public var codePolicy: any MarkdownCodePolicy { didSet { renderRevision = UUID() } }
+    public var mathPolicy: any MarkdownMathPolicy { didSet { renderRevision = UUID() } }
+    public var codeHighlighter: any MarkdownCodeHighlighter { didSet { renderRevision = UUID() } }
+    public var mermaidRenderer: (any MarkdownMermaidRenderer)? { didSet { renderRevision = UUID() } }
+    public var mathRenderer: any MarkdownMathRenderer { didSet { renderRevision = UUID() } }
+    public var affordanceActionHandler: MarkdownAffordanceActionHandler { didSet { renderRevision = UUID() } }
+    public var preparationCache: MarkdownRenderPreparationCache { didSet { renderRevision = UUID() } }
+    public var diagnosticsRecorder: MarkdownDiagnosticsRecorder { didSet { renderRevision = UUID() } }
 
     /// Session-default block chrome style bundle (Part 02 §2.2 Channel A).
     ///
@@ -371,7 +371,7 @@ public struct MarkdownRendererConfiguration: Sendable {
     /// this property (INV-BS1, INV-BS2).
     public var documentStyle: (any MarkdownDocumentStyle)? {
         get { documentStyleBox?.style }
-        set { documentStyleBox = newValue.map(MarkdownDocumentStyleBox.init) }
+        set { documentStyleBox = newValue.map(MarkdownDocumentStyleBox.init); renderRevision = UUID() }
     }
 
     private var documentStyleBox: MarkdownDocumentStyleBox?
@@ -380,7 +380,7 @@ public struct MarkdownRendererConfiguration: Sendable {
         theme: MarkdownTheme = .compactChat,
         inlineRenderingMode: MarkdownInlineRenderingMode = .coreTextPaintedLines,
         nativeTextSelection: MarkdownNativeTextSelection = .platformDefault,
-        documentSelection: DocumentSelection = .platformDefault,
+        documentSelection: DocumentSelection,
         linkAction: MarkdownLinkAction? = nil,
         copyProvider: MarkdownCopyProvider? = nil,
         linkPolicy: any MarkdownLinkPolicy = DefaultMarkdownPolicy(),
@@ -449,8 +449,8 @@ public struct MarkdownRendererConfiguration: Sendable {
         self.theme = theme
         self.listMarkerBaselineMetrics = MarkdownListMarkerBaselineMetrics(theme: theme)
         self.inlineRenderingMode = .coreTextPaintedLines
-        self.nativeTextSelection = .platformDefault
-        self.documentSelection = .platformDefault
+        self.nativeTextSelection = .disabled
+        self.documentSelection = .enabled
         self.linkAction = linkAction
         self.copyProvider = copyProvider
         self.linkPolicy = linkPolicy
@@ -473,7 +473,7 @@ public struct MarkdownRendererConfiguration: Sendable {
     public init(
         theme: MarkdownTheme = .compactChat,
         inlineRenderingMode: MarkdownInlineRenderingMode = .coreTextPaintedLines,
-        nativeTextSelection: MarkdownNativeTextSelection = .platformDefault,
+        nativeTextSelection: MarkdownNativeTextSelection = .disabled,
         linkAction: MarkdownLinkAction? = nil,
         copyProvider: MarkdownCopyProvider? = nil,
         linkPolicy: any MarkdownLinkPolicy = DefaultMarkdownPolicy(),
@@ -1762,6 +1762,12 @@ public struct MarkdownRendererConfiguration: Sendable {
                     return nil
                 }
                 components.append(("imageResolver", imageResolverIdentity))
+                if let asynchronous = imageResolver as? any MarkdownAsyncImageResolver {
+                    for decision in imageDecisions {
+                        guard case .allow = decision.policyDecision else { continue }
+                        components.append(("imageResolution", decision.source + ":" + (asynchronous.cachedImageResolution(for: decision.source)?.cacheIdentity ?? "pending")))
+                    }
+                }
                 // Allowed images may become reserved-box attachments
                 // (Inline Attachments Part 01/04 §4.4): fold in the
                 // metrics schema version and the theme's default
@@ -2541,8 +2547,10 @@ public struct MarkdownRendererConfiguration: Sendable {
             var candidateColumn = 0
 
             for cell in cells {
-                let requestedColspan = max(1, min(Int(cell.colspan), maximumPreparedTableColumns))
-                let requestedRowspan = max(1, min(Int(cell.rowspan), max(1, allRows.count)))
+                // Clamp in the public model's unsigned domain before converting:
+                // a caller may supply a span larger than Int.max.
+                let requestedColspan = max(1, Int(min(cell.colspan, UInt(maximumPreparedTableColumns))))
+                let requestedRowspan = max(1, Int(min(cell.rowspan, UInt(max(1, allRows.count)))))
                 var start = candidateColumn
 
                 while start < maximumPreparedTableColumns {
@@ -3419,12 +3427,15 @@ public struct MarkdownPreparedInlineContent: Sendable {
     public var prepared: PreparedInlineContent {
         didSet {
             hasScriptTypography = Self.containsScriptTypography(prepared)
+            hasSemanticLinks = prepared.runs.contains { $0.destination != nil && $0.isLinkPresentation }
             refreshCacheFingerprint()
         }
     }
     public var measured: MeasuredInlineContent {
         didSet { refreshCacheFingerprint() }
     }
+    /// Calculated during preparation, never by walking runs in a view body.
+    private(set) var hasSemanticLinks: Bool
     public var images: [MarkdownPreparedImage]
     /// Reserved-box attachment records for allowed images, keyed by the
     /// stable `MarkdownAttachmentID` prepare assigned to their display run
@@ -3500,6 +3511,7 @@ public struct MarkdownPreparedInlineContent: Sendable {
         self.attributed = attributed
         self.prepared = prepared
         self.hasScriptTypography = Self.containsScriptTypography(prepared)
+        self.hasSemanticLinks = prepared.runs.contains { $0.destination != nil && $0.isLinkPresentation }
         self.measured = Self.sanitizedMeasured(measured, fontSize: safeFontSize)
         self.images = images
         self.attachments = attachments
@@ -4101,6 +4113,9 @@ private extension MarkdownInlineRun {
 }
 
 public struct MarkdownPreparedSnapshot: Sendable {
+    // Separate from block identity: cached document indexes must distinguish
+    // equal-length replacement snapshots whose stream generations restart.
+    let documentIndexIdentity = UUID()
     public var snapshot: MarkdownSnapshot
     public var items: [MarkdownPreparedSnapshotItem]
     public var renderItems: [MarkdownPreparedSnapshotRenderItem]
@@ -4258,20 +4273,23 @@ public struct MarkdownPreparedRichContent: Sendable {
 }
 
 public struct MarkdownPreparedBlockContent: Sendable {
-    public var blockID: MarkdownBlockID
-    public var inline: AttributedString?
-    public var inlineLayout: MarkdownPreparedInlineContent?
-    public var selectionInlineLayout: MarkdownPreparedInlineContent?
-    public var listItems: [MarkdownPreparedListItem]
-    public var table: MarkdownPreparedTableBlock?
-    public var mermaid: MarkdownPreparedMermaidDiagram?
-    public var code: AttributedString?
-    public var math: AttributedString?
-    public var mathRender: MarkdownPreparedMath?
-    public var htmlAllowed: Bool?
-    public var policyDenialReason: String?
-    public var richContent: MarkdownPreparedRichContent?
-    public var childBlocks: [MarkdownPreparedChildBlock]
+    // Reused prepared values retain identity. Writeback through any public
+    // field (including nested array/member mutations) invalidates the token.
+    private(set) var renderRevision = UUID()
+    public var blockID: MarkdownBlockID { didSet { renderRevision = UUID() } }
+    public var inline: AttributedString? { didSet { renderRevision = UUID() } }
+    public var inlineLayout: MarkdownPreparedInlineContent? { didSet { renderRevision = UUID() } }
+    public var selectionInlineLayout: MarkdownPreparedInlineContent? { didSet { renderRevision = UUID() } }
+    public var listItems: [MarkdownPreparedListItem] { didSet { renderRevision = UUID() } }
+    public var table: MarkdownPreparedTableBlock? { didSet { renderRevision = UUID() } }
+    public var mermaid: MarkdownPreparedMermaidDiagram? { didSet { renderRevision = UUID() } }
+    public var code: AttributedString? { didSet { renderRevision = UUID() } }
+    public var math: AttributedString? { didSet { renderRevision = UUID() } }
+    public var mathRender: MarkdownPreparedMath? { didSet { renderRevision = UUID() } }
+    public var htmlAllowed: Bool? { didSet { renderRevision = UUID() } }
+    public var policyDenialReason: String? { didSet { renderRevision = UUID() } }
+    public var richContent: MarkdownPreparedRichContent? { didSet { renderRevision = UUID() } }
+    public var childBlocks: [MarkdownPreparedChildBlock] { didSet { renderRevision = UUID() } }
 
     public init(
         blockID: MarkdownBlockID,
@@ -4516,6 +4534,41 @@ public struct MarkdownPreparedTableBlock: Sendable {
         columnWidthFingerprint: MarkdownContentFingerprint? = nil,
         columnWidthRevision: UInt64 = 0
     ) {
+        // Prepared models are also public construction points. Apply the same
+        // bounded grid contract as semantic-table preparation before inferring
+        // widths or allowing rendering to convert unsigned spans to Int.
+        let maximumColumns = 256
+        let maximumRows = UInt(max(1, rows.count + 1))
+        func requiresNormalization(_ cell: MarkdownPreparedTableCell) -> Bool {
+            cell.columnIndex < 0 || cell.columnIndex >= maximumColumns ||
+                cell.colspan == 0 || cell.colspan > UInt(maximumColumns - max(0, cell.columnIndex)) ||
+                cell.rowspan == 0 || cell.rowspan > maximumRows
+        }
+        func normalized(_ cell: MarkdownPreparedTableCell) -> MarkdownPreparedTableCell {
+            let column = min(max(0, cell.columnIndex), maximumColumns - 1)
+            return MarkdownPreparedTableCell(
+                id: cell.id,
+                sourceRange: cell.sourceRange,
+                contentHash: cell.contentHash,
+                inline: cell.inline,
+                inlineLayout: cell.inlineLayout,
+                selectionInlineLayout: cell.selectionInlineLayout,
+                naturalWidth: cell.naturalWidth,
+                columnIndex: column,
+                colspan: max(1, min(cell.colspan, UInt(maximumColumns - column))),
+                rowspan: max(1, min(cell.rowspan, maximumRows)),
+                preparedColumnOffset: cell.preparedColumnOffset,
+                preparedWidth: cell.preparedWidth,
+                preparedHeight: cell.preparedHeight
+            )
+        }
+        let header = header.contains(where: requiresNormalization)
+            ? header.map(normalized) : header
+        let rows = rows.contains { $0.cells.contains(where: requiresNormalization) }
+            ? rows.map { row in
+                guard row.cells.contains(where: requiresNormalization) else { return row }
+                return MarkdownPreparedTableRow(id: row.id, cells: row.cells.map(normalized))
+            } : rows
         self.columnAlignments = columnAlignments
         self.header = header
         self.rows = rows
@@ -4547,10 +4600,17 @@ public struct MarkdownPreparedTableBlock: Sendable {
             }
             self.headerPresentationFingerprint = fingerprint
         }
-        let positionedColumnCount = (header + rows.flatMap(\.cells)).map {
-            $0.columnIndex + max(1, Int($0.colspan))
-        }.max() ?? 0
-        let inferredColumnCount = max(columnAlignments.count, positionedColumnCount)
+        let inferredColumnCount: Int
+        if columnNaturalWidths.isEmpty || columnWidths.isEmpty {
+            let positionedColumnCount = (header + rows.flatMap(\.cells)).map {
+                $0.columnIndex + max(1, Int($0.colspan))
+            }.max() ?? 0
+            inferredColumnCount = min(maximumColumns, max(columnAlignments.count, positionedColumnCount))
+        } else {
+            // Render preparation already supplied both arrays. Inferring their
+            // size would allocate and scan every retained cell on each append.
+            inferredColumnCount = 0
+        }
         self.columnNaturalWidths = columnNaturalWidths.isEmpty && inferredColumnCount > 0
             ? Array(repeating: 0, count: inferredColumnCount)
             : columnNaturalWidths

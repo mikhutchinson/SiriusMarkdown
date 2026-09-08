@@ -168,8 +168,11 @@ public struct PreparedInlineSegment: Sendable, Hashable {
 
             for token in tokenize(run.text) {
                 let upper = cursor + token.text.utf8.count
+                let isDecorationSpacer = pendingDecorationLabel &&
+                    token.text.allSatisfy { $0 == "\u{00A0}" || $0 == "\u{202F}" }
                 let keepsWithNext = isLinkDecoration ||
-                    (pendingDecorationLabel && token.isBreakOpportunity)
+                    (pendingDecorationLabel && token.isBreakOpportunity) ||
+                    isDecorationSpacer
                 segments.append(
                     PreparedInlineSegment(
                         kind: run.kind,
@@ -186,7 +189,7 @@ public struct PreparedInlineSegment: Sendable, Hashable {
                 cursor = upper
                 if isLinkDecoration {
                     pendingDecorationLabel = true
-                } else if pendingDecorationLabel, !token.isBreakOpportunity {
+                } else if pendingDecorationLabel, !token.isBreakOpportunity, !isDecorationSpacer {
                     pendingDecorationLabel = false
                 }
             }
@@ -205,17 +208,23 @@ public struct PreparedInlineSegment: Sendable, Hashable {
         var currentIsWhitespace: Bool?
 
         for character in text {
-            if character == "\n" {
+            if character == "\n" || character == "\r" || character == "\r\n" {
                 if let currentIsWhitespace {
                     tokens.append((current, false, currentIsWhitespace))
                     current = ""
                 }
-                tokens.append(("\n", true, true))
+                // Keep the original UTF-8 length for selection offsets. Swift
+                // represents CRLF as one Character, but it occupies two bytes.
+                tokens.append((String(character), true, true))
                 currentIsWhitespace = nil
                 continue
             }
 
-            let isWhitespace = character.isWhitespace && character != "\n"
+            // Nonbreaking spaces belong to their surrounding word. Treating
+            // them as wrap opportunities breaks HTML &nbsp; semantics and
+            // labels containing narrow nonbreaking spaces.
+            let isWhitespace = character.isWhitespace &&
+                character != "\u{00A0}" && character != "\u{202F}"
             if let currentIsWhitespace, currentIsWhitespace != isWhitespace {
                 tokens.append((current, false, currentIsWhitespace))
                 current = ""
@@ -484,6 +493,11 @@ private func combine(
     combine(run.destination, into: &fingerprint)
     combine(run.imageSource, into: &fingerprint)
     combine(run.attachmentMetrics, into: &fingerprint)
+    fingerprint.combine(run.htmlAnchors.count)
+    for anchor in run.htmlAnchors {
+        fingerprint.combine(anchor.identifier)
+        combine(anchor.sourceRange, into: &fingerprint)
+    }
 }
 
 private func combine(

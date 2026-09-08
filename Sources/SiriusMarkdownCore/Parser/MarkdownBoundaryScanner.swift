@@ -130,7 +130,8 @@ public struct MarkdownBoundaryScanner: Sendable, Hashable {
         }
 
         if state.observedUpperBound < source.byteCount,
-           !source.containsByte(10, in: state.observedUpperBound..<source.byteCount) {
+           !source.containsByte(10, in: state.observedUpperBound..<source.byteCount),
+           !source.containsByte(13, in: max(state.scannedUpperBound, state.observedUpperBound - 1)..<source.byteCount) {
             state.observedUpperBound = source.byteCount
             return MarkdownBoundaryScanResult(
                 safeUpperBound: currentSafeUpperBound(in: state),
@@ -154,6 +155,14 @@ public struct MarkdownBoundaryScanner: Sendable, Hashable {
 
         for line in lines {
             guard line.includesTerminatingNewline else {
+                break
+            }
+
+            // A trailing CR may become CRLF in the next append. Do not consume
+            // it until that ambiguity is resolved, or a split CRLF looks like
+            // two newlines and can prematurely seal a loose list.
+            if line.byteRange.upperBound + 1 == source.byteCount,
+               source.containsByte(13, in: line.byteRange.upperBound..<source.byteCount) {
                 break
             }
 

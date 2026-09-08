@@ -172,6 +172,23 @@ private extension Array where Element == MarkdownBlock {
         map { block in
             var copy = block
             copy.isSealed = isSealed
+            copy.childBlocks = copy.childBlocks.withSealedState(isSealed)
+            copy.listItems = copy.listItems.withSealedState(isSealed)
+            if var richContent = copy.richContent {
+                richContent.blocks = richContent.blocks.withSealedState(isSealed)
+                copy.richContent = richContent
+            }
+            return copy
+        }
+    }
+}
+
+private extension Array where Element == MarkdownListItem {
+    func withSealedState(_ isSealed: Bool) -> [MarkdownListItem] {
+        map { item in
+            var copy = item
+            copy.childBlocks = copy.childBlocks.withSealedState(isSealed)
+            copy.childItems = copy.childItems.withSealedState(isSealed)
             return copy
         }
     }

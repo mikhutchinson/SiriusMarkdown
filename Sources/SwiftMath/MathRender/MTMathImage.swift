@@ -37,6 +37,8 @@ public class MTMathImage {
     public var contentInsets: MTEdgeInsets = MTEdgeInsetsZero
     
     public let latex: String
+    /// Parsed atoms from the successful render, for preparation-time consumers.
+    public private(set) var parsedMathList: MTMathList?
     private(set) var intrinsicContentSize = CGSize.zero
 
     public init(latex: String, fontSize: CGFloat, textColor: MTColor, labelMode: MTMathUILabelMode = .display, textAlignment: MTTextAlignment = .center) {
@@ -104,6 +106,19 @@ extension MTMathImage {
 
     /// Typesets and rasterizes the equation, returning display-list metrics.
     public func asImage() -> (NSError?, MTImage?, LayoutInfo?) {
+        makeImage(rasterizationScale: nil)
+    }
+
+    /// Draws the vector display list directly at the requested pixel scale.
+    /// No screen-scale intermediate image or NSImage cache is involved.
+    public func asImage(rasterizationScale: CGFloat) -> (NSError?, MTImage?, LayoutInfo?) {
+        guard rasterizationScale.isFinite, rasterizationScale > 0, rasterizationScale <= 8 else {
+            return (nil, nil, nil)
+        }
+        return makeImage(rasterizationScale: rasterizationScale)
+    }
+
+    private func makeImage(rasterizationScale: CGFloat?) -> (NSError?, MTImage?, LayoutInfo?) {
         guard MTFont.canRenderFontSize(fontSize) else {
             return (nil, nil, nil)
         }
@@ -133,15 +148,71 @@ extension MTMathImage {
             return (error, nil, nil)
         }
          
+        parsedMathList = mathList
         intrinsicContentSize = intrinsicContentSize(displayList)
         displayList.textColor = textColor
         
-        let size = intrinsicContentSize
+        var size = intrinsicContentSize
+        if let scale = rasterizationScale {
+            // Reserve whole pixels so consumers can display at exactly the
+            // requested scale without squeezing a rounded bitmap back into
+            // fractional pixel bounds.
+            size = CGSize(
+                width: ceil(size.width * scale) / scale,
+                height: ceil(size.height * scale) / scale
+            )
+        }
         guard Self.canRasterize(size: size) else {
             return (nil, nil, nil)
         }
         layoutImage(size: size, displayList: displayList)
         let layout = LayoutInfo(ascent: displayList.ascent, descent: displayList.descent)
+
+        if let scale = rasterizationScale {
+            let pixelWidth = (size.width * scale).rounded()
+            let pixelHeight = (size.height * scale).rounded()
+            guard pixelWidth.isFinite, pixelHeight.isFinite,
+                  pixelWidth > 0, pixelHeight > 0,
+                  pixelWidth <= Self.maximumRasterPixelDimension,
+                  pixelHeight <= Self.maximumRasterPixelDimension,
+                  pixelWidth * pixelHeight <= Self.maximumRasterPixelCount,
+                  let context = CGContext(
+                    data: nil,
+                    width: Int(pixelWidth),
+                    height: Int(pixelHeight),
+                    bitsPerComponent: 8,
+                    bytesPerRow: 0,
+                    space: CGColorSpaceCreateDeviceRGB(),
+                    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+                  )
+            else { return (nil, nil, nil) }
+            context.scaleBy(x: scale, y: scale)
+            // Some vendored display nodes draw rules with NS/UIBezierPath,
+            // which consults the platform's current graphics context.
+            #if os(iOS) || os(visionOS)
+            UIGraphicsPushContext(context)
+            displayList.draw(context)
+            UIGraphicsPopContext()
+            #elseif os(macOS)
+            NSGraphicsContext.saveGraphicsState()
+            NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: false)
+            displayList.draw(context)
+            NSGraphicsContext.restoreGraphicsState()
+            #endif
+            guard let bitmap = context.makeImage() else { return (nil, nil, nil) }
+            #if os(iOS) || os(visionOS)
+            return (nil, UIImage(cgImage: bitmap, scale: scale, orientation: .up), layout)
+            #elseif os(macOS)
+            // NSImage(cgImage:size:) may retain an NSCGImageSnapshotRep,
+            // which is not an NSBitmapImageRep. Install the explicit bitmap
+            // representation so the bridge can encode these exact pixels.
+            let representation = NSBitmapImageRep(cgImage: bitmap)
+            representation.size = size
+            let image = NSImage(size: size)
+            image.addRepresentation(representation)
+            return (nil, image, layout)
+            #endif
+        }
         
         #if os(iOS) || os(visionOS)
             let renderer = UIGraphicsImageRenderer(size: size)

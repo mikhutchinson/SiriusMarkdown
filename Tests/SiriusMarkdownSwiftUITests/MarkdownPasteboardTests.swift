@@ -645,8 +645,8 @@ struct MarkdownDocumentSelectionCopyPathTests {
             .flatMap { String(data: $0, encoding: .utf8) }
         #expect(NSPasteboard.general.string(forType: .string) == "Copy me and code")
         #expect(markdown == source)
-        #expect(NSPasteboard.general.data(forType: .rtf) == nil)
-        #expect(NSPasteboard.general.data(forType: .html) == nil)
+        #expect(NSPasteboard.general.data(forType: .rtf)?.isEmpty == false)
+        #expect(NSPasteboard.general.data(forType: .html)?.isEmpty == false)
         #elseif canImport(UIKit) && !os(tvOS) && !os(watchOS)
         let item = UIPasteboard.general.items.first
         #expect(item?["public.utf8-plain-text"] as? String == "Copy me and code")

@@ -654,8 +654,11 @@ struct MarkdownStreamingScalingTests {
         #expect(streamCounters.tableCellModelConversionCount < 1_500)
         #expect(counters.tableRowLayoutCacheHitCount > counters.tableRowLayoutMeasurementCount)
         #expect(counters.tableRowLayoutMeasurementCount < 1_200)
-        #expect(counters.tableRowBodyEvaluationCount < 5_000)
-        #expect(counters.tableRowBodyReuseCount == counters.tableRowBodyComparisonCount)
+        // Stable block identity lets SwiftUI compare genuinely changed rows too;
+        // those comparisons must fail equality so new streamed content appears.
+        // Bound actual body work instead of requiring every comparison to reuse.
+        #expect(counters.tableRowBodyEvaluationCount < 1_200)
+        #expect(counters.tableRowBodyReuseCount > counters.tableRowBodyComparisonCount / 2)
         #expect(counters.tableRowBodyComparisonCount > counters.tableRowBodyEvaluationCount)
         #expect(counters.tableCellIncrementalComparisonCount < 4_000)
         // Keep the explicit layout-only invariant, but do not mislabel it as

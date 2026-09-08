@@ -2,6 +2,35 @@
 
 ## Open
 
+## Fixed
+
+## Resolved in 0.6.27
+
+- Document selection keyboard handling was not connected to native responder-
+  chain Copy and Select All menu actions.
+
+- Default macOS selection stopped at native leaf boundaries and lacked document
+  word/paragraph, modifier, and keyboard interaction. A document event bridge
+  now owns those gestures and suppresses link activation after a drag.
+- Painted and alternate link surfaces lacked native link context menus.
+- Inline math was resampled and then tinted with an unscaled bitmap context,
+  drawing a small formula inside a much larger reserved attachment.
+- Disabled document selection still mounted geometry readers on native leaves.
+
+- CR-only source lines produced incorrect block and inline source ranges.
+  Quoted CRLF display math retained container prefixes in TeX.
+- Parser-cache hits updated only top-level sealed state, leaving recursive
+  descendants mutable after finishing a stream.
+- Inline HTML normalization changed Markdown code spacing and dropped explicit
+  line breaks. Block HTML lost nonbreaking spaces and sibling separation;
+  authored custom tags could impersonate internal run placeholders.
+- Favicon discovery left unused response bodies running after bounded-prefix
+  reads, redirects, or header rejection.
+- Extreme public table spans and ordered-list starts could trap during signed
+  integer conversion or ordinal addition.
+- Prepared inline text treated CR/CRLF as spaces and nonbreaking spaces as
+  ordinary wrapping opportunities.
+
 ## Resolved in 0.6.26
 
 - Fixed tables retaining generic globe attachments after equal-geometry favicon

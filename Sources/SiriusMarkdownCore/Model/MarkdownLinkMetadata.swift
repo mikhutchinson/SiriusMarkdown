@@ -3,6 +3,7 @@ import Foundation
 public enum MarkdownRemoteResourceKind: String, Sendable, Hashable, Codable {
     case linkMetadataDocument
     case linkIcon
+    case image
 }
 
 public protocol MarkdownRemoteResourcePolicy: Sendable {

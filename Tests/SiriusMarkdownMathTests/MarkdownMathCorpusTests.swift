@@ -110,7 +110,8 @@ func nativeMathRendererTypesetsSharedCorpus() throws {
         }
 
         #expect(image.latex == testCase.latex, "Original LaTeX was not preserved for \(testCase.id)")
-        #expect(image.accessibilityLabel == testCase.latex, "Accessibility label drifted for \(testCase.id)")
+        #expect(image.accessibilityTree != nil, "Missing semantic math structure for \(testCase.id)")
+        #expect(image.accessibilityLabel == image.accessibilityTree?.accessibilityLabel)
         #expect(image.scale == NativeMarkdownMathRenderer.renderScale)
         #expect(isPNG(image.imageData), "Expected PNG image data for \(testCase.id)")
         #expect(image.pointWidth.isFinite && image.pointWidth > 0, "Invalid width for \(testCase.id)")

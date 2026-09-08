@@ -70,8 +70,15 @@ struct CTPlanCacheKey: Equatable {
     }
 }
 
+struct MarkdownPreparedAccessibleLink: Hashable, Sendable {
+    var destination: String
+    var label: String
+    var byteRange: Range<Int>
+}
+
 struct MarkdownCoreTextPaintedLinePlan: @unchecked Sendable {
     var lines: [MarkdownCoreTextPaintedLine]
+    var accessibleLinks: [MarkdownPreparedAccessibleLink] = []
     var accessibilityLabel: String
     var lineHeight: CGFloat
     var lineSpacing: CGFloat
@@ -125,8 +132,23 @@ struct MarkdownCoreTextPaintedLinePlan: @unchecked Sendable {
             )
         }
 
+        var accessibleLinks: [MarkdownPreparedAccessibleLink] = []
+        for item in runRanges {
+            guard let destination = item.run.destination,
+                  item.run.kind == .link || item.run.kind == .softBreak || item.run.kind == .hardBreak else { continue }
+            let label = item.run.presentation.contains(.linkDecoration) ? "" : item.run.text
+            if let last = accessibleLinks.last, last.destination == destination,
+               last.byteRange.upperBound == item.byteRange.lowerBound {
+                accessibleLinks[accessibleLinks.count - 1].label += label
+                accessibleLinks[accessibleLinks.count - 1].byteRange = last.byteRange.lowerBound..<item.byteRange.upperBound
+            } else {
+                accessibleLinks.append(.init(destination: destination, label: label, byteRange: item.byteRange))
+            }
+        }
+
         return MarkdownCoreTextPaintedLinePlan(
             lines: lines,
+            accessibleLinks: accessibleLinks,
             accessibilityLabel: prepared.semanticAccessibilityText,
             lineHeight: lineHeight,
             lineSpacing: lineSpacing,
@@ -284,30 +306,30 @@ struct MarkdownCoreTextPaintedLinePlan: @unchecked Sendable {
         let typographicHeight = ascent + descent + leading
         let verticalInset = max(0, (lineHeight - typographicHeight) / 2)
         let baselineFromTop = top + verticalInset + ascent
-        let rawLinkFragments = linkCandidates.compactMap { candidate -> MarkdownCoreTextPaintedLinkFragment? in
-            let start = CGFloat(CTLineGetOffsetForStringIndex(ctLine, candidate.nsRange.location, nil))
-            let endIndex = candidate.nsRange.location + candidate.nsRange.length
-            let end = CGFloat(CTLineGetOffsetForStringIndex(ctLine, endIndex, nil))
-            let width = end - start
-            guard start.isFinite, width.isFinite, width > 0 else {
-                return nil
+        let linkGlyphs = linkCandidates.isEmpty ? [] : MarkdownShapedLinkGlyph.ranges(in: ctLine)
+        let rawLinkFragments = linkCandidates.flatMap { candidate -> [MarkdownCoreTextPaintedLinkFragment] in
+            let upper = candidate.nsRange.location + candidate.nsRange.length
+            var low = 0
+            var high = linkGlyphs.count
+            while low < high {
+                let middle = (low + high) / 2
+                if linkGlyphs[middle].stringRange.upperBound <= candidate.nsRange.location { low = middle + 1 }
+                else { high = middle }
             }
-            return MarkdownCoreTextPaintedLinkFragment(
-                lineIndex: index,
-                destination: candidate.destination,
-                byteRange: candidate.byteRange,
-                rect: CGRect(
-                    x: start,
-                    y: top,
-                    width: max(1, width),
-                    height: max(1, lineHeight)
-                )
-            )
+            var result: [MarkdownCoreTextPaintedLinkFragment] = []
+            while low < linkGlyphs.count, linkGlyphs[low].stringRange.lowerBound < upper {
+                let glyph = linkGlyphs[low]
+                result.append(.init(lineIndex: index, destination: candidate.destination, byteRange: candidate.byteRange,
+                                    rect: CGRect(x: glyph.minX, y: top, width: glyph.maxX - glyph.minX, height: max(1, lineHeight))))
+                low += 1
+            }
+            return result
+        }.sorted {
+            if $0.destination != $1.destination { return $0.destination < $1.destination }
+            return $0.rect.minX < $1.rect.minX
         }
-        // A decoration and the source-backed label are separate prepared
-        // runs, but together they are one clickable link on a given painted
-        // line. Coalesce touching fragments so hit testing remains bounded to
-        // one rectangle per destination per line.
+        // Coalesce only touching visual glyph spans. One logical bidi link may
+        // occupy disjoint intervals with unrelated text between them.
         let linkFragments = rawLinkFragments.reduce(
             into: [MarkdownCoreTextPaintedLinkFragment]()
         ) { fragments, fragment in
@@ -482,7 +504,7 @@ struct MarkdownCoreTextPaintedLinkFragment: Identifiable, Hashable {
     var rect: CGRect
 
     var id: String {
-        "\(lineIndex):\(byteRange.lowerBound)-\(byteRange.upperBound):\(destination)"
+        "\(lineIndex):\(byteRange.lowerBound)-\(byteRange.upperBound):\(destination):\(rect.minX):\(rect.width)"
     }
 }
 
@@ -497,6 +519,45 @@ struct MarkdownCoreTextPaintedAttachmentGap: Identifiable, Hashable {
 
     var id: String {
         attachmentID.rawValue
+    }
+}
+
+/// Collected once from the shaped line, then indexed by logical UTF-16 range.
+/// Advance boxes follow glyph placement rather than bidi-ambiguous caret ends.
+private struct MarkdownShapedLinkGlyph {
+    var stringRange: Range<Int>
+    var minX: CGFloat
+    var maxX: CGFloat
+
+    static func ranges(in line: CTLine) -> [Self] {
+        var result: [Self] = []
+        for run in CTLineGetGlyphRuns(line) as! [CTRun] {
+            let count = CTRunGetGlyphCount(run)
+            guard count > 0 else { continue }
+            var indices = [CFIndex](repeating: 0, count: count)
+            var positions = [CGPoint](repeating: .zero, count: count)
+            var advances = [CGSize](repeating: .zero, count: count)
+            CTRunGetStringIndices(run, CFRange(location: 0, length: 0), &indices)
+            CTRunGetPositions(run, CFRange(location: 0, length: 0), &positions)
+            CTRunGetAdvances(run, CFRange(location: 0, length: 0), &advances)
+            let range = CTRunGetStringRange(run)
+            let starts = Set(indices.filter { $0 >= range.location && $0 < range.location + range.length }).sorted()
+            var ends: [Int: Int] = [:]
+            for (index, start) in starts.enumerated() {
+                ends[start] = index + 1 < starts.count ? starts[index + 1] : range.location + range.length
+            }
+            for index in indices.indices {
+                guard let end = ends[indices[index]], end > indices[index] else { continue }
+                let x1 = positions[index].x
+                let x2 = x1 + advances[index].width
+                guard x1.isFinite, x2.isFinite, abs(x2 - x1) > 0 else { continue }
+                result.append(.init(stringRange: indices[index]..<end, minX: min(x1, x2), maxX: max(x1, x2)))
+            }
+        }
+        return result.sorted {
+            if $0.stringRange.lowerBound != $1.stringRange.lowerBound { return $0.stringRange.lowerBound < $1.stringRange.lowerBound }
+            return $0.stringRange.upperBound < $1.stringRange.upperBound
+        }
     }
 }
 
@@ -712,7 +773,8 @@ extension MarkdownPreparedInlineContent {
         nativeTextSelection: MarkdownNativeTextSelection
     ) -> CGFloat {
         #if os(macOS)
-        if nativeTextSelection == .enabled {
+        if nativeTextSelection == .enabled || mathTextPieces?.isEmpty == false ||
+            (hasSemanticLinks && inlineRenderingMode != .coreTextPaintedLines) {
             return nativeSelectableFirstTextBaselineFromTop
         }
         #endif
@@ -826,6 +888,7 @@ private struct CoreTextPaintedInlineLineSurface: NSViewRepresentable {
         view.resetCursorRects()
         view.setAccessibilityLabel(prepared.semanticAccessibilityText)
         view.reconcileAttachmentHosts()
+        view.reconcileAccessibleLinks()
     }
 
 }
@@ -845,6 +908,28 @@ final class MarkdownCoreTextPaintedNSView: NSView {
     var attachmentHostsByID: [MarkdownAttachmentID: MarkdownAttachmentHostNSView] = [:]
     private var linkClickTracker = MarkdownCoreTextPaintedLinkClickTracker()
     private var dragStartPoint: CGPoint?
+    private var accessibleLinkElements: [MarkdownAccessibleLink] = []
+    private var accessibilitySignature: [MarkdownPreparedAccessibleLink] = []
+
+    func reconcileAccessibleLinks() {
+        let fragments = plan.linkFragments
+        if accessibilitySignature != plan.accessibleLinks {
+            accessibilitySignature = plan.accessibleLinks
+            accessibleLinkElements = plan.accessibleLinks.map { link in
+                MarkdownAccessibleLink(host: self, label: link.label.trimmingCharacters(in: .whitespacesAndNewlines),
+                                       destination: link.destination, frame: .zero)
+            }
+        }
+        for (index, link) in plan.accessibleLinks.enumerated() {
+            let matching = fragments.filter { $0.destination == link.destination && $0.byteRange.overlaps(link.byteRange) }
+            accessibleLinkElements[index].localFrame = matching.reduce(CGRect.null) { $0.union($1.rect) }
+        }
+        setAccessibilityElement(true)
+        setAccessibilityRole(accessibleLinkElements.isEmpty ? .staticText : .group)
+        setAccessibilityChildren(accessibleLinkElements)
+    }
+
+    func openAccessibleLink(_ destination: String) { open(destination) }
 
     override var isFlipped: Bool {
         true
@@ -892,6 +977,12 @@ final class MarkdownCoreTextPaintedNSView: NSView {
     }
 
     override func mouseDown(with event: NSEvent) {
+        guard !event.modifierFlags.contains(.control), !event.modifierFlags.contains(.shift), event.clickCount == 1 else {
+            linkClickTracker.cancel()
+            dragStartPoint = nil
+            super.mouseDown(with: event)
+            return
+        }
         let point = convert(event.locationInWindow, from: nil)
         _ = linkClickTracker.begin(at: point, fragments: plan.linkFragments, hitSlop: 2)
         dragStartPoint = point
@@ -918,6 +1009,18 @@ final class MarkdownCoreTextPaintedNSView: NSView {
             return
         }
         super.mouseUp(with: event)
+    }
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        linkClickTracker.cancel()
+        dragStartPoint = nil
+        let point = convert(event.locationInWindow, from: nil)
+        guard let fragment = plan.linkFragments.first(where: {
+            $0.rect.insetBy(dx: -2, dy: -2).contains(point)
+        }) else {
+            return super.menu(for: event)
+        }
+        return MarkdownLinkContextMenu(destination: fragment.destination, linkAction: linkAction)
     }
 
     override func resetCursorRects() {

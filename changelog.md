@@ -1,5 +1,61 @@
 # Changelog
 
+## 0.6.27 - 2026-09-08
+
+- Export nested, spanning and multiline tables from semantic cell metadata;
+  retain empty cells, repeat ordinary headers and align PDF link annotations
+  with glyphs. Render prepared local images and nested/table math.
+- Strip AST-owned quote prefixes from standalone dollar display math, including
+  CR/CRLF input, so quote markers do not reach the native math typesetter.
+
+- Reuse unchanged streaming block subtrees through prepared/configuration
+  revision boundaries; preserve invalidation on public mutations and callback
+  replacement. A local mounted debug fixture improved about 37 percent.
+
+- Add opt-in asynchronous remote images with public-HTTPS validation, bounded
+  anonymous transfers and caches, coalescing, cancellation, and host-supplied
+  viewport gating. Refresh only owning prepared blocks when images complete.
+
+- Add prepared document Find and heading-fragment navigation, semantic rich
+  clipboard output, and native macOS pagination/PDF/print APIs. Supported tables
+  retain selectable cell text; prepared image/math rasters render visually,
+  with explicit limitations for unsupported export content.
+- Preserve visual bidi caret and wrapped-line affinity, including word selection
+  across emergency wraps. Add native accessible link actions and bounded
+  semantic math trees reused from the raster typesetter.
+- Keep native block views alive across streaming content changes. In the local
+  120-row debug stress fixture, late updates fell from 796 ms to about 71 ms;
+  these are local measurements, not a release or cross-engine benchmark.
+
+- Connect document selection to native Edit-menu Copy and Select All actions.
+- Reuse streaming region construction within a view evaluation and avoid
+  inferring table columns when prepared width arrays already supply them.
+
+- Use document-wide selection by default on macOS, with drag, word and paragraph
+  selection, Shift-click, keyboard extension, and drag autoscrolling. Explicit
+  native leaf selection remains available.
+- Add native Open Link and Copy Link Address menus across painted, system-text,
+  prepared-native, and inline-math link surfaces.
+- Rasterize native math directly at its requested pixel scale and preserve that
+  scale while tinting TextKit attachments. Remap decorated attachments correctly
+  when prepared native lines insert line breaks.
+
+- Added inert HTML-ID navigation, disjoint bidi link hit ranges, and native table/inline-math accessibility; fixed selection invalidation on same-generation document replacement.
+- Raised the test discovery floor to 1074 with 108 new regression tests.
+- Recognize CR, LF, and CRLF consistently in source maps, streaming boundaries,
+  inline layout, and quoted display math, including CRLF split across appends.
+- Propagate cached sealed state through recursive quote, list, and HTML blocks.
+- Preserve nonbreaking spaces, code-span spacing, explicit HTML line breaks,
+  and spaces between nested HTML elements. Authored custom tags cannot collide
+  with internal Markdown placeholders.
+- Cancel abandoned favicon response bodies after redirects, size limits, or
+  rejected responses, and bound requests by the remaining resolution deadline.
+- Bound raw and directly constructed prepared table spans before integer
+  conversion and saturate ordered-list ordinals instead of trapping on extreme
+  values.
+- Keep nonbreaking spaces out of ordinary inline wrap opportunities while
+  preserving link-decoration grouping.
+
 ## 0.6.26 - 2026-08-18
 
 - Made asynchronous link decoration refresh presentation-correct even when a

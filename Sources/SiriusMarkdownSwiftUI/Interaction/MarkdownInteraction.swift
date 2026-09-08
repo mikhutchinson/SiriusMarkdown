@@ -192,6 +192,11 @@ public final class MarkdownSelectionController: ObservableObject {
         blockOrder = selectionIndex.blockOrder
         sourceRangeByBlockID = selectionIndex.sourceRangeByBlockID
         snapshotSourceLength = snapshot.sourceLength
+        // Mutating an empty @Published array still notifies every observing
+        // block. Streaming with no selection needs only the private index.
+        if case .none = selectionIntent, selectedBlockIDs.isEmpty, selectedSourceRanges.isEmpty {
+            return
+        }
         let valid = Set(blockOrder)
         selectedBlockIDs.removeAll { !valid.contains($0) }
         selectedSourceRanges.removeAll {
@@ -408,19 +413,31 @@ public final class MarkdownSelectionController: ObservableObject {
         return selectedBlocks(in: preparedSnapshot).map(Self.plainText(for:)).joined(separator: "\n")
     }
 
-    public func copySelectedMarkdown(
+    /// Builds all clipboard representations from the existing semantic snapshot.
+    /// Exact Markdown and semantic plain text remain separate from rich formats.
+    public func selectedPasteboardPayload(
         in preparedSnapshot: MarkdownPreparedSnapshot,
         copyProvider: MarkdownCopyProvider?
-    ) {
+    ) -> MarkdownPasteboardPayload {
         let markdown = selectedMarkdown(in: preparedSnapshot, copyProvider: copyProvider)
-        guard !markdown.isEmpty else {
-            return
-        }
         let plainText = selectedPlainText(in: preparedSnapshot)
         let payload = MarkdownPasteboardPayload(
             plainText: plainText.isEmpty ? markdown : plainText,
             markdown: markdown
         )
+        return MarkdownRichCopy.addingRichRepresentations(
+            to: payload,
+            snapshot: preparedSnapshot,
+            ranges: effectiveSourceRanges(in: preparedSnapshot)
+        )
+    }
+
+    public func copySelectedMarkdown(
+        in preparedSnapshot: MarkdownPreparedSnapshot,
+        copyProvider: MarkdownCopyProvider?
+    ) {
+        let payload = selectedPasteboardPayload(in: preparedSnapshot, copyProvider: copyProvider)
+        guard !payload.markdown.isEmpty else { return }
         MarkdownPasteboard.copy(payload)
     }
 
@@ -635,6 +652,8 @@ public final class MarkdownSelectionController: ObservableObject {
 
     private static func plainText(for block: MarkdownBlock) -> String {
         switch block.kind {
+        case .htmlBlock where block.richContent != nil:
+            return block.richContent!.blocks.map(plainText(for:)).joined(separator: "\n")
         case .unorderedList, .orderedList, .taskList:
             return block.listItems.map(plainText(for:)).joined(separator: "\n")
         case .blockQuote where !block.childBlocks.isEmpty:
@@ -681,6 +700,8 @@ public final class MarkdownSelectionController: ObservableObject {
         }
 
         switch block.kind {
+        case .htmlBlock where block.richContent != nil:
+            return joinedPlainText(block.richContent!.blocks.compactMap { plainText(in: selectedRange, for: $0) })
         case .unorderedList, .orderedList, .taskList:
             return joinedPlainText(block.listItems.compactMap { plainText(in: selectedRange, for: $0) })
         case .blockQuote where !block.childBlocks.isEmpty:
@@ -760,7 +781,7 @@ public final class MarkdownSelectionController: ObservableObject {
         return joinedPlainText(rows)
     }
 
-    private static func plainText(
+    static func plainText(
         in selectedRange: Range<Int>,
         runs: [MarkdownInlineRun],
         fallbackText: String,
@@ -804,7 +825,7 @@ public final class MarkdownSelectionController: ObservableObject {
         return sliced.isEmpty ? nil : sliced
     }
 
-    private static func plainText(
+    static func plainText(
         in selectedRange: Range<Int>,
         for run: MarkdownInlineRun
     ) -> String {

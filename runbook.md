@@ -1,6 +1,6 @@
 # Runbook
 
-This runbook is the local release authority for `SiriusMarkdown`. For the current public package release, use `0.6.26` as the tag and do not publish unless every release blocker below is clear.
+This runbook is the local release authority for `SiriusMarkdown`. For the current public package release, use `0.6.27` as the tag and do not publish unless every release blocker below is clear.
 
 ## Build
 
@@ -17,7 +17,8 @@ swift test
 ```
 
 Current status: `swift test` must pass with strict Swift-vs-Pretext comparison enabled across the required product fixture groups. Missing groups, duplicate fixture names/groups, absent required layout metadata (`font`, `lineHeight`, `whiteSpace`, `wordBreak`), invalid/nonzero `letterSpacing`, or known-drift allowlists are release blockers.
-The release-gate discovery floor for this slice is `966` Swift tests.
+The working-tree release-gate discovery floor is `1074` Swift tests, including
+108 new interaction, accessibility, export, image, layout, parser and resource regressions.
 
 Count the Swift test functions reported by the runner and keep the release-gate discovery floor current:
 
@@ -221,7 +222,7 @@ Run this before claiming native-renderer product quality. It wraps the release g
 
 ## Public Release Checklist
 
-Use this checklist for `0.6.26`.
+Use this checklist for `0.6.27`.
 
 1. Confirm public hygiene:
 
@@ -271,28 +272,28 @@ Use this checklist for `0.6.26`.
 
    ```sh
    git add README.md runbook.md NOTICE.md changelog.md bugfix.md release-notes Docs Sources Tests Examples Tools Package.swift Package.resolved
-   git commit -m "Prepare SiriusMarkdown 0.6.26 release"
+   git commit -m "Prepare SiriusMarkdown 0.6.27 release"
    ```
 
 6. Tag and push:
 
    ```sh
-   git tag -a 0.6.26 -m "SiriusMarkdown 0.6.26"
+   git tag -a 0.6.27 -m "SiriusMarkdown 0.6.27"
    git push origin HEAD
-   git push origin 0.6.26
+   git push origin 0.6.27
    ```
 
 7. After pushing, create the public release from the matching `changelog.md`
    section and verify that GitHub marks it as Latest:
 
    ```sh
-   gh release create 0.6.26 \
+   gh release create 0.6.27 \
      --repo mikhutchinson/SiriusMarkdown \
      --verify-tag \
      --latest \
-     --title "SiriusMarkdown 0.6.26" \
-     --notes-file release-notes/0.6.26.md
-   gh release view 0.6.26 \
+     --title "SiriusMarkdown 0.6.27" \
+     --notes-file release-notes/0.6.27.md
+   gh release view 0.6.27 \
      --repo mikhutchinson/SiriusMarkdown \
      --json tagName,name,isDraft,isPrerelease,publishedAt,url
    ```
@@ -303,8 +304,8 @@ Use this checklist for `0.6.26`.
    package-owned Mermaid pan/zoom over prepared SVG/ASCII, explicit
    accessibility labels for package-owned affordance controls, Pretext-backed
    layout and math-corpus gates, and demo/product probes. Do not claim a new
-   Mermaid semantic engine, network image loading, animated media, or a WebKit
-   renderer.
+   Mermaid semantic engine, implicit network image loading, animated media, or a
+   WebKit renderer. Remote images require explicit policy and resolver opt-in.
 
 ## Release Blockers
 

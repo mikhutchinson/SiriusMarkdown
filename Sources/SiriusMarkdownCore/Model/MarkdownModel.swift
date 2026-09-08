@@ -121,6 +121,18 @@ public enum MarkdownTableColumnAlignment: String, Sendable, Hashable, Codable {
     case right
 }
 
+/// An inert HTML fragment destination retained by the sanitizer. IDs never
+/// enable attributes, scripts, styling, or remote-resource loading.
+public struct MarkdownHTMLAnchor: Sendable, Hashable {
+    public var identifier: String
+    public var sourceRange: MarkdownSourceRange
+
+    public init(identifier: String, sourceRange: MarkdownSourceRange) {
+        self.identifier = identifier
+        self.sourceRange = sourceRange
+    }
+}
+
 public struct MarkdownInlineRun: Sendable, Hashable {
     public var kind: MarkdownInlineKind
     public var text: String
@@ -135,6 +147,7 @@ public struct MarkdownInlineRun: Sendable, Hashable {
     /// measuring `text`. Denied images never set this field — they keep
     /// today's alt/`[image: reason]` text-atomic path.
     public var attachmentMetrics: MarkdownInlineAttachmentMetrics?
+    public var htmlAnchors: [MarkdownHTMLAnchor]
 
     public init(
         kind: MarkdownInlineKind,
@@ -143,7 +156,8 @@ public struct MarkdownInlineRun: Sendable, Hashable {
         destination: String? = nil,
         imageSource: String? = nil,
         presentation: MarkdownInlinePresentation? = nil,
-        attachmentMetrics: MarkdownInlineAttachmentMetrics? = nil
+        attachmentMetrics: MarkdownInlineAttachmentMetrics? = nil,
+        htmlAnchors: [MarkdownHTMLAnchor] = []
     ) {
         self.kind = kind
         self.text = text
@@ -152,6 +166,7 @@ public struct MarkdownInlineRun: Sendable, Hashable {
         self.imageSource = imageSource
         self.presentation = presentation ?? MarkdownInlinePresentation.defaultPresentation(for: kind)
         self.attachmentMetrics = attachmentMetrics
+        self.htmlAnchors = htmlAnchors
     }
 }
 
@@ -448,14 +463,17 @@ public struct MarkdownRichContentDiagnostics: Sendable, Hashable {
 /// Markdown block/run models. SwiftSoup nodes never cross this value boundary.
 public struct MarkdownRichContent: Sendable, Hashable {
     public var blocks: [MarkdownBlock]
+    public var htmlAnchors: [MarkdownHTMLAnchor]
     public var diagnostics: MarkdownRichContentDiagnostics
 
     public init(
         blocks: [MarkdownBlock],
-        diagnostics: MarkdownRichContentDiagnostics = MarkdownRichContentDiagnostics()
+        diagnostics: MarkdownRichContentDiagnostics = MarkdownRichContentDiagnostics(),
+        htmlAnchors: [MarkdownHTMLAnchor] = []
     ) {
         self.blocks = blocks
         self.diagnostics = diagnostics
+        self.htmlAnchors = htmlAnchors
     }
 }
 

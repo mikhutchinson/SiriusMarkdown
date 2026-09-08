@@ -30,12 +30,120 @@ TEST_LIST_FILE="$(mktemp)"
 trap 'rm -f "$TEST_LIST_FILE"; rm -rf "${CONSUMER_DIR:-}"' EXIT
 swift test list > "$TEST_LIST_FILE"
 TEST_COUNT="$(grep -Ec '^[A-Za-z0-9_]+Tests\.' "$TEST_LIST_FILE")"
-MINIMUM_TEST_COUNT=966
+MINIMUM_TEST_COUNT=1074
 if (( TEST_COUNT < MINIMUM_TEST_COUNT )); then
   echo "error: swift test list discovered $TEST_COUNT tests; expected at least $MINIMUM_TEST_COUNT" >&2
   exit 1
 fi
 for required_test in \
+  "SiriusMarkdownCoreTests.quotedDollarDisplayMathChildUsesASTContainerDepth(newline:)" \
+  "SiriusMarkdownSwiftUITests.MarkdownDocumentPrintExporterTests/continuingTablePagesRepeatHeadersWithoutDuplicatingSemanticRanges()" \
+  "SiriusMarkdownSwiftUITests.MarkdownDocumentPrintExporterTests/nestedSpanningMultilineTablesRetainNativeGridAndEmptyCells(inQuote:)" \
+  "SiriusMarkdownMathTests.MarkdownMathRasterizationTests/nativeFormulaPDFExportsPreparedInlineAndBlockRasters()" \
+  "SiriusMarkdownSwiftUITests.MarkdownDocumentPrintExporterTests/nativeTablePDFKeepsCellTextAndLinkRectanglesInsidePageMargins()" \
+  "SiriusMarkdownSwiftUITests.MarkdownDocumentPrintExporterTests/preparedBlockMathUsesItsRasterWhileRetainingSemanticText()" \
+  "SiriusMarkdownSwiftUITests.MarkdownDocumentPrintExporterTests/preparedInlineImageExportsPixelsAndKeepsSemanticPageText(nestedInQuote:)" \
+  "SiriusMarkdownSwiftUITests.MarkdownStreamingRenderBoundaryTests/unchangedPreparedBlocksReuseBodiesWhilePublicMutationsInvalidateThem()" \
+  "SiriusMarkdownCoreTests.MarkdownRemoteImageLoaderTests/cancellationStopsLastSubscriberAndPendingWorkIsBounded()" \
+  "SiriusMarkdownCoreTests.MarkdownRemoteImageLoaderTests/imagePolicyRedirectByteAndDecodeLimitsAreEnforced()" \
+  "SiriusMarkdownCoreTests.MarkdownRemoteImageLoaderTests/imagesCoalesceAndCacheWithoutAmbientCredentials()" \
+  "SiriusMarkdownSwiftUITests.MarkdownAsyncImageTests/defaultAndDeniedImagesNeverStartAsyncResolution()" \
+  "SiriusMarkdownSwiftUITests.MarkdownAsyncImageTests/imageCompletionRefreshesOnlyOwnersAndPreservesSourceIdentity()" \
+  "SiriusMarkdownSwiftUITests.MarkdownAsyncImageTests/imageRequestsAreBoundedAndResetDiscardsLateCompletion()" \
+  "SiriusMarkdownSwiftUITests.MarkdownDocumentNavigationTests/findRevealsHorizontallyOverflowingCodeAndTableCells()" \
+  "SiriusMarkdownSwiftUITests.MarkdownDocumentNavigationTests/hostScrolledTranscriptFindAndAnchorsRevealWithoutNestedScroller()" \
+  "SiriusMarkdownCoreTests.MarkdownHTMLAnchorTests/anchorMetadataChangesIdentityWithoutChangingLayoutFingerprint()" \
+  "SiriusMarkdownCoreTests.MarkdownHTMLAnchorTests/inlineAndEmptyIDsKeepTheirSourceRangesWithoutVisibleText()" \
+  "SiriusMarkdownCoreTests.MarkdownHTMLAnchorTests/streamedAnchorMetadataMatchesStaticModelWithAbsoluteOffsets()" \
+  "SiriusMarkdownCoreTests.MarkdownHTMLAnchorTests/supportedBlockHTMLIDsAreRetainedWithoutActiveOrInvalidIDs()" \
+  "SiriusMarkdownMathTests.nativeInlineMathExposesAndPrunesSemanticAccessibility()" \
+  "SiriusMarkdownSwiftUITests.MarkdownExplicitAnchorTests/cachedPreparationDoesNotReuseOldIDsWithEqualVisibleText()" \
+  "SiriusMarkdownSwiftUITests.MarkdownExplicitAnchorTests/deniedHTMLAndDroppedSubtreesHaveNoDestinations()" \
+  "SiriusMarkdownSwiftUITests.MarkdownExplicitAnchorTests/explicitIDsWinSlugCollisionsAndFirstDuplicateWins()" \
+  "SiriusMarkdownSwiftUITests.MarkdownExplicitAnchorTests/inlineUnicodeAndEmptyIDsResolveWithoutAHeading()" \
+  "SiriusMarkdownSwiftUITests.MarkdownExplicitAnchorTests/navigationUsesGenericExplicitDestination()" \
+  "SiriusMarkdownSwiftUITests.MarkdownMixedBidiLinkGeometryTests/disjointBidiLinkHitsOnlyItsShapedGlyphs()" \
+  "SiriusMarkdownSwiftUITests.MarkdownMixedBidiLinkGeometryTests/disjointBidiLinkKeepsOneAccessibleElementWithUnionFrame()" \
+  "SiriusMarkdownSwiftUITests.MarkdownTableAccessibilityTests/mountedPreparedTableExposesRowsColumnsHeadersAndLinkActions()" \
+  "SiriusMarkdownSwiftUITests.MarkdownTableAccessibilityTests/mountedTableAccessibilityResolvesSpansAndRefreshesReplacement()" \
+  "SiriusMarkdownMathTests.nativeMathAccessibilityExposesMatrixRowsAndColumns()" \
+  "SiriusMarkdownMathTests.nativeMathAccessibilityNodeBudgetIsBounded()" \
+  "SiriusMarkdownMathTests.nativeMathAccessibilityPreservesFractionRadicalAndScripts()" \
+  "SiriusMarkdownMathTests.nativeMathBlockExposesNavigableAccessibilityParts()" \
+  "SiriusMarkdownMathTests.publicMathAccessibilityTreeBoundsDepth()" \
+  "SiriusMarkdownSwiftUITests.MarkdownDocumentFindTests/caseAndDiacriticOptionsAreIndependentAndEmptyQueryHasNoMatches()" \
+  "SiriusMarkdownSwiftUITests.MarkdownDocumentFindTests/controllerWrapsNavigationAndRetainsSelectedMatchAcrossAppend()" \
+  "SiriusMarkdownSwiftUITests.MarkdownDocumentFindTests/headingsHaveDeterministicUniqueSlugsAndUnicodeFragments()" \
+  "SiriusMarkdownSwiftUITests.MarkdownDocumentFindTests/nestedPreparedContentIsIndexedOnceAndHTMLSourceIsNotSearchable()" \
+  "SiriusMarkdownSwiftUITests.MarkdownDocumentFindTests/rasterizedMathDoesNotExposeItsHiddenLatexToTextFind()" \
+  "SiriusMarkdownSwiftUITests.MarkdownDocumentFindTests/searchesRenderedInlineTextAcrossFormattingAndPreservesUnicodeSource()" \
+  "SiriusMarkdownSwiftUITests.MarkdownDocumentNavigationTests/mountedDocumentFindShowsNativeFieldAndHighlightsCurrentSourceMatch()" \
+  "SiriusMarkdownSwiftUITests.MarkdownDocumentNavigationTests/mountedHeadingLinkRevealsOffscreenHeadingAndExternalLinksReachHost()" \
+  "SiriusMarkdownSwiftUITests.MarkdownDocumentNavigationTests/navigationBuildsOnlyOnDemandAndReindexesEqualLengthReplacement()" \
+  "SiriusMarkdownSwiftUITests.MarkdownDocumentPrintExporterTests/emptySnapshotProducesOneBlankPrintablePage()" \
+  "SiriusMarkdownSwiftUITests.MarkdownDocumentPrintExporterTests/imageAndMathFallbackLimitationsAreReturnedWithSemanticText()" \
+  "SiriusMarkdownSwiftUITests.MarkdownDocumentPrintExporterTests/invalidGeometryAndUnfittableContentFailExplicitly()" \
+  "SiriusMarkdownSwiftUITests.MarkdownDocumentPrintExporterTests/longCodeAndTallTablesPaginateWithoutLosingTheirLastContent()" \
+  "SiriusMarkdownSwiftUITests.MarkdownDocumentPrintExporterTests/paginationIsDeterministicAndEveryCharacterBelongsToOnePage()" \
+  "SiriusMarkdownSwiftUITests.MarkdownDocumentPrintExporterTests/printOperationCreationDoesNotRunAndPDFRetainsLinkAnnotations()" \
+  "SiriusMarkdownSwiftUITests.MarkdownDocumentSelectionInteractionTests/doubleClickSelectsWholeWordAcrossEmergencyWraps()" \
+  "SiriusMarkdownSwiftUITests.MarkdownDocumentSelectionInteractionTests/mixedBidiEmojiTraversalUsesShapedCaretPositions()" \
+  "SiriusMarkdownSwiftUITests.MarkdownDocumentSelectionInteractionTests/optionArrowsSkipArtificialWordWrapBoundaries()" \
+  "SiriusMarkdownSwiftUITests.MarkdownDocumentSelectionInteractionTests/rtlArrowsAndCommandEdgesMoveInVisualDirections()" \
+  "SiriusMarkdownSwiftUITests.MarkdownDocumentSelectionInteractionTests/rtlWrapCrossingRetainsVisualLineAndWordNavigation()" \
+  "SiriusMarkdownSwiftUITests.MarkdownDocumentSelectionInteractionTests/wrappedCaretKeepsClickedLineForLineAndVerticalCommands()" \
+  "SiriusMarkdownSwiftUITests.MarkdownRichCopyTests/copiedHTMLIsEscapedAndUsesPreparedLinkPolicy()" \
+  "SiriusMarkdownSwiftUITests.MarkdownRichCopyTests/documentCopyProducesSemanticHTMLAndPreservesMarkdownAndPlainText()" \
+  "SiriusMarkdownSwiftUITests.MarkdownRichCopyTests/emptySelectionDoesNotGenerateRichPayloads()" \
+  "SiriusMarkdownSwiftUITests.MarkdownRichCopyTests/nativeRTFRoundTripRetainsBoldItalicAndLinkAttributes()" \
+  "SiriusMarkdownSwiftUITests.MarkdownRichCopyTests/partialSelectionDoesNotCopyUnselectedRunContent()" \
+  "SiriusMarkdownSwiftUITests.MarkdownRichCopyTests/portableClipboardItemIncludesEverySuppliedRepresentation()" \
+  "SiriusMarkdownSwiftUITests.MarkdownRichCopyTests/sanitizedRichHTMLCopiesNativeSemanticsWithoutSourceTagsOrFetches()" \
+  "SiriusMarkdownSwiftUITests.MarkdownSelectionPublicationTests/unselectedStreamingUpdatesDoNotPublishSelectionChanges()" \
+  "SiriusMarkdownSwiftUITests.MarkdownSemanticAccessibilityTests/paintedSemanticLinksExposeOneAccessibleAction(label:)" \
+  "SiriusMarkdownSwiftUITests.MarkdownDocumentSelectionInteractionTests/mountedNativeMenuActionsSelectAndCopyThroughResponderSelectors()" \
+  "SiriusMarkdownSwiftUITests.MarkdownDocumentSelectionInteractionTests/activatedDragCanReturnToItsOriginalCaret()" \
+  "SiriusMarkdownSwiftUITests.MarkdownDocumentSelectionInteractionTests/replacingDocumentInvalidatesCollapsedCaretBeforeShiftClick()" \
+  "SiriusMarkdownSwiftUITests.MarkdownDocumentSelectionInteractionTests/optionArrowsUseDirectionalWordBoundaries()" \
+  "SiriusMarkdownSwiftUITests.MarkdownDocumentSelectionInteractionTests/escapeCancelsMountedAutoscrollAndPendingDrag()" \
+  "SiriusMarkdownMathTests.MarkdownMathRasterizationTests/inlineMathPointBoundsMatchActualRasterPixels(scale:)" \
+  "SiriusMarkdownMathTests.MarkdownMathRasterizationTests/preparedPNGPreservesDirectVectorRasterCoverageWithoutResampling()" \
+  "SiriusMarkdownSwiftUITests.MarkdownAlternateLinkSurfaceTests/alternateRenderingModesMountLinkMenusAndForwardHostActions()" \
+  "SiriusMarkdownSwiftUITests.MarkdownAlternateLinkSurfaceTests/explicitLineSourceMapAccountsForUnicodeWhitespaceAndEmptyLines()" \
+  "SiriusMarkdownSwiftUITests.MarkdownAlternateLinkSurfaceTests/mathParagraphsKeepLinkMenusInEveryRenderingMode()" \
+  "SiriusMarkdownSwiftUITests.MarkdownAlternateLinkSurfaceTests/multilineDecoratedNativeLinesKeepTextAndAttachmentPlacement()" \
+  "SiriusMarkdownSwiftUITests.MarkdownDocumentSelectionInteractionTests/dragCrossesParagraphsAndShiftClickKeepsAnchor()" \
+  "SiriusMarkdownSwiftUITests.MarkdownDocumentSelectionInteractionTests/keyboardSelectionRespectsGraphemesAndExternalReset()" \
+  "SiriusMarkdownSwiftUITests.MarkdownDocumentSelectionInteractionTests/mountedEventBridgeConsumesDragReleaseButPreservesContextClick()" \
+  "SiriusMarkdownSwiftUITests.MarkdownDocumentSelectionInteractionTests/wordAndParagraphClicksSelectSemanticUnits()" \
+  "SiriusMarkdownSwiftUITests.MarkdownLinkContextMenuTests/menuActionsRetainExactDestinationAndCopyURLRepresentation()" \
+  "SiriusMarkdownSwiftUITests.MarkdownLinkContextMenuTests/mountedPaintedLinksHaveNativeMenusWithoutChangingSelection(markdown:)" \
+  "SiriusMarkdownSwiftUITests.MarkdownLinkContextMenuTests/nativeLeafLinkMenusWorkWithDocumentSelectionWithoutStealingDrags()" \
+  "SiriusMarkdownSwiftUITests.MarkdownNativeTextSelectionAppKitTests/highResolutionMathTintFillsItsReservedAttachment(scale:)" \
+  "SiriusMarkdownCoreTests.MarkdownHTMLNormalizationRegressionTests/authoredCustomElementsCannotImpersonateMarkdownPlaceholders()" \
+  "SiriusMarkdownCoreTests.MarkdownHTMLNormalizationRegressionTests/blockHTMLCollapsesWhitespaceAcrossInlineElementBoundaries()" \
+  "SiriusMarkdownCoreTests.MarkdownHTMLNormalizationRegressionTests/blockHTMLKeepsWhitespaceBetweenNestedInlineSiblings()" \
+  "SiriusMarkdownCoreTests.MarkdownHTMLNormalizationRegressionTests/blockHTMLPreservesNonbreakingAndTypographicSpaces()" \
+  "SiriusMarkdownCoreTests.MarkdownHTMLNormalizationRegressionTests/blockHTMLPreservesRepeatedAndTrailingExplicitBreaks()" \
+  "SiriusMarkdownCoreTests.MarkdownHTMLNormalizationRegressionTests/inlineHTMLPreservesMarkdownCodeSpanSpacing()" \
+  "SiriusMarkdownCoreTests.MarkdownHTMLNormalizationRegressionTests/inlineHTMLPreservesRepeatedExplicitBreaks()" \
+  "SiriusMarkdownCoreTests.MarkdownInlineNewlineRegressionTests/authoredInlineNewlinesPreserveLineBreaksAndByteOffsets(newline:)" \
+  "SiriusMarkdownCoreTests.MarkdownInlineNewlineRegressionTests/nonbreakingSpacesKeepSurroundingWordsTogether(space:)" \
+  "SiriusMarkdownCoreTests.MarkdownInlineNewlineRegressionTests/separateNonbreakingDecorationSpacerKeepsItsLabel()" \
+  "SiriusMarkdownCoreTests.MarkdownLinkMetadataTransferRegressionTests/oversizedDocumentCancelsUnusedResponseBody()" \
+  "SiriusMarkdownCoreTests.MarkdownLinkMetadataTransferRegressionTests/rejectedDocumentMIMECancelsUnusedResponseBody()" \
+  "SiriusMarkdownCoreTests.carriageReturnInlineBreaksKeepExactSourceRanges()" \
+  "SiriusMarkdownCoreTests.carriageReturnParserPreservesBlockSourceAndLineRanges()" \
+  "SiriusMarkdownCoreTests.carriageReturnQuotedDisplayMathRemovesEveryContainerPrefix()" \
+  "SiriusMarkdownCoreTests.carriageReturnScannerSealsCompletedParagraphWithoutFinishing()" \
+  "SiriusMarkdownCoreTests.carriageReturnSingleByteStreamingDoesNotSplitLooseLists()" \
+  "SiriusMarkdownCoreTests.carriageReturnSourceLinesAndMapsMatchCommonMarkNewlines()" \
+  "SiriusMarkdownCoreTests.carriageReturnStreamingMatchesWholeDocumentAcrossEverySplit()" \
+  "SiriusMarkdownCoreTests.finishingCachedTailSealsNestedQuoteAndListBlocks()" \
+  "SiriusMarkdownCoreTests.parserCacheUpdatesSealedStateThroughoutRecursiveContainers()" \
+  "SiriusMarkdownSwiftUITests.MarkdownRendererIntegerBoundaryTests/manuallyPreparedTableSpansAndColumnsAreBounded()" \
+  "SiriusMarkdownSwiftUITests.MarkdownRendererIntegerBoundaryTests/orderedListOrdinalsSaturateWithoutOverflow()" \
+  "SiriusMarkdownSwiftUITests.MarkdownRendererIntegerBoundaryTests/publicTableSpansAboveIntMaxAreBoundedBeforeConversion()" \
   "SiriusMarkdownCoreTests.MarkdownLinkMetadataResolverTests/retainsOnlyNavigationIssuedCookiesAcrossManualRedirects()" \
   "SiriusMarkdownCoreTests.MarkdownLinkMetadataResolverTests/endpointValidationAggregatesEveryTaskInARedirectChain()" \
   "SiriusMarkdownCoreTests.MarkdownLinkMetadataResolverTests/rejectsEffectivelyInvisibleIconInsteadOfReplacingFallbackGlyph()" \
@@ -268,8 +376,8 @@ for required_test in \
   "SiriusMarkdownTests.releaseRunbookPublishesMatchingGitHubRelease()" \
   "SiriusMarkdownMathTests.paragraphEmbeddedDisplayMathPreparesTypesetImage()" \
   "SiriusMarkdownMathTests.degradedBareDisplayBracketMathPreparesTypesetImage()" \
-  "SiriusMarkdownSwiftUITests.selectionDefaultsAreNativeOnMacOSAndSourceBackedElsewhere()" \
-  "SiriusMarkdownSwiftUITests.MarkdownNativeTextSelectionAppKitTests/defaultMacOSSelectionUsesAppKitHighlightWrappingCopyAndContextMenu()" \
+  "SiriusMarkdownSwiftUITests.selectionDefaultsUseDocumentInteractionAndPreserveExplicitNativeOptIn()" \
+  "SiriusMarkdownSwiftUITests.MarkdownNativeTextSelectionAppKitTests/explicitNativeMacOSSelectionUsesAppKitHighlightWrappingCopyAndContextMenu()" \
   "SiriusMarkdownSwiftUITests.MarkdownNativeTextSelectionAppKitTests/nativeSelectionSurvivesStreamingTextReplacementOnMacOS()" \
   "SiriusMarkdownSwiftUITests.MarkdownNativeTextSelectionAppKitTests/nativeSelectionCoversImageBackedInlineMathWithoutSelectionOverlayOnMacOS()" \
   "SiriusMarkdownSwiftUITests.MarkdownNativeTextSelectionAppKitTests/nativeInlineMathAttachmentPreservesLinkAndPrunesItsCacheOnUpdate()" \
@@ -456,5 +564,5 @@ xcrun docc convert Docs/SiriusMarkdown.docc \
   --additional-symbol-graph-dir "$SYMBOL_GRAPH_DIR" \
   --fallback-display-name SiriusMarkdown \
   --fallback-bundle-identifier com.sirius.markdown \
-  --fallback-bundle-version 0.6.26 \
+  --fallback-bundle-version 0.6.27 \
   --output-path /tmp/SiriusMarkdown.doccarchive

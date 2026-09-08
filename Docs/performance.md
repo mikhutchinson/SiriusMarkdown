@@ -164,7 +164,7 @@ Native LaTeX math through `SiriusMarkdownMath`'s `NativeMarkdownMathRenderer`
 `MarkdownPreparedMathImage` values with display-list typographic metrics:
 
 - **Display-list ascent/descent**: `SwiftMathTypesetter` uses vendored
-  `MTMathImage.asImage()` → `LayoutInfo` from `MTMathListDisplay`, then maps
+  `MTMathImage.asImage(rasterizationScale:)` → `LayoutInfo` from `MTMathListDisplay`, then maps
   those metrics onto the rasterized image height so
   `ascent + descent == pointHeight`. This replaces both the old
   `ascent = pointHeight, descent = 0` placeholder and the interim atom-tree
@@ -172,6 +172,9 @@ Native LaTeX math through `SiriusMarkdownMath`'s `NativeMarkdownMathRenderer`
 - **Baseline alignment**: `InlineMathTextView.baselineOffset(for:)` uses
   `-descent` to align the equation's typographic baseline with the surrounding
   text baseline, replacing the prior `−overshoot × 0.32` heuristic.
+- **Direct vector rasterization**: the display list is drawn once into the
+  bounded bitmap at the requested scale. Integral pixel bounds determine point
+  size, and PNG encoding preserves that raster without an intermediate resize.
 - **Screen-matched rasterization**: `NativeMarkdownMathRenderer.renderScale`
   resolves to the screen's backing scale (min 2.0) instead of a fixed 3.0,
   ensuring sharp glyphs on both 2x Retina and 3x Pro displays.
@@ -204,3 +207,26 @@ Use **`MarkdownStream.diagnosticsCounters`** and **`InlineLayoutEngine.diagnosti
 - `Docs/architecture.md` — where caches and engines live.
 - `Docs/streaming.md` — what gets reparsed when appending.
 - `Docs/native-renderer-scorecard.md` — product quality bar.
+
+## Prepared block publication reuse
+
+Streaming block views have an explicit equality boundary above their native
+render and selection subtrees. Reused prepared values keep a cheap revision
+token; public field writeback invalidates it, including nested mutations.
+Configuration changes also invalidate the boundary, including replacement
+actions and styles. Observed selection and SwiftUI environment changes remain
+independent descendant updates. Stable block IDs continue to own view identity.
+
+A local mounted debug run of the 178,960-byte rapid-publication fixture improved
+from 1154.28 ms to 729.83 ms for the late-update median (about 37 percent).
+Explicit layout remained about 5–6 ms; the gain is in preparation/publication
+and SwiftUI graph work. This is a local before/after measurement, not a release
+build or a cross-engine comparison. The remaining latency is still substantial.
+The same focused pass verifies resize wrapping and stable native surfaces;
+28 mounted interaction, Find, asynchronous-image and invalidation checks also
+passed. Logs: `/tmp/siriusmarkdown-render-boundary.log` and
+`/tmp/siriusmarkdown-render-boundary-interactions.log`.
+
+The subsequent complete 1071-test run measured 773.60 ms for that fixture,
+versus 1156.78 ms in the preceding full run (about 33 percent lower). All
+1071 tests passed; `/tmp/siriusmarkdown-full-1071.log` records this result.

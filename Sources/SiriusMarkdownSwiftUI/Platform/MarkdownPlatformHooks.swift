@@ -52,8 +52,8 @@ public enum MarkdownPasteboard {
     ///
     /// macOS: writes one `NSPasteboardItem` with `.string` = `plainText`,
     /// `net.siriusmarkdown.markdown` = `markdown`, and `.rtf` / `.html` when present.
-    /// iOS/iPadOS: plain text goes to `UIPasteboard.string`; Markdown to an item with
-    /// the custom type (best-effort; `UIPasteboard` has limited multi-type support).
+    /// iOS/iPadOS: writes one item carrying plain text, Markdown, and supplied
+    /// HTML/RTF data so receiving applications can negotiate their richest type.
     @MainActor
     public static func copy(_ payload: MarkdownPasteboardPayload) {
         #if os(macOS)
@@ -73,13 +73,20 @@ public enum MarkdownPasteboard {
         #elseif canImport(UIKit) && !os(tvOS) && !os(watchOS)
         // "public.utf8-plain-text" is the correct UTI for UTF-8 text items.
         // UIPasteboard accepts String values directly for this type.
-        UIPasteboard.general.items = [
-            [
-                "public.utf8-plain-text": payload.plainText,
-                markdownPasteboardType: payload.markdown,
-            ]
-        ]
+        UIPasteboard.general.items = [portableItem(for: payload)]
         #endif
+    }
+
+    /// Shared item construction also makes UIKit representation preservation
+    /// testable without writing to a user's system clipboard.
+    static func portableItem(for payload: MarkdownPasteboardPayload) -> [String: Any] {
+        var item: [String: Any] = [
+            "public.utf8-plain-text": payload.plainText,
+            markdownPasteboardType: payload.markdown,
+        ]
+        if let html = payload.html { item["public.html"] = html }
+        if let rtf = payload.rtf { item["public.rtf"] = rtf }
+        return item
     }
 
     /// Convenience: writes a single string as both plain text and Markdown (they are equal).

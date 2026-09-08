@@ -29,8 +29,6 @@ final class SwiftMathTypesetter: @unchecked Sendable {
 
     private static let maximumFontSize = 512.0
     private static let maximumRasterizationScale = 8.0
-    private static let maximumRasterPixelDimension = 16_384.0
-    private static let maximumRasterPixelCount = 16_777_216.0
 
     private let lock = NSLock()
 
@@ -95,7 +93,7 @@ final class SwiftMathTypesetter: @unchecked Sendable {
             textAlignment: .left
         )
 
-        let (error, image, layout) = mathImage.asImage()
+        let (error, image, layout) = mathImage.asImage(rasterizationScale: CGFloat(scale))
         guard error == nil,
               let image,
               let layout,
@@ -107,7 +105,7 @@ final class SwiftMathTypesetter: @unchecked Sendable {
 
         let pointWidth = Double(image.size.width)
         let pointHeight = Double(image.size.height)
-        guard let imageData = Self.pngData(from: image, scale: CGFloat(scale)) else {
+        guard let imageData = Self.pngData(from: image) else {
             return nil
         }
 
@@ -124,7 +122,8 @@ final class SwiftMathTypesetter: @unchecked Sendable {
             pointHeight: pointHeight,
             ascent: ascent,
             descent: descent,
-            latex: originalLatex
+            latex: originalLatex,
+            accessibilityTree: mathImage.parsedMathList.map { SwiftMathAccessibilityBuilder.makeTree(from: $0) }
         )
     }
 
@@ -681,61 +680,17 @@ final class SwiftMathTypesetter: @unchecked Sendable {
             && fileExists(mathFontsBundleURL.appendingPathComponent("\(defaultFontName).plist").path)
     }
 
-    /// Re-rasterizes the typeset equation at the requested pixel scale so the
-    /// stored bitmap stays crisp when SwiftUI draws it at point size.
-    private static func pngData(from image: MTImage, scale: CGFloat) -> Data? {
-        let size = image.size
-        guard size.width.isFinite, size.height.isFinite, size.width > 0, size.height > 0 else {
-            return nil
-        }
-        let pixelWidthValue = (size.width * scale).rounded(.up)
-        let pixelHeightValue = (size.height * scale).rounded(.up)
-        guard pixelWidthValue.isFinite,
-              pixelHeightValue.isFinite,
-              pixelWidthValue > 0,
-              pixelHeightValue > 0,
-              pixelWidthValue <= maximumRasterPixelDimension,
-              pixelHeightValue <= maximumRasterPixelDimension,
-              pixelWidthValue * pixelHeightValue <= maximumRasterPixelCount else {
-            return nil
-        }
-
+    /// Encodes the already rasterized display list without a second image draw.
+    /// Redrawing here would resample glyph coverage and can use an ambient-scale
+    /// UIKit image or an AppKit intermediate representation.
+    private static func pngData(from image: MTImage) -> Data? {
         #if canImport(UIKit)
-        let format = UIGraphicsImageRendererFormat.preferred()
-        format.opaque = false
-        if scale > 0 {
-            format.scale = scale
-        }
-        let renderer = UIGraphicsImageRenderer(size: size, format: format)
-        let rasterized = renderer.image { _ in
-            image.draw(in: CGRect(origin: .zero, size: size))
-        }
-        return rasterized.pngData()
+        return image.pngData()
         #elseif canImport(AppKit)
-        let pixelWidth = Int(pixelWidthValue)
-        let pixelHeight = Int(pixelHeightValue)
-        guard let rep = NSBitmapImageRep(
-            bitmapDataPlanes: nil,
-            pixelsWide: pixelWidth,
-            pixelsHigh: pixelHeight,
-            bitsPerSample: 8,
-            samplesPerPixel: 4,
-            hasAlpha: true,
-            isPlanar: false,
-            colorSpaceName: .deviceRGB,
-            bytesPerRow: 0,
-            bitsPerPixel: 0
-        ) else {
+        guard let representation = image.representations.compactMap({ $0 as? NSBitmapImageRep }).first else {
             return nil
         }
-        rep.size = size
-
-        NSGraphicsContext.saveGraphicsState()
-        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
-        image.draw(in: NSRect(origin: .zero, size: size))
-        NSGraphicsContext.restoreGraphicsState()
-
-        return rep.representation(using: .png, properties: [:])
+        return representation.representation(using: .png, properties: [:])
         #else
         return nil
         #endif

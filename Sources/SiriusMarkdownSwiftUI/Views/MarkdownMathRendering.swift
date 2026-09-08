@@ -8,6 +8,51 @@ import UIKit
 import AppKit
 #endif
 
+/// Semantic math structure prepared by a native typesetter, independent of UI.
+public struct MarkdownMathAccessibilityNode: Sendable, Hashable {
+    public enum Kind: String, Sendable, Hashable {
+        case equation, row, fraction, numerator, denominator, radical, radicand, degree
+        case superscript, subscriptValue, symbol, group, table, cell, accent, overline, underline
+    }
+    public let kind: Kind
+    public let label: String
+    public let children: [MarkdownMathAccessibilityNode]
+
+    public init(kind: Kind, label: String, children: [MarkdownMathAccessibilityNode] = []) {
+        self.kind = kind
+        self.label = String(label.prefix(256))
+        self.children = children
+    }
+}
+
+/// A bounded, navigable equation tree. Building it never changes authored LaTeX.
+public struct MarkdownMathAccessibilityTree: Sendable, Hashable {
+    public static let maximumNodeCount = 512
+    public static let maximumDepth = 24
+    public let root: MarkdownMathAccessibilityNode
+    public let isTruncated: Bool
+    public let accessibilityLabel: String
+
+    public init(root: MarkdownMathAccessibilityNode, isTruncated: Bool = false) {
+        var remaining = Self.maximumNodeCount
+        var truncated = isTruncated
+        var labels: [String] = []
+        func bounded(_ node: MarkdownMathAccessibilityNode, depth: Int) -> MarkdownMathAccessibilityNode {
+            remaining -= 1
+            labels.append(node.label)
+            var children: [MarkdownMathAccessibilityNode] = []
+            for child in node.children {
+                guard remaining > 0, depth < Self.maximumDepth else { truncated = true; break }
+                children.append(bounded(child, depth: depth + 1))
+            }
+            return .init(kind: node.kind, label: node.label, children: children)
+        }
+        self.root = bounded(root, depth: 1)
+        self.isTruncated = truncated
+        self.accessibilityLabel = String(labels.filter { !$0.isEmpty }.joined(separator: ", ").prefix(4096))
+    }
+}
+
 /// A natively typeset math artifact produced during render preparation.
 ///
 /// The glyphs are rasterized once (off the SwiftUI body) into an alpha-coverage
@@ -36,6 +81,8 @@ public struct MarkdownPreparedMathImage: Sendable, Hashable {
     public var descent: Double
     /// Original LaTeX source, retained for copy-as-Markdown and accessibility.
     public var latex: String
+    /// Native semantic structure, prepared alongside the bitmap when available.
+    public var accessibilityTree: MarkdownMathAccessibilityTree?
 
     public init(
         imageData: Data,
@@ -53,10 +100,19 @@ public struct MarkdownPreparedMathImage: Sendable, Hashable {
         self.ascent = ascent
         self.descent = descent
         self.latex = latex
+        self.accessibilityTree = nil
+    }
+
+    public init(imageData: Data, scale: Double, pointWidth: Double, pointHeight: Double,
+                ascent: Double, descent: Double, latex: String,
+                accessibilityTree: MarkdownMathAccessibilityTree?) {
+        self.init(imageData: imageData, scale: scale, pointWidth: pointWidth, pointHeight: pointHeight,
+                  ascent: ascent, descent: descent, latex: latex)
+        self.accessibilityTree = accessibilityTree
     }
 
     public var accessibilityLabel: String {
-        latex
+        accessibilityTree?.accessibilityLabel ?? latex
     }
 }
 
@@ -283,5 +339,20 @@ struct MarkdownMathImageView: View {
                 nativeTextSelection: nativeTextSelection
             )
         }
+    }
+}
+
+struct MarkdownMathAccessibilityNodeView: View {
+    var node: MarkdownMathAccessibilityNode
+
+    var body: some View {
+        AnyView(Text(node.label)
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel(Text(node.label))
+            .accessibilityChildren {
+                ForEach(Array(node.children.enumerated()), id: \.offset) { _, child in
+                    MarkdownMathAccessibilityNodeView(node: child)
+                }
+            })
     }
 }

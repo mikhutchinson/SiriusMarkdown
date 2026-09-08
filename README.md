@@ -18,43 +18,29 @@ The core contract is simple:
 
 ## Current Release
 
-`0.6.26` tightens asynchronous link-decoration refresh, completes native HTML
-table-span rendering, and preserves structured blocks inside containers:
+`0.6.27` adds document interactions and improves native rendering quality:
 
-- **Immediate native fallback:** every policy-authorized destination that
-  normalizes into an activatable URL receives a template SF Symbol globe,
-  including relative, scheme-less, and non-HTTP safe destinations. Automatic
-  icon sizing follows the surrounding text up to the configured maximum.
-- **Visible site-icon replacement:** public HTTPS favicon discovery remains
-  separately gated. A resolved icon replaces the template symbol in the same
-  reserved attachment host only after bounded native decoding confirms
-  meaningful visible pixel coverage; branded pixels stay untinted.
-- **Presentation-correct live refresh:** attachment payload identity is distinct
-  from reusable layout identity, so an equal-size favicon replaces its globe
-  immediately without throwing away valid measurement state.
-- **Selective metadata updates:** custom resolvers are scheduled per destination,
-  expired or cleared negative entries can retry, and completion reprepares only
-  blocks containing changed links. Resolver implementations remain free to
-  coalesce work by origin.
-- **Redirect endpoint safety:** manual redirect chains aggregate contacted-socket
-  validation across every request rather than accepting the final task from a
-  mixed public/private chain.
-- **Coherent semantic links:** authored soft and hard breaks stay inside one
-  decorated link group, preventing duplicate globes or favicons.
-- **Native HTML table spans:** bounded `colspan` and `rowspan` metadata now drives
-  prepared widths, heights, borders, rendering, and source-backed selection.
-- **Recursive native containers:** block quotes and list items retain paragraph,
-  code, table, quote, and child-list blocks in source order. Those descendants
-  use the normal prepared block renderers instead of flattening into one inline
-  leaf, including for sanitized HTML containers.
-- **Release validation:** the serial release suite discovers 966 tests, and the
-  full gate also builds a clean external consumer, bundles all three demos,
-  compares every Pretext fixture, checks the math corpus, builds DocC, and runs
-  the opt-in AppKit renderer probes.
+- **Selection and links:** document-wide macOS selection, visual bidi caret
+  movement, wrapped word navigation, native Edit actions, and link context menus.
+- **Retina math and accessibility:** scale-correct native math rasters, semantic
+  math children, actionable links, headings, and native table relationships.
+- **Find and navigation:** document Find, heading fragments, and sanitized HTML
+  anchors, including host-scrolled document integration.
+- **Copy and export:** rich HTML/RTF clipboard representations and native macOS
+  print/PDF with selectable tables, prepared math/images, and reported fallbacks.
+- **Optional remote images:** explicitly enabled, bounded anonymous public-HTTPS
+  loading with coalescing, cancellation and host-supplied viewport gating.
+- **Streaming performance:** reuse unchanged native block subtrees. The mounted
+  178,960-byte debug fixture improved from 1,157 ms to 753 ms in local full runs;
+  this is not a release-build or cross-engine benchmark.
+- **Release validation:** the serial release suite discovers 1074 tests. The
+  visual-enabled product gate passed, including the clean consumer, three demos,
+  math corpus, Pretext goldens, symbol graphs, DocC and AppKit render probes.
 
-The release retains the bounded live-table work, sanitized native rich HTML,
-decorated-link resolver, native selection, syntax highlighting, math, Mermaid,
-attachment, and Pretext-backed layout contracts from earlier releases.
+See [document interactions](Docs/document-interactions.md) for API integration
+and [validation scope](Docs/pre-ship-validation-2026-09-08.md) for evidence and
+remaining platform/export limits. Default policies still prevent implicit image
+network requests. Existing native streaming and prepared-layout contracts remain.
 
 ## Requirements
 
@@ -65,7 +51,7 @@ attachment, and Pretext-backed layout contracts from earlier releases.
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/mikhutchinson/SiriusMarkdown.git", from: "0.6.26")
+    .package(url: "https://github.com/mikhutchinson/SiriusMarkdown.git", from: "0.6.27")
 ],
 targets: [
     .target(
@@ -138,11 +124,11 @@ small surfaces. Production paths should pass `MarkdownPreparedSnapshot`.
   active content is removed rather than executed or displayed as raw tags.
 - Streaming append behavior that reparses only the mutable tail while sealed
   regions remain immutable and cacheable.
-- Platform-native bounded text selection on macOS, including image-backed inline
-  math through TextKit attachments, with the source-backed cross-block selector
-  available explicitly for exact Markdown copy through
-  `MarkdownSelectionController` and `MarkdownCopyProvider`. Other platforms keep
-  source-backed document selection as their default.
+- Cross-block document selection by default, with a bounded macOS mouse and
+  keyboard handler, native link context menus, and exact Markdown copy through
+  `MarkdownSelectionController` and `MarkdownCopyProvider`. Hosts can explicitly
+  enable native leaf selection for AppKit compatibility. Image-backed inline
+  math uses baseline-aligned TextKit attachments on macOS.
 - Bounded parser, prepared-inline, measured-layout, highlighted-code, Mermaid,
   math, and origin-scoped link-metadata/icon caches.
 - Safe default policies: links are scheme-gated, network images are not fetched
@@ -328,12 +314,14 @@ git diff --check
 - Release runbook: `runbook.md`
 - Changelog: `changelog.md`
 - Bugfix log: `bugfix.md`
-- Current release notes: `release-notes/0.6.26.md`
+- Current release notes: `release-notes/0.6.27.md`
 - Third-party credits: `NOTICE.md`
 
 ## Release
 
-`0.6.26` is ready only when the docs describe the current public package surface,
+`0.6.27` is ready only when the docs describe the current public package surface,
 `bash Tools/product-check.sh` passes from the repository root, `git diff --check`
 is clean, the public remote is correct, and the release commit is tagged and
-pushed as `0.6.26` with a matching published GitHub Release.
+pushed as `0.6.27` with a matching published GitHub Release.
+
+See [document interactions](Docs/document-interactions.md) for Find, anchors, rich clipboard, native print/PDF, and current accessibility coverage.

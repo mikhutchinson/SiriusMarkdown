@@ -36,6 +36,9 @@ struct MarkdownDocumentSelectionEndpoint: Equatable {
     var blockID: MarkdownBlockID
     var sourceByteOffset: Int
     var line: Int
+    // Source offsets alone cannot distinguish the two carets at a wrap.
+    var fragmentID: String? = nil
+    var isSecondaryCaret = false
 }
 
 struct MarkdownDocumentSelectionHighlight: Identifiable {
@@ -419,10 +422,13 @@ struct MarkdownDocumentSelectionFragment: Identifiable, Equatable {
             let localX = location.x - rect.minX
             let visibleMaxX = max(0, min(textGeometry.lineWidth, rect.width))
             let queryX = min(max(localX, 0), visibleMaxX)
+            let caret = textGeometry.caret(atX: queryX)
             return MarkdownDocumentSelectionEndpoint(
                 blockID: blockID,
-                sourceByteOffset: textGeometry.sourceByteOffset(atX: queryX),
-                line: sourceRange.lineRange.lowerBound
+                sourceByteOffset: caret?.sourceByteOffset ?? textGeometry.sourceByteOffset(atX: queryX),
+                line: sourceRange.lineRange.lowerBound,
+                fragmentID: id,
+                isSecondaryCaret: caret?.isSecondary ?? false
             )
         }
 
@@ -432,7 +438,8 @@ struct MarkdownDocumentSelectionFragment: Identifiable, Equatable {
         return MarkdownDocumentSelectionEndpoint(
             blockID: blockID,
             sourceByteOffset: sourceByteOffset,
-            line: location.x <= rect.midX ? sourceRange.lineRange.lowerBound : sourceRange.lineRange.upperBound
+            line: location.x <= rect.midX ? sourceRange.lineRange.lowerBound : sourceRange.lineRange.upperBound,
+            fragmentID: id
         )
     }
 
@@ -840,15 +847,25 @@ struct MarkdownDocumentSelectionLineFragmentTemplate: Sendable {
     }
 }
 
+struct MarkdownDocumentSelectionVisualCaret: Equatable, Sendable {
+    var sourceByteOffset: Int
+    var x: CGFloat
+    var isSecondary: Bool
+}
+
 struct MarkdownDocumentSelectionTextGeometry: Equatable, Sendable {
     var visibleByteRange: Range<Int>
     var lineText: String
+    // String storage is shared across line geometries; no per-line leaf copy.
+    var leafText: String
+    var leafSourceByteRange: Range<Int>
     var sourceRuns: [MarkdownDocumentSelectionSourceRun]
     var fontRuns: [MarkdownDocumentSelectionFontRun]
     var fontProfiles: MarkdownInlineFontProfiles
     var fontSize: Double
     var lineWidth: CGFloat
     private var equalityFingerprint: Int
+    private(set) var visualCarets: [MarkdownDocumentSelectionVisualCaret] = []
     #if canImport(CoreText)
     private var coreTextMetrics: MarkdownDocumentSelectionCoreTextMetrics?
     #endif
@@ -867,8 +884,12 @@ struct MarkdownDocumentSelectionTextGeometry: Equatable, Sendable {
             return nil
         }
 
+        let leafRanges = prepared.prepared.runs.compactMap { $0.sourceRange?.byteRange }
+        let leafLower = leafRanges.map(\.lowerBound).min() ?? 0
+        self.leafSourceByteRange = leafLower..<(leafRanges.map(\.upperBound).max() ?? leafLower)
         self.visibleByteRange = line.byteRange
         self.lineText = String(prepared.prepared.naturalText[stringRange])
+        self.leafText = prepared.prepared.naturalText
         self.fontProfiles = prepared.fontProfiles
         self.fontSize = prepared.fontSize
         self.lineWidth = CGFloat(max(line.width, 1))
@@ -939,6 +960,51 @@ struct MarkdownDocumentSelectionTextGeometry: Equatable, Sendable {
             diagnosticsRecorder: diagnosticsRecorder
         )
         #endif
+        prepareVisualCarets()
+    }
+
+    private mutating func prepareVisualCarets() {
+        var byteOffset = visibleByteRange.lowerBound
+        var offsets = [byteOffset]
+        for character in lineText { byteOffset += character.utf8.count; offsets.append(byteOffset) }
+        for offset in offsets {
+            let source = sourceByteOffset(forVisibleByteOffset: offset)
+            // Atomic attachments and non-one-to-one source runs expose only
+            // canonical boundaries, never repeated carets inside one token.
+            guard visibleByteOffset(forSourceByteOffset: source) == offset else { continue }
+            var primary = xOffset(forVisibleByteOffset: offset)
+            var secondary = primary
+            #if canImport(CoreText)
+            if let coreTextMetrics, let utf16 = localUTF16Offset(forVisibleByteOffset: offset) {
+                primary = CTLineGetOffsetForStringIndex(coreTextMetrics.line, utf16, &secondary) * coreTextMetrics.scale
+                secondary *= coreTextMetrics.scale
+            }
+            #endif
+            visualCarets.append(.init(sourceByteOffset: source, x: primary, isSecondary: false))
+            if abs(primary - secondary) > 0.01 {
+                visualCarets.append(.init(sourceByteOffset: source, x: secondary, isSecondary: true))
+            }
+        }
+        visualCarets.sort { $0.x < $1.x }
+    }
+
+    func caret(atX x: CGFloat) -> MarkdownDocumentSelectionVisualCaret? {
+        let source = sourceByteOffset(atX: x)
+        return visualCarets.min {
+            let lhs = abs($0.x - x), rhs = abs($1.x - x)
+            if abs(lhs - rhs) > 0.01 { return lhs < rhs }
+            if ($0.sourceByteOffset == source) != ($1.sourceByteOffset == source) { return $0.sourceByteOffset == source }
+            return !$0.isSecondary && $1.isSecondary
+        }
+    }
+
+    func caretX(forSourceByteOffset source: Int, secondary: Bool) -> CGFloat {
+        visualCarets.first { $0.sourceByteOffset == source && $0.isSecondary == secondary }?.x ?? xOffset(forSourceByteOffset: source)
+    }
+
+    var isRightToLeft: Bool {
+        guard let first = sourceRuns.first, let last = sourceRuns.last else { return false }
+        return xOffset(forSourceByteOffset: first.sourceRange.byteRange.lowerBound) > xOffset(forSourceByteOffset: last.sourceRange.byteRange.upperBound)
     }
 
     static func == (
@@ -947,6 +1013,8 @@ struct MarkdownDocumentSelectionTextGeometry: Equatable, Sendable {
     ) -> Bool {
         lhs.visibleByteRange == rhs.visibleByteRange &&
             lhs.lineText == rhs.lineText &&
+            lhs.leafText == rhs.leafText &&
+            lhs.leafSourceByteRange == rhs.leafSourceByteRange &&
             lhs.fontSize == rhs.fontSize &&
             lhs.lineWidth == rhs.lineWidth &&
             lhs.equalityFingerprint == rhs.equalityFingerprint
@@ -1002,7 +1070,7 @@ struct MarkdownDocumentSelectionTextGeometry: Equatable, Sendable {
         return max(0, min(lineWidth, lineWidth * progress))
     }
 
-    private func sourceByteOffset(forVisibleByteOffset visibleByteOffset: Int) -> Int {
+    func sourceByteOffset(forVisibleByteOffset visibleByteOffset: Int) -> Int {
         let clamped = min(max(visibleByteOffset, visibleByteRange.lowerBound), visibleByteRange.upperBound)
         guard !sourceRuns.isEmpty else {
             return clamped
@@ -1018,7 +1086,7 @@ struct MarkdownDocumentSelectionTextGeometry: Equatable, Sendable {
         return sourceRuns.last?.sourceRange.byteRange.upperBound ?? clamped
     }
 
-    private func visibleByteOffset(forSourceByteOffset sourceByteOffset: Int) -> Int {
+    func visibleByteOffset(forSourceByteOffset sourceByteOffset: Int) -> Int {
         guard !sourceRuns.isEmpty else {
             return sourceByteOffset
         }

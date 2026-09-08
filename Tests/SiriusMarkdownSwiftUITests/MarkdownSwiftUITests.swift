@@ -1141,12 +1141,12 @@ func packagedPresetsUseCoreTextPaintedLinesWhileFallbackModesStayExplicit() thro
     #expect(MarkdownRendererConfiguration(inlineRenderingMode: .preparedNativeLines).inlineRenderingMode == .preparedNativeLines)
     #expect(MarkdownRendererConfiguration(inlineRenderingMode: .coreTextPaintedLines).inlineRenderingMode == .coreTextPaintedLines)
     #if os(macOS)
-    #expect(MarkdownRendererConfiguration.compactChat.documentSelection == .disabled)
-    #expect(MarkdownRendererConfiguration.document.documentSelection == .disabled)
-    #expect(MarkdownRendererConfiguration().documentSelection == .disabled)
-    #expect(MarkdownRendererConfiguration.compactChat.nativeTextSelection == .enabled)
-    #expect(MarkdownRendererConfiguration.document.nativeTextSelection == .enabled)
-    #expect(MarkdownRendererConfiguration().nativeTextSelection == .enabled)
+    #expect(MarkdownRendererConfiguration.compactChat.documentSelection == .enabled)
+    #expect(MarkdownRendererConfiguration.document.documentSelection == .enabled)
+    #expect(MarkdownRendererConfiguration().documentSelection == .enabled)
+    #expect(MarkdownRendererConfiguration.compactChat.nativeTextSelection == .disabled)
+    #expect(MarkdownRendererConfiguration.document.nativeTextSelection == .disabled)
+    #expect(MarkdownRendererConfiguration().nativeTextSelection == .disabled)
     #else
     #expect(MarkdownRendererConfiguration.compactChat.documentSelection == .enabled)
     #expect(MarkdownRendererConfiguration.document.documentSelection == .enabled)
@@ -1186,7 +1186,7 @@ func packagedPresetsUseCoreTextPaintedLinesWhileFallbackModesStayExplicit() thro
 }
 
 @Test
-func selectionDefaultsAreNativeOnMacOSAndSourceBackedElsewhere() throws {
+func selectionDefaultsUseDocumentInteractionAndPreserveExplicitNativeOptIn() throws {
     let root = packageRootURL()
     let configuration = try String(
         contentsOf: root.appending(path: "Sources/SiriusMarkdownSwiftUI/Views/MarkdownRendererConfiguration.swift"),
@@ -1203,7 +1203,7 @@ func selectionDefaultsAreNativeOnMacOSAndSourceBackedElsewhere() throws {
 
     #expect(configuration.contains("public enum DocumentSelection"))
     #expect(configuration.contains("public var documentSelection: DocumentSelection"))
-    #expect(configuration.contains("documentSelection: DocumentSelection = .platformDefault"))
+    #expect(configuration.contains("documentSelection: DocumentSelection,"))
     #expect(configuration.contains("nativeTextSelection: MarkdownNativeTextSelection = .platformDefault"))
     #expect(configuration.contains("if documentSelection == .enabled"))
     #expect(configuration.contains("nativeTextSelection = .disabled"))
@@ -1215,7 +1215,7 @@ func selectionDefaultsAreNativeOnMacOSAndSourceBackedElsewhere() throws {
     #expect(!documentView.contains("Select Block"))
     #expect(!documentView.contains("Copy Selection"))
     #expect(documentView.contains("Button(\"Copy\")"))
-    #expect(documentView.contains("#if os(tvOS)"))
+    #expect(documentView.contains("os(tvOS)"))
     #expect(documentView.contains("TapGesture()"))
     #expect(documentView.contains("MarkdownDocumentSelectionDragActivation"))
     #expect(documentView.contains("DragGesture(minimumDistance: dragActivation.minimumDistance)"))
@@ -1497,13 +1497,13 @@ func defaultDocumentSelectionEmitsTextLeafRectsForListRows() throws {
 struct MarkdownNativeTextSelectionAppKitTests {
 @Test
 @MainActor
-func defaultMacOSSelectionUsesAppKitHighlightWrappingCopyAndContextMenu() throws {
+func explicitNativeMacOSSelectionUsesAppKitHighlightWrappingCopyAndContextMenu() throws {
     let markdown = "Native selection should wrap naturally without inserting synthetic newline characters into copied prose, and right-click should remain owned by AppKit."
     var stream = MarkdownStream()
     stream.append(markdown)
     stream.finish()
 
-    var configuration = MarkdownRendererConfiguration.compactChat
+    var configuration = MarkdownRendererConfiguration(nativeTextSelection: .enabled)
     configuration.copyProvider = MarkdownCopyProvider(markdownSource: markdown)
     #expect(configuration.nativeTextSelection == .enabled)
     #expect(configuration.documentSelection == .disabled)
@@ -1691,6 +1691,29 @@ func enabledNativeTextSelectionDoesNotRebuildContentPerLayoutPassOnMacOS() throw
     #expect(buildCountsAfterRepump == buildCountsAfterMount)
 }
 
+@Test(arguments: [2.0, 2.5, 3.0])
+@MainActor
+func highResolutionMathTintFillsItsReservedAttachment(scale: Double) throws {
+    var stream = MarkdownStream(); stream.append("Before $x$ after"); stream.finish()
+    let configuration = MarkdownRendererConfiguration(mathRenderer: ValidImageMathRenderer(scale: scale))
+    let prepared = configuration.prepare(snapshot: stream.snapshot())
+    let host = NSHostingView(rootView: StreamingMarkdownView(preparedSnapshot: prepared, configuration: configuration).frame(width: 320, height: 100))
+    host.frame = NSRect(x: 0, y: 0, width: 320, height: 100)
+    let window = offscreenTestWindow(host)
+    defer { tearDownWindow(window) }
+    pumpLayout(host)
+    let storage = try #require(appKitTextViews(in: host).first?.textStorage)
+    let range = (storage.string as NSString).range(of: "\u{FFFC}")
+    #expect(range.location != NSNotFound)
+    let attachment = try #require(storage.attribute(.attachment, at: range.location, effectiveRange: nil) as? NSTextAttachment)
+    let bitmap = try #require(attachment.image?.representations.compactMap { $0 as? NSBitmapImageRep }.first)
+    #expect(bitmap.pixelsWide == Int(18 * scale))
+    #expect(bitmap.pixelsHigh == Int(12 * scale))
+    // A solid source must cover the far corner too; a missing Retina CTM only
+    // paints the first 1/scale of the attachment and leaves the rest empty.
+    #expect((bitmap.colorAt(x: bitmap.pixelsWide - 2, y: bitmap.pixelsHigh - 2)?.alphaComponent ?? 0) > 0.5)
+}
+
 @Test
 @MainActor
 func nativeSelectionCoversImageBackedInlineMathWithoutSelectionOverlayOnMacOS() throws {
@@ -1699,7 +1722,7 @@ func nativeSelectionCoversImageBackedInlineMathWithoutSelectionOverlayOnMacOS() 
     stream.append(markdown)
     stream.finish()
 
-    let configuration = MarkdownRendererConfiguration(mathRenderer: ValidImageMathRenderer())
+    let configuration = MarkdownRendererConfiguration(nativeTextSelection: .enabled, mathRenderer: ValidImageMathRenderer())
     let prepared = configuration.prepare(snapshot: stream.snapshot())
     let view = StreamingMarkdownView(preparedSnapshot: prepared, configuration: configuration)
         .frame(width: 320, height: 100, alignment: .topLeading)
@@ -1775,7 +1798,7 @@ func nativePreparedAttachmentCellPreservesDeclaredDescent() {
 @Test
 @MainActor
 func nativeInlineMathAttachmentPreservesLinkAndPrunesItsCacheOnUpdate() throws {
-    var configuration = MarkdownRendererConfiguration(mathRenderer: ValidImageMathRenderer())
+    var configuration = MarkdownRendererConfiguration(nativeTextSelection: .enabled, mathRenderer: ValidImageMathRenderer())
     configuration.linkPolicy = DefaultMarkdownPolicy()
 
     func render(_ markdown: String) -> MarkdownPreparedSnapshot {
@@ -1831,8 +1854,8 @@ func nativeInlineMathAttachmentPreservesLinkAndPrunesItsCacheOnUpdate() throws {
 @MainActor
 func nativeSelectionMapsSemanticRangesAcrossMathFallbackAndAttachmentTransitions() throws {
     let markdown = "Before $x^2$ after"
-    let fallbackConfiguration = MarkdownRendererConfiguration(mathRenderer: CountingImageMathRenderer())
-    let imageConfiguration = MarkdownRendererConfiguration(mathRenderer: ValidImageMathRenderer())
+    let fallbackConfiguration = MarkdownRendererConfiguration(nativeTextSelection: .enabled, mathRenderer: CountingImageMathRenderer())
+    let imageConfiguration = MarkdownRendererConfiguration(nativeTextSelection: .enabled, mathRenderer: ValidImageMathRenderer())
 
     func render(_ configuration: MarkdownRendererConfiguration) -> MarkdownPreparedSnapshot {
         var stream = MarkdownStream()
@@ -1960,7 +1983,7 @@ func nativeSelectionCopiesImageOnlyAttachmentsAsSemanticPlainText() throws {
     stream.append("Before ![pixel](local.png) after")
     stream.finish()
 
-    var configuration = MarkdownRendererConfiguration()
+    var configuration = MarkdownRendererConfiguration(nativeTextSelection: .enabled)
     configuration.imagePolicy = IdentityImagePolicy(identity: "allow", decision: .allow)
     configuration.imageResolver = DataImageResolver(data: pixel, mimeType: "image/png")
     let prepared = configuration.prepare(snapshot: stream.snapshot())
@@ -2020,7 +2043,7 @@ func nativeSelectionReachesMermaidASCIIAndInvalidMathImageTextFallbacks() throws
     stream.append(markdown)
     stream.finish()
 
-    var configuration = MarkdownRendererConfiguration(mathRenderer: CountingImageMathRenderer())
+    var configuration = MarkdownRendererConfiguration(nativeTextSelection: .enabled, mathRenderer: CountingImageMathRenderer())
     configuration.mermaidRenderer = CountingMermaidRenderer(ascii: "A --> B")
     let prepared = configuration.prepare(snapshot: stream.snapshot())
     let hostingView = NSHostingView(
@@ -2048,7 +2071,7 @@ func nativeSelectionReachesMermaidASCIIAndInvalidMathImageTextFallbacks() throws
 func nativeSelectionSurvivesStreamingTextReplacementOnMacOS() throws {
     let original = "Keep this selected while the mutable tail"
     let appended = original + " continues streaming without clearing the user's selection."
-    let configuration = MarkdownRendererConfiguration.compactChat
+    let configuration = MarkdownRendererConfiguration(nativeTextSelection: .enabled)
 
     func render(_ markdown: String) -> MarkdownPreparedSnapshot {
         var stream = MarkdownStream()
@@ -2812,7 +2835,7 @@ func defaultDocumentSelectionReceivesTextLeafFragmentForImageBackedInlineMath() 
     let fragments = recorder.fragments.sortedForTestSelection()
     let fragment = try #require(fragments.first)
     #expect(fragments.count == 1)
-    #expect(fragment.id.hasPrefix("text-leaf-math:"))
+    #expect(fragment.id.hasPrefix("text-leaf:"))
     #expect(fragment.blockID == block.id)
     #expect(fragment.sourceRange == block.sourceRange)
     #expect(fragment.textGeometry != nil)
@@ -3803,7 +3826,7 @@ func hostDisplaysDataImageFromPreparedStateWithoutLoaderCalls() throws {
     stream.append("![pixel](local.png)")
     stream.finish()
 
-    var configuration = MarkdownRendererConfiguration.compactChat
+    var configuration = MarkdownRendererConfiguration(nativeTextSelection: .enabled)
     configuration.imagePolicy = IdentityImagePolicy(identity: "allow", decision: .allow)
     configuration.imageResolver = DataImageResolver(data: pixel, mimeType: "image/png")
     let prepared = configuration.prepare(snapshot: stream.snapshot())
@@ -3890,7 +3913,7 @@ func removingAnAttachmentRemovesItsHostFromTheViewHierarchy() throws {
 @Test
 @MainActor
 func removingAnAttachmentPrunesItsNativeTextKitReservationCache() throws {
-    var configuration = MarkdownRendererConfiguration.compactChat
+    var configuration = MarkdownRendererConfiguration(nativeTextSelection: .enabled)
     configuration.imagePolicy = IdentityImagePolicy(identity: "allow", decision: .allow)
     configuration.imageResolver = RecordingImageResolver()
 
@@ -3996,7 +4019,8 @@ func preparedNativeHTMLScriptsReachAppKitWithScaledFontsAndBaselineOffsets() thr
 
     let configuration = MarkdownRendererConfiguration(
         theme: .document,
-        inlineRenderingMode: .preparedNativeLines
+        inlineRenderingMode: .preparedNativeLines,
+        nativeTextSelection: .enabled
     )
     let prepared = configuration.prepare(snapshot: stream.snapshot())
     let hostingView = NSHostingView(
@@ -7236,8 +7260,9 @@ private final class CountingImageMathRenderer: MarkdownMathRenderer, MarkdownMat
 }
 
 private struct ValidImageMathRenderer: MarkdownMathRenderer, MarkdownMathRendererCacheIdentifying {
+    var scale: Double = 1
     var mathRendererCacheIdentity: String {
-        "test.valid-image-math"
+        "test.valid-image-math.\(scale)"
     }
 
     func renderedMath(_ source: String, isBlock _: Bool) -> AttributedString {
@@ -7251,7 +7276,7 @@ private struct ValidImageMathRenderer: MarkdownMathRenderer, MarkdownMathRendere
         return .image(
             MarkdownPreparedMathImage(
                 imageData: pixel,
-                scale: 1,
+                scale: scale,
                 pointWidth: 18,
                 pointHeight: 12,
                 ascent: 9,

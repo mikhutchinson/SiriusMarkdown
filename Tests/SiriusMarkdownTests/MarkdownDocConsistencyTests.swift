@@ -267,12 +267,12 @@ func releaseCheckTestFloorMatchesCurrentCount() throws {
     let releaseCheck = try readFile("Tools/release-check.sh")
     let readme = try readFile("README.md")
     #expect(
-        releaseCheck.contains("MINIMUM_TEST_COUNT=966"),
-        "release-check.sh test floor should be 966"
+        releaseCheck.contains("MINIMUM_TEST_COUNT=1074"),
+        "release-check.sh test floor should be 1074"
     )
     #expect(
-        readme.contains("release suite discovers 966 tests"),
-        "README test count should match the 966-test release floor"
+        readme.contains("release suite discovers 1074 tests"),
+        "README test count should match the 1074-test release floor"
     )
 }
 

@@ -31,8 +31,6 @@ struct NativeInlineLineTextView: View {
             )
             .frame(width: width, height: height, alignment: .topLeading)
             .clipped()
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(prepared.semanticAccessibilityText)
         } else {
             let renderedAttributed = InlineRunsView.renderingAttributedString(for: prepared)
             let renderedLines = InlineRunsView.nativeLineAttributedString(
@@ -49,9 +47,12 @@ struct NativeInlineLineTextView: View {
                     lineHeight: prepared.lineHeight,
                     fontProfile: prepared.fontProfiles.body,
                     textColor: theme.textColor,
+                    linkAction: linkAction,
                     nativeTextSelection: nativeTextSelection,
                     lineSpacing: lineSpacing,
-                    wraps: false
+                    wraps: false,
+                    preparedInlineContent: prepared,
+                    usesNativeLinkInteraction: prepared.hasSemanticLinks
                 )
                     .frame(width: width, height: height, alignment: .topLeading)
                     .clipped()
@@ -63,9 +64,13 @@ struct NativeInlineLineTextView: View {
                     lineHeight: prepared.lineHeight,
                     fontProfile: prepared.fontProfiles.body,
                     textColor: theme.textColor,
+                    linkAction: linkAction,
                     nativeTextSelection: nativeTextSelection,
                     lineSpacing: lineSpacing,
-                    wraps: false
+                    wraps: false,
+                    preparedInlineContent: prepared,
+                    usesNativeLinkInteraction: prepared.hasSemanticLinks,
+                    nativeLineLayout: layoutResult
                 )
                     .frame(width: width, height: height, alignment: .topLeading)
                     .clipped()

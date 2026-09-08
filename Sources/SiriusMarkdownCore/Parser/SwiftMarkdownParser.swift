@@ -214,7 +214,7 @@ private struct SwiftMarkdownRenderModelConverter {
         case let paragraph as Paragraph:
             let rawText = sourceText(for: fallbackRange.byteRange)
             if let mathContentRange = MarkdownMathDelimiterScanner.blockContentRange(in: rawText) {
-                let mathContent = String(rawText[mathContentRange])
+                let mathContent = removingBlockQuotePrefixes(String(rawText[mathContentRange]), from: paragraph)
                 return [
                     MarkdownInlineRun(
                         kind: .math,
@@ -246,6 +246,36 @@ private struct SwiftMarkdownRenderModelConverter {
         default:
             return []
         }
+    }
+
+    /// The AST owns container nesting. Source slices omit the first quote
+    /// marker but retain subsequent line prefixes inside a display-math block.
+    /// Remove exactly that ancestry depth, preserving literal TeX comparisons.
+    private func removingBlockQuotePrefixes(_ text: String, from paragraph: Paragraph) -> String {
+        var depth = 0
+        var ancestor = paragraph.parent
+        while let node = ancestor {
+            if node is BlockQuote { depth += 1 }
+            ancestor = node.parent
+        }
+        guard depth > 0 else { return text }
+        return text.split(omittingEmptySubsequences: false, whereSeparator: { $0 == "\n" || $0 == "\r" || $0 == "\r\n" }).map { line in
+            var remaining = line[...]
+            for _ in 0..<depth {
+                var cursor = remaining.startIndex
+                var spaces = 0
+                while cursor < remaining.endIndex, remaining[cursor] == " ", spaces < 3 {
+                    cursor = remaining.index(after: cursor); spaces += 1
+                }
+                guard cursor < remaining.endIndex, remaining[cursor] == ">" else { break }
+                cursor = remaining.index(after: cursor)
+                if cursor < remaining.endIndex, remaining[cursor] == " " || remaining[cursor] == "\t" {
+                    cursor = remaining.index(after: cursor)
+                }
+                remaining = remaining[cursor...]
+            }
+            return String(remaining)
+        }.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private func displayMathSplitBlocks(for paragraph: Paragraph, sequence: Int) -> [MarkdownBlock]? {
@@ -1559,7 +1589,7 @@ private struct InlineRunConverter {
 
     private func normalizedDisplayMathSource(_ raw: String) -> String {
         let lines = raw
-            .split(separator: "\n", omittingEmptySubsequences: false)
+            .split(omittingEmptySubsequences: false, whereSeparator: { $0 == "\n" || $0 == "\r" || $0 == "\r\n" })
             .map { stripDisplayMathContainerPrefixes(from: String($0)) }
         let commonIndent = lines
             .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
@@ -1735,14 +1765,14 @@ private struct InlineRunConverter {
         var lineStart = lower
         while lineStart > source.utf8.startIndex {
             let previous = source.utf8.index(before: lineStart)
-            guard source.utf8[previous] != 10 else {
+            guard source.utf8[previous] != 10, source.utf8[previous] != 13 else {
                 break
             }
             lineStart = previous
         }
 
         var lineEnd = upper
-        while lineEnd < source.utf8.endIndex, source.utf8[lineEnd] != 10 {
+        while lineEnd < source.utf8.endIndex, source.utf8[lineEnd] != 10, source.utf8[lineEnd] != 13 {
             lineEnd = source.utf8.index(after: lineEnd)
         }
 
@@ -3439,7 +3469,7 @@ private struct InlineRunConverter {
             return nil
         }
 
-        let breakLower = lineFeed > 0 && byte(atLocalOffset: lineFeed - 1) == 13
+        let breakLower = byte(atLocalOffset: lineFeed) == 10 && lineFeed > 0 && byte(atLocalOffset: lineFeed - 1) == 13
             ? lineFeed - 1
             : lineFeed
         let breakUpper = min(source.utf8.count, lineFeed + 1)
@@ -3475,16 +3505,16 @@ private struct InlineRunConverter {
         let searchLower = max(0, anchorLower - 8)
         let searchUpper = min(count, max(anchorUpper, anchorLower + 8))
 
-        if anchorLower < count, byte(atLocalOffset: anchorLower) == 10 {
+        if anchorLower < count, isNewlineTerminal(at: anchorLower) {
             return anchorLower
         }
-        if anchorLower > 0, byte(atLocalOffset: anchorLower - 1) == 10 {
+        if anchorLower > 0, isNewlineTerminal(at: anchorLower - 1) {
             return anchorLower - 1
         }
 
         var forward = anchorLower
         while forward < searchUpper {
-            if byte(atLocalOffset: forward) == 10 {
+            if isNewlineTerminal(at: forward) {
                 return forward
             }
             forward += 1
@@ -3492,7 +3522,7 @@ private struct InlineRunConverter {
 
         var backward = min(count - 1, max(searchLower, anchorLower - 1))
         while backward >= searchLower {
-            if byte(atLocalOffset: backward) == 10 {
+            if isNewlineTerminal(at: backward) {
                 return backward
             }
             if backward == 0 {
@@ -3502,6 +3532,11 @@ private struct InlineRunConverter {
         }
 
         return nil
+    }
+
+    private func isNewlineTerminal(at offset: Int) -> Bool {
+        let value = byte(atLocalOffset: offset)
+        return value == 10 || (value == 13 && byte(atLocalOffset: offset + 1) != 10)
     }
 
     private func trailingInlineWhitespaceLowerBound(before localOffset: Int) -> Int {
@@ -3629,8 +3664,18 @@ private struct MarkdownSourceLocationIndex: Sendable {
     init(source: String) {
         var lineStarts = [0]
         lineStarts.reserveCapacity(64)
-        for (offset, byte) in source.utf8.enumerated() where byte == 10 {
-            lineStarts.append(offset + 1)
+        var previousByte: UInt8?
+        for (offset, byte) in source.utf8.enumerated() {
+            if byte == 13 {
+                lineStarts.append(offset + 1)
+            } else if byte == 10 {
+                if previousByte == 13 {
+                    lineStarts[lineStarts.count - 1] = offset + 1
+                } else {
+                    lineStarts.append(offset + 1)
+                }
+            }
+            previousByte = byte
         }
         self.lineStartByteOffsets = lineStarts
         self.sourceByteCount = source.utf8.count
