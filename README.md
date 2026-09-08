@@ -18,7 +18,9 @@ The core contract is simple:
 
 ## Current Release
 
-`0.6.28` adds host-controlled Find placement on top of the document interactions
+`0.6.29` improves macOS selection painting and table geometry, repairs empty
+HTML anchor navigation, and fixes accessible link actions and policy filtering.
+It retains host-controlled Find placement and the document interactions
 and native rendering improvements in 0.6.27:
 
 - **Selection and links:** document-wide macOS selection, visual bidi caret
@@ -52,7 +54,7 @@ network requests. Existing native streaming and prepared-layout contracts remain
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/mikhutchinson/SiriusMarkdown.git", from: "0.6.28")
+    .package(url: "https://github.com/mikhutchinson/SiriusMarkdown.git", from: "0.6.29")
 ],
 targets: [
     .target(
@@ -315,14 +317,14 @@ git diff --check
 - Release runbook: `runbook.md`
 - Changelog: `changelog.md`
 - Bugfix log: `bugfix.md`
-- Current release notes: `release-notes/0.6.28.md`
+- Current release notes: `release-notes/0.6.29.md`
 - Third-party credits: `NOTICE.md`
 
 ## Release
 
-`0.6.28` is ready only when the docs describe the current public package surface,
+`0.6.29` is ready only when the docs describe the current public package surface,
 `bash Tools/product-check.sh` passes from the repository root, `git diff --check`
 is clean, the public remote is correct, and the release commit is tagged and
-pushed as `0.6.28` with a matching published GitHub Release.
+pushed as `0.6.29` with a matching published GitHub Release.
 
 See [document interactions](Docs/document-interactions.md) for Find, anchors, rich clipboard, native print/PDF, and current accessibility coverage.

@@ -424,9 +424,12 @@ private struct MarkdownSelectionFragmentContainer<Content: View>: View {
     @ObservedObject var selectionController: MarkdownSelectionController
     @ViewBuilder var content: () -> Content
 
+    @Environment(\.markdownDocumentRevealRequest) private var revealRequest
+
     var body: some View {
         content()
             .environment(\.markdownDocumentSelectionContext, MarkdownDocumentSelectionContext(blockID: block.id))
+            .environment(\.markdownDocumentSelectionPaintOwner, block.id)
             .background(fragmentPreference)
             .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
@@ -436,6 +439,12 @@ private struct MarkdownSelectionFragmentContainer<Content: View>: View {
             Color.clear.preference(
                 key: MarkdownDocumentSelectionFragmentsKey.self,
                 value: fallbackFragments(rect: proxy.frame(in: .named(markdownDocumentSelectionCoordinateSpaceName)))
+            )
+            .preference(
+                key: MarkdownDocumentRevealBlockFrameKey.self,
+                value: revealRequest?.allowsBlockPositionFallback == true && revealRequest?.blockID == block.id
+                    ? MarkdownDocumentRevealBlockFrame(requestID: revealRequest?.id,
+                        rect: proxy.frame(in: .named(markdownDocumentSelectionCoordinateSpaceName))) : nil
             )
         }
     }
@@ -462,20 +471,32 @@ private struct MarkdownDocumentSelectionLayer<Content: View>: View {
     @ObservedObject var selectionController: MarkdownSelectionController
     @ViewBuilder var content: () -> Content
 
+    @State private var revealBlockFrame: MarkdownDocumentRevealBlockFrame?
     @State private var fragments: [MarkdownDocumentSelectionFragment] = []
     @State private var dragAnchor: MarkdownDocumentSelectionEndpoint?
     @State private var focusToken = 0
     @Environment(\.markdownDocumentRevealRequest) private var revealRequest
     @Environment(\.markdownHostScrollReveal) private var hostScrollReveal
+    #if os(macOS)
+    @Environment(\.controlActiveState) private var controlActiveState
+    #endif
     private let dragActivation = MarkdownDocumentSelectionDragActivation()
 
     var body: some View {
         content()
             .environment(\.markdownSelectionController, selectionController)
+            .environment(\.markdownDocumentSelectionPaint, selectionPaint)
             .coordinateSpace(name: markdownDocumentSelectionCoordinateSpaceName)
             .overlay(alignment: .topLeading) {
+                #if !os(macOS)
                 selectionHighlights
+                #endif
                 revealAnchor
+            }
+            .background(alignment: .topLeading) {
+                #if os(macOS)
+                selectionHighlights
+                #endif
             }
             .background {
                 #if os(macOS)
@@ -490,6 +511,7 @@ private struct MarkdownDocumentSelectionLayer<Content: View>: View {
             }
             .contentShape(Rectangle())
             .simultaneousGesture(selectionGesture, including: selectionGestureMask)
+            .onPreferenceChange(MarkdownDocumentRevealBlockFrameKey.self) { revealBlockFrame = $0 }
             .onPreferenceChange(MarkdownDocumentSelectionFragmentsKey.self) { value in
                 // Measures whether this closure runs (and thus sorts) on
                 // layout passes where nothing actually changed, separately
@@ -523,14 +545,15 @@ private struct MarkdownDocumentSelectionLayer<Content: View>: View {
 
     @ViewBuilder
     private var revealAnchor: some View {
-        if let request = revealRequest, let rect = request.highlight(in: fragments) {
+        if let request = revealRequest,
+           let rect = request.revealRect(in: fragments, blockFrame: revealBlockFrame?.requestID == request.id ? revealBlockFrame?.rect : nil) {
             Color.clear
                 .frame(width: 1, height: 1)
                 .background {
                     if hostScrollReveal { MarkdownHostScrollRevealMarker(requestID: request.id) }
                 }
                 .id(request.anchorID)
-                .position(x: rect.rect.midX, y: rect.rect.midY)
+                .position(x: rect.midX, y: rect.midY)
                 .preference(key: MarkdownDocumentRevealAnchorKey.self, value: request.anchorID)
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
@@ -583,16 +606,59 @@ private struct MarkdownDocumentSelectionLayer<Content: View>: View {
     @ViewBuilder
     private var selectionHighlights: some View {
         let selectedRanges = selectionController.selectedSourceRanges
+        #if os(macOS)
+        // Text surfaces paint inside their own clipping/scroll hierarchy. A
+        // second document-space fill would leak beyond code/table viewports.
+        let scrollableBlocks = Set(preparedSnapshot.snapshot.blocks.filter {
+            $0.kind == .codeBlock || $0.kind == .table
+        }.map(\.id))
+        let highlights = fragments.filter { $0.textGeometry == nil && !scrollableBlocks.contains($0.blockID) }
+            .flatMap { $0.highlightRects(for: selectedRanges, extendsLineEndings: true) } + paragraphSelectionGaps
+        #else
         let highlights = fragments.flatMap { $0.highlightRects(for: selectedRanges) }
+        #endif
         ForEach(highlights) { highlight in
             Rectangle()
+                #if os(macOS)
+                .fill(Color(nsColor: selectionPaint.background))
+                #else
                 .fill(Color.accentColor.opacity(0.16))
+                #endif
                 .frame(width: max(1, highlight.rect.width), height: max(1, highlight.rect.height))
                 .position(x: highlight.rect.midX, y: highlight.rect.midY)
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
         }
     }
+
+    private var selectionPaint: MarkdownDocumentSelectionPaint {
+        #if os(macOS)
+        MarkdownDocumentSelectionPaint(ranges: selectionController.selectedSourceRanges, emphasized: controlActiveState == .key)
+        #else
+        MarkdownDocumentSelectionPaint()
+        #endif
+    }
+
+    #if os(macOS)
+    private var paragraphSelectionGaps: [MarkdownDocumentSelectionHighlight] {
+        guard !selectionController.selectedSourceRanges.isEmpty else { return [] }
+        let prose = Set(preparedSnapshot.snapshot.blocks.filter { $0.kind == .paragraph || $0.kind == .heading }.map(\.id))
+        return zip(fragments, fragments.dropFirst()).compactMap { previous, next in
+            guard previous.blockID != next.blockID, prose.contains(previous.blockID), prose.contains(next.blockID),
+                  let previousColumn = previous.selectionColumnRect, let nextColumn = next.selectionColumnRect,
+                  abs(previous.rect.minX - next.rect.minX) < 0.5,
+                  next.rect.minY > previous.rect.maxY,
+                  selectionController.selectedSourceRanges.contains(where: {
+                      $0.byteRange.lowerBound < previous.sourceRange.byteRange.upperBound &&
+                      $0.byteRange.upperBound > next.sourceRange.byteRange.lowerBound
+                  }) else { return nil }
+            return MarkdownDocumentSelectionHighlight(id: "gap:\(previous.id):\(next.id)",
+                rect: CGRect(x: previous.rect.minX, y: previous.rect.maxY,
+                             width: min(previousColumn.width, nextColumn.width),
+                             height: next.rect.minY - previous.rect.maxY))
+        }
+    }
+    #endif
 
     private func hitEndpoint(
         at location: CGPoint,

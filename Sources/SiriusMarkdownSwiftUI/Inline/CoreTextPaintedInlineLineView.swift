@@ -134,8 +134,12 @@ struct MarkdownCoreTextPaintedLinePlan: @unchecked Sendable {
 
         var accessibleLinks: [MarkdownPreparedAccessibleLink] = []
         for item in runRanges {
-            guard let destination = item.run.destination,
-                  item.run.kind == .link || item.run.kind == .softBreak || item.run.kind == .hardBreak else { continue }
+            guard item.run.destination != nil,
+                  item.run.kind == .link || item.run.kind == .softBreak || item.run.kind == .hardBreak,
+                  let destination = allowedLinkDestination(for: item.byteRange, in: prepared, naturalText: naturalText)
+            else { continue }
+            // Accessibility and pointer activation share policy-approved
+            // attributed destinations, never the unfiltered source runs.
             let label = item.run.presentation.contains(.linkDecoration) ? "" : item.run.text
             if let last = accessibleLinks.last, last.destination == destination,
                last.byteRange.upperBound == item.byteRange.lowerBound {
@@ -833,6 +837,8 @@ private struct CoreTextPaintedInlineLineSurface: NSViewRepresentable {
     var dragSelectionHandler: ((CGPoint, CGPoint) -> Void)?
 
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.markdownDocumentSelectionPaintOwner) private var selectionOwner
+    @Environment(\.markdownDocumentSelectionPaint) private var selectionPaint
 
     func makeNSView(context _: Context) -> MarkdownCoreTextPaintedNSView {
         let view = MarkdownCoreTextPaintedNSView(frame: .zero)
@@ -881,6 +887,9 @@ private struct CoreTextPaintedInlineLineSurface: NSViewRepresentable {
             colorScheme: colorScheme
         )
         view.colorScheme = colorScheme
+        view.selectionPaint = selectionPaint
+        view.selectionRects = selectionPaint.rects(blockID: selectionOwner, prepared: prepared,
+                                                   layout: layoutResult, width: containerWidth)
         view.linkAction = linkAction
         view.dragSelectionHandler = dragSelectionHandler
         view.frame.size.width = containerWidth
@@ -894,6 +903,8 @@ private struct CoreTextPaintedInlineLineSurface: NSViewRepresentable {
 }
 
 final class MarkdownCoreTextPaintedNSView: NSView {
+    var selectionPaint = MarkdownDocumentSelectionPaint()
+    var selectionRects: [CGRect] = []
     var plan = MarkdownCoreTextPaintedLinePlan.empty
     var textColor: CGColor = NSColor.labelColor.cgColor
     var linkColor: CGColor = NSColor.linkColor.cgColor
@@ -942,6 +953,8 @@ final class MarkdownCoreTextPaintedNSView: NSView {
         }
 
         context.saveGState()
+        context.setFillColor(selectionPaint.background.cgColor)
+        context.fill(selectionRects)
         context.setFillColor(textColor)
         context.setShouldAntialias(true)
         context.setAllowsAntialiasing(true)
@@ -949,6 +962,11 @@ final class MarkdownCoreTextPaintedNSView: NSView {
         context.translateBy(x: 0, y: bounds.height)
         context.scaleBy(x: 1, y: -1)
 
+        let selectedRects = selectionRects.map {
+            CGRect(x: $0.minX, y: bounds.height - $0.maxY, width: $0.width, height: $0.height)
+        }
+        context.saveGState()
+        MarkdownDocumentSelectionPaint.clipOutside(selectedRects, bounds: bounds, in: context)
         context.setFillColor(textColor)
         for line in plan.lines {
             let baselineY = bounds.height - line.baselineFromTop
@@ -973,6 +991,18 @@ final class MarkdownCoreTextPaintedNSView: NSView {
             }
         }
 
+        context.restoreGState()
+        if !selectedRects.isEmpty {
+            context.saveGState()
+            context.addRects(selectedRects)
+            context.clip()
+            context.setFillColor(selectionPaint.foreground.cgColor)
+            for line in plan.lines {
+                context.textPosition = CGPoint(x: 0, y: bounds.height - line.baselineFromTop)
+                CTLineDraw(line.ctLine, context)
+            }
+            context.restoreGState()
+        }
         context.restoreGState()
     }
 

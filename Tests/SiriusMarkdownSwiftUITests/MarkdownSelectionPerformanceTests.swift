@@ -12,6 +12,34 @@ import AppKit
 struct MarkdownSelectionPerformanceTests {
     @Test
     @MainActor
+    func selectionPaintDragReusesPreparedLineGeometryAndExtendsOnlyContinuations() throws {
+        let fixture = try preparedInlineSelectionFixture()
+        let layout = InlineRunsView.lineLayout(for: fixture.inlineLayout, containerWidth: 128)
+        let source = try #require(fixture.inlineLayout.prepared.sourceRange)
+        let whole = MarkdownDocumentSelectionPaint(ranges: [source])
+        let rects = whole.rects(blockID: fixture.block.id, prepared: fixture.inlineLayout, layout: layout, width: 128)
+        #expect(rects.count > 1)
+        #expect(rects.dropLast().allSatisfy { abs($0.maxX - 128) < 0.1 })
+        let before = fixture.recorder.snapshot()
+        for offset in 1...100 {
+            let range = MarkdownSourceRange(byteRange: source.byteRange.lowerBound..<min(source.byteRange.upperBound, source.byteRange.lowerBound + offset), lineRange: source.lineRange)
+            _ = MarkdownDocumentSelectionPaint(ranges: [range]).rects(blockID: fixture.block.id, prepared: fixture.inlineLayout, layout: layout, width: 128)
+        }
+        let after = fixture.recorder.snapshot()
+        let delta = SelectionCounterDelta(before: before, after: after)
+        #expect(after.prepareCount == before.prepareCount)
+        #expect(delta.inlineLineFragmentBuildCount == 0)
+        #expect(delta.selectionTextGeometryInitializationCount == 0)
+        #expect(delta.selectionSourceRunMappingCount == 0)
+        #expect(delta.selectionCoreTextLineBuildCount == 0)
+        let partial = MarkdownSourceRange(byteRange: source.byteRange.lowerBound..<(source.byteRange.lowerBound + 2), lineRange: source.lineRange)
+        let partialRects = MarkdownDocumentSelectionPaint(ranges: [partial]).rects(blockID: fixture.block.id, prepared: fixture.inlineLayout, layout: layout, width: 128)
+        #expect(partialRects.count == 1)
+        #expect(try #require(partialRects.first).width < 128)
+    }
+
+    @Test
+    @MainActor
     func disabledDocumentSelectionDoesNotBuildLineSelectionGeometryDuringHostInvalidationStorm() throws {
         let fixture = selectionStormFixture(documentSelection: .disabled, blockCount: 32)
         let delta = try runHostedInvalidationStorm(

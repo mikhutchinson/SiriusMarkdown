@@ -10,6 +10,87 @@ import SwiftUI
 @MainActor
 struct MarkdownDocumentNavigationTests {
     @Test
+    func selectedAndUnselectedPaintClipsDoNotDoubleCompositeAntialiasedPixels() throws {
+        let context = try #require(CGContext(data: nil, width: 20, height: 20, bitsPerComponent: 8,
+            bytesPerRow: 80, space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        let bounds = CGRect(x: 0, y: 0, width: 20, height: 20)
+        let selected = [CGRect(x: 5, y: 0, width: 10, height: 20), CGRect(x: 10, y: 0, width: 5, height: 20)]
+        context.setFillColor(CGColor(gray: 0, alpha: 0.5))
+        context.saveGState()
+        MarkdownDocumentSelectionPaint.clipOutside(selected, bounds: bounds, in: context)
+        context.fill(bounds)
+        context.restoreGState()
+        context.saveGState()
+        context.addRects(selected)
+        context.clip()
+        context.fill(bounds)
+        context.restoreGState()
+        let pixels = try #require(context.data).assumingMemoryBound(to: UInt8.self)
+        let outside = pixels[10 * 80 + 2 * 4 + 3]
+        let inside = pixels[10 * 80 + 7 * 4 + 3]
+        let overlap = pixels[10 * 80 + 12 * 4 + 3]
+        #expect(outside >= 127 && outside <= 128)
+        #expect(inside == outside)
+        #expect(overlap == outside)
+    }
+
+    @Test
+    func selectionForegroundMaskPreservesIntrinsicColorPixels() throws {
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        let context = try #require(CGContext(data: nil, width: 20, height: 20, bitsPerComponent: 8,
+            bytesPerRow: 80, space: colorSpace, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        let bounds = CGRect(x: 0, y: 0, width: 20, height: 20)
+        let intrinsic = CGRect(x: 5, y: 5, width: 10, height: 10)
+        context.setFillColor(NSColor.red.cgColor)
+        context.fill(bounds)
+        MarkdownDocumentSelectionPaint.drawSelectedGlyphs(in: context, rects: [bounds],
+            color: .white, bounds: bounds, excluding: [intrinsic]) {
+                context.setFillColor(NSColor.black.cgColor)
+                context.fill(bounds)
+            }
+        let pixels = try #require(context.data).assumingMemoryBound(to: UInt8.self)
+        #expect(pixels[10 * 80 + 10 * 4] == 255)
+        #expect(pixels[10 * 80 + 10 * 4 + 1] == 0)
+        #expect(pixels[1 * 80 + 1 * 4 + 1] == 255)
+    }
+
+    @Test
+    func mountedDocumentSelectionPaintReachesTableAndClearsNativeCodeSelection() async throws {
+        var configuration = MarkdownRendererConfiguration.document
+        configuration.documentSelection = .enabled
+        let prepared = prepare("# Heading\n\nA wrapping paragraph with many words repeated across several native lines in this narrow column.\n\n| Name | Value |\n| --- | --- |\n| First | Second |\n\n```swift\nlet selected = true // 🌈\n```", configuration: configuration)
+        let selection = MarkdownSelectionController()
+        let host = NSHostingView(rootView: AnyView(MarkdownDocumentView(preparedSnapshot: prepared,
+            configuration: configuration, selectionController: selection).frame(width: 340, height: 700)))
+        let window = makeWindow(host)
+        defer { tearDown(host, window) }
+        await settle(host)
+        let ranges = prepared.snapshot.blocks.map(\.sourceRange)
+        selection.selectSourceRanges(ranges, selectedBlockIDs: prepared.snapshot.blocks.map(\.id))
+        await settle(host)
+        let painted = descendants(host).compactMap { $0 as? MarkdownCoreTextPaintedNSView }
+        #expect(painted.count >= 4)
+        #expect(painted.filter { !$0.selectionRects.isEmpty }.count >= 4)
+        let code = try #require(descendants(host).compactMap { $0 as? MarkdownAppKitNativeSelectableTextView }.first)
+        #expect(!code.isSelectable)
+        #expect(code.documentSelectionBlockID != nil)
+        #expect(!code.documentSelectionPaint.ranges.isEmpty)
+        // Simulate a stale native range left by a previous native owner. The
+        // next document update must clear it instead of leaving two selections.
+        code.setSelectedRange(NSRange(location: 0, length: 3))
+        let heading = try #require(prepared.snapshot.blocks.first)
+        selection.selectSourceRanges([heading.sourceRange], selectedBlockIDs: [heading.id])
+        await settle(host)
+        #expect(code.selectedRanges.allSatisfy { $0.rangeValue.length == 0 })
+        #expect(code.documentSelectionPaint.ranges == [heading.sourceRange])
+        selection.clearSelection()
+        await settle(host)
+        #expect(painted.allSatisfy { $0.selectionRects.isEmpty })
+        #expect(code.documentSelectionPaint.ranges.isEmpty)
+    }
+
+    @Test
     func navigationBuildsOnlyOnDemandAndReindexesEqualLengthReplacement() async throws {
         let original = prepare("alpha")
         let replacementSource = prepare("bravo")
@@ -174,6 +255,38 @@ struct MarkdownDocumentNavigationTests {
         try #require(leaf.linkAction).open("#target")
         await settle(host)
         #expect(scroll.contentView.bounds.minY > 400)
+        #expect(descendants(host).compactMap { $0 as? NSScrollView }.count == 1)
+    }
+
+    @Test(arguments: ["<p id=\"empty\"></p>", "Before <a id=\"empty\"></a> after."])
+    func hostScrolledEmptyAnchorsRevealWithoutAddingHeightOrSelection(anchorSource: String) async throws {
+        let markdown = "[Jump](#empty)\n\n" +
+            (0..<45).map { "Paragraph \($0) provides scrolling space.\n\n" }.joined() +
+            anchorSource + "\n\n### Appendix content\n\nVisible continuation."
+        var configuration = MarkdownRendererConfiguration.document
+        configuration.linkMetadataResolver = nil
+        let prepared = prepare(markdown, configuration: configuration)
+        let find = MarkdownDocumentFindController()
+        let selection = MarkdownSelectionController()
+        let host = NSHostingView(rootView: AnyView(ScrollView {
+            StreamingMarkdownView(preparedSnapshot: prepared, configuration: configuration, selectionController: selection)
+                .documentFindController(find, showsInlineControls: false)
+        }.frame(width: 600, height: 240)))
+        let window = makeWindow(host)
+        defer { tearDown(host, window) }
+        await settle(host)
+        let scroll = try #require(descendants(host).compactMap { $0 as? NSScrollView }.first)
+        let initialHeight = try #require(scroll.documentView).frame.height
+        let leaf = try #require(descendants(host).compactMap { $0 as? MarkdownCoreTextPaintedNSView }.first {
+            $0.plan.linkFragments.contains { $0.destination == "#empty" }
+        })
+        try #require(leaf.linkAction).open("#empty")
+        await settle(host)
+        #expect(find.index.anchor(forFragment: "#empty") != nil)
+        #expect(scroll.contentView.bounds.minY > 400)
+        #expect(abs(try #require(scroll.documentView).frame.height - initialHeight) < 1)
+        #expect(selection.selectedSourceRanges.isEmpty)
+        #expect(descendants(host).compactMap { $0 as? MarkdownHostScrollRevealView }.count == 1)
         #expect(descendants(host).compactMap { $0 as? NSScrollView }.count == 1)
     }
 

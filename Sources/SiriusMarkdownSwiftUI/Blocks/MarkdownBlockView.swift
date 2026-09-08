@@ -900,9 +900,11 @@ public struct MarkdownBlockView: View {
             }
         }
 
-        let headerHeight = CGFloat(table.headerPreparedLayoutHeight ?? 38)
-        appendCells(table.header, rowID: table.headerID, rowHeight: headerHeight)
-        rowOriginY += headerHeight
+        if !table.header.isEmpty {
+            let headerHeight = CGFloat(table.headerPreparedLayoutHeight ?? 38)
+            appendCells(table.header, rowID: table.headerID, rowHeight: headerHeight)
+            rowOriginY += headerHeight
+        }
         for row in table.rows {
             let rowHeight = CGFloat(row.preparedLayoutHeight ?? 38)
             appendCells(row.cells, rowID: row.id, rowHeight: rowHeight)
@@ -1074,12 +1076,11 @@ public struct MarkdownBlockView: View {
                         configuration: configuration,
                         preparedContent: richBlock.preparedContent
                     )
-                    // Rich HTML children are presentation-only native blocks
-                    // nested inside one source HTML block. Prevent them from
-                    // publishing child identities, then emit source-precise
-                    // fragments from each child's actual on-screen bounds
-                    // using the enclosing block identity.
-                    .environment(\.markdownDocumentSelectionContext, nil)
+                    // Tables already emit theme-aware grid geometry; retain
+                    // the enclosing HTML source owner for those fragments.
+                    // Other rich children use the source-remapped fallback.
+                    .environment(\.markdownDocumentSelectionContext,
+                                 richBlock.preparedContent.table != nil ? documentSelectionContext : nil)
                     .background(
                         richHTMLSelectionFragmentPreference(
                             block: richBlock.block,
@@ -1125,7 +1126,9 @@ public struct MarkdownBlockView: View {
         preparedContent richPreparedContent: MarkdownPreparedBlockContent,
         rect: CGRect
     ) -> [MarkdownDocumentSelectionFragment] {
-        guard let documentSelectionContext else { return [] }
+        // Tables publish their own padded grid/leaf geometry under the
+        // enclosing source owner. Do not duplicate it with estimated cells.
+        guard richPreparedContent.table == nil, let documentSelectionContext else { return [] }
         return MarkdownDocumentSelectionFragment.fragments(
             for: richBlock,
             preparedContent: richPreparedContent,

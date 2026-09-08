@@ -7,9 +7,10 @@ import SiriusMarkdownCore
 
 @Suite(.serialized) @MainActor
 struct MarkdownSemanticAccessibilityTests {
-    @Test(arguments: ["A long linked label that wraps across several lines", "שלום"])
-    func paintedSemanticLinksExposeOneAccessibleAction(label: String) throws {
-        var stream = MarkdownStream(); stream.append("[\(label)](https://example.com/access)"); stream.finish()
+    @Test(arguments: ["A long linked label that wraps across several lines", "שלום"],
+          ["https://example.com/access", "#conclusion"])
+    func paintedSemanticLinksExposeOneAccessibleAction(label: String, destination: String) throws {
+        var stream = MarkdownStream(); stream.append("[\(label)](\(destination))"); stream.finish()
         let configuration = MarkdownRendererConfiguration()
         let block = try #require(stream.snapshot().blocks.first)
         let prepared = try #require(configuration.prepare(block: block).inlineLayout)
@@ -26,15 +27,32 @@ struct MarkdownSemanticAccessibilityTests {
         #expect(links.count == 1)
         let link = try #require(links.first)
         #expect(link.accessibilityRole() == .link)
+        #expect(link.isAccessibilityEnabled())
         #expect(link.accessibilityLabel() == label)
         #expect(!link.accessibilityFrame().isEmpty)
         #expect(!link.localFrame.isNull)
         #expect(link.accessibilityPerformPress())
-        #expect(recorder.values == ["https://example.com/access"])
+        #expect(recorder.values == [destination])
         view.reconcileAccessibleLinks()
         let again = try #require(view.accessibilityChildren() as? [MarkdownAccessibleLink])
         #expect(again.first === link)
     }
+
+    @Test
+    func deniedPaintedLinksDoNotExposeEnabledActions() throws {
+        var stream = MarkdownStream()
+        stream.append("[Denied](javascript:alert)")
+        stream.finish()
+        let configuration = MarkdownRendererConfiguration()
+        let block = try #require(stream.snapshot().blocks.first)
+        let prepared = try #require(configuration.prepare(block: block).inlineLayout)
+        let view = MarkdownCoreTextPaintedNSView(frame: .init(x: 0, y: 0, width: 200, height: 80))
+        view.plan = MarkdownCoreTextPaintedLinePlan.make(
+            prepared: prepared, layout: prepared.layout(containerWidth: 200, allowsOverwideFallback: true))
+        view.reconcileAccessibleLinks()
+        #expect((view.accessibilityChildren() as? [MarkdownAccessibleLink])?.isEmpty == true)
+    }
+
 }
 
 private final class AXDestinationRecorder: @unchecked Sendable {

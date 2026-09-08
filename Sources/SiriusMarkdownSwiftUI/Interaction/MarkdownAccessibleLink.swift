@@ -25,6 +25,9 @@ final class MarkdownAccessibleLink: NSAccessibilityElement {
         self.destination = destination
         super.init()
         setAccessibilityRole(.link)
+        // NSAccessibilityElement does not infer enabled state from AXPress.
+        // Only policy-approved prepared destinations reach this element.
+        setAccessibilityEnabled(true)
         setAccessibilityLabel(label)
         setAccessibilityURL(URL(string: destination))
         setAccessibilityParent(host)

@@ -21,6 +21,7 @@ struct MarkdownDocumentRevealRequest: Equatable {
     let id = UUID()
     let blockID: MarkdownBlockID
     let sourceRange: MarkdownSourceRange
+    var allowsBlockPositionFallback = false
     var anchorID: String { "markdown-document-reveal:\(id.uuidString)" }
 
     func highlight(in fragments: [MarkdownDocumentSelectionFragment]) -> MarkdownDocumentSelectionHighlight? {
@@ -29,6 +30,25 @@ struct MarkdownDocumentRevealRequest: Equatable {
         }
         return nil
     }
+
+    /// Inert anchors have source locations but no selectable glyphs. Reveal a
+    /// nearby leaf in their owning block, or the block position itself, without
+    /// inventing selection content or changing document layout.
+    func revealRect(in fragments: [MarkdownDocumentSelectionFragment], blockFrame: CGRect?) -> CGRect? {
+        if let highlight = highlight(in: fragments) { return highlight.rect }
+        guard allowsBlockPositionFallback else { return nil }
+        let owned = fragments.filter { $0.blockID == blockID }.sorted {
+            $0.sourceRange.byteRange.lowerBound < $1.sourceRange.byteRange.lowerBound
+        }
+        if let next = owned.first(where: { $0.sourceRange.byteRange.lowerBound >= sourceRange.byteRange.lowerBound }) {
+            return CGRect(x: next.rect.minX, y: next.rect.minY, width: 1, height: 1)
+        }
+        if let previous = owned.last {
+            return CGRect(x: previous.rect.minX, y: previous.rect.maxY, width: 1, height: 1)
+        }
+        return blockFrame.map { CGRect(x: $0.minX, y: $0.minY, width: 1, height: 1) }
+    }
+
 }
 
 private struct MarkdownDocumentRevealRequestKey: EnvironmentKey {
@@ -54,6 +74,20 @@ extension EnvironmentValues {
 struct MarkdownDocumentRevealAnchorKey: PreferenceKey {
     static let defaultValue: String? = nil
     static func reduce(value: inout String?, nextValue: () -> String?) {
+        value = nextValue() ?? value
+    }
+}
+
+/// Only the active anchor owner publishes bounds; ordinary rendering does not
+/// accumulate a second geometry index for the document.
+struct MarkdownDocumentRevealBlockFrame: Equatable {
+    let requestID: UUID?
+    let rect: CGRect
+}
+
+struct MarkdownDocumentRevealBlockFrameKey: PreferenceKey {
+    static let defaultValue: MarkdownDocumentRevealBlockFrame? = nil
+    static func reduce(value: inout MarkdownDocumentRevealBlockFrame?, nextValue: () -> MarkdownDocumentRevealBlockFrame?) {
         value = nextValue() ?? value
     }
 }
@@ -119,7 +153,8 @@ final class MarkdownDocumentNavigationState: ObservableObject {
         }
         await prepareIndex()
         guard let anchor = findController.index.anchor(forFragment: destination) else { return }
-        revealRequest = MarkdownDocumentRevealRequest(blockID: anchor.blockID, sourceRange: anchor.sourceRange)
+        revealRequest = MarkdownDocumentRevealRequest(blockID: anchor.blockID, sourceRange: anchor.sourceRange,
+                                                       allowsBlockPositionFallback: true)
     }
 }
 

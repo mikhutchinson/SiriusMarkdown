@@ -104,6 +104,7 @@ final class MarkdownTableAccessibilityHostView: NSView {
                     guard let url = run.link else { continue }
                     let link = MarkdownTableAccessibilityElement(role: .link, host: self, parent: element, rect: element.localRect)
                     link.destination = url.absoluteString
+                    link.setAccessibilityEnabled(true)
                     link.setAccessibilityURL(url)
                     link.setAccessibilityLabel(String(attributed[run.range].characters))
                     children.append(link)

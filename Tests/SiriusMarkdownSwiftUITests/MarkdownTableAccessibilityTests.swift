@@ -45,11 +45,37 @@ struct MarkdownTableAccessibilityTests {
         #expect(headers.map { $0.accessibilityLabel() } == ["Site"])
         let link = try #require((cell.accessibilityChildren() as? [MarkdownTableAccessibilityElement])?.first)
         #expect(link.accessibilityRole() == .link)
+        #expect(link.isAccessibilityEnabled())
         #expect(link.accessibilityPerformPress())
         for _ in 0..<20 where recorder.values.isEmpty {
             try? await Task.sleep(for: .milliseconds(10))
         }
         #expect(recorder.values == ["https://example.com"])
+    }
+
+    @Test(arguments: ["https://example.com/access", "#conclusion", "javascript:alert"])
+    func preparedTableLinkEnabledStatePreservesPolicyAndActivation(destination: String) throws {
+        var stream = MarkdownStream()
+        stream.append("| Link |\n| --- |\n| [Visit](\(destination)) |\n")
+        stream.finish()
+        var configuration = MarkdownRendererConfiguration.document
+        configuration.linkMetadataResolver = nil
+        let block = try #require(stream.snapshot().blocks.first)
+        let prepared = try #require(configuration.prepare(block: block).table)
+        let native = MarkdownTableAccessibilityHostView(frame: .init(x: 0, y: 0, width: 300, height: 100))
+        let recorder = TableAccessibilityLinkRecorder()
+        native.update(table: prepared, linkAction: MarkdownLinkAction { recorder.append($0) })
+        let cell = try #require(native.accessibilityCell(forColumn: 0, row: 1) as? MarkdownTableAccessibilityElement)
+        let links = (cell.accessibilityChildren() as? [MarkdownTableAccessibilityElement]) ?? []
+        if destination.hasPrefix("javascript:") {
+            #expect(links.isEmpty)
+            #expect(recorder.values.isEmpty)
+        } else {
+            let link = try #require(links.first)
+            #expect(link.isAccessibilityEnabled())
+            #expect(link.accessibilityPerformPress())
+            #expect(recorder.values == [destination])
+        }
     }
 
     @Test

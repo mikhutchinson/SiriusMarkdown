@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.6.29 - 2026-09-08
+
+- Paint macOS document selection beneath glyphs with system colors, continuous
+  selected line endings and adjacent prose gaps, preserving intrinsic-color assets.
+- Align rich HTML table selection with padded cell geometry and remove phantom
+  header offsets in headerless tables. Reuse existing text surfaces and cached layout.
+
+- Reveal empty HTML ID anchors using navigation-only block geometry without
+  inserting visible content, changing document height or creating selection.
+
+- Expose policy-approved painted and table links as enabled native accessibility
+  actions, including document fragments.
+- Build painted accessibility links from the same approved destinations as pointer
+  activation; denied source URLs no longer expose accessibility actions.
+
 ## 0.6.28 - 2026-09-08
 
 - Allow host-scrolled Markdown to suppress inline Find controls while retaining

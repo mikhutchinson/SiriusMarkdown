@@ -19,6 +19,7 @@ struct MarkdownSelectableText: View {
     var nativeLineLayout: InlineLayoutResult? = nil
 
     @Environment(\.markdownDocumentSelectionContext) private var documentSelectionContext
+    @Environment(\.markdownDocumentSelectionPaintOwner) private var documentSelectionPaintOwner
 
     @ViewBuilder
     var body: some View {
@@ -47,8 +48,9 @@ struct MarkdownSelectableText: View {
                 wraps: wraps,
                 preparedInlineContent: preparedInlineContent,
                 mathTextPieces: mathTextPieces,
-                allowsNativeSelection: nativeTextSelection == .enabled,
-                nativeLineLayout: nativeLineLayout
+                allowsNativeSelection: nativeTextSelection == .enabled && documentSelectionContext == nil && documentSelectionPaintOwner == nil,
+                nativeLineLayout: nativeLineLayout,
+                selectionInlineLayout: selectionInlineLayout
             )
         } else {
             swiftUIText
@@ -135,8 +137,11 @@ private struct MarkdownAppKitSelectableTextView: NSViewRepresentable {
     var mathTextPieces: [MarkdownInlineMathPiece]?
     var allowsNativeSelection: Bool
     var nativeLineLayout: InlineLayoutResult?
+    var selectionInlineLayout: MarkdownPreparedInlineContent?
 
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.markdownDocumentSelectionPaintOwner) private var selectionOwner
+    @Environment(\.markdownDocumentSelectionPaint) private var selectionPaint
 
     func makeCoordinator() -> Coordinator {
         Coordinator(linkAction: linkAction)
@@ -233,12 +238,22 @@ private struct MarkdownAppKitSelectableTextView: NSViewRepresentable {
         coordinator: Coordinator
     ) {
         textView.isSelectable = allowsNativeSelection
+        if !allowsNativeSelection, textView.selectedRanges.contains(where: { $0.rangeValue.length > 0 }) {
+            textView.setSelectedRange(NSRange(location: 0, length: 0))
+        }
+        textView.documentSelectionPaint = selectionPaint
+        textView.documentSelectionLayout = selectionInlineLayout ?? preparedInlineContent
+        textView.documentSelectionBlockID = selectionOwner
+        textView.documentSelectionWraps = wraps
+        textView.documentSelectionNativeLayout = nativeLineLayout
+        textView.needsDisplay = true
         textView.markdownLinkAction = coordinator.linkAction
         let key = configurationKey
         guard coordinator.configuredKey != key else {
             return
         }
         coordinator.configuredKey = key
+        textView.invalidateIntrinsicColorGeometry()
         coordinator.nativeLineRunRanges = nativeLineLayout.flatMap { layout in
             preparedInlineContent.map { MarkdownNativeLineSourceMap.runRanges(prepared: $0.prepared, layout: layout) }
         }
@@ -982,6 +997,85 @@ struct MarkdownAppKitMathAttachmentKey: Hashable {
 }
 
 final class MarkdownAppKitNativeSelectableTextView: NSTextView {
+    var documentSelectionPaint = MarkdownDocumentSelectionPaint()
+    var documentSelectionLayout: MarkdownPreparedInlineContent?
+    var documentSelectionBlockID: MarkdownBlockID?
+    var documentSelectionWraps = false
+    var documentSelectionNativeLayout: InlineLayoutResult?
+
+    private var intrinsicColorCacheKey: String?
+    private var intrinsicColorCacheWidth: CGFloat = -1
+    private var intrinsicColorRects: [CGRect] = []
+
+    func invalidateIntrinsicColorGeometry() { intrinsicColorCacheKey = nil }
+
+    private func cachedIntrinsicColorRects() -> [CGRect] {
+        guard let layoutManager, let textContainer else { return [] }
+        if intrinsicColorCacheKey == string, intrinsicColorCacheWidth == bounds.width { return intrinsicColorRects }
+        intrinsicColorCacheKey = string
+        intrinsicColorCacheWidth = bounds.width
+        intrinsicColorRects = []
+        var offset = 0
+        for character in string {
+            let length = String(character).utf16.count
+            if character.unicodeScalars.contains(where: { $0.properties.isEmojiPresentation || $0.value == 0xFE0F }) {
+                let glyphs = layoutManager.glyphRange(forCharacterRange: NSRange(location: offset, length: length), actualCharacterRange: nil)
+                intrinsicColorRects.append(layoutManager.boundingRect(forGlyphRange: glyphs, in: textContainer)
+                    .offsetBy(dx: textContainerOrigin.x, dy: textContainerOrigin.y))
+            }
+            offset += length
+        }
+        textStorage?.enumerateAttribute(.attachment, in: NSRange(location: 0, length: textStorage?.length ?? 0)) { value, range, _ in
+            guard value != nil else { return }
+            let glyphs = layoutManager.glyphRange(forCharacterRange: range, actualCharacterRange: nil)
+            intrinsicColorRects.append(layoutManager.boundingRect(forGlyphRange: glyphs, in: textContainer)
+                .offsetBy(dx: textContainerOrigin.x, dy: textContainerOrigin.y))
+        }
+        return intrinsicColorRects
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        var rects: [CGRect] = []
+        if let prepared = documentSelectionLayout, !documentSelectionPaint.ranges.isEmpty {
+            let width = documentSelectionWraps ? bounds.width : max(bounds.width, CGFloat(prepared.measured.naturalWidth))
+            let layout = documentSelectionNativeLayout ?? prepared.layout(containerWidth: Double(width), allowsOverwideFallback: false)
+            rects = documentSelectionPaint.rects(blockID: documentSelectionBlockID, prepared: prepared,
+                                                 layout: layout, width: width)
+                .map { $0.offsetBy(dx: textContainerOrigin.x, dy: textContainerOrigin.y).intersection(bounds).intersection(visibleRect) }
+                .filter { !$0.isNull && !$0.isEmpty }
+        }
+        if let context = NSGraphicsContext.current?.cgContext, !rects.isEmpty {
+            context.saveGState()
+            context.setFillColor(documentSelectionPaint.background.cgColor)
+            context.fill(rects)
+            context.restoreGState()
+        }
+        guard let context = NSGraphicsContext.current?.cgContext, let layoutManager, !rects.isEmpty else {
+            super.draw(dirtyRect)
+            return
+        }
+        context.saveGState()
+        MarkdownDocumentSelectionPaint.clipOutside(rects, bounds: bounds, in: context)
+        super.draw(dirtyRect)
+        context.restoreGState()
+
+        let intrinsicRects = cachedIntrinsicColorRects()
+        let glyphRange = NSRange(location: 0, length: layoutManager.numberOfGlyphs)
+        MarkdownDocumentSelectionPaint.drawSelectedGlyphs(in: context, rects: rects,
+            color: documentSelectionPaint.foreground, bounds: bounds, excluding: intrinsicRects) {
+            layoutManager.drawGlyphs(forGlyphRange: glyphRange, at: textContainerOrigin)
+        }
+        if !intrinsicRects.isEmpty {
+            context.saveGState()
+            context.addRects(rects)
+            context.clip()
+            context.addRects(intrinsicRects)
+            context.clip()
+            layoutManager.drawGlyphs(forGlyphRange: glyphRange, at: textContainerOrigin)
+            context.restoreGState()
+        }
+    }
+
     private var mathAccessibilityElements: [MarkdownMathAccessibilityElement] = []
     private var mathAccessibilitySignature: [MathAccessibilityDescriptor] = []
     private struct MathAccessibilityDescriptor: Equatable {

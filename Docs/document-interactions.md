@@ -19,7 +19,9 @@ MarkdownDocumentView(preparedSnapshot: prepared, configuration: configuration)
 Heading links such as `#installation` reveal the matching heading in the
 self-scrolled document. Heading slugs are lowercase, Unicode-aware, and receive
 numeric suffixes for duplicates. External links retain the host's link callback.
-Sanitized HTML element IDs are also indexed, including empty inline anchors.
+Sanitized HTML element IDs are also indexed, including empty paragraphs and
+inline anchors. Anchors without selectable glyphs reveal nearby content in their
+owning block or the block position without adding text or layout height.
 Explicit IDs take precedence over generated heading slugs; the first duplicate
 in source order wins. Fragment IDs are case-sensitive and percent-decoded.
 
@@ -71,7 +73,13 @@ rectangle API but still requires device validation.
 The macOS document selector preserves visual line affinity and shaped bidi caret
 positions. Double-click and Option-arrow use whole prepared text leaves, so an
 emergency-wrapped word remains a word. The native Edit menu supports Copy and
-Select All.
+Select All. On macOS, selection backgrounds paint below text and above code/table
+surfaces, with active and inactive system selection colors. Selected line endings
+extend to their own text column; continuing adjacent prose fills paragraph gaps,
+while partial ranges retain shaped glyph edges. Existing native text surfaces
+share the document owner and clear stale native ranges. Paint updates reuse
+prepared line geometry without adding text hosts or per-leaf observers. Color
+emoji and inline image attachments retain their intrinsic colors.
 
 Document Copy supplies exact Markdown, semantic plain text, derived HTML, and
 macOS RTF. Decorations are excluded. Sanitized HTML remains semantic; approved
@@ -110,7 +118,9 @@ operation does not print.
 
 ## Accessibility
 
-Painted macOS links expose native link elements with press actions. A link that
+Painted macOS links and native table links expose enabled accessibility elements
+with press actions for policy-approved destinations, including document fragments.
+Denied painted destinations do not create accessibility link actions. A link that
 wraps across lines remains one semantic element. Headings expose heading traits.
 Native math carries a bounded semantic expression tree built from the same
 SwiftMath atoms used for rasterization. Math blocks expose native children for

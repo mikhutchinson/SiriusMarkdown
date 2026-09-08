@@ -100,7 +100,8 @@ for required_test in \
   "SiriusMarkdownSwiftUITests.MarkdownRichCopyTests/portableClipboardItemIncludesEverySuppliedRepresentation()" \
   "SiriusMarkdownSwiftUITests.MarkdownRichCopyTests/sanitizedRichHTMLCopiesNativeSemanticsWithoutSourceTagsOrFetches()" \
   "SiriusMarkdownSwiftUITests.MarkdownSelectionPublicationTests/unselectedStreamingUpdatesDoNotPublishSelectionChanges()" \
-  "SiriusMarkdownSwiftUITests.MarkdownSemanticAccessibilityTests/paintedSemanticLinksExposeOneAccessibleAction(label:)" \
+  "SiriusMarkdownSwiftUITests.MarkdownSemanticAccessibilityTests/paintedSemanticLinksExposeOneAccessibleAction(label:destination:)" \
+  "SiriusMarkdownSwiftUITests.MarkdownDocumentNavigationTests/hostScrolledEmptyAnchorsRevealWithoutAddingHeightOrSelection(anchorSource:)" \
   "SiriusMarkdownSwiftUITests.MarkdownDocumentSelectionInteractionTests/mountedNativeMenuActionsSelectAndCopyThroughResponderSelectors()" \
   "SiriusMarkdownSwiftUITests.MarkdownDocumentSelectionInteractionTests/activatedDragCanReturnToItsOriginalCaret()" \
   "SiriusMarkdownSwiftUITests.MarkdownDocumentSelectionInteractionTests/replacingDocumentInvalidatesCollapsedCaretBeforeShiftClick()" \
@@ -569,5 +570,5 @@ xcrun docc convert Docs/SiriusMarkdown.docc \
   --additional-symbol-graph-dir "$SYMBOL_GRAPH_DIR" \
   --fallback-display-name SiriusMarkdown \
   --fallback-bundle-identifier com.sirius.markdown \
-  --fallback-bundle-version 0.6.28 \
+  --fallback-bundle-version 0.6.29 \
   --output-path /tmp/SiriusMarkdown.doccarchive

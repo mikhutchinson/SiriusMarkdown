@@ -72,6 +72,10 @@ struct MarkdownDocumentSelectionFragment: Identifiable, Equatable {
     var sourceRange: MarkdownSourceRange
     var rect: CGRect
     var textGeometry: MarkdownDocumentSelectionTextGeometry? = nil
+    /// Available text column, independent of the shaped glyph width. Used only
+    /// for painting selected line endings; hit testing retains glyph geometry.
+    var selectionColumnRect: CGRect? = nil
+    var consumesLineEnding = false
 
     static func == (
         lhs: MarkdownDocumentSelectionFragment,
@@ -81,7 +85,8 @@ struct MarkdownDocumentSelectionFragment: Identifiable, Equatable {
             lhs.blockID == rhs.blockID &&
             lhs.sourceRange == rhs.sourceRange &&
             lhs.rect == rhs.rect &&
-            lhs.textGeometry == rhs.textGeometry
+            lhs.textGeometry == rhs.textGeometry && lhs.selectionColumnRect == rhs.selectionColumnRect &&
+            lhs.consumesLineEnding == rhs.consumesLineEnding
     }
 
     static func selection(
@@ -268,7 +273,8 @@ struct MarkdownDocumentSelectionFragment: Identifiable, Equatable {
                 sourceRange: sourceRange,
                 lineIndex: index,
                 lineWidth: lineWidth,
-                textGeometry: textGeometry
+                textGeometry: textGeometry,
+                consumesLineEnding: line.consumedByteRange.upperBound > line.byteRange.upperBound
             )
         }
     }
@@ -379,7 +385,7 @@ struct MarkdownDocumentSelectionFragment: Identifiable, Equatable {
         }
     }
 
-    func highlightRects(for ranges: [MarkdownSourceRange]) -> [MarkdownDocumentSelectionHighlight] {
+    func highlightRects(for ranges: [MarkdownSourceRange], extendsLineEndings: Bool = false) -> [MarkdownDocumentSelectionHighlight] {
         ranges.compactMap { range in
             let lowerBound = max(sourceRange.byteRange.lowerBound, range.byteRange.lowerBound)
             let upperBound = min(sourceRange.byteRange.upperBound, range.byteRange.upperBound)
@@ -392,8 +398,13 @@ struct MarkdownDocumentSelectionFragment: Identifiable, Equatable {
                 let upperX = textGeometry.xOffset(forSourceByteOffset: upperBound)
                 let minX = min(lowerX, upperX)
                 let maxX = max(lowerX, upperX)
-                let clippedMinX = max(0, min(rect.width, minX))
-                let clippedMaxX = max(0, min(rect.width, maxX))
+                let continues = extendsLineEndings && (range.byteRange.upperBound > sourceRange.byteRange.upperBound ||
+                    (consumesLineEnding && range.byteRange.upperBound == sourceRange.byteRange.upperBound))
+                let rightToLeft = textGeometry.xOffset(forSourceByteOffset: sourceRange.byteRange.lowerBound) >
+                    textGeometry.xOffset(forSourceByteOffset: sourceRange.byteRange.upperBound)
+                let clippedMinX = continues && rightToLeft ? 0 : max(0, min(rect.width, minX))
+                let paintWidth = continues ? (selectionColumnRect?.width ?? rect.width) : rect.width
+                let clippedMaxX = continues && !rightToLeft ? paintWidth : max(0, min(rect.width, maxX))
                 let width = clippedMaxX - clippedMinX
                 guard width.isFinite, width > 0 else {
                     return nil
@@ -402,7 +413,7 @@ struct MarkdownDocumentSelectionFragment: Identifiable, Equatable {
                     x: rect.minX + clippedMinX,
                     y: rect.minY,
                     width: max(1, width),
-                    height: rect.height
+                    height: continues ? (selectionColumnRect?.height ?? rect.height) : rect.height
                 )
                 return MarkdownDocumentSelectionHighlight(
                     id: "\(id):\(lowerBound)-\(upperBound)",
@@ -665,7 +676,7 @@ struct MarkdownDocumentSelectionFragment: Identifiable, Equatable {
     ) -> [MarkdownDocumentSelectionFragment] {
         guard !table.columnWidths.isEmpty else { return [] }
         let totalPreparedWidth = max(1, table.columnWidths.reduce(0, +))
-        let rowHeights = [table.headerPreparedLayoutHeight ?? 38] +
+        let rowHeights = [table.header.isEmpty ? 0 : (table.headerPreparedLayoutHeight ?? 38)] +
             table.rows.map { $0.preparedLayoutHeight ?? 38 }
         let totalPreparedHeight = max(1, rowHeights.reduce(0, +))
         let xScale = Double(rect.width) / totalPreparedWidth
@@ -825,6 +836,7 @@ struct MarkdownDocumentSelectionLineFragmentTemplate: Sendable {
     var lineIndex: Int
     var lineWidth: CGFloat
     var textGeometry: MarkdownDocumentSelectionTextGeometry?
+    var consumesLineEnding = false
 
     func fragment(
         in rect: CGRect,
@@ -842,7 +854,9 @@ struct MarkdownDocumentSelectionLineFragmentTemplate: Sendable {
                 width: min(rect.width, lineWidth),
                 height: lineHeight
             ),
-            textGeometry: textGeometry
+            textGeometry: textGeometry,
+            selectionColumnRect: CGRect(x: rect.minX, y: y, width: rect.width, height: lineHeight + spacing),
+            consumesLineEnding: consumesLineEnding
         )
     }
 }
